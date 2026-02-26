@@ -313,7 +313,23 @@ struct FloatingSidebarView: View {
     // MARK: - 에이전트 로스터 (가로 스크롤)
 
     private var agentRoster: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        Group {
+            if allRosterAgents.isEmpty {
+                // 빈 상태: 에이전트 추가 유도
+                Button(action: { openAddAgentWindow() }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus.circle.dashed")
+                            .font(.system(size: 14))
+                        Text("에이전트 추가")
+                            .font(.system(size: 12))
+                    }
+                    .foregroundColor(.secondary.opacity(0.6))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                }
+                .buttonStyle(.plain)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DesignTokens.Layout.rosterSpacing) {
                 ForEach(allRosterAgents) { agent in
                     rosterItem(agent)
@@ -351,6 +367,8 @@ struct FloatingSidebarView: View {
             }
             .padding(.horizontal, DesignTokens.Spacing.lg)
         }
+            } // else
+        } // Group
     }
 
     /// 개별 에이전트 로스터 아이템: 아바타 + 상태 표시등 + 이름 + 방 수 뱃지
