@@ -5,7 +5,6 @@ import UserNotifications
 
 enum MasterAction {
     case delegate(agents: [String], task: String, contextFrom: [String]?)
-    case respond(message: String)
     case suggestAgent(name: String, persona: String, provider: String, model: String)
     case chain(steps: [ChainStep])
     case unknown(rawResponse: String)
@@ -74,11 +73,14 @@ class ChatViewModel: ObservableObject {
     // MARK: - 진행 중인 작업 취소
 
     private var activeTasks: [UUID: Task<Void, Never>] = [:]
+    /// 에이전트별 동시 실행 중인 작업 수 (로딩 상태 관리용)
+    private var activeTaskCounts: [UUID: Int] = [:]
 
     /// 특정 에이전트의 진행 중인 작업을 취소
     func cancelTask(for agentID: UUID) {
         activeTasks[agentID]?.cancel()
         activeTasks.removeValue(forKey: agentID)
+        activeTaskCounts[agentID] = 0
         loadingAgentIDs.remove(agentID)
         agentStore?.updateStatus(agentID: agentID, status: .idle)
     }
@@ -99,13 +101,17 @@ class ChatViewModel: ObservableObject {
         let targetID = agentID ?? agentStore.selectedAgentID
         guard let agent = agentStore.agents.first(where: { $0.id == targetID }) else { return }
 
-        // 기존 작업 취소
-        activeTasks[agent.id]?.cancel()
+        // 마스터는 각 질문이 독립적 → 이전 작업 취소하지 않음
+        // 서브에이전트/DevAgent는 기존 작업 취소
+        if !agent.isMaster {
+            activeTasks[agent.id]?.cancel()
+        }
 
         let userMessage = ChatMessage(role: .user, content: text)
         appendMessage(userMessage, for: agent.id)
 
         loadingAgentIDs.insert(agent.id)
+        activeTaskCounts[agent.id, default: 0] += 1
 
         let task = Task {
             if agent.isMaster {
@@ -116,7 +122,12 @@ class ChatViewModel: ObservableObject {
                 await handleAgentMessage(text, agent: agent, providerManager: providerManager)
             }
 
-            loadingAgentIDs.remove(agent.id)
+            activeTaskCounts[agent.id, default: 1] -= 1
+            // 모든 작업이 끝났을 때만 로딩 해제
+            if activeTaskCounts[agent.id, default: 0] <= 0 {
+                loadingAgentIDs.remove(agent.id)
+                activeTaskCounts.removeValue(forKey: agent.id)
+            }
             activeTasks.removeValue(forKey: agent.id)
         }
         activeTasks[agent.id] = task
@@ -156,10 +167,6 @@ class ChatViewModel: ObservableObject {
                     masterAgent: agent, agentStore: agentStore, providerManager: providerManager
                 )
 
-            case .respond(let message):
-                let reply = ChatMessage(role: .assistant, content: message, agentName: "마스터")
-                appendMessage(reply, for: agent.id)
-
             case .suggestAgent(let name, let persona, let prov, let model):
                 await handleAgentSuggestion(
                     name: name, persona: persona, provider: prov, model: model,
@@ -173,7 +180,12 @@ class ChatViewModel: ObservableObject {
                 )
 
             case .unknown(let rawResponse):
-                let reply = ChatMessage(role: .assistant, content: rawResponse, agentName: "마스터")
+                let reply = ChatMessage(
+                    role: .assistant,
+                    content: "위임 처리 중 오류가 발생했습니다. 다시 시도해주세요.\n\n원본: \(String(rawResponse.prefix(200)))",
+                    agentName: "마스터",
+                    messageType: .error
+                )
                 appendMessage(reply, for: agent.id)
             }
 
@@ -807,10 +819,6 @@ class ChatViewModel: ObservableObject {
             }
             let contextFrom = json["context_from"] as? [String]
             return .delegate(agents: agents, task: task, contextFrom: contextFrom)
-
-        case "respond":
-            let message = json["message"] as? String ?? response
-            return .respond(message: message)
 
         case "suggest_agent":
             guard let name = json["name"] as? String,

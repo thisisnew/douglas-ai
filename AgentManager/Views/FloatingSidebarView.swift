@@ -390,9 +390,9 @@ struct FloatingSidebarView: View {
                         )
                         .offset(x: 2, y: 2)
                 }
-                // 방 수 뱃지 (우상단, 2개 이상)
+                // 방 수 뱃지 (우상단, 1개 이상)
                 .overlay(alignment: .topTrailing) {
-                    if roomCount >= 2 {
+                    if roomCount >= 1 {
                         Text("\(roomCount)")
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(.white)

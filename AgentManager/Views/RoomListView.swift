@@ -2,26 +2,71 @@ import SwiftUI
 
 // MARK: - 방 목록 (메신저 스타일)
 
+// MARK: - 상태 필터
+
+enum RoomFilter: String, CaseIterable {
+    case all        = "전체"
+    case active     = "진행"
+    case completed  = "완료"
+    case failed     = "실패"
+    case archived   = "보관"
+
+    func matches(_ room: Room) -> Bool {
+        switch self {
+        case .all:       return true
+        case .active:    return room.status == .planning || room.status == .inProgress
+        case .completed: return room.status == .completed
+        case .failed:    return room.status == .failed
+        case .archived:  return room.status == .archived
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .all:       return .primary
+        case .active:    return .orange
+        case .completed: return .green
+        case .failed:    return .red
+        case .archived:  return .gray
+        }
+    }
+}
+
 struct RoomListView: View {
     @EnvironmentObject var roomManager: RoomManager
     @EnvironmentObject var agentStore: AgentStore
+    @State private var selectedFilter: RoomFilter = .all
     let onCreateRoom: () -> Void
     let onRoomTap: (UUID) -> Void
 
     /// 모든 방을 최신순으로 (활성 → 비활성, 각각 최신순)
     private var allRooms: [Room] {
-        let active = roomManager.activeRooms   // 이미 최신순
-        let done = roomManager.completedRooms  // 이미 최신순
+        let active = roomManager.activeRooms
+        let done = roomManager.completedRooms
         return active + done
+    }
+
+    private var filteredRooms: [Room] {
+        allRooms.filter { selectedFilter.matches($0) }
+    }
+
+    /// 필터별 방 개수
+    private func count(for filter: RoomFilter) -> Int {
+        allRooms.filter { filter.matches($0) }.count
     }
 
     var body: some View {
         VStack(spacing: 0) {
+            // 상태 필터 바
+            filterBar
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+
             // 방 리스트
-            if allRooms.isEmpty {
+            if filteredRooms.isEmpty {
                 HStack {
                     Spacer()
-                    Text("아직 방이 없습니다")
+                    Text(selectedFilter == .all ? "아직 방이 없습니다" : "'\(selectedFilter.rawValue)' 상태의 방이 없습니다")
                         .font(.caption)
                         .foregroundColor(.secondary.opacity(0.6))
                     Spacer()
@@ -34,7 +79,7 @@ struct RoomListView: View {
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 2) {
-                        ForEach(allRooms) { room in
+                        ForEach(filteredRooms) { room in
                             RoomListItem(room: room)
                                 .onTapGesture { onRoomTap(room.id) }
                                 .contextMenu { roomContextMenu(room) }
@@ -45,6 +90,47 @@ struct RoomListView: View {
                 }
                 .frame(maxHeight: .infinity)
             }
+        }
+    }
+
+    // MARK: - 필터 바
+
+    private var filterBar: some View {
+        HStack(spacing: 4) {
+            ForEach(RoomFilter.allCases, id: \.self) { filter in
+                let cnt = count(for: filter)
+                let isSelected = selectedFilter == filter
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        selectedFilter = filter
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        Text(filter.rawValue)
+                            .font(.system(size: 10, weight: isSelected ? .semibold : .regular))
+                        if filter != .all && cnt > 0 {
+                            Text("\(cnt)")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(isSelected ? .white : filter.color)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(
+                                    Capsule().fill(isSelected ? filter.color : filter.color.opacity(0.15))
+                                )
+                        }
+                    }
+                    .foregroundColor(isSelected ? filter.color : .secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(isSelected ? filter.color.opacity(0.12) : Color.clear)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
         }
     }
 

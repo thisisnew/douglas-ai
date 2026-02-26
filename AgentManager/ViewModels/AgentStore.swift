@@ -126,18 +126,15 @@ class AgentStore: ObservableObject {
         3. 순차 체인 (A의 결과를 B에게 전달):
         {"action": "chain", "steps": [{"agent": "에이전트A", "task": "첫 번째 작업"}, {"agent": "에이전트B", "task": "A의 결과를 바탕으로 수행할 작업"}]}
 
-        4. 직접 답변:
-        {"action": "respond", "message": "답변 내용"}
-
-        5. 에이전트 생성 제안 (적합한 에이전트가 없을 때):
+        4. 에이전트 생성 제안 (적합한 에이전트가 전혀 없을 때만):
         {"action": "suggest_agent", "name": "제안 이름", "persona": "제안 페르소나", "recommended_provider": "제공자", "recommended_model": "모델"}
 
         규칙:
-        - 적합한 에이전트가 있으면 delegate 또는 chain 사용
-        - 여러 에이전트에게 동시에 작업을 맡길 수 있으면 agents 배열에 여러 이름을 넣어 delegate 사용
+        - 사용자의 요청에 절대 직접 답변하지 마라. 반드시 에이전트에게 위임하라.
+        - 요청을 분석하여 가장 연관성 높은 에이전트를 선택하고 방을 구성하라.
+        - 여러 에이전트가 동시에 필요하면 agents 배열에 복수 이름을 넣어 delegate 사용
         - 순차적 처리가 필요하면 chain 사용
-        - 적합한 에이전트가 없고 생성이 유익하다면 suggest_agent 사용
-        - 단순한 질문이거나 에이전트가 필요 없으면 respond 사용
+        - 적합한 에이전트가 전혀 없을 때만 suggest_agent 사용
         - 반드시 유효한 JSON으로만 응답할 것
         """
     }

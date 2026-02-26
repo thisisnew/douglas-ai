@@ -105,29 +105,16 @@ struct ChatViewModelParsingTests {
         }
     }
 
-    @Test("parseMasterResponse - respond")
-    func parseRespond() {
+    @Test("parseMasterResponse - respond는 unknown으로 처리 (직접 답변 금지)")
+    func parseRespondNowUnknown() {
         let input = """
         {"action": "respond", "message": "Hello!"}
         """
         let result = vm.parseMasterResponse(input)
-        if case .respond(let message) = result {
-            #expect(message == "Hello!")
+        if case .unknown = result {
+            // respond 액션은 제거됨 → unknown으로 처리
         } else {
-            Issue.record("Expected .respond")
-        }
-    }
-
-    @Test("parseMasterResponse - respond (message 없음 → 원본 반환)")
-    func parseRespondMissingMessage() {
-        let input = """
-        {"action": "respond"}
-        """
-        let result = vm.parseMasterResponse(input)
-        if case .respond(let message) = result {
-            #expect(!message.isEmpty)
-        } else {
-            Issue.record("Expected .respond")
+            Issue.record("Expected .unknown for respond action")
         }
     }
 
@@ -200,18 +187,19 @@ struct ChatViewModelParsingTests {
         }
     }
 
-    @Test("parseMasterResponse - 코드블록에 감싸진 JSON")
+    @Test("parseMasterResponse - 코드블록에 감싸진 delegate JSON")
     func parseWrappedInCodeBlock() {
         let input = """
         ```json
-        {"action": "respond", "message": "hi"}
+        {"action": "delegate", "agents": ["Agent1"], "task": "do work"}
         ```
         """
         let result = vm.parseMasterResponse(input)
-        if case .respond(let message) = result {
-            #expect(message == "hi")
+        if case .delegate(let agents, let task, _) = result {
+            #expect(agents == ["Agent1"])
+            #expect(task == "do work")
         } else {
-            Issue.record("Expected .respond, got \(result)")
+            Issue.record("Expected .delegate, got \(result)")
         }
     }
 

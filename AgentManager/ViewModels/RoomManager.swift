@@ -747,7 +747,12 @@ class RoomManager: ObservableObject {
                 room.isActive && room.assignedAgentIDs.contains(agent.id)
             }.count
 
-            let newStatus: AgentStatus = activeCount > 0 ? .working : .idle
+            let newStatus: AgentStatus
+            switch activeCount {
+            case 0: newStatus = .idle
+            case 1: newStatus = .working
+            default: newStatus = .busy
+            }
 
             if agent.status != .error {
                 agentStore.updateStatus(agentID: agent.id, status: newStatus)
