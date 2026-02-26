@@ -43,6 +43,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
     private var hideTimer: Timer?
     /// 현재 사이드바가 표시 중인 화면
     private weak var currentScreen: NSScreen?
+    /// 온보딩 윈도우
+    private var onboardingWindow: NSWindow?
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         // RoomManager 먼저 설정
@@ -53,10 +55,35 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         chatVM.configure(agentStore: agentStore, providerManager: providerManager, devAgentManager: devAgentManager, roomManager: roomManager)
         chatVM.loadMessages()
 
+        // 기존 사용자 감지: 이미 프로바이더가 설정되어 있으면 온보딩 스킵
+        if !OnboardingViewModel.isCompleted {
+            let hasConfigured = providerManager.configs.contains { config in
+                config.type == .claudeCode || config.apiKey != nil
+            }
+            if hasConfigured {
+                OnboardingViewModel.isCompleted = true
+            }
+        }
+
+        // 온보딩 필요 시 → 온보딩 먼저, 완료 후 사이드바 시작
+        if !OnboardingViewModel.isCompleted {
+            showOnboardingWindow()
+            return
+        }
+
+        // 정상 시작
+        startNormalFlow()
+    }
+
+    /// 사이드바 + 마우스 추적 + 알림 + 커맨드바 시작
+    private func startNormalFlow() {
         createSidebarPanel()
         startMouseTracking()
+        setupNotifications()
+        setupCommandBar()
+    }
 
-        // SwiftUI에서 사이드바 제어 알림 수신
+    private func setupNotifications() {
         NotificationCenter.default.addObserver(forName: .sidebarHideRequested, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 self?.isSidebarPinned = false
@@ -68,15 +95,46 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.isSidebarPinned.toggle()
             }
         }
+    }
 
+    private func setupCommandBar() {
         commandBarManager = CommandBarManager(
             agentStore: agentStore,
             providerManager: providerManager,
             chatVM: chatVM,
             devAgentManager: devAgentManager,
-            openChatWindow: { _ in }  // 개별 채팅창 더 이상 사용 안 함
+            openChatWindow: { _ in }
         )
         commandBarManager?.registerHotkey()
+    }
+
+    // MARK: - 온보딩
+
+    private func showOnboardingWindow() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 560),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.title = "AgentManager 설정"
+        window.center()
+
+        let onboardingView = OnboardingView(onComplete: { [weak self] in
+            self?.onboardingWindow?.close()
+            self?.onboardingWindow = nil
+            self?.startNormalFlow()
+        })
+        .environmentObject(providerManager)
+        .environmentObject(agentStore)
+
+        window.contentView = NSHostingView(rootView: onboardingView)
+        window.level = .floating
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        onboardingWindow = window
     }
 
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

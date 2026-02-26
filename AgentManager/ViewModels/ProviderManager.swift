@@ -13,8 +13,45 @@ class ProviderManager: ObservableObject {
         ensureDefaultProviders()
     }
 
+    /// 온보딩에서 선택한 프로바이더들로 설정
+    func configureFromOnboarding(selectedTypes: [ProviderType], apiKeys: [ProviderType: String]) {
+        for type in selectedTypes {
+            // 이미 존재하면 스킵
+            if configs.contains(where: { $0.type == type }) {
+                // API 키만 업데이트
+                if let key = apiKeys[type], !key.isEmpty,
+                   let idx = configs.firstIndex(where: { $0.type == type }) {
+                    var config = configs[idx]
+                    config.apiKey = key
+                    configs[idx] = config
+                }
+                continue
+            }
+
+            let baseURL: String
+            if type == .claudeCode {
+                baseURL = ClaudeCodeProvider.findClaudePath()
+            } else {
+                baseURL = type.defaultBaseURL
+            }
+
+            let config = ProviderConfig(
+                name: type.rawValue,
+                type: type,
+                baseURL: baseURL,
+                authMethod: type.defaultAuthMethod,
+                apiKey: apiKeys[type],
+                isBuiltIn: true
+            )
+            configs.append(config)
+        }
+        saveConfigs()
+    }
+
     /// 3개 기본 프로바이더 보장: Claude Code, OpenAI, Google
     private func ensureDefaultProviders() {
+        // 온보딩 완료 전이면 기본 프로바이더 생성하지 않음
+        guard OnboardingViewModel.isCompleted else { return }
         // Claude Code
         if !configs.contains(where: { $0.type == .claudeCode }) {
             let claudePath = ClaudeCodeProvider.findClaudePath()

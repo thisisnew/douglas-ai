@@ -131,27 +131,27 @@ struct FloatingSidebarView: View {
 
                 separator
 
-                // ── 방 목록 (높이 조절 가능) ──
-                ZStack(alignment: .bottomTrailing) {
+                // ── 방 목록 헤더 + 리스트 (높이 조절 가능) ──
+                VStack(spacing: 0) {
+                    // 방 목록 헤더 (+ 버튼)
+                    HStack {
+                        Spacer()
+                        Button(action: { openCreateRoomWindow() }) {
+                            Image(systemName: "plus.circle")
+                                .font(.system(size: 13))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("새 방 만들기")
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 6)
+                    .padding(.bottom, 2)
+
                     RoomListView(
                         onCreateRoom: { openCreateRoomWindow() },
                         onRoomTap: { roomID in openRoomChatWindow(roomID: roomID) }
                     )
-
-                    // FAB: 새 방 만들기
-                    Button(action: { openCreateRoomWindow() }) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(width: 28, height: 28)
-                            .background(Color.accentColor)
-                            .clipShape(Circle())
-                            .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 2)
-                    }
-                    .buttonStyle(.plain)
-                    .help("새 방 만들기")
-                    .padding(.trailing, 12)
-                    .padding(.bottom, 6)
                 }
                 .frame(height: roomListHeight)
                 .clipped()

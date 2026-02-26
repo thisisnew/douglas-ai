@@ -84,6 +84,19 @@ class AgentStore: ObservableObject {
         }
     }
 
+    /// 온보딩에서 선택한 프로바이더로 마스터/DevAgent 업데이트
+    func updateMasterProvider(providerName: String, modelName: String) {
+        if let idx = agents.firstIndex(where: { $0.isMaster }) {
+            agents[idx].providerName = providerName
+            agents[idx].modelName = modelName
+        }
+        if let idx = agents.firstIndex(where: { $0.isDevAgent }) {
+            agents[idx].providerName = providerName
+            agents[idx].modelName = modelName
+        }
+        saveAgents()
+    }
+
     /// 마스터의 시스템 프롬프트에 현재 에이전트 목록 + 응답 형식을 주입
     func masterSystemPrompt() -> String {
         guard let master = masterAgent else { return "" }
