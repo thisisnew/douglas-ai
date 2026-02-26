@@ -418,6 +418,12 @@ struct ProviderConfig: Identifiable, Codable {
 
 **입력창**: `TextField(axis: .vertical)` + 전송 버튼, `Cmd+Return` 단축키, 항상 마스터에게 전송
 
+**슬래시 커맨드** (`SlashCommand` + `SlashMenuState`):
+- `/` 입력 시 드롭다운 메뉴 표시, 타이핑에 따라 필터링
+- `/woz <메시지>`: 워즈니악(DevAgent)에게 직접 작업 요청 (앱 커스터마이징)
+- `/clear`: 마스터 채팅 내역 초기화
+- 키보드 네비게이션: ↑/↓ 선택, Enter 실행, Escape 닫기 (`NSEvent.addLocalMonitorForEvents`)
+
 **토스트 알림**: 하단에 에러 메시지 표시 (4초 후 자동 사라짐)
 
 **UtilityWindowManager** (싱글턴): 모든 유틸리티 윈도우를 중앙 관리
@@ -649,7 +655,7 @@ MessageType에 따른 시각 차별화:
 | 파일 | 줄수 | 역할 |
 |------|------|------|
 | ChatViewModel.swift | ~780 | 핵심 오케스트레이션 + 워즈니악 핸들링 |
-| FloatingSidebarView.swift | ~400 | 사이드바 + UtilityWindowManager + 정보 시트 |
+| FloatingSidebarView.swift | ~950 | 사이드바 + 슬래시 커맨드 + UtilityWindowManager |
 | AppDelegate.swift | ~297 | 윈도우/패널 관리 |
 | DevAgentManager.swift | ~231 | Git/빌드/이력 관리 |
 | Agent.swift | ~160 | 에이전트 모델 (isMaster, isDevAgent, 이미지) |

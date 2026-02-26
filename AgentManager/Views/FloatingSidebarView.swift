@@ -84,6 +84,70 @@ final class UtilityWindowManager {
     }
 }
 
+// MARK: - 슬래시 커맨드 모델
+
+struct SlashCommand: Identifiable {
+    let id: String
+    let label: String
+    let description: String
+    let icon: String
+    let iconColor: Color
+    let takesArgument: Bool
+
+    static let all: [SlashCommand] = [
+        .init(id: "woz", label: "/woz", description: "워즈니악에게 요청",
+              icon: "wrench.and.screwdriver", iconColor: .blue, takesArgument: true),
+        .init(id: "clear", label: "/clear", description: "채팅 내역 초기화",
+              icon: "trash", iconColor: .red, takesArgument: false),
+    ]
+
+    static func filtered(by text: String) -> [SlashCommand] {
+        let lower = text.lowercased()
+        if lower == "/" { return all }
+        return all.filter { $0.label.hasPrefix(lower) }
+    }
+}
+
+// MARK: - 슬래시 메뉴 키보드 상태
+
+@MainActor
+final class SlashMenuState: ObservableObject {
+    @Published var selectedIndex = 0
+    private var monitor: Any?
+
+    func startMonitoring(
+        commandCount: Int,
+        onSelect: @escaping (Int) -> Void,
+        onDismiss: @escaping () -> Void
+    ) {
+        stopMonitoring()
+        selectedIndex = 0
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            switch event.keyCode {
+            case 125: // ↓
+                self.selectedIndex = min(self.selectedIndex + 1, commandCount - 1)
+                return nil
+            case 126: // ↑
+                self.selectedIndex = max(self.selectedIndex - 1, 0)
+                return nil
+            case 36:  // Return
+                onSelect(self.selectedIndex)
+                return nil
+            case 53:  // Escape
+                onDismiss()
+                return nil
+            default:
+                return event
+            }
+        }
+    }
+
+    func stopMonitoring() {
+        if let m = monitor { NSEvent.removeMonitor(m); monitor = nil }
+    }
+}
+
 // MARK: - 메인 사이드바 뷰
 
 struct FloatingSidebarView: View {
@@ -95,6 +159,8 @@ struct FloatingSidebarView: View {
 
     @State private var inputText = ""
     @State private var showSlashMenu = false
+    @State private var filteredCommands: [SlashCommand] = SlashCommand.all
+    @StateObject private var slashMenu = SlashMenuState()
     @FocusState private var isInputFocused: Bool
     /// 채팅 영역 내부: 메시지 vs 입력 비율 (0.15 ~ 0.85)
     @State private var chatHeightRatio: CGFloat = 0.55
@@ -545,8 +611,21 @@ struct FloatingSidebarView: View {
                         .focused($isInputFocused)
                         .onSubmit { sendToMaster() }
                         .onChange(of: inputText) { _, newValue in
+                            let matched = SlashCommand.filtered(by: newValue)
+                            let shouldShow = newValue.hasPrefix("/") && !matched.isEmpty
+                                             && !newValue.hasPrefix("/woz ")
                             withAnimation(.easeInOut(duration: 0.15)) {
-                                showSlashMenu = newValue.hasPrefix("/") && newValue.count < 10
+                                filteredCommands = matched
+                                showSlashMenu = shouldShow
+                            }
+                            if shouldShow {
+                                slashMenu.startMonitoring(
+                                    commandCount: matched.count,
+                                    onSelect: { idx in executeSlashCommand(matched[idx]) },
+                                    onDismiss: { inputText = ""; showSlashMenu = false }
+                                )
+                            } else {
+                                slashMenu.stopMonitoring()
                             }
                         }
 
@@ -574,37 +653,92 @@ struct FloatingSidebarView: View {
     // MARK: - 슬래시 커맨드 메뉴
 
     private func slashCommandMenu(agentID: UUID) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                chatVM.clearMessages(for: agentID)
-                inputText = ""
-                showSlashMenu = false
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "trash")
-                        .font(.caption)
-                        .foregroundColor(.red)
-                        .frame(width: 16)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("/clear")
-                            .font(.caption.bold())
-                        Text("채팅 내역 초기화")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(filteredCommands.enumerated()), id: \.element.id) { idx, cmd in
+                Button {
+                    executeSlashCommand(cmd)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: cmd.icon)
+                            .font(.caption)
+                            .foregroundColor(cmd.iconColor)
+                            .frame(width: 16)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(cmd.label)
+                                .font(.caption.bold())
+                            Text(cmd.description)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        if cmd.takesArgument {
+                            Text("메시지 입력")
+                                .font(.caption2)
+                                .foregroundColor(.secondary.opacity(0.6))
+                        }
                     }
-                    Spacer()
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(slashMenu.selectedIndex == idx
+                        ? Color.accentColor.opacity(0.15)
+                        : Color.clear)
+                    .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
-            .background(Color.black.opacity(0.04))
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
+        .background(Color.black.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
         .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    // MARK: - 슬래시 커맨드 실행
+
+    private func executeSlashCommand(_ cmd: SlashCommand) {
+        guard masterID != nil else { return }
+
+        switch cmd.id {
+        case "clear":
+            if let id = masterID {
+                chatVM.clearMessages(for: id)
+            }
+            inputText = ""
+            showSlashMenu = false
+            slashMenu.stopMonitoring()
+
+        case "woz":
+            let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.lowercased().hasPrefix("/woz "), text.count > 5 {
+                let msg = String(text.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                if !msg.isEmpty {
+                    sendToWozniak(msg)
+                    inputText = ""
+                    showSlashMenu = false
+                    slashMenu.stopMonitoring()
+                }
+            } else {
+                inputText = "/woz "
+                showSlashMenu = false
+                slashMenu.stopMonitoring()
+            }
+
+        default:
+            break
+        }
+    }
+
+    private func sendToWozniak(_ message: String) {
+        guard let devAgent = agentStore.devAgent else { return }
+        if let id = masterID {
+            let delegation = ChatMessage(
+                role: .assistant,
+                content: "워즈니악에게 전달: \"\(message)\""
+            )
+            chatVM.appendMessagePublic(delegation, for: id)
+        }
+        chatVM.sendMessage(message, agentID: devAgent.id)
     }
 
     // MARK: - 전송
@@ -614,16 +748,30 @@ struct FloatingSidebarView: View {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
-        // 슬래시 커맨드 처리
+        // /clear 처리
         if text.lowercased() == "/clear" {
             chatVM.clearMessages(for: id)
             inputText = ""
             showSlashMenu = false
+            slashMenu.stopMonitoring()
             return
+        }
+
+        // /woz 메시지 처리
+        if text.lowercased().hasPrefix("/woz ") {
+            let msg = String(text.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+            if !msg.isEmpty {
+                sendToWozniak(msg)
+                inputText = ""
+                showSlashMenu = false
+                slashMenu.stopMonitoring()
+                return
+            }
         }
 
         inputText = ""
         showSlashMenu = false
+        slashMenu.stopMonitoring()
         chatVM.sendMessage(text, agentID: id)
     }
 
