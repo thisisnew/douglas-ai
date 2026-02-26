@@ -65,9 +65,11 @@ final class UtilityWindowManager {
 
         // 사이드바보다 높은 레벨로 표시 (사이드바 조작 없이)
         window.level = .floating + 1
+        // MenuBarExtra 앱은 기본적으로 키보드 입력을 못 받음
+        // → 유틸리티 윈도우가 열릴 때 .regular로 전환해서 TextField 입력 가능하게
+        NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
-        window.makeFirstResponder(window.contentView)
     }
 
     private func cleanup(_ window: NSWindow) {
@@ -75,7 +77,10 @@ final class UtilityWindowManager {
             NotificationCenter.default.removeObserver(observer)
         }
         windows.removeAll { $0 === window }
-        // 사이드바 조작 불필요 — 팝업은 자체 레벨로 위에 표시됨
+        // 모든 유틸리티 윈도우가 닫히면 다시 accessory로 복원 (Dock 아이콘 숨김)
+        if windows.isEmpty {
+            NSApp.setActivationPolicy(.accessory)
+        }
     }
 }
 
@@ -130,11 +135,8 @@ struct FloatingSidebarView: View {
 
                 // ── 방 목록 헤더 + 리스트 (높이 조절 가능) ──
                 VStack(spacing: 0) {
-                    // 방 목록 헤더: "방" 라벨 + 우측 + 버튼
+                    // 방 목록 헤더: 우측 + 버튼
                     HStack {
-                        Text("방")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(.secondary)
                         Spacer()
                         Button(action: { openCreateRoomWindow() }) {
                             Image(systemName: "plus")

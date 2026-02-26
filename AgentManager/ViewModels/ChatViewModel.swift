@@ -955,6 +955,8 @@ class ChatViewModel: ObservableObject {
     // MARK: - 알림
 
     private nonisolated func sendNotification(agentName: String, message: String) {
+        // 번들 ID가 없는 CLI 빌드에서는 UNUserNotificationCenter 접근 시 crash
+        guard Bundle.main.bundleIdentifier != nil else { return }
         let content = UNMutableNotificationContent()
         content.title = "\(agentName): 작업 완료"
         content.body = String(message.prefix(100))
@@ -969,6 +971,7 @@ class ChatViewModel: ObservableObject {
     }
 
     private nonisolated func sendErrorNotification(agentName: String, error: String) {
+        guard Bundle.main.bundleIdentifier != nil else { return }
         let content = UNMutableNotificationContent()
         content.title = "\(agentName): 오류 발생"
         content.body = String(error.prefix(100))
