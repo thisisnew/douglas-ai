@@ -795,7 +795,8 @@ class RoomManager: ObservableObject {
     // MARK: - 영속화
 
     private static var roomDirectory: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".agentmanager")
         let dir = appSupport.appendingPathComponent("AgentManager/rooms", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir

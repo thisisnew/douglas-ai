@@ -9,7 +9,8 @@ class DevAgentManager: ObservableObject {
     let projectPath: String
 
     private static var historyDirectory: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".agentmanager")
         let dir = appSupport.appendingPathComponent("AgentManager", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir

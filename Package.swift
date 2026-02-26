@@ -8,6 +8,10 @@ let package = Package(
         .target(
             name: "AgentManagerLib",
             path: "AgentManager",
+            exclude: [
+                "Resources/AgentManager.entitlements",
+                "Resources/Assets.xcassets"
+            ],
             resources: [
                 .copy("Resources/douglas_profile.png")
             ]

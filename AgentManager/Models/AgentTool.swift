@@ -178,8 +178,8 @@ enum ToolRegistry {
         ),
         AgentTool(
             id: "web_search",
-            name: "웹 검색",
-            description: "Search the web for information and return results.",
+            name: "웹 검색 (준비 중)",
+            description: "Search the web for information and return results. (미구현)",
             parameters: [
                 .init(name: "query", type: .string, description: "Search query string", required: true, enumValues: nil)
             ]

@@ -83,6 +83,27 @@ Files changed:
 
 ---
 
+## 보안 규칙
+
+### API 키 관리
+- API 키는 **반드시 HTTP 헤더**로 전송 (URL 쿼리스트링 금지)
+  - Google: `x-goog-api-key` 헤더
+  - OpenAI/Anthropic: `Authorization: Bearer` 헤더
+- 키 로컬 저장: `KeychainHelper` 사용 (ChaChaPoly 암호화)
+- 키 없는 프로바이더 요청: `guard let key ... else { throw AIProviderError.noAPIKey }` — 빈 문자열 폴백 금지
+
+### 파일 시스템 접근 (ToolExecutor)
+- `file_read`/`file_write` 도구는 반드시 `isPathAllowed()` 검증 후 실행
+- 허용 경로: `$HOME` 하위, `/tmp`, `/var/folders` (NSTemporaryDirectory)
+- 차단 경로: `/etc`, `/System`, `/Library`, `/usr`, `/bin`, `/sbin`, `~/.ssh`, `~/.gnupg`, `~/Library/Keychains`
+- 경로 해석: `URL.standardized`로 심링크·`../` 해석 후 검증
+
+### Force Unwrap 금지
+- `applicationSupportDirectory` 등 시스템 경로에 `.first!` 사용 금지
+- `guard let ... else { return }` 또는 기본값 폴백 패턴 사용
+
+---
+
 ## ARCHITECTURE.md 동기화 규칙
 
 - 새 파일 추가 → 프로젝트 구조 섹션에 추가

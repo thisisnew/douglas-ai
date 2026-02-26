@@ -31,6 +31,14 @@ struct AddAgentSheet: View {
                         .fontWeight(.semibold)
                         .disabled(!isFormValid)
                 }
+                if !isFormValid && !name.isEmpty {
+                    HStack {
+                        Spacer()
+                        Text(formValidationHint)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
@@ -182,7 +190,7 @@ struct AddAgentSheet: View {
                 .padding(.vertical, 16)
             }
         }
-        .frame(width: 440, height: 600)
+        .frame(width: 440, height: min(600, (NSScreen.main?.frame.height ?? 800) * 0.75))
         .onChange(of: selectedProvider) { _, newValue in
             selectedModel = ""
             availableModels = []
@@ -267,6 +275,14 @@ struct AddAgentSheet: View {
     private var isDuplicateName: Bool {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         return !trimmed.isEmpty && agentStore.agents.contains { $0.name == trimmed }
+    }
+
+    private var formValidationHint: String {
+        if isDuplicateName { return "이미 사용 중인 이름입니다" }
+        if persona.isEmpty { return "역할을 입력하세요" }
+        if selectedProvider.isEmpty { return "프로바이더를 선택하세요" }
+        if selectedModel.isEmpty { return "모델을 선택하세요" }
+        return ""
     }
 
     private func loadModels(for providerName: String) {

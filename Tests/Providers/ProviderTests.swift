@@ -496,4 +496,241 @@ struct ProviderTests {
         #expect(models.contains("claude-sonnet-4-6"))
         #expect(models.contains("claude-haiku-4-5"))
     }
+
+    // MARK: - Tool Use supportsToolCalling
+
+    @Test("OpenAI supportsToolCalling == true")
+    func openAISupportsTools() {
+        let config = makeTestProviderConfig(type: .openAI, baseURL: "https://api.openai.com")
+        let provider = OpenAIProvider(config: config)
+        #expect(provider.supportsToolCalling == true)
+    }
+
+    @Test("Anthropic supportsToolCalling == true")
+    func anthropicSupportsTools() {
+        let config = makeTestProviderConfig(type: .anthropic, baseURL: "https://api.anthropic.com")
+        let provider = AnthropicProvider(config: config)
+        #expect(provider.supportsToolCalling == true)
+    }
+
+    @Test("Google supportsToolCalling == true")
+    func googleSupportsTools() {
+        let config = makeTestProviderConfig(type: .google, baseURL: "https://generativelanguage.googleapis.com")
+        let provider = GoogleProvider(config: config)
+        #expect(provider.supportsToolCalling == true)
+    }
+
+    @Test("ClaudeCode supportsToolCalling == false")
+    func claudeCodeNoTools() {
+        let config = makeTestProviderConfig(type: .claudeCode, baseURL: "/usr/local/bin/claude")
+        let provider = ClaudeCodeProvider(config: config)
+        #expect(provider.supportsToolCalling == false)
+    }
+
+    @Test("AIProvider default supportsToolCalling == false")
+    func defaultNoTools() {
+        let mock = MockAIProvider()
+        #expect(mock.supportsToolCalling == false)
+    }
+
+    // MARK: - Google API 키 검증
+
+    @Test("Google sendMessage - API 키 없으면 noAPIKey 에러")
+    func googleNoAPIKey() async {
+        let config = ProviderConfig(name: "TestGoogle", type: .google, baseURL: "https://generativelanguage.googleapis.com")
+        let provider = GoogleProvider(config: config)
+        do {
+            _ = try await provider.sendMessage(
+                model: "gemini-2.0-flash",
+                systemPrompt: "test",
+                messages: [("user", "hello")]
+            )
+            Issue.record("Should have thrown noAPIKey")
+        } catch {
+            #expect(error is AIProviderError)
+        }
+    }
+
+    // MARK: - OpenAI Tool Use 요청 빌드
+
+    @Test("OpenAI sendMessageWithTools - 요청에 tools 배열 포함")
+    func openAIToolsInRequest() async throws {
+        let config = ProviderConfig(
+            name: "TestOpenAI", type: .openAI, baseURL: "https://api.openai.com",
+            authMethod: .apiKey, apiKey: "test-key"
+        )
+        let provider = OpenAIProvider(config: config, session: makeMockSession())
+
+        MockURLProtocol.requestHandler = { request in
+            // 요청 body 검증
+            if let body = request.httpBody,
+               let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                let tools = json["tools"] as? [[String: Any]]
+                #expect(tools?.count == 1)
+                let funcDef = tools?.first?["function"] as? [String: Any]
+                #expect(funcDef?["name"] as? String == "file_read")
+            }
+
+            let responseData = """
+            {"choices":[{"message":{"role":"assistant","content":"ok"}}]}
+            """.data(using: .utf8)!
+            return (mockHTTPResponse(url: request.url!.absoluteString), responseData)
+        }
+
+        let tools = [AgentTool(
+            id: "file_read", name: "파일 읽기", description: "Read file",
+            parameters: [.init(name: "path", type: .string, description: "Path", required: true, enumValues: nil)]
+        )]
+        let result = try await provider.sendMessageWithTools(
+            model: "gpt-4o",
+            systemPrompt: "sys",
+            messages: [ConversationMessage.user("hello")],
+            tools: tools
+        )
+
+        if case .text(let text) = result {
+            #expect(text == "ok")
+        } else {
+            Issue.record("Expected .text response")
+        }
+
+        try? KeychainHelper.delete(key: "provider-apikey-\(config.id.uuidString)")
+    }
+
+    // MARK: - OpenAI tool_calls 응답 파싱
+
+    @Test("OpenAI sendMessageWithTools - tool_calls 파싱")
+    func openAIToolCallsParsing() async throws {
+        let config = ProviderConfig(
+            name: "TestOpenAI", type: .openAI, baseURL: "https://api.openai.com",
+            authMethod: .apiKey, apiKey: "test-key"
+        )
+        let provider = OpenAIProvider(config: config, session: makeMockSession())
+
+        MockURLProtocol.requestHandler = { request in
+            let responseData = """
+            {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"file_read","arguments":"{\\"path\\":\\"/tmp/test\\"}"}}]}}]}
+            """.data(using: .utf8)!
+            return (mockHTTPResponse(url: request.url!.absoluteString), responseData)
+        }
+
+        let tools = ToolRegistry.tools(for: ["file_read"])
+        let result = try await provider.sendMessageWithTools(
+            model: "gpt-4o", systemPrompt: "s",
+            messages: [ConversationMessage.user("read file")],
+            tools: tools
+        )
+
+        if case .toolCalls(let calls) = result {
+            #expect(calls.count == 1)
+            #expect(calls[0].toolName == "file_read")
+            #expect(calls[0].arguments["path"]?.stringValue == "/tmp/test")
+        } else {
+            Issue.record("Expected .toolCalls response")
+        }
+
+        try? KeychainHelper.delete(key: "provider-apikey-\(config.id.uuidString)")
+    }
+
+    // MARK: - Anthropic Tool Use 응답 파싱
+
+    @Test("Anthropic sendMessageWithTools - tool_use 파싱")
+    func anthropicToolUseParsing() async throws {
+        let config = ProviderConfig(
+            name: "TestAnthropic", type: .anthropic, baseURL: "https://api.anthropic.com",
+            authMethod: .apiKey, apiKey: "test-key"
+        )
+        let provider = AnthropicProvider(config: config, session: makeMockSession())
+
+        MockURLProtocol.requestHandler = { request in
+            let responseData = """
+            {"content":[{"type":"text","text":"Let me read that."},{"type":"tool_use","id":"toolu_01","name":"file_read","input":{"path":"/tmp/test"}}],"stop_reason":"tool_use"}
+            """.data(using: .utf8)!
+            return (mockHTTPResponse(url: request.url!.absoluteString), responseData)
+        }
+
+        let tools = ToolRegistry.tools(for: ["file_read"])
+        let result = try await provider.sendMessageWithTools(
+            model: "claude-sonnet-4-6", systemPrompt: "s",
+            messages: [ConversationMessage.user("read file")],
+            tools: tools
+        )
+
+        if case .mixed(let text, let calls) = result {
+            #expect(text == "Let me read that.")
+            #expect(calls.count == 1)
+            #expect(calls[0].toolName == "file_read")
+        } else {
+            Issue.record("Expected .mixed response")
+        }
+
+        try? KeychainHelper.delete(key: "provider-apikey-\(config.id.uuidString)")
+    }
+
+    // MARK: - Google Tool Use 응답 파싱
+
+    @Test("Google sendMessageWithTools - functionCall 파싱")
+    func googleFunctionCallParsing() async throws {
+        let config = ProviderConfig(
+            name: "TestGoogle", type: .google, baseURL: "https://generativelanguage.googleapis.com",
+            authMethod: .apiKey, apiKey: "test-key"
+        )
+        let provider = GoogleProvider(config: config, session: makeMockSession())
+
+        MockURLProtocol.requestHandler = { request in
+            // x-goog-api-key 헤더 확인
+            #expect(request.value(forHTTPHeaderField: "x-goog-api-key") == "test-key")
+            // URL에 키가 없어야 함
+            #expect(request.url?.query == nil || !request.url!.query!.contains("key="))
+
+            let responseData = """
+            {"candidates":[{"content":{"parts":[{"functionCall":{"name":"file_read","args":{"path":"/tmp/test"}}}]}}]}
+            """.data(using: .utf8)!
+            return (mockHTTPResponse(url: request.url!.absoluteString), responseData)
+        }
+
+        let tools = ToolRegistry.tools(for: ["file_read"])
+        let result = try await provider.sendMessageWithTools(
+            model: "gemini-2.0-flash", systemPrompt: "s",
+            messages: [ConversationMessage.user("read file")],
+            tools: tools
+        )
+
+        if case .toolCalls(let calls) = result {
+            #expect(calls.count == 1)
+            #expect(calls[0].toolName == "file_read")
+        } else {
+            Issue.record("Expected .toolCalls response")
+        }
+
+        try? KeychainHelper.delete(key: "provider-apikey-\(config.id.uuidString)")
+    }
+
+    @Test("Google sendMessage - API 키가 헤더에 있고 URL에 없음")
+    func googleAPIKeyInHeader() async throws {
+        let config = ProviderConfig(
+            name: "TestGoogle", type: .google, baseURL: "https://generativelanguage.googleapis.com",
+            authMethod: .apiKey, apiKey: "secret-key-123"
+        )
+        let provider = GoogleProvider(config: config, session: makeMockSession())
+
+        MockURLProtocol.requestHandler = { request in
+            #expect(request.value(forHTTPHeaderField: "x-goog-api-key") == "secret-key-123")
+            let urlString = request.url?.absoluteString ?? ""
+            #expect(!urlString.contains("key=secret-key-123"))
+
+            let responseData = """
+            {"candidates":[{"content":{"parts":[{"text":"Hello"}]}}]}
+            """.data(using: .utf8)!
+            return (mockHTTPResponse(url: request.url!.absoluteString), responseData)
+        }
+
+        let result = try await provider.sendMessage(
+            model: "gemini-2.0-flash", systemPrompt: "test",
+            messages: [("user", "hello")]
+        )
+        #expect(result == "Hello")
+
+        try? KeychainHelper.delete(key: "provider-apikey-\(config.id.uuidString)")
+    }
 }

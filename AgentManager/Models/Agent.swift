@@ -198,7 +198,8 @@ struct Agent: Identifiable, Codable, Hashable {
     // MARK: - 이미지 파일 관리
 
     private static var imageDirectory: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".agentmanager")
         let dir = appSupport.appendingPathComponent("AgentManager/avatars", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir

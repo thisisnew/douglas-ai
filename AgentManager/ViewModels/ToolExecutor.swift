@@ -85,6 +85,36 @@ enum ToolExecutor {
         throw AIProviderError.apiError("도구 호출 반복 횟수 초과 (최대 \(maxIterations)회)")
     }
 
+    // MARK: - 경로 검증
+
+    /// 파일 접근이 허용된 경로인지 확인. $HOME, /tmp, 시스템 임시 디렉토리 허용.
+    static func isPathAllowed(_ path: String) -> Bool {
+        let expandedPath = NSString(string: path).expandingTildeInPath
+        let url = URL(fileURLWithPath: expandedPath).standardized
+        let resolved = url.path
+
+        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+        let tempDir = NSTemporaryDirectory()
+        let allowedPrefixes = [homePath, "/tmp", "/private/tmp", tempDir, "/var/folders"]
+        let blockedPrefixes = [
+            "\(homePath)/Library/Keychains",
+            "\(homePath)/.ssh",
+            "\(homePath)/.gnupg"
+        ]
+
+        // 차단 목록 먼저 확인
+        for blocked in blockedPrefixes {
+            if resolved.hasPrefix(blocked) { return false }
+        }
+
+        // 허용 목록 확인
+        for allowed in allowedPrefixes {
+            if resolved.hasPrefix(allowed) { return true }
+        }
+
+        return false
+    }
+
     // MARK: - 개별 도구 실행
 
     private static func executeSingleTool(_ call: ToolCall) async -> ToolResult {
@@ -108,6 +138,9 @@ enum ToolExecutor {
         guard let path = call.arguments["path"]?.stringValue else {
             return ToolResult(callID: call.id, content: "path 파라미터가 필요합니다.", isError: true)
         }
+        guard isPathAllowed(path) else {
+            return ToolResult(callID: call.id, content: "접근이 허용되지 않은 경로입니다: \(path)", isError: true)
+        }
         do {
             let content = try String(contentsOfFile: path, encoding: .utf8)
             // 큰 파일은 잘라서 반환
@@ -130,6 +163,9 @@ enum ToolExecutor {
     private static func executeFileWrite(_ call: ToolCall) async -> ToolResult {
         guard let path = call.arguments["path"]?.stringValue else {
             return ToolResult(callID: call.id, content: "path 파라미터가 필요합니다.", isError: true)
+        }
+        guard isPathAllowed(path) else {
+            return ToolResult(callID: call.id, content: "접근이 허용되지 않은 경로입니다: \(path)", isError: true)
         }
         guard let content = call.arguments["content"]?.stringValue else {
             return ToolResult(callID: call.id, content: "content 파라미터가 필요합니다.", isError: true)
@@ -166,11 +202,21 @@ enum ToolExecutor {
                 // 환경 변수 상속
                 var env = ProcessInfo.processInfo.environment
                 let homePath = env["HOME"] ?? "/Users/\(NSUserName())"
-                let additionalPaths = [
-                    "\(homePath)/.nvm/versions/node/v22.21.1/bin",
+
+                // nvm: 동적으로 최신 버전 탐색
+                var additionalPaths: [String] = []
+                let nvmDir = "\(homePath)/.nvm/versions/node"
+                if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
+                    let sorted = versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
+                    for version in sorted {
+                        additionalPaths.append("\(nvmDir)/\(version)/bin")
+                    }
+                }
+                additionalPaths.append(contentsOf: [
                     "/opt/homebrew/bin",
                     "/usr/local/bin"
-                ]
+                ])
+
                 if let existingPath = env["PATH"] {
                     env["PATH"] = additionalPaths.joined(separator: ":") + ":" + existingPath
                 }

@@ -454,4 +454,91 @@ struct ToolExecutorTests {
         #expect(tools.count == 1)
         #expect(tools[0].id == "web_search")
     }
+
+    // MARK: - 경로 검증 테스트
+
+    @Test("isPathAllowed — 홈 디렉토리 허용")
+    func pathAllowedHome() {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        #expect(ToolExecutor.isPathAllowed("\(home)/Documents/test.txt") == true)
+        #expect(ToolExecutor.isPathAllowed("\(home)/Desktop/project/file.swift") == true)
+    }
+
+    @Test("isPathAllowed — /tmp 허용")
+    func pathAllowedTmp() {
+        #expect(ToolExecutor.isPathAllowed("/tmp/test.txt") == true)
+        #expect(ToolExecutor.isPathAllowed("/private/tmp/test.txt") == true)
+    }
+
+    @Test("isPathAllowed — 시스템 경로 차단")
+    func pathBlockedSystem() {
+        #expect(ToolExecutor.isPathAllowed("/etc/passwd") == false)
+        #expect(ToolExecutor.isPathAllowed("/usr/bin/ls") == false)
+        #expect(ToolExecutor.isPathAllowed("/System/Library/test") == false)
+    }
+
+    @Test("isPathAllowed — 민감 디렉토리 차단")
+    func pathBlockedSensitive() {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        #expect(ToolExecutor.isPathAllowed("\(home)/.ssh/id_rsa") == false)
+        #expect(ToolExecutor.isPathAllowed("\(home)/.gnupg/private-keys-v1.d/key") == false)
+        #expect(ToolExecutor.isPathAllowed("\(home)/Library/Keychains/login.keychain") == false)
+    }
+
+    @Test("isPathAllowed — 상대 경로 ../로 탈출 시도 차단")
+    func pathBlockedTraversal() {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        // ../를 이용한 탈출은 URL.standardized가 해석하므로 결과 경로가 허용 범위 내인지 확인
+        #expect(ToolExecutor.isPathAllowed("\(home)/Documents/../../etc/passwd") == false)
+    }
+
+    @Test("isPathAllowed — NSTemporaryDirectory 허용")
+    func pathAllowedNSTemp() {
+        let tmpDir = NSTemporaryDirectory()
+        let testPath = (tmpDir as NSString).appendingPathComponent("test_file.txt")
+        #expect(ToolExecutor.isPathAllowed(testPath) == true)
+    }
+
+    @Test("file_read — 차단된 경로 접근 시 오류")
+    func fileReadBlockedPath() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "file_read", arguments: ["path": .string("/etc/passwd")])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("handled"))
+        ]
+
+        let agent = makeAgent(preset: .developer)
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "read")]
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResultMsg = lastMessages.first { $0.role == "tool" }
+        #expect(toolResultMsg?.content?.contains("허용되지 않은") == true)
+    }
+
+    @Test("file_write — 차단된 경로 쓰기 시 오류")
+    func fileWriteBlockedPath() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "file_write", arguments: [
+            "path": .string("/etc/evil.txt"),
+            "content": .string("malicious")
+        ])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("handled"))
+        ]
+
+        let agent = makeAgent(preset: .developer)
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "write")]
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResultMsg = lastMessages.first { $0.role == "tool" }
+        #expect(toolResultMsg?.content?.contains("허용되지 않은") == true)
+    }
 }

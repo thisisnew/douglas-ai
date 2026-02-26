@@ -141,4 +141,60 @@ struct KeychainHelperTests {
         let error = KeychainError.dataConversionFailed
         #expect(error.localizedDescription.contains("변환"))
     }
+
+    // MARK: - 암호화 테스트
+
+    @Test("암호화 라운드트립 — 저장된 파일은 평문이 아님")
+    func encryptionNotPlaintext() throws {
+        let key = uniqueKey()
+        let secret = "super-secret-api-key-12345"
+        try KeychainHelper.save(key: key, value: secret)
+
+        // 파일을 직접 읽어서 평문이 아닌지 확인
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let keysDir = appSupport.appendingPathComponent("AgentManager/keys", isDirectory: true)
+        let safeName = key.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? key
+        let fileURL = keysDir.appendingPathComponent("\(safeName).key")
+
+        let rawData = try Data(contentsOf: fileURL)
+        let rawString = String(data: rawData, encoding: .utf8)
+
+        // 원본 평문이 파일에 그대로 들어있으면 안됨
+        #expect(rawString != secret)
+        // Base64로 디코딩해도 원문이 나오면 안됨 (암호화가 적용되었으므로)
+        if let b64decoded = Data(base64Encoded: rawData),
+           let b64string = String(data: b64decoded, encoding: .utf8) {
+            #expect(b64string != secret)
+        }
+
+        // 하지만 KeychainHelper.load로는 정상 복호화
+        let loaded = try KeychainHelper.load(key: key)
+        #expect(loaded == secret)
+
+        try KeychainHelper.delete(key: key)
+    }
+
+    @Test("암호화 — 여러 키 독립적으로 저장/로드")
+    func encryptionMultipleKeys() throws {
+        let key1 = uniqueKey()
+        let key2 = uniqueKey()
+        try KeychainHelper.save(key: key1, value: "value-one")
+        try KeychainHelper.save(key: key2, value: "value-two")
+
+        #expect(try KeychainHelper.load(key: key1) == "value-one")
+        #expect(try KeychainHelper.load(key: key2) == "value-two")
+
+        try KeychainHelper.delete(key: key1)
+        try KeychainHelper.delete(key: key2)
+    }
+
+    @Test("암호화 — 덮어쓰기 후에도 복호화 정상")
+    func encryptionOverwrite() throws {
+        let key = uniqueKey()
+        try KeychainHelper.save(key: key, value: "original")
+        try KeychainHelper.save(key: key, value: "updated")
+        let loaded = try KeychainHelper.load(key: key)
+        #expect(loaded == "updated")
+        try KeychainHelper.delete(key: key)
+    }
 }

@@ -1,6 +1,8 @@
 import Foundation
+import os.log
 
 class AnthropicProvider: AIProvider {
+    private static let logger = Logger(subsystem: "com.agentmanager.app", category: "Anthropic")
     let config: ProviderConfig
     let session: URLSession
 
@@ -39,7 +41,11 @@ class AnthropicProvider: AIProvider {
         }
         let result = try JSONDecoder().decode(Resp.self, from: data)
         if let error = result.error { throw AIProviderError.apiError(error.message) }
-        return result.content?.compactMap { $0.text }.joined() ?? ""
+        let textContent = result.content?.compactMap { $0.text }.joined()
+        if textContent == nil || textContent?.isEmpty == true {
+            Self.logger.warning("Anthropic returned empty content for model \(model)")
+        }
+        return textContent ?? ""
     }
 
     // MARK: - Tool Use 지원
@@ -85,8 +91,10 @@ class AnthropicProvider: AIProvider {
                 apiMessages.append(["role": "assistant", "content": contentBlocks])
             } else if msg.role == "tool", let callID = msg.toolCallID {
                 // tool_result는 user role로 전송 (Anthropic 규칙)
+                let content = msg.content ?? ""
+                let isError = content.hasPrefix("[오류]")
                 let resultBlock = ToolFormatConverter.anthropicToolResultBlock(
-                    callID: callID, content: msg.content ?? "", isError: false
+                    callID: callID, content: content, isError: isError
                 )
                 apiMessages.append(["role": "user", "content": [resultBlock]])
             } else if let content = msg.content {

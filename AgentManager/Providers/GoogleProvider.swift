@@ -14,8 +14,8 @@ class GoogleProvider: AIProvider {
     }
 
     func sendMessage(model: String, systemPrompt: String, messages: [(role: String, content: String)]) async throws -> String {
-        let key = config.apiKey ?? ""
-        let urlString = "\(config.baseURL)/v1beta/models/\(model):generateContent?key=\(key)"
+        guard let key = config.apiKey, !key.isEmpty else { throw AIProviderError.noAPIKey }
+        let urlString = "\(config.baseURL)/v1beta/models/\(model):generateContent"
         guard let url = URL(string: urlString) else { throw AIProviderError.invalidURL }
 
         var contents: [[String: Any]] = []
@@ -33,6 +33,7 @@ class GoogleProvider: AIProvider {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(key, forHTTPHeaderField: "x-goog-api-key")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = 120
 
@@ -66,8 +67,8 @@ class GoogleProvider: AIProvider {
         messages: [ConversationMessage],
         tools: [AgentTool]
     ) async throws -> AIResponseContent {
-        let key = config.apiKey ?? ""
-        let urlString = "\(config.baseURL)/v1beta/models/\(model):generateContent?key=\(key)"
+        guard let key = config.apiKey, !key.isEmpty else { throw AIProviderError.noAPIKey }
+        let urlString = "\(config.baseURL)/v1beta/models/\(model):generateContent"
         guard let url = URL(string: urlString) else { throw AIProviderError.invalidURL }
 
         // Google 메시지 빌드
@@ -114,6 +115,7 @@ class GoogleProvider: AIProvider {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(key, forHTTPHeaderField: "x-goog-api-key")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = 120
 

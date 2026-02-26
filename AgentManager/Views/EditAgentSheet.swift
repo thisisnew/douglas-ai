@@ -209,7 +209,7 @@ struct EditAgentSheet: View {
                 .padding(.vertical, 16)
             }
         }
-        .frame(width: 440, height: 600)
+        .frame(width: 440, height: min(600, (NSScreen.main?.frame.height ?? 800) * 0.75))
         .onAppear {
             loadModels(for: selectedProvider)
         }

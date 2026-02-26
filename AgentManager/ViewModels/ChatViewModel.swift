@@ -898,7 +898,8 @@ class ChatViewModel: ObservableObject {
     // MARK: - 대화 기록 영속화
 
     private static var chatDirectory: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".agentmanager")
         let dir = appSupport.appendingPathComponent("AgentManager/chats", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir

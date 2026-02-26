@@ -524,6 +524,12 @@ struct FloatingSidebarView: View {
                     NSCursor.pop()
                 }
             }
+            .onDisappear {
+                if resizeHandleHovered {
+                    NSCursor.pop()
+                    resizeHandleHovered = false
+                }
+            }
     }
 
     // MARK: - 마스터 채팅 영역

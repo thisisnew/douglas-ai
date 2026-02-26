@@ -1,6 +1,8 @@
 import Foundation
+import os.log
 
 class OpenAIProvider: AIProvider {
+    private static let logger = Logger(subsystem: "com.agentmanager.app", category: "OpenAI")
     let config: ProviderConfig
     let session: URLSession
 
@@ -58,7 +60,11 @@ class OpenAIProvider: AIProvider {
         }
         let result = try JSONDecoder().decode(ChatResponse.self, from: data)
         if let error = result.error { throw AIProviderError.apiError(error.message) }
-        return result.choices?.first?.message.content ?? ""
+        let content = result.choices?.first?.message.content
+        if content == nil {
+            Self.logger.warning("OpenAI returned nil content for model \(model)")
+        }
+        return content ?? ""
     }
 
     // MARK: - Tool Use 지원
