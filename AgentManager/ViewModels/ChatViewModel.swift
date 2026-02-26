@@ -138,12 +138,13 @@ class ChatViewModel: ObservableObject {
             }
 
             let systemPrompt = agentStore.masterSystemPrompt()
-            let history = buildHistory(for: agent.id)
+            // 마스터는 히스토리 없이 현재 메시지만 전송 (매 질문이 독립적)
+            let messages: [(role: String, content: String)] = [("user", text)]
 
             let response = try await provider.sendMessage(
                 model: agent.modelName,
                 systemPrompt: systemPrompt,
-                messages: history
+                messages: messages
             )
 
             let action = parseMasterResponse(response)
@@ -179,6 +180,9 @@ class ChatViewModel: ObservableObject {
             agentStore.updateStatus(agentID: agent.id, status: .idle)
             sendNotification(agentName: "마스터", message: "작업 완료")
 
+            // 마스터 채팅은 명령 단위: 처리 후 자동 클리어
+            scheduleAutoClear(for: agent.id)
+
         } catch {
             agentStore.updateStatus(agentID: agent.id, status: .error, errorMessage: error.localizedDescription)
             showToastMessage("마스터 오류: \(error.localizedDescription)")
@@ -191,6 +195,9 @@ class ChatViewModel: ObservableObject {
                 messageType: .error
             )
             appendMessage(errorReply, for: agent.id)
+
+            // 에러도 잠시 후 클리어
+            scheduleAutoClear(for: agent.id)
         }
     }
 
@@ -934,6 +941,20 @@ class ChatViewModel: ObservableObject {
                 }
                 return (role: role, content: msg.content)
             }
+    }
+
+    // MARK: - 마스터 자동 클리어
+
+    private var autoClearTask: Task<Void, Never>?
+
+    /// 마스터 처리 완료 후 3초 뒤 채팅 클리어 (다음 명령 준비)
+    private func scheduleAutoClear(for agentID: UUID) {
+        autoClearTask?.cancel()
+        autoClearTask = Task {
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            messagesByAgent[agentID] = []
+        }
     }
 
     private var toastDismissTask: Task<Void, Never>?
