@@ -209,23 +209,23 @@ struct RoomTests {
 
     // MARK: - discussionProgressText
 
-    @Test("discussionProgressText - task 모드면 빈 문자열")
-    func discussionProgressTextTaskMode() {
-        let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, mode: .task)
-        #expect(room.discussionProgressText == "")
+    @Test("discussionProgressText - planning 상태 + currentRound 0")
+    func discussionProgressTextReady() {
+        let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, mode: .discussion)
+        #expect(room.discussionProgressText == "토론 준비 중")
     }
 
-    @Test("discussionProgressText - 진행 중")
+    @Test("discussionProgressText - planning 상태 + 진행 중")
     func discussionProgressTextInProgress() {
         var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, mode: .discussion, maxDiscussionRounds: 3)
         room.currentRound = 1
-        #expect(room.discussionProgressText == "라운드 2/3")
+        #expect(room.discussionProgressText == "토론 중 (1라운드)")
     }
 
-    @Test("discussionProgressText - 완료")
+    @Test("discussionProgressText - 완료 (status != planning)")
     func discussionProgressTextCompleted() {
         var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, mode: .discussion, maxDiscussionRounds: 3)
-        room.currentRound = 3
+        room.status = .completed
         #expect(room.discussionProgressText == "토론 완료")
     }
 

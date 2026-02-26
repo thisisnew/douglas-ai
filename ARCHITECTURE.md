@@ -39,12 +39,16 @@ AgentManager/
 │   │   ├── ChatMessage.swift        # 메시지 모델 (MessageType 포함: devAction, buildResult 등)
 │   │   ├── ChangeRecord.swift       # 변경 이력 데이터 모델 (커밋 해시, 상태, 파일 목록)
 │   │   ├── ProviderConfig.swift     # 프로바이더 설정 (AuthMethod, ProviderType)
-│   │   └── KeychainHelper.swift     # Keychain 기반 API 키 저장
+│   │   ├── ProviderDetector.swift   # 시스템 AI 프로바이더 자동 감지
+│   │   ├── Room.swift               # 프로젝트 방 모델 (상태 전이, 타이머, 토론 모드)
+│   │   └── KeychainHelper.swift     # 파일 기반 API 키 저장 (Keychain 레거시 마이그레이션)
 │   ├── ViewModels/
 │   │   ├── AgentStore.swift         # 에이전트 CRUD, 마스터/워즈니악 생명주기
 │   │   ├── ChatViewModel.swift      # 메시지 전송, 마스터 오케스트레이션, 워즈니악 핸들링
 │   │   ├── DevAgentManager.swift    # Git 연동, 빌드 검증, 변경 이력 관리
-│   │   └── ProviderManager.swift    # 프로바이더 설정 관리
+│   │   ├── OnboardingViewModel.swift # 첫 실행 온보딩 상태 관리
+│   │   ├── ProviderManager.swift    # 프로바이더 설정 관리
+│   │   └── RoomManager.swift        # 프로젝트 방 생명주기, 팀 작업 조율
 │   ├── Providers/
 │   │   ├── AIProvider.swift         # AIProvider 프로토콜 + 공통 인증
 │   │   ├── ClaudeCodeProvider.swift # Claude Code CLI 실행 (Process)
@@ -64,13 +68,15 @@ AgentManager/
 │       ├── AddAgentSheet.swift      # 에이전트 등록 시트
 │       ├── EditAgentSheet.swift     # 에이전트 편집 시트
 │       ├── AddProviderSheet.swift   # 프로바이더 설정 시트
+│       ├── CreateRoomSheet.swift    # 방 생성 시트
+│       ├── OnboardingView.swift     # 첫 실행 온보딩 2단계 UI
+│       ├── RoomListView.swift       # 방 목록 + 상태 필터
+│       ├── RoomChatView.swift       # 방별 채팅 인터페이스
+│       ├── WorkLogView.swift        # 방 작업 로그 뷰
 │       ├── AgentAvatarView.swift    # 원형 아바타 (마스터/워즈니악/서브 아이콘 분기)
 │       ├── SuggestionCard.swift     # 에이전트 자동 생성 제안 카드
-│       ├── AgentInfoSheet.swift     # 에이전트 상세 정보 (FloatingSidebarView 내)
-│       ├── ContentView.swift        # (미사용 - 초기 레이아웃)
-│       ├── SidebarView.swift        # (미사용 - 초기 레이아웃)
-│       ├── AgentRowView.swift       # (미사용 - 초기 레이아웃)
-│       └── ToastView.swift          # (미사용 - 초기 레이아웃)
+│       ├── DesignTokens.swift       # 중앙화된 색상, 타이포그래피, 간격 상수
+│       └── ToastView.swift          # 임시 알림 오버레이
 ```
 
 ---
@@ -667,3 +673,51 @@ MessageType에 따른 시각 차별화:
 | ChangeRecord.swift | ~25 | 변경 이력 모델 |
 | KeychainHelper.swift | ~40 | Keychain 헬퍼 |
 | AgentManagerApp.swift | ~29 | 앱 진입점 |
+
+---
+
+## 테스트
+
+### 개요
+
+- **프레임워크**: Swift Testing (`@Test`, `#expect`)
+- **테스트 수**: 290개 (17 파일)
+- **명령어**: `swift test`
+- **모킹**: MockAIProvider, MockURLProtocol, 격리 UserDefaults
+
+### 테스트 구조
+
+```
+Tests/
+├── Models/
+│   ├── AgentTests.swift              # 17 tests — 초기화, 팩토리, Codable, 레거시 디코딩
+│   ├── ChatMessageTests.swift        # 11 tests — 모든 MessageType, Codable 라운드트립
+│   ├── ChangeRecordTests.swift       # 8 tests  — 상태 전이, 직렬화
+│   ├── ProviderConfigTests.swift     # 9 tests  — AuthMethod, Keychain 분리, 레거시 호환
+│   ├── ProviderDetectorTests.swift   # 18 tests — DetectedProvider 모델, maskedKey, DevAgentError
+│   ├── KeychainHelperTests.swift     # 16 tests — 파일 기반 저장/로드/삭제, 특수 문자, 에러 타입
+│   └── RoomTests.swift              # 30 tests — 상태 전이, 타이머, 토론 모드, 레거시 디코딩
+├── ViewModels/
+│   ├── ChatViewModelTests.swift      # 21 tests — 상태 관리, 메시지 격리, 로딩, 히스토리 필터
+│   ├── ChatViewModelParsingTests.swift # 18 tests — JSON 추출, parseMasterResponse 전체 액션
+│   ├── AgentStoreTests.swift         # 28 tests — CRUD, 마스터/DevAgent 보호, updateMasterProvider
+│   ├── RoomManagerTests.swift        # 36 tests — 방 생명주기, 에이전트 동기화, activeRoomCount
+│   ├── ProviderManagerTests.swift    # 20 tests — 팩토리, configureFromOnboarding, 영속화
+│   └── OnboardingViewModelTests.swift # 22 tests — 감지 후 선택, 마스터 우선순위, 스텝 전이
+├── Providers/
+│   └── ProviderTests.swift          # 36 tests — HTTP 검증, 인증, 전체 프로바이더 모킹
+├── Helpers/
+│   └── TestHelpers.swift            # 팩토리 함수 (makeTestAgent, makeTestDefaults 등)
+└── Mocks/
+    ├── MockAIProvider.swift         # 가짜 프로바이더 (호출 추적)
+    └── MockURLProtocol.swift        # URLProtocol 서브클래스 (HTTP 모킹)
+```
+
+### 커버리지 요약
+
+| 계층 | 테스트 수 | 커버리지 |
+|------|----------|---------|
+| Models | 109 | Agent, ChatMessage, ChangeRecord, ProviderConfig, Room, DetectedProvider, KeychainHelper |
+| ViewModels | 145 | ChatViewModel, AgentStore, ProviderManager, RoomManager, OnboardingViewModel |
+| Providers | 36 | OpenAI, Anthropic, Google, Ollama, LM Studio, Custom, ClaudeCode |
+| **합계** | **290** | 비즈니스 로직 전체 커버 (View 레이어는 UI 테스트 특성상 제외) |
