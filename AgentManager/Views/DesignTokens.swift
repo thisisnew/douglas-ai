@@ -106,7 +106,6 @@ enum DesignTokens {
             case .inProgress: return .orange
             case .completed:  return .green
             case .failed:     return .red
-            case .archived:   return .gray
             }
         }
 
@@ -116,7 +115,6 @@ enum DesignTokens {
             case .inProgress: return "진행중"
             case .completed:  return "완료"
             case .failed:     return "실패"
-            case .archived:   return "보관"
             }
         }
     }
@@ -135,6 +133,7 @@ enum DesignTokens {
             case .buildResult:     return .teal
             case .text:            return .gray
             case .discussionRound: return .gray
+            case .toolActivity:    return .gray
             }
         }
 

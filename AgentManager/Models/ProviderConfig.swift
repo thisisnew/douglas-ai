@@ -147,3 +147,21 @@ enum ProviderType: String, Codable, CaseIterable {
         }
     }
 }
+
+// MARK: - 연결 상태 확인
+
+extension ProviderConfig {
+    /// 이 프로바이더가 실제 사용 가능한 상태인지
+    var isConnected: Bool {
+        switch type {
+        case .claudeCode:
+            return FileManager.default.isExecutableFile(atPath: baseURL)
+        case .ollama, .lmStudio:
+            return true
+        case .openAI, .anthropic, .google:
+            return apiKey != nil && !(apiKey?.isEmpty ?? true)
+        case .custom:
+            return !baseURL.isEmpty
+        }
+    }
+}

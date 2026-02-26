@@ -13,7 +13,6 @@ struct RoomTests {
         #expect(RoomStatus.inProgress.rawValue == "inProgress")
         #expect(RoomStatus.completed.rawValue == "completed")
         #expect(RoomStatus.failed.rawValue == "failed")
-        #expect(RoomStatus.archived.rawValue == "archived")
     }
 
     // MARK: - RoomCreator
@@ -90,12 +89,6 @@ struct RoomTests {
         #expect(room.isActive == false)
     }
 
-    @Test("Room isActive - archived")
-    func roomIsActiveArchived() {
-        let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .archived)
-        #expect(room.isActive == false)
-    }
-
     @Test("Room isActive - failed")
     func roomIsActiveFailed() {
         let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .failed)
@@ -112,9 +105,6 @@ struct RoomTests {
 
         room.status = .failed
         #expect(room.timerDisplayText == "실패")
-
-        room.status = .archived
-        #expect(room.timerDisplayText == "보관됨")
     }
 
     @Test("Room timerDisplayText - inProgress 타이머 없음")

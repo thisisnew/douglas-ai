@@ -141,10 +141,8 @@ struct RoomManagerTests {
         manager.createRoom(title: "Active", agentIDs: [], createdBy: .user)
         let done = createInProgressRoom(manager, title: "Done")
         manager.completeRoom(done.id)
-        let archived = manager.createRoom(title: "Archived", agentIDs: [], createdBy: .user)
-        manager.archiveRoom(archived.id)
 
-        #expect(manager.completedRooms.count == 2)
+        #expect(manager.completedRooms.count == 1)
         #expect(manager.completedRooms.allSatisfy { !$0.isActive })
     }
 
@@ -236,23 +234,6 @@ struct RoomManagerTests {
     func completeRoomNonExisting() {
         let manager = makeManager()
         manager.completeRoom(UUID())
-    }
-
-    @Test("archiveRoom - planning에서 archived로 전이")
-    func archiveRoomTest() {
-        let manager = makeManager()
-        let room = manager.createRoom(title: "Test", agentIDs: [], createdBy: .user)
-        manager.archiveRoom(room.id)
-        #expect(manager.rooms.first?.status == .archived)
-    }
-
-    @Test("archiveRoom - 선택된 방 아카이브 시 선택 해제")
-    func archiveSelectedRoom() {
-        let manager = makeManager()
-        let room = manager.createRoom(title: "Test", agentIDs: [], createdBy: .user)
-        #expect(manager.selectedRoomID == room.id)
-        manager.archiveRoom(room.id)
-        #expect(manager.selectedRoomID == nil)
     }
 
     @Test("deleteRoom - 방 삭제")
@@ -393,16 +374,6 @@ struct RoomManagerTests {
         #expect(completed?.status == .completed)
         #expect(completed?.isActive == false)
         #expect(completed?.completedAt != nil)
-    }
-
-    @Test("방 생명주기: planning → archived")
-    func roomLifecycleArchive() {
-        let manager = makeManager()
-        let room = manager.createRoom(title: "Lifecycle", agentIDs: [], createdBy: .user)
-        manager.archiveRoom(room.id)
-        let archived = manager.rooms.first(where: { $0.id == room.id })
-        #expect(archived?.status == .archived)
-        #expect(archived?.isActive == false)
     }
 
     @Test("방 생명주기: 생성 → 삭제")

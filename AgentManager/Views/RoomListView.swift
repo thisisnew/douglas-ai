@@ -9,7 +9,6 @@ enum RoomFilter: String, CaseIterable {
     case active     = "진행"
     case completed  = "완료"
     case failed     = "실패"
-    case archived   = "보관"
 
     func matches(_ room: Room) -> Bool {
         switch self {
@@ -17,7 +16,6 @@ enum RoomFilter: String, CaseIterable {
         case .active:    return room.status == .planning || room.status == .inProgress
         case .completed: return room.status == .completed
         case .failed:    return room.status == .failed
-        case .archived:  return room.status == .archived
         }
     }
 
@@ -27,7 +25,6 @@ enum RoomFilter: String, CaseIterable {
         case .active:    return .orange
         case .completed: return .green
         case .failed:    return .red
-        case .archived:  return .gray
         }
     }
 }
@@ -142,11 +139,6 @@ struct RoomListView: View {
             } label: {
                 Label("완료 처리", systemImage: "checkmark.circle")
             }
-        }
-        Button {
-            roomManager.archiveRoom(room.id)
-        } label: {
-            Label("보관", systemImage: "archivebox")
         }
         Divider()
         Button(role: .destructive) {
@@ -268,10 +260,6 @@ struct RoomListItem: View {
         case .failed:
             badgeView(text: DesignTokens.RoomStatusColor.label(for: .failed),
                        color: DesignTokens.RoomStatusColor.color(for: .failed))
-
-        case .archived:
-            badgeView(text: DesignTokens.RoomStatusColor.label(for: .archived),
-                       color: DesignTokens.RoomStatusColor.color(for: .archived))
         }
     }
 

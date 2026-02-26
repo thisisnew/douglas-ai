@@ -55,4 +55,93 @@ class GoogleProvider: AIProvider {
         if let error = result.error { throw AIProviderError.apiError(error.message) }
         return result.candidates?.first?.content?.parts?.compactMap { $0.text }.joined() ?? ""
     }
+
+    // MARK: - Tool Use 지원
+
+    var supportsToolCalling: Bool { true }
+
+    func sendMessageWithTools(
+        model: String,
+        systemPrompt: String,
+        messages: [ConversationMessage],
+        tools: [AgentTool]
+    ) async throws -> AIResponseContent {
+        let key = config.apiKey ?? ""
+        let urlString = "\(config.baseURL)/v1beta/models/\(model):generateContent?key=\(key)"
+        guard let url = URL(string: urlString) else { throw AIProviderError.invalidURL }
+
+        // Google 메시지 빌드
+        var contents: [[String: Any]] = []
+        for msg in messages {
+            if let toolCalls = msg.toolCalls, !toolCalls.isEmpty {
+                // model의 functionCall parts
+                var parts: [[String: Any]] = []
+                if let text = msg.content, !text.isEmpty {
+                    parts.append(["text": text])
+                }
+                for call in toolCalls {
+                    var argsDict: [String: Any] = [:]
+                    for (k, v) in call.arguments {
+                        switch v {
+                        case .string(let s):  argsDict[k] = s
+                        case .integer(let i): argsDict[k] = i
+                        case .boolean(let b): argsDict[k] = b
+                        case .array(let a):   argsDict[k] = a
+                        }
+                    }
+                    parts.append(["functionCall": ["name": call.toolName, "args": argsDict]])
+                }
+                contents.append(["role": "model", "parts": parts])
+            } else if msg.role == "tool" {
+                // functionResponse
+                let toolName = msg.toolCallID ?? "unknown"
+                let part = ToolFormatConverter.googleFunctionResponsePart(name: toolName, content: msg.content ?? "")
+                contents.append(["role": "function", "parts": [part]])
+            } else if let content = msg.content {
+                let role = msg.role == "assistant" ? "model" : "user"
+                contents.append(["role": role, "parts": [["text": content]]])
+            }
+        }
+
+        var body: [String: Any] = ["contents": contents]
+        if !systemPrompt.isEmpty {
+            body["systemInstruction"] = ["parts": [["text": systemPrompt]]]
+        }
+        if !tools.isEmpty {
+            body["tools"] = ToolFormatConverter.toGoogle(tools)
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        request.timeoutInterval = 120
+
+        let (data, response) = try await session.data(for: request)
+        try validateHTTPResponse(response)
+
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw AIProviderError.invalidResponse
+        }
+        if let error = (json["error"] as? [String: Any])?["message"] as? String {
+            throw AIProviderError.apiError(error)
+        }
+
+        guard let candidates = json["candidates"] as? [[String: Any]],
+              let candidateContent = candidates.first?["content"] as? [String: Any],
+              let parts = candidateContent["parts"] as? [[String: Any]] else {
+            throw AIProviderError.invalidResponse
+        }
+
+        let (text, toolCalls) = ToolFormatConverter.parseGoogleFunctionCalls(parts)
+
+        if !toolCalls.isEmpty {
+            if let text = text, !text.isEmpty {
+                return .mixed(text: text, toolCalls: toolCalls)
+            }
+            return .toolCalls(toolCalls)
+        }
+
+        return .text(text ?? "")
+    }
 }

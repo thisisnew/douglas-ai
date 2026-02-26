@@ -101,8 +101,9 @@ class RoomManager: ObservableObject {
 
             let history = buildRoomHistory(roomID: roomID)
             do {
-                let response = try await provider.sendMessage(
-                    model: agent.modelName,
+                let response = try await ToolExecutor.smartSend(
+                    provider: provider,
+                    agent: agent,
                     systemPrompt: agent.persona,
                     messages: history
                 )
@@ -370,8 +371,9 @@ class RoomManager: ObservableObject {
             agentStore?.updateStatus(agentID: agentID, status: .working)
             speakingAgentIDByRoom[roomID] = agentID
 
-            let response = try await provider.sendMessage(
-                model: agent.modelName,
+            let response = try await ToolExecutor.smartSend(
+                provider: provider,
+                agent: agent,
                 systemPrompt: agent.persona,
                 messages: history + [("user", stepPrompt)]
             )
@@ -707,15 +709,6 @@ class RoomManager: ObservableObject {
         speakingAgentIDByRoom.removeValue(forKey: roomID)
         rooms[idx].transitionTo(.completed)
         rooms[idx].completedAt = Date()
-        syncAgentStatuses()
-        scheduleSave()
-    }
-
-    func archiveRoom(_ roomID: UUID) {
-        guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
-        speakingAgentIDByRoom.removeValue(forKey: roomID)
-        rooms[idx].transitionTo(.archived)
-        if selectedRoomID == roomID { selectedRoomID = nil }
         syncAgentStatuses()
         scheduleSave()
     }

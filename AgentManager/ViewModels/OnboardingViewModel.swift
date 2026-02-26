@@ -9,13 +9,21 @@ class OnboardingViewModel: ObservableObject {
     @Published var apiKeys: [ProviderType: String] = [:]   // 사용자 입력 or 환경변수
     @Published var useDetectedKey: [ProviderType: Bool] = [:] // 환경변수 키 사용 여부
     @Published var isDetecting = true
-    @Published var currentStep: OnboardingStep = .detecting
+    @Published var currentStep: OnboardingStep = .claudeSetup
+
+    /// Claude Code 설치/검증
+    let claudeInstaller = ClaudeCodeInstaller()
+
+    /// Claude Code 설정이 완료되었는지 (설치됨 or 사용자가 건너뜀)
+    @Published var claudeSetupDone = false
+    /// Claude Code 설정을 건너뛰었는지
+    @Published var claudeSkipped = false
 
     enum OnboardingStep {
-        case detecting
-        case selection
-        case apiKeyInput
-        case complete
+        case claudeSetup       // Claude Code 자동 감지/설치
+        case providerSelection // 서브 에이전트용 프로바이더 선택
+        case apiKeyInput       // API 키 입력
+        case complete          // 완료
     }
 
     // MARK: - 온보딩 완료 플래그
@@ -31,15 +39,54 @@ class OnboardingViewModel: ObservableObject {
         .claudeCode, .anthropic, .openAI, .google, .ollama, .lmStudio
     ]
 
-    // MARK: - 감지 시작
+    // MARK: - Claude Setup 단계
 
-    func startDetection() async {
+    func startClaudeSetup() async {
+        currentStep = .claudeSetup
+        await claudeInstaller.detect()
+    }
+
+    /// Claude Code 설치 요청
+    func installClaudeCode() async {
+        await claudeInstaller.install()
+    }
+
+    /// Claude Setup 완료 → 다음 단계로
+    func finishClaudeSetup() async {
+        claudeSetupDone = true
+
+        if claudeInstaller.isReady {
+            // Claude Code가 준비됨 → 마스터로 고정
+            masterProviderType = .claudeCode
+            selectedTypes.insert(.claudeCode)
+        } else {
+            claudeSkipped = true
+        }
+
+        // 나머지 프로바이더 감지
+        await startProviderDetection()
+    }
+
+    /// Claude Setup 건너뛰기
+    func skipClaudeSetup() async {
+        claudeSkipped = true
+        claudeSetupDone = true
+        await startProviderDetection()
+    }
+
+    // MARK: - 프로바이더 감지 (서브 에이전트용)
+
+    private func startProviderDetection() async {
         isDetecting = true
         let detected = await ProviderDetector.detectAll()
         detectedProviders = detected
 
-        // 감지된 것 자동 선택
-        selectedTypes = Set(detected.map(\.type))
+        // 감지된 것 자동 선택 (Claude Code는 이미 처리됨)
+        for dp in detected {
+            if dp.type != .claudeCode {
+                selectedTypes.insert(dp.type)
+            }
+        }
 
         // 환경변수로 감지된 API 키 자동 채움
         for provider in detected {
@@ -49,17 +96,26 @@ class OnboardingViewModel: ObservableObject {
             }
         }
 
-        // 전체 프로바이더 목록 (감지된 것 먼저, 나머지 뒤에)
+        // 전체 프로바이더 목록 (Claude Code 제외 — 이미 처리됨)
         let detectedTypes = Set(detected.map(\.type))
-        let undetectedTypes: [ProviderType] = [.claudeCode, .openAI, .anthropic, .google, .ollama, .lmStudio]
-            .filter { !detectedTypes.contains($0) }
-        allProviderTypes = detected.map(\.type) + undetectedTypes
+        let subProviderOrder: [ProviderType] = [.openAI, .anthropic, .google, .ollama, .lmStudio]
+        let detectedSubTypes = detected.map(\.type).filter { $0 != .claudeCode }
+        let undetectedSubTypes = subProviderOrder.filter { !detectedTypes.contains($0) }
+        allProviderTypes = detectedSubTypes + undetectedSubTypes
 
-        // 마스터 자동 선택
-        masterProviderType = Self.masterPriority.first { selectedTypes.contains($0) }
+        // Claude Code를 건너뛴 경우: 마스터를 수동 선택 가능하게
+        if claudeSkipped {
+            // Claude Code가 감지되었으면 목록에 포함
+            if detected.contains(where: { $0.type == .claudeCode }) {
+                allProviderTypes.insert(.claudeCode, at: 0)
+                selectedTypes.insert(.claudeCode)
+            }
+            // 마스터 자동 선택
+            masterProviderType = Self.masterPriority.first { selectedTypes.contains($0) }
+        }
 
         isDetecting = false
-        currentStep = .selection
+        currentStep = .providerSelection
     }
 
     // MARK: - 선택 토글
@@ -67,13 +123,11 @@ class OnboardingViewModel: ObservableObject {
     func toggleProvider(_ type: ProviderType) {
         if selectedTypes.contains(type) {
             selectedTypes.remove(type)
-            // 마스터가 해제되면 다음 후보로
             if masterProviderType == type {
                 masterProviderType = Self.masterPriority.first { selectedTypes.contains($0) }
             }
         } else {
             selectedTypes.insert(type)
-            // 마스터가 없으면 자동 설정
             if masterProviderType == nil {
                 masterProviderType = type
             }
@@ -106,9 +160,9 @@ class OnboardingViewModel: ObservableObject {
 
     func goToNext() {
         switch currentStep {
-        case .detecting:
-            currentStep = .selection
-        case .selection:
+        case .claudeSetup:
+            currentStep = .providerSelection
+        case .providerSelection:
             if selectedProvidersNeedingKey.isEmpty {
                 currentStep = .complete
             } else {
@@ -124,7 +178,7 @@ class OnboardingViewModel: ObservableObject {
     func goBack() {
         switch currentStep {
         case .apiKeyInput:
-            currentStep = .selection
+            currentStep = .providerSelection
         default:
             break
         }

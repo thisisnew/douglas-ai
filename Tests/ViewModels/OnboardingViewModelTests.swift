@@ -18,7 +18,7 @@ struct OnboardingViewModelTests {
         #expect(vm.apiKeys.isEmpty)
         #expect(vm.useDetectedKey.isEmpty)
         #expect(vm.isDetecting == true)
-        #expect(vm.currentStep == .detecting)
+        #expect(vm.currentStep == .claudeSetup)
     }
 
     // MARK: - toggleProvider
@@ -112,28 +112,28 @@ struct OnboardingViewModelTests {
 
     // MARK: - goToNext / goBack
 
-    @Test("goToNext - detecting → selection")
-    func goToNextFromDetecting() {
+    @Test("goToNext - claudeSetup → providerSelection")
+    func goToNextFromClaudeSetup() {
         let vm = OnboardingViewModel()
-        vm.currentStep = .detecting
+        vm.currentStep = .claudeSetup
         vm.goToNext()
-        #expect(vm.currentStep == .selection)
+        #expect(vm.currentStep == .providerSelection)
     }
 
-    @Test("goToNext - selection → apiKeyInput (키 필요한 프로바이더 있을 때)")
+    @Test("goToNext - providerSelection → apiKeyInput (키 필요한 프로바이더 있을 때)")
     func goToNextSelectionToApiKey() {
         let vm = OnboardingViewModel()
-        vm.currentStep = .selection
+        vm.currentStep = .providerSelection
         vm.selectedTypes = [.openAI]
         vm.allProviderTypes = [.openAI]
         vm.goToNext()
         #expect(vm.currentStep == .apiKeyInput)
     }
 
-    @Test("goToNext - selection → complete (키 불필요)")
+    @Test("goToNext - providerSelection → complete (키 불필요)")
     func goToNextSelectionToComplete() {
         let vm = OnboardingViewModel()
-        vm.currentStep = .selection
+        vm.currentStep = .providerSelection
         vm.selectedTypes = [.claudeCode, .ollama]
         vm.goToNext()
         #expect(vm.currentStep == .complete)
@@ -155,28 +155,28 @@ struct OnboardingViewModelTests {
         #expect(vm.currentStep == .complete)
     }
 
-    @Test("goBack - apiKeyInput → selection")
+    @Test("goBack - apiKeyInput → providerSelection")
     func goBackFromApiKey() {
         let vm = OnboardingViewModel()
         vm.currentStep = .apiKeyInput
         vm.goBack()
-        #expect(vm.currentStep == .selection)
+        #expect(vm.currentStep == .providerSelection)
     }
 
-    @Test("goBack - selection → selection (뒤로 못 감)")
+    @Test("goBack - providerSelection → providerSelection (뒤로 못 감)")
     func goBackFromSelection() {
         let vm = OnboardingViewModel()
-        vm.currentStep = .selection
+        vm.currentStep = .providerSelection
         vm.goBack()
-        #expect(vm.currentStep == .selection)
+        #expect(vm.currentStep == .providerSelection)
     }
 
-    @Test("goBack - detecting → detecting (뒤로 못 감)")
-    func goBackFromDetecting() {
+    @Test("goBack - claudeSetup → claudeSetup (뒤로 못 감)")
+    func goBackFromClaudeSetup() {
         let vm = OnboardingViewModel()
-        vm.currentStep = .detecting
+        vm.currentStep = .claudeSetup
         vm.goBack()
-        #expect(vm.currentStep == .detecting)
+        #expect(vm.currentStep == .claudeSetup)
     }
 
     // MARK: - apply
@@ -248,14 +248,23 @@ struct OnboardingViewModelTests {
     @Test("OnboardingStep - 모든 케이스")
     func onboardingStepCases() {
         let vm = OnboardingViewModel()
-        vm.currentStep = .detecting
-        #expect(vm.currentStep == .detecting)
-        vm.currentStep = .selection
-        #expect(vm.currentStep == .selection)
+        vm.currentStep = .claudeSetup
+        #expect(vm.currentStep == .claudeSetup)
+        vm.currentStep = .providerSelection
+        #expect(vm.currentStep == .providerSelection)
         vm.currentStep = .apiKeyInput
         #expect(vm.currentStep == .apiKeyInput)
         vm.currentStep = .complete
         #expect(vm.currentStep == .complete)
+    }
+
+    // MARK: - Claude Setup 관련
+
+    @Test("claudeSetupDone - 초기값 false")
+    func claudeSetupDoneInit() {
+        let vm = OnboardingViewModel()
+        #expect(vm.claudeSetupDone == false)
+        #expect(vm.claudeSkipped == false)
     }
 
     // MARK: - API 키 상태

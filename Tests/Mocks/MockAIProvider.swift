@@ -33,4 +33,31 @@ class MockAIProvider: AIProvider {
         case .failure(let error): throw error
         }
     }
+
+    // MARK: - Tool Use 지원
+
+    var _supportsToolCalling = false
+    var supportsToolCalling: Bool { _supportsToolCalling }
+
+    var sendMessageWithToolsResults: [Result<AIResponseContent, Error>] = []
+    var sendMessageWithToolsCallCount = 0
+    var lastSendMessageWithToolsArgs: (model: String, systemPrompt: String, messages: [ConversationMessage], tools: [AgentTool])?
+
+    func sendMessageWithTools(
+        model: String,
+        systemPrompt: String,
+        messages: [ConversationMessage],
+        tools: [AgentTool]
+    ) async throws -> AIResponseContent {
+        lastSendMessageWithToolsArgs = (model, systemPrompt, messages, tools)
+        let index = min(sendMessageWithToolsCallCount, sendMessageWithToolsResults.count - 1)
+        sendMessageWithToolsCallCount += 1
+        if sendMessageWithToolsResults.isEmpty {
+            return .text("mock tool response")
+        }
+        switch sendMessageWithToolsResults[max(0, index)] {
+        case .success(let content): return content
+        case .failure(let error): throw error
+        }
+    }
 }

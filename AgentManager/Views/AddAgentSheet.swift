@@ -13,6 +13,8 @@ struct AddAgentSheet: View {
     @State private var isLoadingModels = false
     @State private var errorMessage: String?
     @State private var imageData: Data?
+    @State private var capabilityPreset: CapabilityPreset = .none
+    @State private var enabledToolIDs: Set<String> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -77,7 +79,15 @@ struct AddAgentSheet: View {
                                 Picker("", selection: $selectedProvider) {
                                     Text("선택").tag("")
                                     ForEach(providerManager.configs) { config in
-                                        Text(config.name).tag(config.name)
+                                        HStack(spacing: 4) {
+                                            Text(config.name)
+                                            if !config.isConnected {
+                                                Text("(연동 필요)")
+                                                    .font(.caption2)
+                                                    .foregroundColor(.red)
+                                            }
+                                        }
+                                        .tag(config.name)
                                     }
                                 }
                                 .labelsHidden()
@@ -112,13 +122,67 @@ struct AddAgentSheet: View {
                         if let errorMessage {
                             inlineError(errorMessage)
                         }
+
+                        if let config = providerManager.configs.first(where: { $0.name == selectedProvider }),
+                           !config.isConnected {
+                            Label("이 프로바이더는 API 키가 설정되지 않았습니다. 설정에서 연동해주세요.",
+                                  systemImage: "exclamationmark.triangle")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
+                    }
+
+                    // 도구 설정
+                    VStack(alignment: .leading, spacing: 6) {
+                        sectionLabel("도구")
+
+                        VStack(spacing: 0) {
+                            settingsRow("프리셋") {
+                                Picker("", selection: $capabilityPreset) {
+                                    ForEach(CapabilityPreset.allCases) { preset in
+                                        Text(preset.rawValue).tag(preset)
+                                    }
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.menu)
+                                .fixedSize()
+                            }
+
+                            if capabilityPreset == .custom {
+                                Divider().padding(.leading, 14)
+                                ForEach(ToolRegistry.allTools) { tool in
+                                    HStack {
+                                        Toggle(isOn: Binding(
+                                            get: { enabledToolIDs.contains(tool.id) },
+                                            set: { on in
+                                                if on { enabledToolIDs.insert(tool.id) }
+                                                else { enabledToolIDs.remove(tool.id) }
+                                            }
+                                        )) {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(tool.name).font(.body)
+                                                Text(tool.description)
+                                                    .font(.caption)
+                                                    .foregroundColor(.secondary)
+                                                    .lineLimit(1)
+                                            }
+                                        }
+                                        .toggleStyle(.checkbox)
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 4)
+                                }
+                            }
+                        }
+                        .background(Color.primary.opacity(0.04))
+                        .cornerRadius(8)
                     }
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 16)
             }
         }
-        .frame(width: 440, height: 520)
+        .frame(width: 440, height: 600)
         .onChange(of: selectedProvider) { _, newValue in
             selectedModel = ""
             availableModels = []
@@ -206,6 +270,15 @@ struct AddAgentSheet: View {
     }
 
     private func loadModels(for providerName: String) {
+        // 미연결 프로바이더는 모델 로딩 차단
+        if let config = providerManager.configs.first(where: { $0.name == providerName }),
+           !config.isConnected {
+            availableModels = []
+            selectedModel = ""
+            errorMessage = nil
+            return
+        }
+
         isLoadingModels = true
         errorMessage = nil
         Task {
@@ -227,7 +300,9 @@ struct AddAgentSheet: View {
             persona: persona,
             providerName: selectedProvider,
             modelName: selectedModel,
-            imageData: imageData
+            imageData: imageData,
+            capabilityPreset: capabilityPreset == .none ? nil : capabilityPreset,
+            enabledToolIDs: capabilityPreset == .custom ? Array(enabledToolIDs) : nil
         )
         agentStore.addAgent(agent)
         dismiss()

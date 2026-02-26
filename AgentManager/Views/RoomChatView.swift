@@ -181,10 +181,6 @@ struct RoomChatView: View {
                 Text("실패")
                     .font(.caption2)
                     .foregroundColor(.red)
-            case .archived:
-                Text("보관")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
             }
 
             Text("·")

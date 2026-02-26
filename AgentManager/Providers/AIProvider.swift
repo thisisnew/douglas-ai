@@ -8,6 +8,17 @@ protocol AIProvider {
         systemPrompt: String,
         messages: [(role: String, content: String)]
     ) async throws -> String
+
+    /// 도구 사용을 지원하는 메시지 전송
+    func sendMessageWithTools(
+        model: String,
+        systemPrompt: String,
+        messages: [ConversationMessage],
+        tools: [AgentTool]
+    ) async throws -> AIResponseContent
+
+    /// 이 프로바이더가 네이티브 도구 호출을 지원하는지
+    var supportsToolCalling: Bool { get }
 }
 
 enum AIProviderError: LocalizedError {
@@ -28,6 +39,30 @@ enum AIProviderError: LocalizedError {
         case .httpError(let code, let body):
             return "HTTP \(code): \(body.prefix(200))"
         }
+    }
+}
+
+/// 기본 구현: 도구 미지원 프로바이더용 폴백
+extension AIProvider {
+    var supportsToolCalling: Bool { false }
+
+    func sendMessageWithTools(
+        model: String,
+        systemPrompt: String,
+        messages: [ConversationMessage],
+        tools: [AgentTool]
+    ) async throws -> AIResponseContent {
+        // 도구 메시지를 제외하고 기존 sendMessage로 폴백
+        let simpleMsgs = messages
+            .filter { $0.role != "tool" }
+            .compactMap { msg -> (role: String, content: String)? in
+                guard let content = msg.content else { return nil }
+                return (role: msg.role, content: content)
+            }
+        let result = try await sendMessage(
+            model: model, systemPrompt: systemPrompt, messages: simpleMsgs
+        )
+        return .text(result)
     }
 }
 

@@ -23,9 +23,27 @@ struct Agent: Identifiable, Codable, Hashable {
     var errorMessage: String?
     var hasImage: Bool
 
+    // Tool Use 설정
+    var capabilityPreset: CapabilityPreset?
+    var enabledToolIDs: [String]?
+
+    /// 이 에이전트에서 활성화된 도구 ID 목록
+    var resolvedToolIDs: [String] {
+        let preset = capabilityPreset ?? .none
+        if preset == .custom {
+            return enabledToolIDs ?? []
+        }
+        return preset.includedToolIDs
+    }
+
+    var hasToolsEnabled: Bool {
+        !resolvedToolIDs.isEmpty
+    }
+
     // imageData는 Codable에서 제외 — 파일 시스템에 저장
     private enum CodingKeys: String, CodingKey {
         case id, name, persona, providerName, modelName, status, isMaster, isDevAgent, errorMessage, hasImage
+        case capabilityPreset, enabledToolIDs
     }
 
     // 이미지를 파일 시스템에 저장/로드
@@ -52,7 +70,9 @@ struct Agent: Identifiable, Codable, Hashable {
         isMaster: Bool = false,
         isDevAgent: Bool = false,
         errorMessage: String? = nil,
-        imageData: Data? = nil
+        imageData: Data? = nil,
+        capabilityPreset: CapabilityPreset? = nil,
+        enabledToolIDs: [String]? = nil
     ) {
         self.id = id
         self.name = name
@@ -63,6 +83,8 @@ struct Agent: Identifiable, Codable, Hashable {
         self.isMaster = isMaster
         self.isDevAgent = isDevAgent
         self.errorMessage = errorMessage
+        self.capabilityPreset = capabilityPreset
+        self.enabledToolIDs = enabledToolIDs
         self.hasImage = false
         // init 후 이미지 저장
         if let imageData {
@@ -84,6 +106,8 @@ struct Agent: Identifiable, Codable, Hashable {
         isDevAgent = try container.decodeIfPresent(Bool.self, forKey: .isDevAgent) ?? false
         errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
         hasImage = try container.decodeIfPresent(Bool.self, forKey: .hasImage) ?? false
+        capabilityPreset = try container.decodeIfPresent(CapabilityPreset.self, forKey: .capabilityPreset)
+        enabledToolIDs = try container.decodeIfPresent([String].self, forKey: .enabledToolIDs)
 
         // 레거시 마이그레이션: UserDefaults에 imageData가 있으면 파일로 이동
         struct LegacyKey: CodingKey {

@@ -60,4 +60,77 @@ class OpenAIProvider: AIProvider {
         if let error = result.error { throw AIProviderError.apiError(error.message) }
         return result.choices?.first?.message.content ?? ""
     }
+
+    // MARK: - Tool Use 지원
+
+    var supportsToolCalling: Bool { true }
+
+    func sendMessageWithTools(
+        model: String,
+        systemPrompt: String,
+        messages: [ConversationMessage],
+        tools: [AgentTool]
+    ) async throws -> AIResponseContent {
+        guard let url = URL(string: "\(config.baseURL)/v1/chat/completions") else {
+            throw AIProviderError.invalidURL
+        }
+
+        // 메시지 빌드
+        var allMessages: [[String: Any]] = []
+        if !systemPrompt.isEmpty {
+            allMessages.append(["role": "system", "content": systemPrompt])
+        }
+        for msg in messages {
+            if let toolCalls = msg.toolCalls, !toolCalls.isEmpty {
+                // assistant의 tool_calls 메시지
+                allMessages.append(ToolFormatConverter.openAIAssistantToolCallMessage(toolCalls, text: msg.content))
+            } else if msg.role == "tool", let callID = msg.toolCallID {
+                // 도구 실행 결과
+                allMessages.append(ToolFormatConverter.openAIToolResultMessage(callID: callID, content: msg.content ?? ""))
+            } else if let content = msg.content {
+                allMessages.append(["role": msg.role, "content": content])
+            }
+        }
+
+        var body: [String: Any] = ["model": model, "messages": allMessages]
+        if !tools.isEmpty {
+            body["tools"] = ToolFormatConverter.toOpenAI(tools)
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        request.timeoutInterval = 120
+        applyAuth(to: &request)
+
+        let (data, response) = try await session.data(for: request)
+        try validateHTTPResponse(response)
+
+        // JSON 응답 파싱
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw AIProviderError.invalidResponse
+        }
+        if let error = (json["error"] as? [String: Any])?["message"] as? String {
+            throw AIProviderError.apiError(error)
+        }
+
+        guard let choices = json["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any] else {
+            throw AIProviderError.invalidResponse
+        }
+
+        let textContent = message["content"] as? String
+        let toolCallsRaw = message["tool_calls"] as? [[String: Any]]
+
+        if let rawCalls = toolCallsRaw, !rawCalls.isEmpty {
+            let calls = ToolFormatConverter.parseOpenAIToolCalls(rawCalls)
+            if let text = textContent, !text.isEmpty {
+                return .mixed(text: text, toolCalls: calls)
+            }
+            return .toolCalls(calls)
+        }
+
+        return .text(textContent ?? "")
+    }
 }

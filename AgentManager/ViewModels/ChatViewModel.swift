@@ -223,10 +223,18 @@ class ChatViewModel: ObservableObject {
             }
 
             let history = buildHistory(for: agent.id)
-            let response = try await provider.sendMessage(
-                model: agent.modelName,
+            let agentID = agent.id
+            let response = try await ToolExecutor.smartSend(
+                provider: provider,
+                agent: agent,
                 systemPrompt: agent.persona,
-                messages: history
+                messages: history,
+                onToolActivity: { [weak self] activity in
+                    Task { @MainActor in
+                        let toolMsg = ChatMessage(role: .assistant, content: activity, agentName: agent.name, messageType: .toolActivity)
+                        self?.appendMessage(toolMsg, for: agentID)
+                    }
+                }
             )
 
             let reply = ChatMessage(role: .assistant, content: response, agentName: agent.name)
@@ -282,10 +290,18 @@ class ChatViewModel: ObservableObject {
             """
 
             let history = buildHistory(for: agent.id)
-            let response = try await provider.sendMessage(
-                model: agent.modelName,
+            let agentID = agent.id
+            let response = try await ToolExecutor.smartSend(
+                provider: provider,
+                agent: agent,
                 systemPrompt: systemPrompt,
-                messages: history
+                messages: history,
+                onToolActivity: { [weak self] activity in
+                    Task { @MainActor in
+                        let toolMsg = ChatMessage(role: .assistant, content: activity, agentName: agent.name, messageType: .toolActivity)
+                        self?.appendMessage(toolMsg, for: agentID)
+                    }
+                }
             )
 
             let reply = ChatMessage(role: .assistant, content: response, agentName: agent.name, messageType: .devAction)
@@ -512,8 +528,9 @@ class ChatViewModel: ObservableObject {
                     throw AIProviderError.apiError("프로바이더를 찾을 수 없습니다.")
                 }
 
-                let response = try await provider.sendMessage(
-                    model: agent.modelName,
+                let response = try await ToolExecutor.smartSend(
+                    provider: provider,
+                    agent: agent,
                     systemPrompt: agent.persona,
                     messages: messages
                 )

@@ -18,9 +18,9 @@ struct OnboardingView: View {
 
             // 콘텐츠
             switch viewModel.currentStep {
-            case .detecting:
-                detectingView
-            case .selection:
+            case .claudeSetup:
+                claudeSetupView
+            case .providerSelection:
                 selectionView
             case .apiKeyInput:
                 apiKeyView
@@ -31,17 +31,28 @@ struct OnboardingView: View {
         .frame(width: 520, height: 560)
         .background(Color.white)
         .task {
-            await viewModel.startDetection()
+            await viewModel.startClaudeSetup()
         }
     }
 
     // MARK: - 단계 인디케이터
 
     private var stepIndicator: some View {
-        HStack(spacing: 8) {
+        let step: Int = {
+            switch viewModel.currentStep {
+            case .claudeSetup: return 0
+            case .providerSelection: return 1
+            case .apiKeyInput: return 2
+            case .complete: return 3
+            }
+        }()
+
+        return HStack(spacing: 8) {
             stepDot(active: true)
-            stepLine(active: viewModel.currentStep != .detecting)
-            stepDot(active: viewModel.currentStep == .apiKeyInput || viewModel.currentStep == .complete)
+            stepLine(active: step >= 1)
+            stepDot(active: step >= 1)
+            stepLine(active: step >= 2)
+            stepDot(active: step >= 2)
         }
     }
 
@@ -57,21 +68,229 @@ struct OnboardingView: View {
             .frame(width: 40, height: 2)
     }
 
-    // MARK: - 감지 중 화면
+    // MARK: - Claude Setup 화면
 
-    private var detectingView: some View {
-        VStack(spacing: 20) {
+    private var claudeSetupView: some View {
+        VStack(spacing: 0) {
             Spacer()
+
+            VStack(spacing: 20) {
+                // 아이콘
+                Image(systemName: "terminal")
+                    .font(.system(size: 40))
+                    .foregroundColor(.purple)
+                    .frame(width: 80, height: 80)
+                    .background(Color.purple.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                Text("마스터 에이전트 설정")
+                    .font(.title3.bold())
+
+                Text("AgentManager는 Claude Code CLI를\n마스터 에이전트로 사용합니다")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+
+                // 상태별 UI
+                claudeStateContent
+            }
+            .padding(.horizontal, 40)
+
+            Spacer()
+
+            // 하단 버튼
+            claudeSetupButtons
+                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
+        }
+    }
+
+    @ViewBuilder
+    private var claudeStateContent: some View {
+        switch viewModel.claudeInstaller.state {
+        case .checking:
             ProgressView()
-                .scaleEffect(1.2)
-            Text("AI 도구 감지 중...")
-                .font(.headline)
-            Text("시스템에 설치된 AI를 확인하고 있습니다")
+                .scaleEffect(1.0)
+            Text("Claude Code 확인 중...")
                 .font(.caption)
                 .foregroundColor(.secondary)
-            Spacer()
+
+        case .found(let path):
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 32))
+                .foregroundColor(.green)
+            Text("Claude Code가 설치되어 있습니다")
+                .font(.callout.weight(.medium))
+                .foregroundColor(.green)
+            Text(path)
+                .font(.caption2.monospaced())
+                .foregroundColor(.secondary)
+
+        case .notFound:
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 28))
+                .foregroundColor(.orange)
+            Text("Claude Code가 설치되어 있지 않습니다")
+                .font(.callout.weight(.medium))
+            Text("자동으로 설치하거나, 건너뛰고 다른 AI를 사용할 수 있습니다")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+
+        case .installing(let step):
+            ProgressView()
+                .scaleEffect(1.0)
+            Text(step)
+                .font(.callout.weight(.medium))
+            if !viewModel.claudeInstaller.installLog.isEmpty {
+                Text(String(viewModel.claudeInstaller.installLog.suffix(200)))
+                    .font(.caption2.monospaced())
+                    .foregroundColor(.secondary)
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+                    .background(Color.black.opacity(0.03))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+
+        case .needsAuth:
+            Image(systemName: "person.badge.key")
+                .font(.system(size: 28))
+                .foregroundColor(.blue)
+            Text("인증이 필요합니다")
+                .font(.callout.weight(.medium))
+            Text("터미널에서 `claude` 명령을 한 번 실행하여\nAnthropic 계정으로 로그인해주세요")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+
+        case .ready:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 32))
+                .foregroundColor(.green)
+            Text("Claude Code 준비 완료!")
+                .font(.callout.weight(.medium))
+                .foregroundColor(.green)
+
+        case .failed(let message):
+            Image(systemName: "xmark.circle")
+                .font(.system(size: 28))
+                .foregroundColor(.red)
+            Text("설치 실패")
+                .font(.callout.weight(.medium))
+                .foregroundColor(.red)
+            Text(message)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(4)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var claudeSetupButtons: some View {
+        switch viewModel.claudeInstaller.state {
+        case .checking:
+            EmptyView()
+
+        case .found:
+            HStack {
+                Spacer()
+                Button(action: {
+                    Task { await viewModel.finishClaudeSetup() }
+                }) {
+                    nextButtonLabel("다음")
+                }
+                .buttonStyle(.plain)
+            }
+
+        case .notFound:
+            HStack {
+                Button("건너뛰기") {
+                    Task { await viewModel.skipClaudeSetup() }
+                }
+                .foregroundColor(.secondary)
+
+                Spacer()
+
+                Button(action: {
+                    Task { await viewModel.installClaudeCode() }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.down.circle")
+                            .font(.caption)
+                        Text("설치")
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+                    .background(Color.purple)
+                    .foregroundColor(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+
+        case .installing:
+            EmptyView()
+
+        case .needsAuth:
+            HStack {
+                Button("건너뛰기") {
+                    Task { await viewModel.skipClaudeSetup() }
+                }
+                .foregroundColor(.secondary)
+
+                Spacer()
+
+                Button("인증 완료") {
+                    viewModel.claudeInstaller.confirmAuth()
+                    Task { await viewModel.finishClaudeSetup() }
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+                .background(Color.accentColor)
+                .foregroundColor(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+
+        case .ready:
+            HStack {
+                Spacer()
+                Button(action: {
+                    Task { await viewModel.finishClaudeSetup() }
+                }) {
+                    nextButtonLabel("다음")
+                }
+                .buttonStyle(.plain)
+            }
+
+        case .failed:
+            HStack {
+                Button("건너뛰기") {
+                    Task { await viewModel.skipClaudeSetup() }
+                }
+                .foregroundColor(.secondary)
+
+                Spacer()
+
+                Button(action: {
+                    Task { await viewModel.installClaudeCode() }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.caption)
+                        Text("다시 시도")
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+                    .background(Color.purple)
+                    .foregroundColor(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 
     // MARK: - 선택 화면
@@ -80,12 +299,31 @@ struct OnboardingView: View {
         VStack(spacing: 0) {
             // 헤더
             VStack(spacing: 6) {
-                Text("사용할 AI를 선택하세요")
-                    .font(.title3.bold())
-                if !viewModel.detectedProviders.isEmpty {
-                    Text("\(viewModel.detectedProviders.count)개의 AI가 감지되었습니다")
+                if viewModel.claudeSkipped {
+                    Text("사용할 AI를 선택하세요")
+                        .font(.title3.bold())
+                } else {
+                    Text("서브 에이전트용 AI 선택")
+                        .font(.title3.bold())
+                    Text("마스터: Claude Code (자동 설정됨)")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.purple)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.purple.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                }
+
+                if viewModel.isDetecting {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                } else if !viewModel.detectedProviders.isEmpty {
+                    let subDetected = viewModel.detectedProviders.filter { $0.type != .claudeCode }
+                    if !subDetected.isEmpty {
+                        Text("\(subDetected.count)개의 추가 AI가 감지되었습니다")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
             .padding(.vertical, 16)
@@ -114,16 +352,8 @@ struct OnboardingView: View {
                 Spacer()
 
                 Button(action: { viewModel.goToNext() }) {
-                    HStack(spacing: 4) {
-                        Text(viewModel.selectedTypes.isEmpty ? "건너뛰기" : "다음")
-                        Image(systemName: "arrow.right")
-                            .font(.caption)
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 8)
-                    .background(Color.accentColor)
-                    .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    nextButtonLabel(viewModel.selectedTypes.isEmpty || (!viewModel.claudeSkipped && viewModel.selectedTypes == [.claudeCode])
+                                    ? "건너뛰기" : "다음")
                 }
                 .buttonStyle(.plain)
             }
@@ -135,6 +365,7 @@ struct OnboardingView: View {
     private func providerSelectionRow(type: ProviderType, detected: DetectedProvider?) -> some View {
         let isSelected = viewModel.selectedTypes.contains(type)
         let isMaster = viewModel.masterProviderType == type
+        let showMasterSelector = viewModel.claudeSkipped
 
         return HStack(spacing: 12) {
             // 체크박스
@@ -178,8 +409,8 @@ struct OnboardingView: View {
 
             Spacer()
 
-            // 마스터 선택 라디오
-            if isSelected {
+            // 마스터 선택 라디오 (Claude 건너뛴 경우에만)
+            if showMasterSelector && isSelected {
                 Button(action: { viewModel.setMaster(type) }) {
                     HStack(spacing: 4) {
                         Image(systemName: isMaster ? "star.fill" : "star")
@@ -363,6 +594,19 @@ struct OnboardingView: View {
     }
 
     // MARK: - 헬퍼
+
+    private func nextButtonLabel(_ text: String) -> some View {
+        HStack(spacing: 4) {
+            Text(text)
+            Image(systemName: "arrow.right")
+                .font(.caption)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .background(Color.accentColor)
+        .foregroundColor(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
 
     private func providerIcon(_ type: ProviderType) -> some View {
         let (icon, color): (String, Color) = {

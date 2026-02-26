@@ -14,19 +14,14 @@ enum RoomStatus: String, Codable {
     case inProgress    // 타이머 진행 중 (작업 중)
     case completed     // 작업 완료
     case failed        // 실패
-    case archived      // 닫힘/보관
 
     /// 허용된 상태 전이 검증
     func canTransition(to target: RoomStatus) -> Bool {
         switch (self, target) {
         case (.planning, .inProgress),
              (.planning, .failed),
-             (.planning, .archived),
              (.inProgress, .completed),
-             (.inProgress, .failed),
-             (.inProgress, .archived),
-             (.completed, .archived),
-             (.failed, .archived):
+             (.inProgress, .failed):
             return true
         default:
             return false
@@ -142,8 +137,6 @@ struct Room: Identifiable, Codable {
             return "완료"
         case .failed:
             return "실패"
-        case .archived:
-            return "보관됨"
         }
     }
 

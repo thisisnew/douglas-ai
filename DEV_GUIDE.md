@@ -15,9 +15,9 @@ AgentManager/
 ├── CLAUDE.md                      # Claude Code 세션 규칙
 └── AgentManager/
     ├── App/                       # 앱 진입점, AppDelegate
-    ├── Models/                    # 데이터 모델 (Agent, ChatMessage, ProviderConfig, ChangeRecord)
-    ├── ViewModels/                # 비즈니스 로직 (AgentStore, ChatViewModel, ProviderManager, DevAgentManager)
-    ├── Providers/                 # AI 프로바이더 (AIProvider 프로토콜, Claude/OpenAI/Google)
+    ├── Models/                    # 데이터 모델 (Agent, ChatMessage, AgentTool, ProviderConfig, ChangeRecord)
+    ├── ViewModels/                # 비즈니스 로직 (AgentStore, ChatViewModel, ToolExecutor, ProviderManager, DevAgentManager)
+    ├── Providers/                 # AI 프로바이더 (AIProvider 프로토콜, ToolFormatConverter, Claude/OpenAI/Google/Anthropic)
     └── Views/                     # SwiftUI 뷰
 ```
 
@@ -48,6 +48,14 @@ AgentManager/
 ### 역호환
 - 새 필드 추가 시 반드시 `decodeIfPresent` + 기본값 사용
 - `CodingKeys`에 명시적으로 나열
+
+### Tool Use (도구) 관례
+- 새 도구 추가: `ToolRegistry.allTools`에 `AgentTool` 추가 + `ToolExecutor.executeSingleTool()`에 case 추가
+- 도구 정의는 `AgentTool`로 프로바이더 무관하게 정의, 프로바이더별 형식 변환은 `ToolFormatConverter` 담당
+- 에이전트별 도구 설정: `Agent.capabilityPreset` + `Agent.enabledToolIDs`로 결정
+- `ToolExecutor.smartSend()`: 도구 미사용 에이전트나 미지원 프로바이더는 자동으로 기존 `sendMessage()` 폴백
+- 도구 루프 최대 반복: 10회 (`ToolExecutor.maxIterations`)
+- ClaudeCodeProvider는 `supportsToolCalling = false` (CLI가 자체 도구 보유)
 
 ---
 

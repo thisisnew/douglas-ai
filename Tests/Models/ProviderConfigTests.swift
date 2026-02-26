@@ -98,4 +98,36 @@ struct ProviderConfigTests {
             #expect(!method.description.isEmpty)
         }
     }
+
+    // MARK: - isConnected
+
+    @Test("isConnected - Ollama는 항상 true")
+    func isConnectedOllama() {
+        let config = makeTestProviderConfig(type: .ollama, baseURL: "http://localhost:11434")
+        #expect(config.isConnected == true)
+    }
+
+    @Test("isConnected - LM Studio는 항상 true")
+    func isConnectedLMStudio() {
+        let config = makeTestProviderConfig(type: .lmStudio, baseURL: "http://localhost:1234")
+        #expect(config.isConnected == true)
+    }
+
+    @Test("isConnected - OpenAI (apiKey 없으면 false)")
+    func isConnectedOpenAINoKey() {
+        let config = makeTestProviderConfig(type: .openAI, baseURL: "https://api.openai.com", authMethod: .apiKey)
+        #expect(config.isConnected == false)
+    }
+
+    @Test("isConnected - Custom (baseURL 비어있으면 false)")
+    func isConnectedCustomEmpty() {
+        let config = makeTestProviderConfig(type: .custom, baseURL: "")
+        #expect(config.isConnected == false)
+    }
+
+    @Test("isConnected - Custom (baseURL 있으면 true)")
+    func isConnectedCustomWithURL() {
+        let config = makeTestProviderConfig(type: .custom, baseURL: "https://example.com")
+        #expect(config.isConnected == true)
+    }
 }

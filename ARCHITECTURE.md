@@ -35,26 +35,30 @@ AgentManager/
 ├── AgentManagerApp/
 │   └── AgentManagerApp.swift        # @main 진입점, MenuBarExtra (실행 타겟)
 │   ├── Models/
-│   │   ├── Agent.swift              # 에이전트 모델 (이름, 페르소나, 이미지, isMaster, isDevAgent=워즈니악)
-│   │   ├── ChatMessage.swift        # 메시지 모델 (MessageType 포함: devAction, buildResult 등)
+│   │   ├── Agent.swift              # 에이전트 모델 (이름, 페르소나, 이미지, isMaster, isDevAgent, 도구 설정)
+│   │   ├── AgentTool.swift          # 도구 시스템 (AgentTool, ToolCall, ToolResult, CapabilityPreset, ToolRegistry)
+│   │   ├── ChatMessage.swift        # 메시지 모델 (MessageType 포함: devAction, buildResult, toolActivity 등)
 │   │   ├── ChangeRecord.swift       # 변경 이력 데이터 모델 (커밋 해시, 상태, 파일 목록)
-│   │   ├── ProviderConfig.swift     # 프로바이더 설정 (AuthMethod, ProviderType)
+│   │   ├── ProviderConfig.swift     # 프로바이더 설정 (AuthMethod, ProviderType, isConnected)
 │   │   ├── ProviderDetector.swift   # 시스템 AI 프로바이더 자동 감지
+│   │   ├── ClaudeCodeInstaller.swift # Claude Code CLI 설치/검증 유틸리티
 │   │   ├── Room.swift               # 프로젝트 방 모델 (상태 전이, 타이머, 토론 모드)
 │   │   └── KeychainHelper.swift     # 파일 기반 API 키 저장 (Keychain 레거시 마이그레이션)
 │   ├── ViewModels/
 │   │   ├── AgentStore.swift         # 에이전트 CRUD, 마스터/워즈니악 생명주기
 │   │   ├── ChatViewModel.swift      # 메시지 전송, 마스터 오케스트레이션, 워즈니악 핸들링
 │   │   ├── DevAgentManager.swift    # Git 연동, 빌드 검증, 변경 이력 관리
-│   │   ├── OnboardingViewModel.swift # 첫 실행 온보딩 상태 관리
+│   │   ├── OnboardingViewModel.swift # 첫 실행 온보딩 상태 관리 (Claude 자동 설정 → 프로바이더 선택)
 │   │   ├── ProviderManager.swift    # 프로바이더 설정 관리
-│   │   └── RoomManager.swift        # 프로젝트 방 생명주기, 팀 작업 조율
+│   │   ├── RoomManager.swift        # 프로젝트 방 생명주기, 팀 작업 조율
+│   │   └── ToolExecutor.swift       # 도구 호출 루프 실행 + smartSend 유틸리티
 │   ├── Providers/
-│   │   ├── AIProvider.swift         # AIProvider 프로토콜 + 공통 인증
+│   │   ├── AIProvider.swift         # AIProvider 프로토콜 + 공통 인증 + Tool Use 확장
+│   │   ├── ToolFormatConverter.swift # 프로바이더별 도구 형식 변환 유틸리티
 │   │   ├── ClaudeCodeProvider.swift # Claude Code CLI 실행 (Process)
-│   │   ├── OpenAIProvider.swift     # OpenAI Chat Completions API
-│   │   ├── GoogleProvider.swift     # Google Gemini generateContent API
-│   │   ├── AnthropicProvider.swift  # (비활성) Anthropic API
+│   │   ├── OpenAIProvider.swift     # OpenAI Chat Completions API + Tool Use
+│   │   ├── GoogleProvider.swift     # Google Gemini generateContent API + Tool Use
+│   │   ├── AnthropicProvider.swift  # Anthropic API + Tool Use
 │   │   ├── OllamaProvider.swift     # (비활성) Ollama/LM Studio
 │   │   └── CustomProvider.swift     # (비활성) 커스텀 URL
 │   └── Views/
@@ -258,11 +262,19 @@ protocol AIProvider {
     var config: ProviderConfig { get }
     func fetchModels() async throws -> [String]
     func sendMessage(model:systemPrompt:messages:) async throws -> String
+
+    // Tool Use 확장
+    var supportsToolCalling: Bool { get }
+    func sendMessageWithTools(
+        model: String, systemPrompt: String,
+        messages: [ConversationMessage], tools: [AgentTool]
+    ) async throws -> AIResponseContent
 }
 ```
 
 - `applyAuth(to:)` 확장: AuthMethod에 따라 Bearer/x-api-key/커스텀 헤더 자동 적용
 - `AIProviderError`: invalidURL, invalidResponse, apiError, networkError, noAPIKey
+- **Tool Use default 구현**: `supportsToolCalling = false`, tools 무시하고 기존 `sendMessage()` 폴백
 
 ### ClaudeCodeProvider (`Providers/ClaudeCodeProvider.swift`)
 
@@ -279,6 +291,13 @@ protocol AIProvider {
 - `/v1/models` 엔드포인트로 모델 목록 조회 (gpt, o1, o3, o4 필터)
 - `/v1/chat/completions`로 메시지 전송
 - 타임아웃: 120초
+- **Tool Use**: `supportsToolCalling = true`, `tools` 배열 + `tool_calls` 응답 파싱
+
+### AnthropicProvider (`Providers/AnthropicProvider.swift`)
+
+- Anthropic Messages API (`/v1/messages`)
+- **Tool Use**: `supportsToolCalling = true`, `tools` 배열 + `tool_use` content block 파싱
+- `tool_result`는 user role 메시지의 content block으로 전송 (Anthropic 규격)
 
 ### GoogleProvider (`Providers/GoogleProvider.swift`)
 
@@ -286,6 +305,7 @@ protocol AIProvider {
 - `/v1beta/models/{model}:generateContent?key=` 엔드포인트
 - 시스템 프롬프트를 user/model 턴 쌍으로 주입
 - role 매핑: assistant → model
+- **Tool Use**: `supportsToolCalling = true`, `function_declarations` + `functionCall` 파싱
 
 ---
 
@@ -296,15 +316,19 @@ protocol AIProvider {
 ```swift
 struct Agent: Identifiable, Codable, Hashable {
     let id: UUID
-    var name: String           // 에이전트 표시 이름
-    var persona: String        // 시스템 프롬프트 (역할/성격)
-    var providerName: String   // "Claude Code", "OpenAI", "Google"
-    var modelName: String      // "claude-sonnet-4-6", "gpt-4o" 등
-    var status: AgentStatus    // idle / working / error
-    var isMaster: Bool         // 마스터 에이전트 여부
-    var isDevAgent: Bool       // 워즈니악(유지보수 담당자) 여부
-    var errorMessage: String?  // 마지막 오류 메시지
-    var hasImage: Bool         // 아바타 이미지 유무 (파일시스템 저장)
+    var name: String              // 에이전트 표시 이름
+    var persona: String           // 시스템 프롬프트 (역할/성격)
+    var providerName: String      // "Claude Code", "OpenAI", "Google"
+    var modelName: String         // "claude-sonnet-4-6", "gpt-4o" 등
+    var status: AgentStatus       // idle / working / error
+    var isMaster: Bool            // 마스터 에이전트 여부
+    var isDevAgent: Bool          // 워즈니악(유지보수 담당자) 여부
+    var errorMessage: String?     // 마지막 오류 메시지
+    var hasImage: Bool            // 아바타 이미지 유무 (파일시스템 저장)
+    var capabilityPreset: CapabilityPreset?  // 도구 프리셋 (nil = 도구 없음)
+    var enabledToolIDs: [String]?            // preset == .custom일 때 사용
+    var resolvedToolIDs: [String] { ... }    // 최종 활성 도구 ID 목록 (computed)
+    var hasToolsEnabled: Bool { ... }        // 도구 사용 가능 여부 (computed)
 }
 ```
 
@@ -313,6 +337,7 @@ struct Agent: Identifiable, Codable, Hashable {
 - `createMaster()`: 기본 마스터 에이전트 팩토리 (Claude Code + 위임 페르소나)
 - `createDevAgent()`: 워즈니악 팩토리 — 페르소나에 DEV_GUIDE 핵심 규칙 직접 임베딩
 - 이미지: `~/Library/Application Support/AgentManager/avatars/{id}.png`에 저장 (static save/load/delete)
+- 하위 호환: `capabilityPreset`, `enabledToolIDs`는 `decodeIfPresent`로 디코딩
 
 ### ChatMessage (`Models/ChatMessage.swift`)
 
@@ -323,7 +348,7 @@ struct ChatMessage: Identifiable, Codable {
     let content: String
     let agentName: String?       // 응답한 에이전트 이름
     let timestamp: Date
-    var messageType: MessageType // text / delegation / summary / chainProgress / suggestion / error / devAction / buildResult
+    var messageType: MessageType // text / delegation / summary / chainProgress / suggestion / error / devAction / buildResult / toolActivity
 }
 ```
 
@@ -372,6 +397,7 @@ struct ProviderConfig: Identifiable, Codable {
 
 - 역호환 디코더: authMethod가 없으면 ProviderType에서 기본값 추론
 - `apiKey`는 Codable 저장에서 제외, Keychain을 통해 읽기/쓰기
+- `isConnected: Bool` — 프로바이더가 사용 가능한 상태인지 (Claude: 바이너리 존재, API: 키 설정됨, 로컬: 항상 true)
 
 ---
 
@@ -468,6 +494,7 @@ MessageType에 따른 시각 차별화:
 | error | 빨강 10% | exclamationmark.triangle | - |
 | devAction | 초록 8% | hammer.fill | - |
 | buildResult | teal 10% | checkmark.circle | - |
+| toolActivity | 회색 8% | wrench.and.screwdriver | - |
 
 사용자 메시지: accentColor 배경, 흰색 텍스트, 오른쪽 정렬
 
@@ -600,6 +627,82 @@ MessageType에 따른 시각 차별화:
 
 ---
 
+## Tool Use (Function Calling) 시스템
+
+### 개요
+
+에이전트가 파일 읽기/쓰기, 셸 실행 등 실제 작업을 수행할 수 있는 도구 호출 시스템.
+하나의 `AgentTool` 정의를 OpenAI/Anthropic/Google 각 프로바이더 형식으로 자동 변환한다.
+
+### 핵심 타입 (`Models/AgentTool.swift`)
+
+| 타입 | 역할 |
+|------|------|
+| `AgentTool` | 프로바이더 무관 도구 정의 (id, name, description, parameters) |
+| `ToolCall` | 모델이 요청한 도구 호출 (id, toolName, arguments) |
+| `ToolResult` | 도구 실행 결과 (callID, content, isError) |
+| `ToolArgumentValue` | 타입 안전 인자값 enum (string/integer/boolean/array) |
+| `AIResponseContent` | 응답 enum (.text / .toolCalls / .mixed) |
+| `ConversationMessage` | 도구 메시지 포함 가능한 리치 메시지 타입 |
+| `CapabilityPreset` | 용도별 도구 프리셋 (6종) |
+| `ToolRegistry` | 내장 도구 카탈로그 |
+
+### CapabilityPreset (도구 프리셋)
+
+| 프리셋 | 포함 도구 |
+|--------|----------|
+| `.none` | (없음) |
+| `.researcher` | web_search |
+| `.developer` | file_read, file_write, shell_exec |
+| `.analyst` | file_read, web_search |
+| `.fullAccess` | 전체 4종 |
+| `.custom` | enabledToolIDs로 직접 선택 |
+
+### 내장 도구 (ToolRegistry)
+
+| ID | 이름 | 설명 |
+|----|------|------|
+| `file_read` | 파일 읽기 | 지정 경로 파일 내용 읽기 (50K자 제한) |
+| `file_write` | 파일 쓰기 | 지정 경로에 파일 작성 |
+| `shell_exec` | 셸 실행 | zsh 명령어 실행 (30K자 출력 제한) |
+| `web_search` | 웹 검색 | 웹 검색 (미구현 placeholder) |
+
+### ToolFormatConverter (`Providers/ToolFormatConverter.swift`)
+
+프로바이더별 도구 형식 변환 유틸리티:
+- `toOpenAI()` / `parseOpenAIToolCalls()` — OpenAI tools 형식
+- `toAnthropic()` / `parseAnthropicToolUse()` — Anthropic content blocks 형식
+- `toGoogle()` / `parseGoogleFunctionCalls()` — Google function_declarations 형식
+- `buildJSONSchema()` — AgentTool.parameters → JSON Schema
+- `parseArguments()` / `encodeArguments()` — JSON 문자열 ↔ ToolArgumentValue 변환
+
+### ToolExecutor (`ViewModels/ToolExecutor.swift`)
+
+도구 호출 루프 실행 엔진:
+
+```
+smartSend() → 도구 없거나 미지원? → 기존 sendMessage()
+           → 도구 있고 지원?      → executeWithTools()
+
+executeWithTools() 루프 (최대 10회):
+  1. sendMessageWithTools() 호출
+  2. .text → 최종 응답 반환
+  3. .toolCalls/.mixed → 각 도구 실행 → 결과를 messages에 추가 → 1로 돌아감
+```
+
+- `onToolActivity` 콜백으로 도구 사용 상태를 채팅에 표시 (`.toolActivity` 메시지)
+
+### 통합 지점
+
+| 파일 | 변경 |
+|------|------|
+| `ChatViewModel.swift` | `handleAgentMessage`, `handleDevAgentMessage`, `executeDelegation` → `ToolExecutor.smartSend()` |
+| `RoomManager.swift` | `sendUserMessage`, `executeStep` → `ToolExecutor.smartSend()` |
+
+마스터 라우팅, 요약 생성, 토론 턴 등 텍스트 전용 호출은 기존 `sendMessage()` 유지.
+
+---
+
 ## 확장 포인트
 
 1. **새 프로바이더 추가**: `AIProvider` 프로토콜 구현 + `ProviderType` enum 케이스 추가 + `ProviderManager.createProvider()` 분기 추가
@@ -607,6 +710,9 @@ MessageType에 따른 시각 차별화:
 3. **마스터 프롬프트 커스터마이징**: EditAgentSheet에서 마스터 페르소나 수정 시 위임 전략도 변경됨
 4. **에이전트 간 직접 통신**: 현재는 마스터를 통해서만 위임. 에이전트 간 직접 메시지 패싱 추가 가능
 5. **워즈니악 기능 확장**: 현재 빌드 검증 + Git 커밋. 테스트 자동 실행, 린터 통합 등 추가 가능
+6. **새 도구 추가**: `ToolRegistry`에 `AgentTool` 추가 + `ToolExecutor.executeSingleTool()`에 case 추가 + `CapabilityPreset` 필요 시 업데이트
+7. **MCP (Model Context Protocol)**: 현재 내장 도구 방식. 외부 MCP 서버 연동으로 확장 가능
+8. **web_search 도구 구현**: 현재 placeholder. 실제 검색 API 연동 필요
 
 ---
 
@@ -658,7 +764,8 @@ MessageType에 따른 시각 차별화:
 | FloatingSidebarView.swift | ~950 | 사이드바 + 슬래시 커맨드 + UtilityWindowManager |
 | AppDelegate.swift | ~297 | 윈도우/패널 관리 |
 | DevAgentManager.swift | ~231 | Git/빌드/이력 관리 |
-| Agent.swift | ~160 | 에이전트 모델 (isMaster, isDevAgent, 이미지) |
+| Agent.swift | ~180 | 에이전트 모델 (isMaster, isDevAgent, 이미지, 도구 설정) |
+| AgentTool.swift | ~170 | 도구 시스템 타입 (AgentTool, ToolCall, ToolResult, CapabilityPreset, ToolRegistry) |
 | AgentStore.swift | ~160 | 에이전트 상태 관리 + 워즈니악 생명주기 |
 | ChatView.swift | ~137 | 채팅 UI + 메시지 버블 |
 | ChatContentView.swift | ~130 | 공유 채팅 UI 컴포넌트 |
@@ -673,9 +780,12 @@ MessageType에 따른 시각 차별화:
 | SuggestionCard.swift | ~72 | 제안 카드 |
 | AgentAvatarView.swift | ~65 | 아바타 컴포넌트 (3종 아이콘) |
 | ChatMessage.swift | ~60 | 메시지 모델 (8종 타입) |
-| AIProvider.swift | ~57 | 프로바이더 프로토콜 |
-| OpenAIProvider.swift | ~57 | OpenAI API |
-| GoogleProvider.swift | ~50 | Gemini API |
+| AIProvider.swift | ~80 | 프로바이더 프로토콜 + Tool Use 확장 |
+| ToolFormatConverter.swift | ~210 | 프로바이더별 도구 형식 변환 |
+| ToolExecutor.swift | ~220 | 도구 호출 루프 + 개별 도구 실행 |
+| OpenAIProvider.swift | ~140 | OpenAI API + Tool Use |
+| GoogleProvider.swift | ~130 | Gemini API + Tool Use |
+| AnthropicProvider.swift | ~130 | Anthropic API + Tool Use |
 | ChangeRecord.swift | ~25 | 변경 이력 모델 |
 | KeychainHelper.swift | ~40 | Keychain 헬퍼 |
 | AgentManagerApp.swift | ~29 | 앱 진입점 |
@@ -687,7 +797,7 @@ MessageType에 따른 시각 차별화:
 ### 개요
 
 - **프레임워크**: Swift Testing (`@Test`, `#expect`)
-- **테스트 수**: 290개 (17 파일)
+- **테스트 수**: 371개 (20 파일)
 - **명령어**: `swift test`
 - **모킹**: MockAIProvider, MockURLProtocol, 격리 UserDefaults
 
@@ -697,9 +807,10 @@ MessageType에 따른 시각 차별화:
 Tests/
 ├── Models/
 │   ├── AgentTests.swift              # 17 tests — 초기화, 팩토리, Codable, 레거시 디코딩
+│   ├── AgentToolTests.swift          # 35 tests — AgentTool/ToolCall/ToolResult Codable, CapabilityPreset, ToolRegistry, ConversationMessage
 │   ├── ChatMessageTests.swift        # 11 tests — 모든 MessageType, Codable 라운드트립
 │   ├── ChangeRecordTests.swift       # 8 tests  — 상태 전이, 직렬화
-│   ├── ProviderConfigTests.swift     # 9 tests  — AuthMethod, Keychain 분리, 레거시 호환
+│   ├── ProviderConfigTests.swift     # 14 tests — AuthMethod, Keychain 분리, 레거시 호환, isConnected
 │   ├── ProviderDetectorTests.swift   # 18 tests — DetectedProvider 모델, maskedKey, DevAgentError
 │   ├── KeychainHelperTests.swift     # 16 tests — 파일 기반 저장/로드/삭제, 특수 문자, 에러 타입
 │   └── RoomTests.swift              # 30 tests — 상태 전이, 타이머, 토론 모드, 레거시 디코딩
@@ -709,13 +820,15 @@ Tests/
 │   ├── AgentStoreTests.swift         # 28 tests — CRUD, 마스터/DevAgent 보호, updateMasterProvider
 │   ├── RoomManagerTests.swift        # 36 tests — 방 생명주기, 에이전트 동기화, activeRoomCount
 │   ├── ProviderManagerTests.swift    # 20 tests — 팩토리, configureFromOnboarding, 영속화
-│   └── OnboardingViewModelTests.swift # 22 tests — 감지 후 선택, 마스터 우선순위, 스텝 전이
+│   ├── OnboardingViewModelTests.swift # 23 tests — Claude 셋업, 프로바이더 선택, 마스터 우선순위, 스텝 전이
+│   └── ToolExecutorTests.swift      # 25 tests — smartSend 분기, 도구 루프, 개별 도구 실행, 오류 처리
 ├── Providers/
-│   └── ProviderTests.swift          # 36 tests — HTTP 검증, 인증, 전체 프로바이더 모킹
+│   ├── ProviderTests.swift          # 36 tests — HTTP 검증, 인증, 전체 프로바이더 모킹
+│   └── ToolFormatConverterTests.swift # 21 tests — OpenAI/Anthropic/Google 형식 변환, JSON Schema
 ├── Helpers/
 │   └── TestHelpers.swift            # 팩토리 함수 (makeTestAgent, makeTestDefaults 등)
 └── Mocks/
-    ├── MockAIProvider.swift         # 가짜 프로바이더 (호출 추적)
+    ├── MockAIProvider.swift         # 가짜 프로바이더 (호출 추적 + Tool Use 모킹)
     └── MockURLProtocol.swift        # URLProtocol 서브클래스 (HTTP 모킹)
 ```
 
@@ -723,7 +836,7 @@ Tests/
 
 | 계층 | 테스트 수 | 커버리지 |
 |------|----------|---------|
-| Models | 109 | Agent, ChatMessage, ChangeRecord, ProviderConfig, Room, DetectedProvider, KeychainHelper |
-| ViewModels | 145 | ChatViewModel, AgentStore, ProviderManager, RoomManager, OnboardingViewModel |
-| Providers | 36 | OpenAI, Anthropic, Google, Ollama, LM Studio, Custom, ClaudeCode |
-| **합계** | **290** | 비즈니스 로직 전체 커버 (View 레이어는 UI 테스트 특성상 제외) |
+| Models | 149 | Agent, AgentTool, ToolCall, ToolResult, CapabilityPreset, ToolRegistry, ChatMessage, ChangeRecord, ProviderConfig, Room, DetectedProvider, KeychainHelper |
+| ViewModels | 171 | ChatViewModel, AgentStore, ProviderManager, RoomManager, OnboardingViewModel, ToolExecutor |
+| Providers | 57 | OpenAI, Anthropic, Google, Ollama, LM Studio, Custom, ClaudeCode, ToolFormatConverter |
+| **합계** | **371** | 비즈니스 로직 전체 커버 (View 레이어는 UI 테스트 특성상 제외) |

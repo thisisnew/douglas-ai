@@ -91,6 +91,11 @@ class ProviderManager: ObservableObject {
         saveConfigs()
     }
 
+    /// 연결된(사용 가능한) 프로바이더 목록
+    var connectedConfigs: [ProviderConfig] {
+        configs.filter { $0.isConnected }
+    }
+
     func updateConfig(_ updated: ProviderConfig) {
         if let idx = configs.firstIndex(where: { $0.id == updated.id }) {
             configs[idx] = updated
