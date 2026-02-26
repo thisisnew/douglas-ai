@@ -1,0 +1,246 @@
+import Testing
+import Foundation
+@testable import AgentManagerLib
+
+@Suite("AgentStore Tests")
+@MainActor
+struct AgentStoreTests {
+
+    @Test("init - 기본 마스터 에이전트 생성")
+    func initCreatesMaster() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        #expect(store.masterAgent != nil)
+        #expect(store.masterAgent?.isMaster == true)
+    }
+
+    @Test("init - DevAgent 자동 생성")
+    func initCreatesDevAgent() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        #expect(store.devAgent != nil)
+        #expect(store.devAgent?.isDevAgent == true)
+    }
+
+    @Test("init - 모든 상태 idle로 초기화")
+    func initResetsStatus() {
+        let defaults = makeTestDefaults()
+        // 먼저 working 상태 에이전트를 저장
+        var agent = Agent.createMaster()
+        agent.status = .working
+        let data = try! JSONEncoder().encode([agent])
+        defaults.set(data, forKey: "savedAgents")
+
+        let store = AgentStore(defaults: defaults)
+        #expect(store.masterAgent?.status == .idle)
+    }
+
+    @Test("masterAgent 속성")
+    func masterAgentProperty() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        #expect(store.masterAgent != nil)
+        #expect(store.masterAgent?.isMaster == true)
+    }
+
+    @Test("subAgents 속성 - 마스터/DevAgent 제외")
+    func subAgentsProperty() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        let sub = makeTestAgent(name: "Sub1")
+        store.addAgent(sub)
+        #expect(store.subAgents.contains(where: { $0.name == "Sub1" }))
+        #expect(!store.subAgents.contains(where: { $0.isMaster }))
+        #expect(!store.subAgents.contains(where: { $0.isDevAgent }))
+    }
+
+    @Test("selectedAgent - 기본은 마스터")
+    func selectedAgentDefaultsMaster() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        #expect(store.selectedAgent?.isMaster == true)
+    }
+
+    @Test("selectedAgent - 특정 에이전트 선택")
+    func selectedAgentSpecific() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        let sub = makeTestAgent(name: "Sub1")
+        store.addAgent(sub)
+        store.selectAgent(sub)
+        #expect(store.selectedAgent?.name == "Sub1")
+    }
+
+    @Test("addAgent")
+    func addAgent() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        let initialCount = store.agents.count
+        let sub = makeTestAgent(name: "NewAgent")
+        store.addAgent(sub)
+        #expect(store.agents.count == initialCount + 1)
+        #expect(store.agents.contains(where: { $0.name == "NewAgent" }))
+    }
+
+    @Test("removeAgent - 서브 에이전트 삭제")
+    func removeSubAgent() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        let sub = makeTestAgent(name: "ToDelete")
+        store.addAgent(sub)
+        let countBefore = store.agents.count
+        store.removeAgent(sub)
+        #expect(store.agents.count == countBefore - 1)
+        #expect(!store.agents.contains(where: { $0.name == "ToDelete" }))
+    }
+
+    @Test("removeAgent - 마스터 삭제 불가")
+    func removeMasterProtected() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        guard let master = store.masterAgent else {
+            Issue.record("Master not found")
+            return
+        }
+        let countBefore = store.agents.count
+        store.removeAgent(master)
+        #expect(store.agents.count == countBefore)
+        #expect(store.masterAgent != nil)
+    }
+
+    @Test("removeAgent - DevAgent 삭제 불가")
+    func removeDevAgentProtected() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        guard let dev = store.devAgent else {
+            Issue.record("DevAgent not found")
+            return
+        }
+        let countBefore = store.agents.count
+        store.removeAgent(dev)
+        #expect(store.agents.count == countBefore)
+    }
+
+    @Test("removeAgent - 선택된 에이전트 삭제 시 마스터로 리셋")
+    func removeSelectedResetsToMaster() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        let sub = makeTestAgent(name: "Selected")
+        store.addAgent(sub)
+        store.selectAgent(sub)
+        store.removeAgent(sub)
+        #expect(store.selectedAgentID == store.masterAgent?.id)
+    }
+
+    @Test("updateStatus")
+    func updateStatus() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        guard let master = store.masterAgent else { return }
+        store.updateStatus(agentID: master.id, status: .working)
+        #expect(store.agents.first(where: { $0.id == master.id })?.status == .working)
+    }
+
+    @Test("updateStatus - 에러 메시지")
+    func updateStatusWithError() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        guard let master = store.masterAgent else { return }
+        store.updateStatus(agentID: master.id, status: .error, errorMessage: "fail")
+        let updated = store.agents.first(where: { $0.id == master.id })
+        #expect(updated?.status == .error)
+        #expect(updated?.errorMessage == "fail")
+    }
+
+    @Test("updateAgent")
+    func updateAgent() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        let sub = makeTestAgent(name: "Original")
+        store.addAgent(sub)
+        var updated = sub
+        updated.name = "Updated"
+        store.updateAgent(updated)
+        #expect(store.agents.contains(where: { $0.name == "Updated" }))
+        #expect(!store.agents.contains(where: { $0.name == "Original" }))
+    }
+
+    @Test("masterSystemPrompt - 서브 에이전트 포함")
+    func masterSystemPromptContainsSubAgents() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        let sub = makeTestAgent(name: "TestHelper", persona: "helps with testing")
+        store.addAgent(sub)
+        let prompt = store.masterSystemPrompt()
+        #expect(prompt.contains("TestHelper"))
+    }
+
+    @Test("masterSystemPrompt - 서브 에이전트 없을 때")
+    func masterSystemPromptNoSubAgents() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        // 마스터와 DevAgent만 남기고 subAgents 비어있을 때
+        let prompt = store.masterSystemPrompt()
+        #expect(prompt.contains("delegate"))
+        #expect(prompt.contains("respond"))
+    }
+
+    @Test("masterSystemPrompt - JSON 형식 포함")
+    func masterSystemPromptContainsFormats() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        let prompt = store.masterSystemPrompt()
+        #expect(prompt.contains("delegate"))
+        #expect(prompt.contains("chain"))
+        #expect(prompt.contains("respond"))
+        #expect(prompt.contains("suggest_agent"))
+    }
+
+    @Test("masterSystemPrompt - DevAgent 포함")
+    func masterSystemPromptContainsDevAgent() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        let prompt = store.masterSystemPrompt()
+        // DevAgent(워즈니악)가 위임 대상으로 포함되어야 함
+        #expect(prompt.contains("유지보수 담당자"))
+        #expect(prompt.contains("개발 관련 요청"))
+    }
+
+    @Test("minimizedAgentIDs - 초기 빈 상태")
+    func minimizedAgentIDsEmpty() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        #expect(store.minimizedAgentIDs.isEmpty)
+    }
+
+    @Test("DevAgent 위치 - 마스터 바로 뒤")
+    func devAgentPositionAfterMaster() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        guard let masterIdx = store.agents.firstIndex(where: { $0.isMaster }),
+              let devIdx = store.agents.firstIndex(where: { $0.isDevAgent }) else {
+            Issue.record("Master or DevAgent not found")
+            return
+        }
+        #expect(devIdx == masterIdx + 1)
+    }
+
+    @Test("updateStatus - 존재하지 않는 에이전트")
+    func updateStatusNonExisting() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        let fakeID = UUID()
+        // 크래시 없이 무시되어야 함
+        store.updateStatus(agentID: fakeID, status: .working)
+    }
+
+    @Test("updateAgent - 존재하지 않는 에이전트")
+    func updateAgentNonExisting() {
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        let fake = makeTestAgent(name: "Ghost")
+        // 크래시 없이 무시되어야 함
+        store.updateAgent(fake)
+        #expect(!store.agents.contains(where: { $0.name == "Ghost" }))
+    }
+}

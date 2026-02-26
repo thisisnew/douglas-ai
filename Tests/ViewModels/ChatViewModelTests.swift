@@ -1,0 +1,225 @@
+import Testing
+import Foundation
+@testable import AgentManagerLib
+
+@Suite("ChatViewModel State Tests")
+@MainActor
+struct ChatViewModelTests {
+
+    @Test("init - 빈 상태")
+    func initEmpty() {
+        let vm = ChatViewModel()
+        let randomID = UUID()
+        #expect(vm.messages(for: randomID).isEmpty)
+        #expect(vm.loadingAgentIDs.isEmpty)
+    }
+
+    @Test("messages(for:) - 빈 목록")
+    func messagesEmpty() {
+        let vm = ChatViewModel()
+        #expect(vm.messages(for: UUID()).isEmpty)
+    }
+
+    @Test("appendMessagePublic")
+    func appendMessage() {
+        let vm = ChatViewModel()
+        let agentID = UUID()
+        let msg = makeTestMessage(content: "Hello")
+        vm.appendMessagePublic(msg, for: agentID)
+        let messages = vm.messages(for: agentID)
+        #expect(messages.count == 1)
+        #expect(messages.first?.content == "Hello")
+    }
+
+    @Test("appendMessagePublic - 여러 메시지")
+    func appendMultipleMessages() {
+        let vm = ChatViewModel()
+        let agentID = UUID()
+        for i in 0..<5 {
+            let msg = makeTestMessage(content: "Message \(i)")
+            vm.appendMessagePublic(msg, for: agentID)
+        }
+        #expect(vm.messages(for: agentID).count == 5)
+    }
+
+    @Test("messages(for:) - 에이전트 간 격리")
+    func messagesIsolation() {
+        let vm = ChatViewModel()
+        let agent1 = UUID()
+        let agent2 = UUID()
+        vm.appendMessagePublic(makeTestMessage(content: "A"), for: agent1)
+        vm.appendMessagePublic(makeTestMessage(content: "B"), for: agent2)
+        #expect(vm.messages(for: agent1).count == 1)
+        #expect(vm.messages(for: agent2).count == 1)
+        #expect(vm.messages(for: agent1).first?.content == "A")
+        #expect(vm.messages(for: agent2).first?.content == "B")
+    }
+
+    @Test("isLoading - 초기 상태")
+    func isLoadingInitial() {
+        let vm = ChatViewModel()
+        #expect(!vm.loadingAgentIDs.contains(UUID()))
+    }
+
+    @Test("cancelTask")
+    func cancelTask() {
+        let vm = ChatViewModel()
+        let agentID = UUID()
+        vm.loadingAgentIDs.insert(agentID)
+        vm.cancelTask(for: agentID)
+        #expect(!vm.loadingAgentIDs.contains(agentID))
+    }
+
+    @Test("buildHistory - 내부 메시지 필터링")
+    func buildHistoryFilters() {
+        let vm = ChatViewModel()
+        let agentID = UUID()
+        // 다양한 타입의 메시지 추가
+        vm.appendMessagePublic(makeTestMessage(content: "text", messageType: .text), for: agentID)
+        vm.appendMessagePublic(makeTestMessage(content: "delegation", messageType: .delegation), for: agentID)
+        vm.appendMessagePublic(makeTestMessage(content: "chain", messageType: .chainProgress), for: agentID)
+        vm.appendMessagePublic(makeTestMessage(content: "error", messageType: .error), for: agentID)
+        vm.appendMessagePublic(makeTestMessage(content: "summary", messageType: .summary), for: agentID)
+        vm.appendMessagePublic(makeTestMessage(content: "suggestion", messageType: .suggestion), for: agentID)
+
+        let history = vm.buildHistory(for: agentID)
+        // text와 summary만 포함되어야 함
+        #expect(history.count == 2)
+        let contents = history.map { $0.content }
+        #expect(contents.contains("text"))
+        #expect(contents.contains("summary"))
+        #expect(!contents.contains("delegation"))
+        #expect(!contents.contains("chain"))
+    }
+
+    @Test("buildHistory - 최대 20개 제한")
+    func buildHistoryLimits() {
+        let vm = ChatViewModel()
+        let agentID = UUID()
+        for i in 0..<25 {
+            vm.appendMessagePublic(makeTestMessage(content: "msg \(i)"), for: agentID)
+        }
+        let history = vm.buildHistory(for: agentID)
+        #expect(history.count == 20)
+        // suffix(20)이므로 마지막 20개
+        #expect(history.last?.content == "msg 24")
+    }
+
+    @Test("buildHistory - 역할 매핑")
+    func buildHistoryRoleMapping() {
+        let vm = ChatViewModel()
+        let agentID = UUID()
+        vm.appendMessagePublic(makeTestMessage(role: .user, content: "u"), for: agentID)
+        vm.appendMessagePublic(makeTestMessage(role: .assistant, content: "a"), for: agentID)
+        vm.appendMessagePublic(makeTestMessage(role: .system, content: "s"), for: agentID)
+
+        let history = vm.buildHistory(for: agentID)
+        #expect(history[0].role == "user")
+        #expect(history[1].role == "assistant")
+        #expect(history[2].role == "system")
+    }
+
+    @Test("showToastMessage")
+    func showToast() {
+        let vm = ChatViewModel()
+        vm.showToastMessage("Error occurred")
+        #expect(vm.toastMessage == "Error occurred")
+        #expect(vm.showToast == true)
+    }
+
+    @Test("messages(for: nil) - 빈 배열")
+    func messagesForNil() {
+        let vm = ChatViewModel()
+        #expect(vm.messages(for: nil).isEmpty)
+    }
+
+    @Test("isLoading(for: nil) - false")
+    func isLoadingForNil() {
+        let vm = ChatViewModel()
+        #expect(vm.isLoading(for: nil) == false)
+    }
+
+    @Test("isLoading(for:) - 로딩 중인 에이전트")
+    func isLoadingForAgent() {
+        let vm = ChatViewModel()
+        let agentID = UUID()
+        vm.loadingAgentIDs.insert(agentID)
+        #expect(vm.isLoading(for: agentID) == true)
+        #expect(vm.isLoading(for: UUID()) == false)
+    }
+
+    @Test("configure - 의존성 설정")
+    func configure() {
+        let vm = ChatViewModel()
+        let defaults = makeTestDefaults()
+        let store = AgentStore(defaults: defaults)
+        let providerManager = ProviderManager(defaults: defaults)
+        let devMgr = DevAgentManager(projectPath: "/tmp/test")
+
+        vm.configure(agentStore: store, providerManager: providerManager, devAgentManager: devMgr)
+        #expect(vm.agentStore != nil)
+        #expect(vm.providerManager != nil)
+        #expect(vm.devAgentManager != nil)
+    }
+
+    @Test("clearMessages")
+    func clearMessages() {
+        let vm = ChatViewModel()
+        let agentID = UUID()
+        vm.appendMessagePublic(makeTestMessage(content: "msg1"), for: agentID)
+        vm.appendMessagePublic(makeTestMessage(content: "msg2"), for: agentID)
+        #expect(vm.messages(for: agentID).count == 2)
+        vm.clearMessages(for: agentID)
+        #expect(vm.messages(for: agentID).isEmpty)
+    }
+
+    @Test("buildHistory - devAction/buildResult 필터링")
+    func buildHistoryFiltersDevTypes() {
+        let vm = ChatViewModel()
+        let agentID = UUID()
+        vm.appendMessagePublic(makeTestMessage(content: "text msg", messageType: .text), for: agentID)
+        vm.appendMessagePublic(makeTestMessage(content: "dev action", messageType: .devAction), for: agentID)
+        vm.appendMessagePublic(makeTestMessage(content: "build result", messageType: .buildResult), for: agentID)
+        vm.appendMessagePublic(makeTestMessage(content: "summary msg", messageType: .summary), for: agentID)
+
+        let history = vm.buildHistory(for: agentID)
+        #expect(history.count == 2) // text + summary만
+        let contents = history.map { $0.content }
+        #expect(contents.contains("text msg"))
+        #expect(contents.contains("summary msg"))
+        #expect(!contents.contains("dev action"))
+        #expect(!contents.contains("build result"))
+    }
+
+    @Test("buildHistory - 빈 에이전트")
+    func buildHistoryEmpty() {
+        let vm = ChatViewModel()
+        let history = vm.buildHistory(for: UUID())
+        #expect(history.isEmpty)
+    }
+
+    @Test("cancelTask - 중복 취소")
+    func cancelTaskTwice() {
+        let vm = ChatViewModel()
+        let agentID = UUID()
+        vm.loadingAgentIDs.insert(agentID)
+        vm.cancelTask(for: agentID)
+        vm.cancelTask(for: agentID)
+        #expect(!vm.loadingAgentIDs.contains(agentID))
+    }
+
+    @Test("showToastMessage - 덮어쓰기")
+    func showToastOverwrite() {
+        let vm = ChatViewModel()
+        vm.showToastMessage("First")
+        vm.showToastMessage("Second")
+        #expect(vm.toastMessage == "Second")
+        #expect(vm.showToast == true)
+    }
+
+    @Test("pendingSuggestion - 초기값 nil")
+    func pendingSuggestionInitial() {
+        let vm = ChatViewModel()
+        #expect(vm.pendingSuggestion == nil)
+    }
+}

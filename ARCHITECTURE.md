@@ -1,0 +1,669 @@
+# AgentManager - 코드 분석 문서
+
+## 개요
+
+AgentManager는 **macOS 네이티브 AI 에이전트 관리 데스크톱 앱**이다.
+화면 오른쪽 끝에 떠 있는 플로팅 사이드바에서 여러 AI 에이전트를 관리하고, 마스터 에이전트가 사용자 요청을 분석하여 적합한 서브 에이전트에게 작업을 자동으로 위임한다.
+
+**핵심 UX 컨셉 — "사장님 모드"**: 사용자는 에이전트를 직접 골라서 시키지 않는다.
+사이드바에 타이핑하면 마스터 에이전트가 알아서 적합한 팀원(서브 에이전트)에게 분배한다.
+사장님이 "야 거기 누구 이거 해" 하면 비서실장(마스터)이 알아서 처리하는 구조.
+
+- **플랫폼**: macOS 14+ (Sonoma)
+- **언어**: Swift 5.9
+- **UI 프레임워크**: SwiftUI + AppKit (NSPanel, NSWindow)
+- **빌드 시스템**: Swift Package Manager (SPM)
+- **배포**: .app 번들 → .dmg (Ad-hoc 코드 서명)
+
+---
+
+## 프로젝트 구조
+
+```
+AgentManager/
+├── Package.swift                    # SPM 패키지 정의
+├── CLAUDE.md                        # 개발 규칙 (문서 업데이트 필수, 빌드/커밋 규칙)
+├── DEV_GUIDE.md                     # 워즈니악(유지보수 담당자) 참조 개발 가이드
+├── ARCHITECTURE.md                  # 이 문서 (코드 분석/구조)
+├── scripts/
+│   └── build-app.sh                 # 빌드 → .app 번들 → 코드서명 → DMG 생성
+├── AgentManager/
+│   ├── App/
+│   │   ├── AppDelegate.swift        # 사이드바 패널(400pt), 채팅 윈도우, 마우스 트래킹
+│   │   ├── CommandBarPanel.swift    # Spotlight 스타일 커맨드 바 NSPanel
+│   │   └── CommandBarManager.swift  # 글로벌 핫키(⌘⇧A) 등록, 커맨드 바 생명주기
+├── AgentManagerApp/
+│   └── AgentManagerApp.swift        # @main 진입점, MenuBarExtra (실행 타겟)
+│   ├── Models/
+│   │   ├── Agent.swift              # 에이전트 모델 (이름, 페르소나, 이미지, isMaster, isDevAgent=워즈니악)
+│   │   ├── ChatMessage.swift        # 메시지 모델 (MessageType 포함: devAction, buildResult 등)
+│   │   ├── ChangeRecord.swift       # 변경 이력 데이터 모델 (커밋 해시, 상태, 파일 목록)
+│   │   ├── ProviderConfig.swift     # 프로바이더 설정 (AuthMethod, ProviderType)
+│   │   └── KeychainHelper.swift     # Keychain 기반 API 키 저장
+│   ├── ViewModels/
+│   │   ├── AgentStore.swift         # 에이전트 CRUD, 마스터/워즈니악 생명주기
+│   │   ├── ChatViewModel.swift      # 메시지 전송, 마스터 오케스트레이션, 워즈니악 핸들링
+│   │   ├── DevAgentManager.swift    # Git 연동, 빌드 검증, 변경 이력 관리
+│   │   └── ProviderManager.swift    # 프로바이더 설정 관리
+│   ├── Providers/
+│   │   ├── AIProvider.swift         # AIProvider 프로토콜 + 공통 인증
+│   │   ├── ClaudeCodeProvider.swift # Claude Code CLI 실행 (Process)
+│   │   ├── OpenAIProvider.swift     # OpenAI Chat Completions API
+│   │   ├── GoogleProvider.swift     # Google Gemini generateContent API
+│   │   ├── AnthropicProvider.swift  # (비활성) Anthropic API
+│   │   ├── OllamaProvider.swift     # (비활성) Ollama/LM Studio
+│   │   └── CustomProvider.swift     # (비활성) 커스텀 URL
+│   └── Views/
+│       ├── FloatingSidebarView.swift # 팀 로스터 + 마스터 채팅 사이드바 UI
+│       ├── CommandBarView.swift     # Spotlight 스타일 커맨드 바 SwiftUI 뷰
+│       ├── SidebarQuickInputView.swift # (예비) 사이드바 퀵 인풋 컴포넌트
+│       ├── ChatView.swift           # 채팅 뷰 (메시지 버블)
+│       ├── ChatContentView.swift    # 공유 채팅 UI (메시지 목록, 입력창, 취소 버튼)
+│       ├── ChatWindowView.swift     # 독립 채팅 윈도우 래퍼
+│       ├── ChangeHistoryView.swift  # 변경 이력 뷰어 + 롤백 UI
+│       ├── AddAgentSheet.swift      # 에이전트 등록 시트
+│       ├── EditAgentSheet.swift     # 에이전트 편집 시트
+│       ├── AddProviderSheet.swift   # 프로바이더 설정 시트
+│       ├── AgentAvatarView.swift    # 원형 아바타 (마스터/워즈니악/서브 아이콘 분기)
+│       ├── SuggestionCard.swift     # 에이전트 자동 생성 제안 카드
+│       ├── AgentInfoSheet.swift     # 에이전트 상세 정보 (FloatingSidebarView 내)
+│       ├── ContentView.swift        # (미사용 - 초기 레이아웃)
+│       ├── SidebarView.swift        # (미사용 - 초기 레이아웃)
+│       ├── AgentRowView.swift       # (미사용 - 초기 레이아웃)
+│       └── ToastView.swift          # (미사용 - 초기 레이아웃)
+```
+
+---
+
+## 아키텍처
+
+### MVVM 패턴
+
+```
+┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│   Models     │ ←── │   ViewModels     │ ←── │     Views       │
+│             │     │                  │     │                 │
+│ Agent       │     │ AgentStore       │     │ FloatingSidebar │
+│ ChatMessage │     │ ChatViewModel    │     │ ChatView        │
+│ ChangeRecord│     │ DevAgentManager  │     │ ChatContentView │
+│ ProviderCfg │     │ ProviderManager  │     │ ChangeHistoryV  │
+│ KeychainH   │     │                  │     │ ChatWindowView  │
+└─────────────┘     └──────────────────┘     └─────────────────┘
+                            │
+                    ┌───────┴───────┐
+                    │   Providers   │
+                    │               │
+                    │ ClaudeCode    │
+                    │ OpenAI        │
+                    │ Google        │
+                    └───────────────┘
+```
+
+### 데이터 흐름
+
+1. **EnvironmentObject**로 전역 상태 공유: `AgentStore`, `ProviderManager`, `ChatViewModel`, `DevAgentManager`
+2. **AppDelegate**가 4개 EnvironmentObject를 생성하고 모든 뷰에 주입
+3. **UserDefaults**로 영속성 보장 (에이전트 목록, 프로바이더 설정)
+4. **Keychain**으로 API 키 보안 저장 (`KeychainHelper`)
+5. **파일시스템**으로 채팅 이력, 변경 이력, 에이전트 이미지 영속화 (`~/Library/Application Support/AgentManager/`)
+
+---
+
+## 핵심 컴포넌트 상세
+
+### 1. AppDelegate (`App/AppDelegate.swift`)
+
+앱의 중심 컨트롤러. 사이드바 패널과 채팅 윈도우의 생명주기를 관리한다.
+5개의 핵심 객체를 생성/관리: `agentStore`, `providerManager`, `devAgentManager`, `chatVM`, `commandBarManager`
+
+**플로팅 사이드바 (400pt)**:
+- `ClickThroughPanel` (NSPanel 서브클래스): 화면 오른쪽 끝에 고정
+- `constrainFrameRect` 오버라이드로 팝업 열림에도 위치 불변
+- `nonactivatingPanel` + `utilityWindow` 스타일로 다른 앱 작업 방해 없음
+- `canJoinAllSpaces` + `fullScreenAuxiliary`로 모든 데스크톱에서 접근 가능
+- alphaValue 0/1 + ignoresMouseEvents로 보이기/숨기기 (fade 애니메이션 0.15s)
+- **패널 폭 400pt**: 팀 로스터 + 마스터 채팅을 수용하기 위해 260pt에서 확장
+
+**마우스 트래킹**:
+- 글로벌 + 로컬 `mouseMoved` 이벤트 모니터링
+- 화면 오른쪽 8px 이내 → 사이드바 표시
+- 패널 밖으로 이동 → 0.3초 후 숨기기
+- 채팅 윈도우가 열려있으면 사이드바 고정 (pinned)
+
+**채팅 윈도우 관리**:
+- 에이전트별 독립 NSWindow 생성 (로스터에서 에이전트 클릭 시)
+- `isReleasedWhenClosed = false`로 AppKit/Swift ARC 메모리 충돌 방지
+- `NotificationCenter`로 창 닫힘/최소화/복원 감지
+- 채팅 창 열릴 때 `NSApp.setActivationPolicy(.regular)`, 모두 닫히면 `.accessory`
+
+**커맨드 바 연동**:
+- `CommandBarManager` 초기화 및 글로벌 핫키 등록
+- `toggleCommandBar()` 메서드로 MenuBarExtra와 연결
+
+### 2. AgentStore (`ViewModels/AgentStore.swift`)
+
+에이전트 목록의 CRUD와 상태 관리를 담당한다.
+
+- 앱 시작 시 마스터 에이전트 + 워즈니악(유지보수 담당자) 자동 생성 보장
+- 모든 에이전트 상태를 `.idle`로 초기화 (이전 세션 잔여 상태 제거)
+- 마스터 에이전트, 워즈니악은 삭제 불가
+- `minimizedAgentIDs`: 도크에 최소화된 채팅 창 추적
+- `devAgent`: computed property — `agents.first(where: { $0.isDevAgent })`
+- `subAgents`: 마스터와 워즈니악을 제외한 일반 에이전트 필터
+
+**masterSystemPrompt()**: 마스터 에이전트의 동적 시스템 프롬프트 생성
+- 현재 등록된 서브 에이전트 목록 (이름, 프로바이더, 모델, 페르소나 요약) 포함
+- 워즈니악 정보 포함: 개발 관련 요청 시 워즈니악에 위임하도록 안내
+- 5가지 JSON 응답 형식 명시: delegate, delegate+context_from, chain, respond, suggest_agent
+- 에이전트 목록이 비어있으면 "(없음)" 표시
+
+### 3. ChatViewModel (`ViewModels/ChatViewModel.swift`)
+
+앱의 핵심 오케스트레이션 엔진. 마스터 에이전트의 6가지 기능을 구현한다.
+
+**MasterAction enum**:
+```
+delegate  → 병렬 위임 (여러 에이전트 동시 실행)
+respond   → 마스터 직접 응답
+suggest   → 새 에이전트 생성 제안
+chain     → 순차 워크플로우 (A→B→C)
+unknown   → JSON 파싱 실패 시 원문 표시
+```
+
+**6대 핵심 기능**:
+
+| # | 기능 | 메서드 | 설명 |
+|---|------|--------|------|
+| 1 | 자동 라우팅 | `handleDelegation()` | 마스터가 JSON으로 위임 에이전트 지정, `withTaskGroup`으로 병렬 실행 |
+| 2 | 결과 취합 | `generateSummary()` | 2개 이상 에이전트 응답 시 마스터가 종합 요약 생성 |
+| 3 | 에이전트 제안 | `handleAgentSuggestion()` | 적합한 에이전트 없을 때 새 에이전트 생성 제안 (SuggestionCard) |
+| 4 | 오류 재시도 | `executeDelegation()` | 실패 시 최대 2회 재시도 (2초 간격), 실패 시 마스터 폴백 응답 |
+| 5 | 워크플로우 체이닝 | `handleChain()` | 순차 실행, 이전 단계 출력을 다음 단계 입력에 주입 |
+| 6 | 컨텍스트 공유 | `buildContextMessages()` | 다른 에이전트의 최근 대화 내역을 위임 메시지에 포함 |
+
+**JSON 파싱 (`parseMasterResponse`)**:
+- 마크다운 코드블록 (` ```json ... ``` `) 내부 JSON 추출
+- 일반 코드블록 (` ``` ... ``` `) 처리
+- `{ ... }` 패턴 매칭
+- 파싱 실패 시 `.unknown`으로 폴백 (원문 그대로 표시)
+
+**워즈니악 핸들링**:
+- `handleDevAgentMessage()`: 워즈니악 전용 메시지 처리
+- DEV_GUIDE.md 내용을 시스템 프롬프트에 자동 주입 (`loadDevGuideContent()`)
+- **실행 모드** (Claude Code CLI): 실제 코드 수정 가능, 빌드 검증 + 자동 커밋
+- **자문 모드** (OpenAI/Google API): 텍스트 제안만 제공
+- `performBuildAndCommit()`: 변경 파일 감지 → `swift build` → 성공 시 커밋 / 실패 시 롤백
+
+**메시지 영속화**:
+- `~/Library/Application Support/AgentManager/chats/` 디렉토리에 에이전트별 JSON 저장
+- `saveMessages()` / `loadMessages()`로 앱 재시작 시 복원
+
+**알림 시스템**:
+- `UNUserNotificationCenter`로 macOS 알림 발송
+- 작업 완료 / 오류 발생 시 자동 알림
+
+### 4. DevAgentManager (`ViewModels/DevAgentManager.swift`)
+
+Git 연동, 빌드 검증, 변경 이력 관리를 담당하는 전용 ViewModel.
+
+**Git 관리**:
+- `initializeGitIfNeeded()`: `.git` 없으면 `git init` + `.gitignore` 생성 + 초기 커밋
+- `commitChange()`: `git add . && git commit` + 커밋 해시 추출 + ChangeRecord 생성
+- `revertChange()`: `git revert --no-edit` + 상태를 `.rolledBack`으로 변경
+- `discardUncommittedChanges()`: `git checkout -- .`
+- `getChangedFiles()`: `git diff --name-only` (staged + unstaged)
+
+**빌드 검증**:
+- `runBuildVerification()`: `swift build -c release` 실행
+- PATH에 nvm, homebrew 경로 추가하여 의존성 해결
+- 성공/실패 + 출력 문자열 반환
+
+**변경 이력**:
+- `changeHistory: [ChangeRecord]` — 모든 변경 기록
+- `~/Library/Application Support/AgentManager/changes.json`에 영속화
+- `ChangeRecord`: id, date, description, commitHash, status, filesChanged, requestText
+
+**에러 타입** (`DevAgentError`):
+- `gitError`: Git 명령 실패
+- `buildFailed`: 빌드 실패
+- `notExecutionMode`: API 모드에서 실행 시도
+
+### 5. ProviderManager (`ViewModels/ProviderManager.swift`)
+
+3개 프로바이더 설정을 관리한다.
+
+| 프로바이더 | 인증 방식 | 설명 |
+|-----------|----------|------|
+| Claude Code | 없음 (CLI) | 설치된 `claude` CLI 실행, API 키 불필요 |
+| OpenAI | API Key | GPT-4o, GPT-4o-mini 등 |
+| Google | API Key | Gemini 2.0 Flash, Pro 등 |
+
+- `ensureDefaultProviders()`: 3개 기본 프로바이더 보장, 비활성 프로바이더 (Ollama, LM Studio 등) 자동 제거
+- `createProvider(from:)`: ProviderType에 따른 팩토리 메서드
+
+---
+
+## AI Provider 레이어
+
+### AIProvider 프로토콜 (`Providers/AIProvider.swift`)
+
+```swift
+protocol AIProvider {
+    var config: ProviderConfig { get }
+    func fetchModels() async throws -> [String]
+    func sendMessage(model:systemPrompt:messages:) async throws -> String
+}
+```
+
+- `applyAuth(to:)` 확장: AuthMethod에 따라 Bearer/x-api-key/커스텀 헤더 자동 적용
+- `AIProviderError`: invalidURL, invalidResponse, apiError, networkError, noAPIKey
+
+### ClaudeCodeProvider (`Providers/ClaudeCodeProvider.swift`)
+
+가장 독특한 프로바이더. Claude Code CLI를 `Process`로 실행한다.
+
+- `findClaudePath()`: nvm, homebrew, local 등 다양한 경로에서 claude 바이너리 탐색
+- `claude -p <prompt> --model <model>` 형태로 비대화형 실행
+- 환경변수 `CLAUDECODE`를 제거하여 중첩 세션 감지 우회
+- PATH에 nvm 경로 추가하여 node 의존성 해결
+- 시스템 프롬프트 + 대화 히스토리를 단일 프롬프트로 조합
+
+### OpenAIProvider (`Providers/OpenAIProvider.swift`)
+
+- `/v1/models` 엔드포인트로 모델 목록 조회 (gpt, o1, o3, o4 필터)
+- `/v1/chat/completions`로 메시지 전송
+- 타임아웃: 120초
+
+### GoogleProvider (`Providers/GoogleProvider.swift`)
+
+- 하드코딩된 모델 목록: gemini-2.0-flash, gemini-2.0-pro, gemini-1.5-flash, gemini-1.5-pro
+- `/v1beta/models/{model}:generateContent?key=` 엔드포인트
+- 시스템 프롬프트를 user/model 턴 쌍으로 주입
+- role 매핑: assistant → model
+
+---
+
+## 모델 레이어
+
+### Agent (`Models/Agent.swift`)
+
+```swift
+struct Agent: Identifiable, Codable, Hashable {
+    let id: UUID
+    var name: String           // 에이전트 표시 이름
+    var persona: String        // 시스템 프롬프트 (역할/성격)
+    var providerName: String   // "Claude Code", "OpenAI", "Google"
+    var modelName: String      // "claude-sonnet-4-6", "gpt-4o" 등
+    var status: AgentStatus    // idle / working / error
+    var isMaster: Bool         // 마스터 에이전트 여부
+    var isDevAgent: Bool       // 워즈니악(유지보수 담당자) 여부
+    var errorMessage: String?  // 마지막 오류 메시지
+    var hasImage: Bool         // 아바타 이미지 유무 (파일시스템 저장)
+}
+```
+
+- Equatable: 모든 주요 필드 비교 (SwiftUI 변경 감지용)
+- Hashable: id만 사용
+- `createMaster()`: 기본 마스터 에이전트 팩토리 (Claude Code + 위임 페르소나)
+- `createDevAgent()`: 워즈니악 팩토리 — 페르소나에 DEV_GUIDE 핵심 규칙 직접 임베딩
+- 이미지: `~/Library/Application Support/AgentManager/avatars/{id}.png`에 저장 (static save/load/delete)
+
+### ChatMessage (`Models/ChatMessage.swift`)
+
+```swift
+struct ChatMessage: Identifiable, Codable {
+    let id: UUID
+    let role: MessageRole        // user / assistant / system
+    let content: String
+    let agentName: String?       // 응답한 에이전트 이름
+    let timestamp: Date
+    var messageType: MessageType // text / delegation / summary / chainProgress / suggestion / error / devAction / buildResult
+}
+```
+
+- `init(from decoder:)`: messageType이 없는 기존 데이터와 역호환 (`.text` 기본값)
+- MessageType에 따라 채팅 버블의 색상, 아이콘, 테두리가 달라짐
+- `devAction`: 워즈니악 상태 메시지 (계획 확인, 실행 결과)
+- `buildResult`: 빌드 검증 결과
+
+### ChangeRecord (`Models/ChangeRecord.swift`)
+
+```swift
+struct ChangeRecord: Identifiable, Codable {
+    let id: UUID
+    let date: Date
+    let description: String
+    let commitHash: String
+    var status: ChangeStatus  // applied / rolledBack / failed
+    let filesChanged: [String]
+    let requestText: String
+}
+```
+
+- 워즈니악의 변경 이력을 기록하는 모델
+- Git 커밋과 1:1 대응
+- 롤백 시 status가 `.rolledBack`으로 변경
+
+### KeychainHelper (`Models/KeychainHelper.swift`)
+
+- `save(key:value:)` / `load(key:)` / `delete(key:)` 정적 메서드
+- Service: `com.agentmanager.app`
+- `ProviderConfig.apiKey`가 Keychain computed property로 작동
+
+### ProviderConfig (`Models/ProviderConfig.swift`)
+
+```swift
+struct ProviderConfig: Identifiable, Codable {
+    let id: UUID
+    var name: String
+    var type: ProviderType      // claudeCode / openAI / google / ...
+    var baseURL: String         // API URL 또는 CLI 경로
+    var authMethod: AuthMethod  // none / apiKey / bearerToken / customHeader
+    var apiKey: String?         // Keychain computed property (get/set → KeychainHelper)
+    var isBuiltIn: Bool         // 기본 제공 프로바이더 여부
+}
+```
+
+- 역호환 디코더: authMethod가 없으면 ProviderType에서 기본값 추론
+- `apiKey`는 Codable 저장에서 제외, Keychain을 통해 읽기/쓰기
+
+---
+
+## 뷰 레이어
+
+### FloatingSidebarView (`Views/FloatingSidebarView.swift`)
+
+플로팅 사이드바의 메인 뷰. **팀 로스터 + 마스터 채팅** 구조로 설계되어 있다.
+
+```
+┌──────────────────────────────────────┐
+│ 🧠 Agent Manager           [+] [⚙] │  ← 헤더
+│ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐  → │
+│ │💻│ │📝│ │📊│ │🎨│ │🔧│ │..│     │  ← 에이전트 로스터 (가로 스크롤)
+│ │🟠│ │  │ │  │ │🟠│ │🔴│ │  │     │     아바타 + 상태 표시등
+│ └──┘ └──┘ └──┘ └──┘ └──┘ └──┘     │
+│ ─────────────────────────────────── │
+│                                     │
+│ 나: 블로그 글 하나 써줘              │
+│ 마스터: 마케팅팀에게 위임합니다...     │  ← 마스터 채팅 영역
+│ 마케팅: [초안 작성 완료...]           │
+│                                     │
+│ ┌─────────────────────────────┐     │
+│ │ 메시지 입력...               │     │  ← 입력창 (항상 마스터에게)
+│ └─────────────────────────────┘     │
+└──────────────────────────────────────┘
+```
+
+**헤더**: 마스터 아바타 + "Agent Manager" 타이틀 + 에이전트 추가 버튼 + 설정 버튼
+
+**에이전트 로스터** (가로 스크롤):
+- DevAgent + 서브 에이전트를 원형 아바타 + 이름 + 상태 표시등으로 표시
+- 상태 표시등 색상: 대기(회색) / 작업중(주황) / 오류(빨강)
+- 작업중인 에이전트는 주황색 테두리로 시각적 강조
+- 에이전트 클릭 → 별도 채팅 윈도우 열기 (직접 대화)
+- 우클릭 컨텍스트 메뉴: 편집/정보/삭제
+- 20개 이상 에이전트도 가로 스크롤로 수용
+
+**마스터 채팅 영역**:
+- `ScrollViewReader` + `LazyVStack` + `MessageBubble`로 메시지 표시
+- 웰컴 메시지: "무엇을 시킬까요?"
+- SuggestionCard 표시 (마스터의 에이전트 생성 제안)
+- 로딩 인디케이터 + 작업 취소 버튼
+
+**입력창**: `TextField(axis: .vertical)` + 전송 버튼, `Cmd+Return` 단축키, 항상 마스터에게 전송
+
+**토스트 알림**: 하단에 에러 메시지 표시 (4초 후 자동 사라짐)
+
+**UtilityWindowManager** (싱글턴): 모든 유틸리티 윈도우를 중앙 관리
+- 참조를 배열로 유지하여 메모리 누수 방지
+- 창 닫힘 시 자동 정리 (NotificationCenter)
+- `devAgentManager` 옵션 파라미터로 ChangeHistoryView 등에 주입
+
+### ChatView / ChatContentView / ChatWindowView
+
+- **ChatView**: 사이드바 내부용 채팅 뷰 (헤더 + ChatContentView)
+- **ChatContentView**: 공유 채팅 UI 컴포넌트
+- **ChatWindowView**: 독립 윈도우용 채팅 뷰 (ChatContentView 사용)
+
+ChatContentView 구성:
+- 메시지 목록: `ScrollView` + `LazyVStack` + `MessageBubble`
+- SuggestionCard: 마스터 에이전트의 제안 카드
+- 에이전트별 로딩 인디케이터 (`loadingAgentIDs`) + 작업 취소 버튼
+- 입력창: TextField (1~5줄 동적) + 전송 버튼 (Cmd+Return)
+- 자동 스크롤: 새 메시지 시 하단으로 이동
+
+### ChangeHistoryView (`Views/ChangeHistoryView.swift`)
+
+워즈니악의 변경 이력을 표시하는 전용 뷰.
+
+- ChangeRecord 리스트 (역순: 최신 먼저)
+- 각 행: 상태 아이콘 + 설명 + 날짜 + 커밋 해시 + 파일 수
+- **롤백 버튼**: applied 상태 → `git revert` 실행
+- Git 미초기화 시 경고 표시
+- `UtilityWindowManager.shared.open()`으로 독립 윈도우 표시
+
+### MessageBubble (`Views/ChatView.swift` 내부)
+
+MessageType에 따른 시각 차별화:
+
+| MessageType | 배경색 | 아이콘 | 테두리 |
+|-------------|--------|--------|--------|
+| text | 회색 15% | - | - |
+| delegation | 주황 8% | arrow.turn.up.right | - |
+| summary | 보라 10% | text.document | 보라 30% |
+| chainProgress | 파랑 8% | link | - |
+| suggestion | 주황 8% | sparkles | - |
+| error | 빨강 10% | exclamationmark.triangle | - |
+| devAction | 초록 8% | hammer.fill | - |
+| buildResult | teal 10% | checkmark.circle | - |
+
+사용자 메시지: accentColor 배경, 흰색 텍스트, 오른쪽 정렬
+
+### AgentAvatarView (`Views/AgentAvatarView.swift`)
+
+재사용 가능한 원형 아바타 컴포넌트:
+- hasImage 있으면 → 파일시스템에서 이미지 로드 → 원형 클립
+- 마스터 에이전트 → `brain.head.profile` (보라색)
+- 워즈니악 → `wrench.and.screwdriver` (초록색)
+- 서브 에이전트 → `person.crop.circle` (파란색)
+
+`pickAgentImage()` 유틸: NSOpenPanel → PNG/JPEG 선택 → 128x128 리사이즈 → 파일시스템 저장
+
+### EditAgentSheet (`Views/EditAgentSheet.swift`)
+
+에이전트 편집 시트:
+- 아바타: 이미지 선택/제거
+- 이름: 마스터/워즈니악은 수정 불가 (LabeledContent)
+- 페르소나: TextEditor
+- 프로바이더/모델: Picker (동적 모델 목록 로딩) — 워즈니악도 모델 교체 가능
+
+### SuggestionCard (`Views/SuggestionCard.swift`)
+
+마스터가 `suggest_agent` 응답 시 채팅 내에 표시되는 인라인 카드:
+- 제안된 에이전트의 이름, 역할, 프로바이더/모델 표시
+- "생성" 버튼: 즉시 에이전트 추가
+- "무시" 버튼: 제안 닫기
+
+### AddProviderSheet (`Views/AddProviderSheet.swift`)
+
+3개 프로바이더 설정 UI:
+- **Claude Code**: CLI 경로 표시, 연결 상태 확인
+- **OpenAI**: SecureField로 API 키 입력, 연결 테스트, 저장
+- **Google**: SecureField로 API 키 입력, 연결 테스트, 저장
+
+---
+
+## 빌드 및 배포
+
+### build-app.sh
+
+```bash
+# 1. swift build -c release
+# 2. .app 번들 구성 (Info.plist, 실행파일 복사)
+# 3. Ad-hoc 코드서명 (codesign --force --deep --sign -)
+# 4. DMG 생성 (create-dmg 또는 hdiutil)
+```
+
+**Info.plist 주요 설정**:
+- `CFBundleIdentifier`: com.agentmanager.app
+- `LSMinimumSystemVersion`: 14.0
+- `LSApplicationCategoryType`: public.app-category.developer-tools
+- `NSAppTransportSecurity.NSAllowsArbitraryLoads`: true (로컬 API 접근용)
+
+---
+
+## 해결된 주요 기술 이슈
+
+### 1. 채팅 창 닫을 때 앱 크래시 (SIGSEGV)
+- **원인**: `NSWindow.isReleasedWhenClosed` 기본값 `true` → AppKit이 창 해제 → Swift 딕셔너리가 이미 해제된 객체 참조 → double-free
+- **해결**: `window.isReleasedWhenClosed = false` + NotificationCenter 기반 정리
+
+### 2. 다른 앱 클릭 시 채팅 창 사라짐
+- **원인**: MenuBarExtra 앱의 `.accessory` 활성화 정책이 모든 윈도우를 숨김
+- **해결**: 채팅 창 열릴 때 `.regular`, 모두 닫히면 `.accessory`로 동적 전환
+
+### 3. 사이드바 숨김 불일치
+- **원인**: `distanceFromRight > panelWidth + 30` 조건에 데드존 존재
+- **해결**: "패널 밖 = 항상 숨김 예약"으로 단순화
+
+### 4. 에이전트 이미지 저장 후 미표시
+- **원인**: Agent의 `==` 연산자가 `id`만 비교 → SwiftUI가 변경 미감지
+- **해결**: 모든 주요 필드 (name, persona, imageData 등) 비교로 확장
+
+### 5. 팝업 시 사이드바 위치 이탈
+- **원인**: `.resizable` 스타일 + `.sheet()` 프레젠테이션이 패널 리사이즈 유발
+- **해결**: `constrainFrameRect` 오버라이드로 항상 오른쪽 끝 고정 + `.sheet()` → `openCenteredWindow()`로 교체
+
+---
+
+## 글로벌 커맨드 바
+
+### 개요
+
+**Spotlight 스타일** 커맨드 바. 어디서든 `⌘⇧A`(Cmd+Shift+A)로 호출하여 마스터 에이전트에게 빠르게 질문할 수 있다.
+사이드바를 열지 않아도 핫키 한번으로 마스터에게 접근 가능.
+
+### 구성 파일
+
+| 파일 | 역할 |
+|------|------|
+| `CommandBarPanel.swift` | NSPanel 서브클래스. `canBecomeKey` + `onResignKey` 콜백 |
+| `CommandBarView.swift` | SwiftUI 뷰. TextEditor(100pt+) + 응답 영역 + 전체 대화 열기 |
+| `CommandBarManager.swift` | 핫키 등록, 패널 생명주기, show/dismiss 애니메이션 |
+
+### 핫키 등록
+
+`NSEvent.addGlobalMonitorForEvents(matching: .keyDown)` + `addLocalMonitorForEvents`
+— 글로벌(앱 비활성 시) + 로컬(앱 활성 시) 듀얼 모니터 패턴 (마우스 트래킹과 동일)
+— keyCode `0x00` (A키) + `.command, .shift` 조합
+
+### UX 흐름
+
+```
+⌘⇧A → 커맨드 바 화면 중앙 상단에 표시
+→ TextEditor에 타이핑 (넓은 입력 영역, 4-5줄)
+→ ⌘⏎ 전송 → 마스터가 처리 → 응답 인라인 표시
+→ ESC 또는 외부 클릭으로 닫기
+→ "전체 대화 열기" → 마스터 채팅 윈도우 확장
+```
+
+### 패널 설정
+
+- 크기: 600×360pt, 화면 상단 1/3 지점 중앙
+- styleMask: `[.nonactivatingPanel, .titled, .fullSizeContentView]`
+- level `.floating`, `hidesOnDeactivate = false`
+- 외부 클릭 시 자동 닫기 (`onResignKey` → `dismiss()`)
+- show/dismiss: NSAnimationContext 0.15s 페이드 애니메이션
+
+---
+
+## 빠른 접근 방법 요약
+
+| 방법 | 단축키/동작 | 대상 | 용도 |
+|------|------------|------|------|
+| **사이드바** | 마우스 오른쪽 끝 8px | 마스터 | 기본 채팅 인터페이스 |
+| **커맨드 바** | `⌘⇧A` | 마스터 | 빠른 질문, 어디서든 접근 |
+| **로스터 클릭** | 에이전트 아바타 탭 | 개별 에이전트 | 직접 대화 (별도 윈도우) |
+| **메뉴바** | `⌘⇧E` | 사이드바 토글 | 수동 사이드바 표시/숨기기 |
+
+---
+
+## 확장 포인트
+
+1. **새 프로바이더 추가**: `AIProvider` 프로토콜 구현 + `ProviderType` enum 케이스 추가 + `ProviderManager.createProvider()` 분기 추가
+2. **스트리밍 응답**: `sendMessage()`를 `AsyncSequence` 반환으로 변경하면 토큰 단위 출력 가능
+3. **마스터 프롬프트 커스터마이징**: EditAgentSheet에서 마스터 페르소나 수정 시 위임 전략도 변경됨
+4. **에이전트 간 직접 통신**: 현재는 마스터를 통해서만 위임. 에이전트 간 직접 메시지 패싱 추가 가능
+5. **워즈니악 기능 확장**: 현재 빌드 검증 + Git 커밋. 테스트 자동 실행, 린터 통합 등 추가 가능
+
+---
+
+## 워즈니악 (유지보수 담당자) 시스템
+
+### 개요
+
+내장된 워즈니악은 사용자의 앱 개선 요청을 처리하는 전담 유지보수 담당자 역할을 한다.
+코드 내부 식별자는 `isDevAgent`, `DevAgentManager` 등을 사용하며, 사용자에게 표시되는 이름은 "워즈니악 (유지보수 담당자)"이다.
+
+### 핵심 설계 원칙
+
+1. **모델 무관**: 어떤 AI 모델이든 사용 가능 (Claude Code, OpenAI, Google 등)
+2. **가이드 기반**: DEV_GUIDE.md를 참조하여 일관된 규칙 준수
+3. **이력 추적**: 모든 변경을 Git 커밋으로 기록, 롤백 가능
+4. **빌드 검증**: 코드 수정 후 반드시 빌드 성공 확인
+
+### 듀얼 모드
+
+| 모드 | 프로바이더 | 능력 |
+|------|-----------|------|
+| **실행 모드** | Claude Code CLI | 실제 파일 수정, 빌드 검증, 자동 커밋 |
+| **자문 모드** | OpenAI / Google API | 텍스트 제안만 제공, 사용자가 직접 적용 |
+
+### 워크플로우 (실행 모드)
+
+```
+사용자 요청 → 워즈니악 분석 → Claude Code로 코드 수정
+    → 변경 파일 감지 → swift build -c release
+    → 성공: git commit + ChangeRecord 기록
+    → 실패: git checkout -- . (변경 폐기)
+```
+
+### 참조 문서
+
+| 문서 | 용도 |
+|------|------|
+| `DEV_GUIDE.md` | 워즈니악 참조 가이드 (프로젝트 구조, 코딩 규칙, 필수 규칙) |
+| `CLAUDE.md` | 개발 규칙 요약 (문서 업데이트 필수, 빌드/커밋 규칙) |
+| `ARCHITECTURE.md` | 이 문서 (코드 분석/구조) |
+
+---
+
+## 파일별 코드량 (참고)
+
+| 파일 | 줄수 | 역할 |
+|------|------|------|
+| ChatViewModel.swift | ~780 | 핵심 오케스트레이션 + 워즈니악 핸들링 |
+| FloatingSidebarView.swift | ~400 | 사이드바 + UtilityWindowManager + 정보 시트 |
+| AppDelegate.swift | ~297 | 윈도우/패널 관리 |
+| DevAgentManager.swift | ~231 | Git/빌드/이력 관리 |
+| Agent.swift | ~160 | 에이전트 모델 (isMaster, isDevAgent, 이미지) |
+| AgentStore.swift | ~160 | 에이전트 상태 관리 + 워즈니악 생명주기 |
+| ChatView.swift | ~137 | 채팅 UI + 메시지 버블 |
+| ChatContentView.swift | ~130 | 공유 채팅 UI 컴포넌트 |
+| ChangeHistoryView.swift | ~125 | 변경 이력 + 롤백 |
+| EditAgentSheet.swift | ~162 | 에이전트 편집 |
+| AddAgentSheet.swift | ~154 | 에이전트 등록 |
+| AddProviderSheet.swift | ~169 | 프로바이더 설정 |
+| ClaudeCodeProvider.swift | ~123 | CLI 실행 |
+| ProviderConfig.swift | ~110 | 설정 모델 (Keychain 연동) |
+| ChatWindowView.swift | ~110 | 독립 채팅 윈도우 |
+| ProviderManager.swift | ~107 | 프로바이더 관리 |
+| SuggestionCard.swift | ~72 | 제안 카드 |
+| AgentAvatarView.swift | ~65 | 아바타 컴포넌트 (3종 아이콘) |
+| ChatMessage.swift | ~60 | 메시지 모델 (8종 타입) |
+| AIProvider.swift | ~57 | 프로바이더 프로토콜 |
+| OpenAIProvider.swift | ~57 | OpenAI API |
+| GoogleProvider.swift | ~50 | Gemini API |
+| ChangeRecord.swift | ~25 | 변경 이력 모델 |
+| KeychainHelper.swift | ~40 | Keychain 헬퍼 |
+| AgentManagerApp.swift | ~29 | 앱 진입점 |

@@ -1,0 +1,757 @@
+import SwiftUI
+import AppKit
+
+/// 유틸리티 윈도우 관리: 참조를 유지해 메모리 누수 방지
+@MainActor
+final class UtilityWindowManager {
+    static let shared = UtilityWindowManager()
+    private(set) var windows: [NSWindow] = []
+    private var observers: [NSWindow: Any] = [:]
+
+    /// 열려있는 유틸리티 윈도우가 있는지
+    var hasOpenWindows: Bool { !windows.isEmpty }
+
+    func open<Content: View>(
+        title: String,
+        width: CGFloat,
+        height: CGFloat,
+        agentStore: AgentStore,
+        providerManager: ProviderManager,
+        chatVM: ChatViewModel,
+        devAgentManager: DevAgentManager? = nil,
+        roomManager: RoomManager? = nil,
+        @ViewBuilder content: () -> Content
+    ) {
+        // 같은 title의 윈도우가 이미 열려 있으면 포커스만
+        if let existing = windows.first(where: { $0.title == title }) {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        // 일반 NSWindow 사용 (NSPanel 아님) — 텍스트 입력 문제 방지
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.title = title
+        window.minSize = NSSize(width: width * 0.8, height: height * 0.8)
+        var rootView = AnyView(content()
+            .environmentObject(agentStore)
+            .environmentObject(providerManager)
+            .environmentObject(chatVM))
+        if let devMgr = devAgentManager {
+            rootView = AnyView(rootView.environmentObject(devMgr))
+        }
+        if let roomMgr = roomManager {
+            rootView = AnyView(rootView.environmentObject(roomMgr))
+        }
+        window.contentView = NSHostingView(rootView: rootView)
+        window.center()
+
+        let observer = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] notification in
+            guard let closedWindow = notification.object as? NSWindow else { return }
+            DispatchQueue.main.async { self?.cleanup(closedWindow) }
+        }
+        observers[window] = observer
+        windows.append(window)
+
+        // 사이드바보다 높은 레벨로 표시 (사이드바 조작 없이)
+        window.level = .floating + 1
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(window.contentView)
+    }
+
+    private func cleanup(_ window: NSWindow) {
+        if let observer = observers.removeValue(forKey: window) {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        windows.removeAll { $0 === window }
+        // 사이드바 조작 불필요 — 팝업은 자체 레벨로 위에 표시됨
+    }
+}
+
+// MARK: - 메인 사이드바 뷰
+
+struct FloatingSidebarView: View {
+    @EnvironmentObject var agentStore: AgentStore
+    @EnvironmentObject var providerManager: ProviderManager
+    @EnvironmentObject var chatVM: ChatViewModel
+    @EnvironmentObject var devAgentManager: DevAgentManager
+    @EnvironmentObject var roomManager: RoomManager
+
+    @State private var inputText = ""
+    @State private var showSlashMenu = false
+    @FocusState private var isInputFocused: Bool
+    /// 채팅 영역 내부: 메시지 vs 입력 비율 (0.15 ~ 0.85)
+    @State private var chatHeightRatio: CGFloat = 0.55
+    /// Room 목록 높이 (pt 단위, 드래그로 조절)
+    @State private var roomListHeight: CGFloat = 160
+    @State private var roomDragStartHeight: CGFloat = 160
+
+    private var masterAgent: Agent? { agentStore.masterAgent }
+    private var masterID: UUID? { masterAgent?.id }
+
+    /// DevAgent + 서브에이전트 (로스터에 표시, 마스터 제외)
+    private var allRosterAgents: [Agent] {
+        var list: [Agent] = []
+        if let dev = agentStore.devAgent { list.append(dev) }
+        list += agentStore.subAgents
+        return list
+    }
+
+    // MARK: - 커스텀 구분선
+
+    private var separator: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.08))
+            .frame(height: 0.5)
+            .padding(.horizontal, 16)
+    }
+
+    @State private var sectionHandleHovered = false
+
+    var body: some View {
+        GeometryReader { sidebarGeo in
+            VStack(spacing: 0) {
+                // ── 헤더 ──
+                header
+
+                // ── 에이전트 로스터 (가로 스크롤) ──
+                agentRoster
+                    .padding(.vertical, 10)
+
+                separator
+
+                // ── 방 목록 (높이 조절 가능) ──
+                ZStack(alignment: .bottomTrailing) {
+                    RoomListView(
+                        onCreateRoom: { openCreateRoomWindow() },
+                        onRoomTap: { roomID in openRoomChatWindow(roomID: roomID) }
+                    )
+
+                    // FAB: 새 방 만들기
+                    Button(action: { openCreateRoomWindow() }) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 28, height: 28)
+                            .background(Color.accentColor)
+                            .clipShape(Circle())
+                            .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                    .help("새 방 만들기")
+                    .padding(.trailing, 12)
+                    .padding(.bottom, 6)
+                }
+                .frame(height: roomListHeight)
+                .clipped()
+
+                // ── 섹션 리사이즈 핸들 ──
+                sectionResizeHandle(sidebarHeight: sidebarGeo.size.height)
+
+                // ── 채팅 영역 (항상 마스터 채팅, 남은 공간 차지) ──
+                if let id = masterID {
+                    masterChatArea(agentID: id)
+                }
+
+                // ── 토스트 ──
+                if chatVM.showToast, let msg = chatVM.toastMessage {
+                    Text(msg)
+                        .font(.caption2)
+                        .foregroundColor(.white)
+                        .padding(8)
+                        .frame(maxWidth: .infinity)
+                        .background(.red.gradient)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 8)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+        }
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .shadow(color: .black.opacity(0.12), radius: 20, x: -4, y: 0)
+        .padding(.leading, 4)
+        .padding(.trailing, 6)
+        .padding(.vertical, 8)
+        .animation(.easeInOut(duration: 0.3), value: chatVM.showToast)
+        .onChange(of: roomManager.pendingAutoOpenRoomID) { _, newID in
+            if let roomID = newID {
+                openRoomChatWindow(roomID: roomID)
+                roomManager.pendingAutoOpenRoomID = nil
+            }
+        }
+    }
+
+    // MARK: - 섹션 리사이즈 핸들 (Room ↔ Chat)
+
+    private func sectionResizeHandle(sidebarHeight: CGFloat) -> some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(height: 14)
+            .overlay(
+                Capsule()
+                    .fill(Color.primary.opacity(sectionHandleHovered ? 0.3 : 0.12))
+                    .frame(width: 36, height: 4)
+                    .animation(.easeInOut(duration: 0.15), value: sectionHandleHovered)
+            )
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        let newHeight = roomDragStartHeight + value.translation.height
+                        let minH: CGFloat = 120
+                        let maxH: CGFloat = sidebarHeight * 0.5
+                        withAnimation(.interactiveSpring(response: 0.12, dampingFraction: 0.9)) {
+                            roomListHeight = min(maxH, max(minH, newHeight))
+                        }
+                    }
+                    .onEnded { _ in
+                        roomDragStartHeight = roomListHeight
+                    }
+            )
+            .onHover { hovering in
+                sectionHandleHovered = hovering
+                if hovering {
+                    NSCursor.resizeUpDown.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+    }
+
+    // MARK: - 헤더
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            // 프로필 이미지
+            ProfileImageView(size: 28)
+            Text("DOUGLAS")
+                .font(.system(size: 14, weight: .semibold))
+                .tracking(1.5)
+            Spacer()
+            Button(action: { openAddAgentWindow() }) {
+                Image(systemName: "plus.circle")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("에이전트 추가")
+
+            Button(action: { openWorkLogWindow() }) {
+                Image(systemName: "doc.text")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("작업일지")
+
+            Button(action: { openProviderWindow() }) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("API 설정")
+
+            // 사이드바 숨기기
+            Button(action: {
+                NotificationCenter.default.post(name: .sidebarHideRequested, object: nil)
+            }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.6))
+                    .frame(width: 20, height: 20)
+                    .background(Color.primary.opacity(0.06))
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help("사이드바 닫기")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    // MARK: - 에이전트 로스터 (가로 스크롤)
+
+    private var agentRoster: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: DesignTokens.Layout.rosterSpacing) {
+                ForEach(allRosterAgents) { agent in
+                    rosterItem(agent)
+                        .onTapGesture { openInfoWindow(for: agent) }
+                        .contextMenu {
+                            Button {
+                                openEditWindow(for: agent)
+                            } label: {
+                                Label("편집", systemImage: "pencil")
+                            }
+                            Button {
+                                openInfoWindow(for: agent)
+                            } label: {
+                                Label("정보", systemImage: "info.circle")
+                            }
+                            if !agent.isMaster && !agent.isDevAgent {
+                                Divider()
+                                Button(role: .destructive) {
+                                    agentStore.removeAgent(agent)
+                                } label: {
+                                    Label("삭제", systemImage: "trash")
+                                }
+                            }
+                            if agent.isDevAgent {
+                                Divider()
+                                Button {
+                                    openHistoryWindow()
+                                } label: {
+                                    Label("변경 이력", systemImage: "clock.arrow.circlepath")
+                                }
+                            }
+                        }
+                }
+            }
+            .padding(.horizontal, DesignTokens.Spacing.lg)
+        }
+    }
+
+    /// 개별 에이전트 로스터 아이템: 아바타 + 상태 표시등 + 이름 + 방 수 뱃지
+    private func rosterItem(_ agent: Agent) -> some View {
+        let roomCount = roomManager.activeRoomCount(for: agent.id)
+
+        return VStack(spacing: DesignTokens.Spacing.sm) {
+            AgentAvatarView(agent: agent, size: DesignTokens.AvatarSize.lg)
+                // 상태 표시등 (우하단)
+                .overlay(alignment: .bottomTrailing) {
+                    Circle()
+                        .fill(statusColor(agent))
+                        .frame(width: DesignTokens.Layout.statusIndicatorSize,
+                               height: DesignTokens.Layout.statusIndicatorSize)
+                        .overlay(
+                            Circle().stroke(Color.white, lineWidth: 1.5)
+                        )
+                        .offset(x: 2, y: 2)
+                }
+                // 방 수 뱃지 (우상단, 2개 이상)
+                .overlay(alignment: .topTrailing) {
+                    if roomCount >= 2 {
+                        Text("\(roomCount)")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 16, height: 16)
+                            .background(Color.accentColor)
+                            .clipShape(Circle())
+                            .offset(x: 4, y: -4)
+                    }
+                }
+                // 작업중 테두리
+                .overlay {
+                    if agent.status == .working || agent.status == .busy {
+                        Circle().stroke(
+                            DesignTokens.StatusColor.color(for: agent.status).opacity(0.5),
+                            lineWidth: 2
+                        )
+                    }
+                }
+
+            Text(agent.name)
+                .font(.caption2)
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .frame(width: DesignTokens.Layout.rosterItemWidth)
+        }
+    }
+
+    private func statusColor(_ agent: Agent) -> Color {
+        DesignTokens.StatusColor.color(for: agent.status)
+    }
+
+    // MARK: - 리사이즈 핸들
+
+    @State private var resizeHandleHovered = false
+
+    private func resizeHandle(containerHeight: CGFloat) -> some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(height: 16)
+            .overlay(
+                Capsule()
+                    .fill(Color.primary.opacity(resizeHandleHovered ? 0.3 : 0.12))
+                    .frame(width: 36, height: 4)
+                    .animation(.easeInOut(duration: 0.15), value: resizeHandleHovered)
+            )
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(coordinateSpace: .named("chatArea"))
+                    .onChanged { value in
+                        // 커서의 절대 Y 위치 → 비율로 직접 변환
+                        // Y가 아래로 갈수록 커지므로 그대로 나누면 됨
+                        let ratio = value.location.y / containerHeight
+                        withAnimation(.interactiveSpring(response: 0.12, dampingFraction: 0.9)) {
+                            chatHeightRatio = min(0.85, max(0.15, ratio))
+                        }
+                    }
+            )
+            .onHover { hovering in
+                resizeHandleHovered = hovering
+                if hovering {
+                    NSCursor.resizeUpDown.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+    }
+
+    // MARK: - 마스터 채팅 영역
+
+    private func masterChatArea(agentID: UUID) -> some View {
+        GeometryReader { geo in
+            let chatHeight = geo.size.height * chatHeightRatio
+
+            VStack(spacing: 0) {
+                // 메시지 목록
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 10) {
+                            if chatVM.messages(for: agentID).isEmpty {
+                                VStack(spacing: 8) {
+                                    Spacer(minLength: 40)
+                                    Text("어떤 작업을 해볼까요?")
+                                        .font(.title3)
+                                        .foregroundColor(.secondary)
+                                    Text("메시지를 입력하면 팀이 작업을 시작합니다")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary.opacity(0.7))
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+
+                            ForEach(chatVM.messages(for: agentID)) { message in
+                                MessageBubble(message: message)
+                                    .id(message.id)
+                            }
+
+                            if let master = masterAgent,
+                               let suggestion = chatVM.pendingSuggestion,
+                               suggestion.masterAgentID == master.id {
+                                SuggestionCard(suggestion: suggestion)
+                            }
+
+                            if chatVM.loadingAgentIDs.contains(agentID) {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                        .scaleEffect(0.7)
+                                    Text("처리 중...")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Spacer()
+                                    Button(action: { chatVM.cancelTask(for: agentID) }) {
+                                        Image(systemName: "stop.circle.fill")
+                                            .foregroundColor(.red.opacity(0.7))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("작업 취소")
+                                }
+                                .padding(.horizontal)
+                                .id("loading")
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                    }
+                    .frame(height: chatHeight)
+                    .onChange(of: chatVM.messages(for: agentID).count) { _, _ in
+                        if let last = chatVM.messages(for: agentID).last {
+                            withAnimation {
+                                proxy.scrollTo(last.id, anchor: .bottom)
+                            }
+                        }
+                    }
+                }
+
+                // 리사이즈 핸들
+                resizeHandle(containerHeight: geo.size.height)
+
+                separator
+
+                // 슬래시 커맨드 메뉴
+                if showSlashMenu {
+                    slashCommandMenu(agentID: agentID)
+                }
+
+                // 입력 영역
+                HStack(spacing: 8) {
+                    TextField("Tell Don't Ask", text: $inputText, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .lineLimit(1...5)
+                        .focused($isInputFocused)
+                        .onSubmit { sendToMaster() }
+                        .onChange(of: inputText) { _, newValue in
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                showSlashMenu = newValue.hasPrefix("/") && newValue.count < 10
+                            }
+                        }
+
+                    Button(action: sendToMaster) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .gray : .accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                              || chatVM.loadingAgentIDs.contains(agentID))
+                    .keyboardShortcut(.return, modifiers: .command)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(Color.black.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            }
+            .coordinateSpace(name: "chatArea")
+        }
+    }
+
+    // MARK: - 슬래시 커맨드 메뉴
+
+    private func slashCommandMenu(agentID: UUID) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                chatVM.clearMessages(for: agentID)
+                inputText = ""
+                showSlashMenu = false
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "trash")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                        .frame(width: 16)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("/clear")
+                            .font(.caption.bold())
+                        Text("채팅 내역 초기화")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(Color.black.opacity(0.04))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    // MARK: - 전송
+
+    private func sendToMaster() {
+        guard let id = masterID else { return }
+        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        // 슬래시 커맨드 처리
+        if text.lowercased() == "/clear" {
+            chatVM.clearMessages(for: id)
+            inputText = ""
+            showSlashMenu = false
+            return
+        }
+
+        inputText = ""
+        showSlashMenu = false
+        chatVM.sendMessage(text, agentID: id)
+    }
+
+    // MARK: - 윈도우 열기 헬퍼
+
+    private func openAddAgentWindow() {
+        UtilityWindowManager.shared.open(title: "새 에이전트", width: 480, height: 560,
+                          agentStore: agentStore, providerManager: providerManager, chatVM: chatVM) {
+            AddAgentSheet()
+        }
+    }
+
+    private func openProviderWindow() {
+        UtilityWindowManager.shared.open(title: "API 설정", width: 480, height: 520,
+                          agentStore: agentStore, providerManager: providerManager, chatVM: chatVM) {
+            AddProviderSheet()
+        }
+    }
+
+    private func openHistoryWindow() {
+        UtilityWindowManager.shared.open(title: "변경 이력", width: 600, height: 500,
+                          agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, devAgentManager: devAgentManager) {
+            ChangeHistoryView()
+        }
+    }
+
+    private func openEditWindow(for agent: Agent) {
+        UtilityWindowManager.shared.open(title: "\(agent.name) 편집", width: 480, height: 520,
+                          agentStore: agentStore, providerManager: providerManager, chatVM: chatVM) {
+            EditAgentSheet(agent: agent)
+        }
+    }
+
+    private func openInfoWindow(for agent: Agent) {
+        UtilityWindowManager.shared.open(title: "\(agent.name) 정보", width: 480, height: 480,
+                          agentStore: agentStore, providerManager: providerManager, chatVM: chatVM) {
+            AgentInfoSheet(agent: agent)
+        }
+    }
+
+    private func openRoomChatWindow(roomID: UUID) {
+        let title = roomManager.rooms.first(where: { $0.id == roomID })?.title ?? "방"
+        UtilityWindowManager.shared.open(title: title, width: 520, height: 600,
+                          agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, roomManager: roomManager) {
+            RoomChatView(roomID: roomID)
+        }
+    }
+
+    private func openWorkLogWindow() {
+        UtilityWindowManager.shared.open(title: "작업일지", width: 520, height: 560,
+                          agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, roomManager: roomManager) {
+            WorkLogView()
+        }
+    }
+
+    private func openCreateRoomWindow() {
+        UtilityWindowManager.shared.open(title: "새 방 만들기", width: 480, height: 520,
+                          agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, roomManager: roomManager) {
+            CreateRoomSheet()
+        }
+    }
+}
+
+// MARK: - 프로필 이미지
+
+struct ProfileImageView: View {
+    let size: CGFloat
+
+    private var nsImage: NSImage? {
+        // 1. Bundle.module (SPM 리소스)
+        if let url = Bundle.module.url(forResource: "douglas_profile", withExtension: "png"),
+           let img = NSImage(contentsOf: url) {
+            return img
+        }
+        // 2. Contents/Resources/ 내 번들
+        if let resourceURL = Bundle.main.resourceURL?
+            .appendingPathComponent("AgentManager_AgentManagerLib.bundle")
+            .appendingPathComponent("douglas_profile.png"),
+           let img = NSImage(contentsOf: resourceURL) {
+            return img
+        }
+        // 3. Bundle.main 직접
+        if let url = Bundle.main.url(forResource: "douglas_profile", withExtension: "png"),
+           let img = NSImage(contentsOf: url) {
+            return img
+        }
+        return nil
+    }
+
+    var body: some View {
+        if let img = nsImage {
+            Image(nsImage: img)
+                .resizable()
+                .scaledToFill()
+                .frame(width: size, height: size)
+                .clipShape(Circle())
+        } else {
+            // 폴백: 이니셜
+            Circle()
+                .fill(Color.blue.opacity(0.2))
+                .frame(width: size, height: size)
+                .overlay(
+                    Text("D")
+                        .font(.system(size: size * 0.4, weight: .bold))
+                        .foregroundColor(.blue)
+                )
+        }
+    }
+}
+
+// MARK: - 에이전트 정보 시트
+
+struct AgentInfoSheet: View {
+    let agent: Agent
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                AgentAvatarView(agent: agent, size: 40)
+                VStack(alignment: .leading) {
+                    Text(agent.name)
+                        .font(.title2.bold())
+                    if agent.isMaster {
+                        Text("마스터")
+                            .font(.caption)
+                            .foregroundColor(.purple)
+                    }
+                }
+                Spacer()
+            }
+            .padding()
+
+            Divider()
+
+            List {
+                Section("모델") {
+                    LabeledContent("API", value: agent.providerName)
+                    LabeledContent("모델", value: agent.modelName)
+                    LabeledContent("상태", value: statusText)
+                }
+
+                Section("역할 설명") {
+                    Text(agent.persona)
+                        .font(.body)
+                        .textSelection(.enabled)
+                }
+
+                if let err = agent.errorMessage {
+                    Section("최근 오류") {
+                        Text(err)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button("닫기") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding()
+        }
+        .frame(width: 480, height: 480)
+    }
+
+    private var statusText: String {
+        switch agent.status {
+        case .idle:    return "대기"
+        case .working: return "작업중"
+        case .busy:    return "작업중"
+        case .error:   return "오류"
+        }
+    }
+}

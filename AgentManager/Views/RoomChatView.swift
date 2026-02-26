@@ -1,0 +1,364 @@
+import SwiftUI
+
+// MARK: - 방 채팅 뷰
+
+struct RoomChatView: View {
+    let roomID: UUID
+    @EnvironmentObject var roomManager: RoomManager
+    @EnvironmentObject var agentStore: AgentStore
+    @State private var inputText = ""
+    @State private var showDeleteConfirm = false
+    @FocusState private var isInputFocused: Bool
+
+    private var room: Room? {
+        roomManager.rooms.first { $0.id == roomID }
+    }
+
+    var body: some View {
+        if let room = room {
+            VStack(spacing: 0) {
+                // 방 헤더
+                roomHeader(room)
+
+                Divider()
+
+                // 토론 진행 바 (계획 수립 전)
+                if room.plan == nil && room.status == .planning {
+                    DiscussionProgressBar(room: room)
+                }
+
+                // 계획 카드 (계획 수립 후)
+                if let plan = room.plan {
+                    PlanCard(plan: plan, currentStep: room.currentStepIndex, status: room.status)
+                }
+
+                // 메시지 목록
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            ForEach(room.messages) { message in
+                                MessageBubble(message: message)
+                                    .id(message.id)
+                            }
+                        }
+                        .padding(12)
+                    }
+                    .onChange(of: room.messages.count) { _, _ in
+                        if let last = room.messages.last {
+                            withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                        }
+                    }
+                }
+
+                Divider()
+
+                // 입력 영역
+                if room.isActive {
+                    inputArea(room)
+                }
+            }
+        }
+    }
+
+    // MARK: - 방 헤더
+
+    private func roomHeader(_ room: Room) -> some View {
+        VStack(spacing: 4) {
+            HStack {
+                Text(room.title)
+                    .font(.caption.bold())
+                    .lineLimit(1)
+                Spacer()
+
+                // 삭제 버튼
+                Button {
+                    showDeleteConfirm = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.caption)
+                        .foregroundColor(.secondary.opacity(0.6))
+                }
+                .buttonStyle(.plain)
+                .help("방 삭제")
+                .confirmationDialog("이 방을 삭제할까요?", isPresented: $showDeleteConfirm) {
+                    Button("삭제", role: .destructive) {
+                        // 창 닫기를 위해 UtilityWindowManager 사용
+                        roomManager.deleteRoom(room.id)
+                        // NSWindow를 찾아 닫기
+                        NSApp.keyWindow?.close()
+                    }
+                } message: {
+                    Text("진행 중인 작업이 있으면 즉시 중단됩니다.")
+                }
+
+                // 상태 + 생성일시
+                statusLabel(room)
+            }
+
+            // 참여 에이전트 아바타
+            HStack(spacing: -6) {
+                ForEach(room.assignedAgentIDs, id: \.self) { agentID in
+                    if let agent = agentStore.agents.first(where: { $0.id == agentID }) {
+                        let isSpeaking = roomManager.speakingAgentIDByRoom[room.id] == agentID
+                        AgentAvatarView(agent: agent, size: 20)
+                            .overlay(
+                                Circle().stroke(
+                                    isSpeaking ? Color.green : Color(nsColor: .windowBackgroundColor),
+                                    lineWidth: isSpeaking ? 2 : 1
+                                )
+                            )
+                            .opacity(isSpeaking ? 1.0 : 0.7)
+                    }
+                }
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+    }
+
+    // MARK: - 입력 영역
+
+    private func inputArea(_ room: Room) -> some View {
+        HStack(spacing: 8) {
+            TextField("메시지를 입력하세요...", text: $inputText, axis: .vertical)
+                .textFieldStyle(.plain)
+                .lineLimit(1...3)
+                .focused($isInputFocused)
+                .onSubmit { sendMessage() }
+
+            Button(action: sendMessage) {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.title2)
+                    .foregroundColor(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .gray : .accentColor)
+            }
+            .buttonStyle(.plain)
+            .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .keyboardShortcut(.return, modifiers: .command)
+        }
+        .padding(10)
+        .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
+    }
+
+    private func sendMessage() {
+        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        inputText = ""
+        Task { await roomManager.sendUserMessage(text, to: roomID) }
+    }
+
+    // MARK: - 상태 라벨
+
+    @ViewBuilder
+    private func statusLabel(_ room: Room) -> some View {
+        HStack(spacing: 4) {
+            switch room.status {
+            case .planning:
+                ProgressView().scaleEffect(0.4)
+                    .frame(width: 12, height: 12)
+                Text(room.discussionProgressText)
+                    .font(.caption2)
+                    .foregroundColor(DesignTokens.RoomStatusColor.color(for: .planning))
+            case .inProgress:
+                Circle()
+                    .fill(Color.orange)
+                    .frame(width: 6, height: 6)
+                Text("진행중")
+                    .font(.caption2)
+                    .foregroundColor(.orange)
+            case .completed:
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 9))
+                    .foregroundColor(.green)
+                Text("완료")
+                    .font(.caption2)
+                    .foregroundColor(.green)
+            case .failed:
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 9))
+                    .foregroundColor(.red)
+                Text("실패")
+                    .font(.caption2)
+                    .foregroundColor(.red)
+            case .archived:
+                Text("보관")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+            Text("·")
+                .foregroundColor(.secondary.opacity(0.4))
+            Text(Self.shortDateFormatter.string(from: room.createdAt))
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private static let shortDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ko_KR")
+        f.dateFormat = "M/d HH:mm"
+        return f
+    }()
+}
+
+// MARK: - 계획 카드
+
+struct PlanCard: View {
+    let plan: RoomPlan
+    let currentStep: Int
+    let status: RoomStatus
+
+    @State private var isExpanded = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // 헤더 (접이식)
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+            } label: {
+                HStack {
+                    Image(systemName: "list.bullet.clipboard")
+                        .font(.caption2)
+                        .foregroundColor(.purple)
+                    Text("작업 계획")
+                        .font(.caption2.bold())
+                        .foregroundColor(.purple)
+                    Spacer()
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 8))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                // 요약
+                Text(plan.summary)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+
+                // 단계 목록
+                ForEach(Array(plan.steps.enumerated()), id: \.offset) { index, step in
+                    HStack(spacing: 6) {
+                        stepIcon(index: index)
+                        Text(step)
+                            .font(.caption2)
+                            .foregroundColor(stepColor(index: index))
+                            .lineLimit(1)
+                    }
+                }
+            }
+        }
+        .padding(8)
+        .background(Color.purple.opacity(0.05))
+        .cornerRadius(10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private func stepIcon(index: Int) -> some View {
+        if status == .completed || index < currentStep {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 9))
+                .foregroundColor(.green)
+        } else if index == currentStep && status == .inProgress {
+            Image(systemName: "play.circle.fill")
+                .font(.system(size: 9))
+                .foregroundColor(.orange)
+        } else {
+            Image(systemName: "circle")
+                .font(.system(size: 9))
+                .foregroundColor(.gray)
+        }
+    }
+
+    private func stepColor(index: Int) -> Color {
+        if status == .completed || index < currentStep {
+            return .secondary
+        } else if index == currentStep && status == .inProgress {
+            return .primary
+        } else {
+            return .secondary.opacity(0.7)
+        }
+    }
+
+    private func formatTime(_ seconds: Int) -> String {
+        let min = seconds / 60
+        let sec = seconds % 60
+        return String(format: "%d:%02d 예상", min, sec)
+    }
+}
+
+// MARK: - 토론 진행 바
+
+struct DiscussionProgressBar: View {
+    let room: Room
+    @EnvironmentObject var roomManager: RoomManager
+    @EnvironmentObject var agentStore: AgentStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .font(.caption2)
+                    .foregroundColor(.blue)
+                Text("토론 진행")
+                    .font(.caption2.bold())
+                    .foregroundColor(.blue)
+                Spacer()
+                Text(room.discussionProgressText)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+
+            // 프로그레스 바
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.blue.opacity(0.1))
+                        .frame(height: 4)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.blue)
+                        .frame(width: geo.size.width * progressRatio, height: 4)
+                }
+            }
+            .frame(height: 4)
+
+            // 현재 발언 중인 에이전트 또는 참여자 수
+            if let speakingName = speakingAgentName {
+                HStack(spacing: 4) {
+                    ProgressView()
+                        .scaleEffect(0.4)
+                        .frame(width: 12, height: 12)
+                    Text("\(speakingName) 발언 중...")
+                        .font(.caption2)
+                        .foregroundColor(.green)
+                }
+            } else {
+                Text("\(room.assignedAgentIDs.count)명 참여")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(8)
+        .background(Color.blue.opacity(0.05))
+        .cornerRadius(10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+    }
+
+    private var progressRatio: CGFloat {
+        guard room.maxDiscussionRounds > 0 else { return 0 }
+        return CGFloat(room.currentRound) / CGFloat(room.maxDiscussionRounds)
+    }
+
+    private var speakingAgentName: String? {
+        guard let agentID = roomManager.speakingAgentIDByRoom[room.id] else { return nil }
+        return agentStore.agents.first(where: { $0.id == agentID })?.name
+    }
+}
