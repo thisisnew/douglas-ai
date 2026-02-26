@@ -100,12 +100,9 @@ struct FloatingSidebarView: View {
     private var masterAgent: Agent? { agentStore.masterAgent }
     private var masterID: UUID? { masterAgent?.id }
 
-    /// DevAgent + 서브에이전트 (로스터에 표시, 마스터 제외)
+    /// 서브에이전트만 (로스터에 표시, 마스터/DevAgent 제외)
     private var allRosterAgents: [Agent] {
-        var list: [Agent] = []
-        if let dev = agentStore.devAgent { list.append(dev) }
-        list += agentStore.subAgents
-        return list
+        agentStore.subAgents
     }
 
     // MARK: - 커스텀 구분선
@@ -133,20 +130,23 @@ struct FloatingSidebarView: View {
 
                 // ── 방 목록 헤더 + 리스트 (높이 조절 가능) ──
                 VStack(spacing: 0) {
-                    // 방 목록 헤더 (+ 버튼)
+                    // 방 목록 헤더: "방" 라벨 + 우측 + 버튼
                     HStack {
+                        Text("방")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.secondary)
                         Spacer()
                         Button(action: { openCreateRoomWindow() }) {
-                            Image(systemName: "plus.circle")
-                                .font(.system(size: 13))
+                            Image(systemName: "plus")
+                                .font(.system(size: 11, weight: .medium))
                                 .foregroundColor(.secondary)
                         }
                         .buttonStyle(.plain)
                         .help("새 방 만들기")
                     }
                     .padding(.horizontal, 16)
-                    .padding(.top, 6)
-                    .padding(.bottom, 2)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
 
                     RoomListView(
                         onCreateRoom: { openCreateRoomWindow() },
@@ -257,6 +257,33 @@ struct FloatingSidebarView: View {
             .buttonStyle(.plain)
             .help("작업일지")
 
+            // DevAgent (앱 유지보수)
+            Button(action: {
+                if let dev = agentStore.devAgent {
+                    openInfoWindow(for: dev)
+                }
+            }) {
+                Image(systemName: "wrench.and.screwdriver")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("앱 유지보수 (워즈니악)")
+            .contextMenu {
+                Button {
+                    openHistoryWindow()
+                } label: {
+                    Label("변경 이력", systemImage: "clock.arrow.circlepath")
+                }
+                if let dev = agentStore.devAgent {
+                    Button {
+                        openEditWindow(for: dev)
+                    } label: {
+                        Label("편집", systemImage: "pencil")
+                    }
+                }
+            }
+
             Button(action: { openProviderWindow() }) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 13))
@@ -290,6 +317,7 @@ struct FloatingSidebarView: View {
             HStack(spacing: DesignTokens.Layout.rosterSpacing) {
                 ForEach(allRosterAgents) { agent in
                     rosterItem(agent)
+                        .padding(.top, 6)  // 뱃지 잘림 방지
                         .onTapGesture { openInfoWindow(for: agent) }
                         .contextMenu {
                             Button {

@@ -118,6 +118,8 @@ class ClaudeCodeProvider: AIProvider {
                 let existingPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
                 env["PATH"] = additionalPaths.joined(separator: ":") + ":" + existingPath
                 process.environment = env
+                // 작업 디렉토리를 홈으로 설정 — macOS 디렉토리 접근 허락 다이얼로그 방지
+                process.currentDirectoryURL = URL(fileURLWithPath: homePath)
 
                 let outputPipe = Pipe()
                 let errorPipe = Pipe()
