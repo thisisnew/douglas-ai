@@ -451,7 +451,7 @@ struct OnboardingView: View {
             // 하단 버튼
             HStack {
                 Button("나중에 설정") {
-                    viewModel.skipOnboarding()
+                    viewModel.skipOnboarding(providerManager: providerManager, agentStore: agentStore)
                     onComplete()
                 }
                 .foregroundColor(.secondary)

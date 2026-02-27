@@ -6,17 +6,26 @@ extension Notification.Name {
 }
 
 class ClickThroughPanel: NSPanel {
+    /// 상단 드래그 영역 높이 (SwiftUI 드래그 핸들 + 헤더 영역)
+    private let dragZoneHeight: CGFloat = 24
+
     override var canBecomeKey: Bool { true }
 
-    // 패널이 화면 밖으로 완전히 벗어나지 않도록만 제한 (자유 드래그 허용)
+    override func sendEvent(_ event: NSEvent) {
+        // 상단 드래그 영역에서 좌클릭 → 윈도우 드래그
+        if event.type == .leftMouseDown {
+            let loc = event.locationInWindow
+            if loc.y >= frame.height - dragZoneHeight {
+                performDrag(with: event)
+                return
+            }
+        }
+        super.sendEvent(event)
+    }
+
+    // 시스템 프레임 제약 비활성화 (듀얼 모니터에서 잘못된 화면으로 끌려가는 문제 방지)
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
-        guard let screen = screen ?? NSScreen.screens.first else { return frameRect }
-        var rect = frameRect
-        let sf = screen.visibleFrame
-        // 최소 40pt는 화면 안에 보이도록 클램핑
-        rect.origin.x = max(sf.minX - rect.width + 40, min(rect.origin.x, sf.maxX - 40))
-        rect.origin.y = max(sf.minY - rect.height + 40, min(rect.origin.y, sf.maxY - 40))
-        return rect
+        return frameRect
     }
 }
 
@@ -103,26 +112,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private var clickTimer: DispatchWorkItem?
-
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
         guard let event = NSApp.currentEvent else { return }
         if event.type == .rightMouseUp {
             showStatusMenu()
-            return
-        }
-        if event.clickCount == 2 {
-            // 더블클릭 감지 → 싱글클릭 타이머 취소 후 오른쪽 스냅
-            clickTimer?.cancel()
-            clickTimer = nil
+        } else if event.clickCount == 2 {
+            // 더블클릭: 오른쪽 사이드바 위치로 스냅
             snapSidebarToRight()
         } else {
-            // 싱글클릭: 더블클릭 여부 확인을 위해 지연
-            let work = DispatchWorkItem { [weak self] in
-                self?.toggleSidebar()
-            }
-            clickTimer = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+            toggleSidebar()
         }
     }
 

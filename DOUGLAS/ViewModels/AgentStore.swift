@@ -87,39 +87,27 @@ class AgentStore: ObservableObject {
 
     /// 마스터의 시스템 프롬프트에 현재 에이전트 목록 + 응답 형식을 주입
     func masterSystemPrompt() -> String {
-        guard let master = masterAgent else { return "" }
-        let allAgentLines = subAgents.map { agent in
-            "- \(agent.name) [\(agent.providerName)/\(agent.modelName)]: \(agent.persona.prefix(200))"
+        let agentLines = subAgents.map { agent in
+            "- \(agent.name): \(agent.persona.prefix(100))"
         }
-        let agentList = allAgentLines.joined(separator: "\n")
+        let agentList = agentLines.joined(separator: "\n")
 
         return """
-        \(master.persona)
+        너는 라우터다. 사용자 요청을 분석해서 에이전트에게 위임하라. JSON만 출력.
 
-        현재 등록된 에이전트:
+        에이전트 목록:
         \(agentList.isEmpty ? "(없음)" : agentList)
 
-        응답 형식 (반드시 JSON으로만 응답):
+        출력 형식:
+        {"action":"delegate","agents":["이름1","이름2"],"task":"구체적 지시"}
 
-        1. 위임 (단일 또는 병렬):
-        {"action": "delegate", "agents": ["에이전트이름1", "에이전트이름2"], "task": "구체적 지시"}
+        에이전트가 없을 때만:
+        {"action":"suggest_agent","name":"이름","persona":"역할 설명"}
 
-        2. 컨텍스트 공유 위임 (다른 에이전트의 대화 내역을 참조):
-        {"action": "delegate", "agents": ["에이전트B"], "task": "작업 내용", "context_from": ["에이전트A"]}
+        직접 답변할 때:
+        {"action":"respond","message":"답변"}
 
-        3. 순차 체인 (A의 결과를 B에게 전달):
-        {"action": "chain", "steps": [{"agent": "에이전트A", "task": "첫 번째 작업"}, {"agent": "에이전트B", "task": "A의 결과를 바탕으로 수행할 작업"}]}
-
-        4. 에이전트 생성 제안 (적합한 에이전트가 전혀 없을 때만):
-        {"action": "suggest_agent", "name": "제안 이름", "persona": "제안 페르소나", "recommended_provider": "제공자", "recommended_model": "모델"}
-
-        규칙:
-        - 사용자의 요청에 절대 직접 답변하지 마라. 반드시 에이전트에게 위임하라.
-        - 요청을 분석하여 가장 연관성 높은 에이전트를 선택하고 방을 구성하라.
-        - 여러 에이전트가 동시에 필요하면 agents 배열에 복수 이름을 넣어 delegate 사용
-        - 순차적 처리가 필요하면 chain 사용
-        - 적합한 에이전트가 전혀 없을 때만 suggest_agent 사용
-        - 반드시 유효한 JSON으로만 응답할 것
+        규칙: 적합한 에이전트가 있으면 무조건 delegate. 여러 명 필요하면 agents에 복수. JSON만 출력.
         """
     }
 

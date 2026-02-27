@@ -224,7 +224,15 @@ class OnboardingViewModel: ObservableObject {
 
     // MARK: - "나중에 설정" (스킵)
 
-    func skipOnboarding() {
+    /// 온보딩을 건너뛰되, 감지된 프로바이더가 있으면 최소 설정을 적용한다.
+    func skipOnboarding(providerManager: ProviderManager, agentStore: AgentStore) {
+        // 감지된 프로바이더가 있으면 자동으로 설정
+        if !selectedTypes.isEmpty {
+            apply(providerManager: providerManager, agentStore: agentStore)
+            return
+        }
+
+        // 아무것도 감지/선택되지 않은 경우에도 완료 처리
         Self.isCompleted = true
     }
 }

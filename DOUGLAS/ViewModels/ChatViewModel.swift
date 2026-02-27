@@ -7,6 +7,7 @@ enum MasterAction {
     case delegate(agents: [String], task: String, contextFrom: [String]?)
     case suggestAgent(name: String, persona: String, provider: String, model: String)
     case chain(steps: [ChainStep])
+    case respond(message: String)
     case unknown(rawResponse: String)
 
     struct ChainStep {
@@ -140,6 +141,15 @@ class ChatViewModel: ObservableObject {
     ) async {
         agentStore.updateStatus(agentID: agent.id, status: .working)
 
+        // 진행 상태 표시
+        let analyzingMsg = ChatMessage(
+            role: .assistant,
+            content: "요청을 분석하고 적합한 에이전트를 선택 중...",
+            agentName: "마스터",
+            messageType: .toolActivity
+        )
+        appendMessage(analyzingMsg, for: agent.id)
+
         do {
             guard let provider = providerManager.provider(named: agent.providerName) else {
                 throw AIProviderError.apiError("프로바이더 '\(agent.providerName)'을(를) 찾을 수 없습니다.")
@@ -176,12 +186,20 @@ class ChatViewModel: ObservableObject {
                     agentStore: agentStore, providerManager: providerManager
                 )
 
-            case .unknown(let rawResponse):
+            case .respond(let message):
                 let reply = ChatMessage(
                     role: .assistant,
-                    content: "위임 처리 중 오류가 발생했습니다. 다시 시도해주세요.\n\n원본: \(String(rawResponse.prefix(200)))",
-                    agentName: "마스터",
-                    messageType: .error
+                    content: message,
+                    agentName: "마스터"
+                )
+                appendMessage(reply, for: agent.id)
+
+            case .unknown(let rawResponse):
+                // JSON 파싱 실패 시 원본 텍스트를 답변으로 표시 (에러가 아닌 일반 메시지)
+                let reply = ChatMessage(
+                    role: .assistant,
+                    content: rawResponse,
+                    agentName: "마스터"
                 )
                 appendMessage(reply, for: agent.id)
             }
@@ -709,6 +727,10 @@ class ChatViewModel: ObservableObject {
                 return MasterAction.ChainStep(agent: agent, task: task)
             }
             return steps.isEmpty ? .unknown(rawResponse: response) : .chain(steps: steps)
+
+        case "respond":
+            let message = json["message"] as? String ?? response
+            return .respond(message: message)
 
         default:
             return .unknown(rawResponse: response)

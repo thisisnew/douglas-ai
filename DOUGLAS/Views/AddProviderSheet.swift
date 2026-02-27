@@ -9,6 +9,13 @@ struct AddProviderSheet: View {
     @State private var testResults: [ProviderType: String] = [:]
     @State private var isTesting: [ProviderType: Bool] = [:]
 
+    // Jira
+    @State private var jiraDomain = ""
+    @State private var jiraEmail = ""
+    @State private var jiraToken = ""
+    @State private var jiraTestResult: String?
+    @State private var isTestingJira = false
+
     var body: some View {
         VStack(spacing: 0) {
             // 헤더
@@ -131,11 +138,62 @@ struct AddProviderSheet: View {
                             }
                         }
                     }
+
+                    // Jira
+                    providerCard {
+                        VStack(spacing: 12) {
+                            HStack(spacing: 12) {
+                                providerIcon("link.circle", color: .blue)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Jira Cloud")
+                                        .font(.body.weight(.medium))
+                                    Text("티켓 조회 · web_fetch 자동 인증")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                jiraTestBadge
+                            }
+
+                            TextField("도메인 (company.atlassian.net)", text: $jiraDomain)
+                                .textFieldStyle(.plain)
+                                .font(.body)
+                                .padding(10)
+                                .background(Color.primary.opacity(0.04))
+                                .cornerRadius(8)
+
+                            TextField("이메일", text: $jiraEmail)
+                                .textFieldStyle(.plain)
+                                .font(.body)
+                                .padding(10)
+                                .background(Color.primary.opacity(0.04))
+                                .cornerRadius(8)
+
+                            SecureField("API Token", text: $jiraToken)
+                                .textFieldStyle(.plain)
+                                .font(.body)
+                                .padding(10)
+                                .background(Color.primary.opacity(0.04))
+                                .cornerRadius(8)
+
+                            HStack(spacing: 8) {
+                                Spacer()
+                                Button("테스트") { testJira() }
+                                    .controlSize(.small)
+                                    .disabled(jiraDomain.isEmpty || jiraEmail.isEmpty || jiraToken.isEmpty || isTestingJira)
+                                Button("저장") { saveJira() }
+                                    .controlSize(.small)
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(jiraDomain.isEmpty || jiraEmail.isEmpty || jiraToken.isEmpty)
+                            }
+                        }
+                    }
+                    .onAppear { loadJiraConfig() }
                 }
                 .padding(24)
             }
         }
-        .frame(width: 460, height: 520)
+        .frame(width: 460, height: 680)
     }
 
     // MARK: - Components
@@ -161,6 +219,23 @@ struct AddProviderSheet: View {
                 .scaleEffect(0.5)
                 .frame(width: 16, height: 16)
         } else if let result = testResults[type] {
+            Text(result)
+                .font(.caption2)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(result.contains("성공") || result.contains("완료") ? Color.green.opacity(0.1) : Color.red.opacity(0.1))
+                .foregroundColor(result.contains("성공") || result.contains("완료") ? .green : .red)
+                .cornerRadius(4)
+        }
+    }
+
+    @ViewBuilder
+    private var jiraTestBadge: some View {
+        if isTestingJira {
+            ProgressView()
+                .scaleEffect(0.5)
+                .frame(width: 16, height: 16)
+        } else if let result = jiraTestResult {
             Text(result)
                 .font(.caption2)
                 .padding(.horizontal, 8)
@@ -202,6 +277,59 @@ struct AddProviderSheet: View {
                 testResults[type] = "실패"
             }
             isTesting[type] = false
+        }
+    }
+
+    // MARK: - Jira
+
+    private func loadJiraConfig() {
+        let config = JiraConfig.shared
+        jiraDomain = config.domain
+        jiraEmail = config.email
+        jiraToken = config.apiToken ?? ""
+    }
+
+    private func saveJira() {
+        var config = JiraConfig(domain: jiraDomain, email: jiraEmail)
+        config.apiToken = jiraToken
+        JiraConfig.shared = config
+        jiraTestResult = "저장 완료"
+    }
+
+    private func testJira() {
+        isTestingJira = true
+        jiraTestResult = nil
+
+        let credentials = "\(jiraEmail):\(jiraToken)"
+        let auth = "Basic \(Data(credentials.utf8).base64EncodedString())"
+        let urlString = "https://\(jiraDomain)/rest/api/3/myself"
+
+        guard let url = URL(string: urlString) else {
+            jiraTestResult = "잘못된 도메인"
+            isTestingJira = false
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.setValue(auth, forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 10
+
+        Task {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                if (200..<300).contains(status),
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let displayName = json["displayName"] as? String {
+                    jiraTestResult = "성공 · \(displayName)"
+                } else {
+                    jiraTestResult = "실패 (HTTP \(status))"
+                }
+            } catch {
+                jiraTestResult = "실패"
+            }
+            isTestingJira = false
         }
     }
 }

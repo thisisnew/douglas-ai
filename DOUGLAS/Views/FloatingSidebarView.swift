@@ -185,10 +185,7 @@ struct FloatingSidebarView: View {
 
     @State private var sectionHandleHovered = false
 
-    /// 윈도우 드래그용 마우스 오프셋 (Y축 포함)
-    @State private var windowDragOffsetY: CGFloat = 0
-
-    /// 상단 드래그 핸들 — 패널 자유 이동용
+    /// 상단 드래그 핸들 — AppKit performDrag가 실제 이동을 처리
     private var dragHandle: some View {
         RoundedRectangle(cornerRadius: 2.5)
             .fill(Color.primary.opacity(0.15))
@@ -196,25 +193,6 @@ struct FloatingSidebarView: View {
             .frame(maxWidth: .infinity)
             .frame(height: 14)
             .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 1)
-                    .onChanged { value in
-                        guard let panel = NSApp.windows.first(where: { $0.title == "Tell, Don't Ask" }) else { return }
-                        let mouse = NSEvent.mouseLocation
-                        if !isDraggingWindow {
-                            isDraggingWindow = true
-                            windowDragOffset = mouse.x - panel.frame.origin.x
-                            windowDragOffsetY = mouse.y - panel.frame.origin.y
-                        }
-                        panel.setFrameOrigin(NSPoint(
-                            x: mouse.x - windowDragOffset,
-                            y: mouse.y - windowDragOffsetY
-                        ))
-                    }
-                    .onEnded { _ in
-                        isDraggingWindow = false
-                    }
-            )
             .onHover { hovering in
                 if hovering { NSCursor.openHand.push() }
                 else { NSCursor.pop() }

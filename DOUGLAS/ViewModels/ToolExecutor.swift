@@ -174,6 +174,8 @@ enum ToolExecutor {
             return await executeShellExec(call)
         case "web_search":
             return ToolResult(callID: call.id, content: "웹 검색 기능은 아직 구현되지 않았습니다.", isError: true)
+        case "web_fetch":
+            return await executeWebFetch(call)
         case "invite_agent":
             return await executeInviteAgent(call, context: context)
         case "list_agents":
@@ -270,6 +272,157 @@ enum ToolExecutor {
         } catch {
             return ToolResult(callID: call.id, content: "파일 쓰기 실패: \(error.localizedDescription)", isError: true)
         }
+    }
+
+    // MARK: - web_fetch
+
+    private static func executeWebFetch(_ call: ToolCall) async -> ToolResult {
+        guard let urlString = call.arguments["url"]?.stringValue,
+              let url = URL(string: urlString) else {
+            return ToolResult(callID: call.id, content: "유효한 url 파라미터가 필요합니다.", isError: true)
+        }
+
+        let method = call.arguments["method"]?.stringValue?.uppercased() ?? "GET"
+        let body = call.arguments["body"]?.stringValue
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = 30
+
+        // Jira URL 감지 → 자동 인증 + API URL 변환
+        let jiraConfig = JiraConfig.shared
+        if jiraConfig.isConfigured && jiraConfig.isJiraURL(urlString) {
+            // 브라우저 URL → REST API URL 변환
+            let apiURLString = jiraConfig.apiURL(from: urlString)
+            if apiURLString != urlString, let apiURL = URL(string: apiURLString) {
+                request.url = apiURL
+            }
+            if let auth = jiraConfig.authHeader() {
+                request.setValue(auth, forHTTPHeaderField: "Authorization")
+            }
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+        }
+
+        if let body, method == "POST" {
+            request.httpBody = body.data(using: .utf8)
+            if request.value(forHTTPHeaderField: "Content-Type") == nil {
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            }
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let httpResponse = response as? HTTPURLResponse
+            let statusCode = httpResponse?.statusCode ?? 0
+
+            guard (200..<400).contains(statusCode) else {
+                let body = String(data: data, encoding: .utf8) ?? "(응답 없음)"
+                return ToolResult(
+                    callID: call.id,
+                    content: "HTTP \(statusCode) 오류\n\(String(body.prefix(2000)))",
+                    isError: true
+                )
+            }
+
+            guard var text = String(data: data, encoding: .utf8) else {
+                return ToolResult(callID: call.id, content: "응답을 텍스트로 변환할 수 없습니다.", isError: true)
+            }
+
+            // Jira JSON 응답이면 읽기 쉬운 포맷으로 변환
+            if jiraConfig.isConfigured && jiraConfig.isJiraURL(urlString),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               json["fields"] != nil {
+                text = formatJiraIssue(json)
+            }
+
+            // 크기 제한
+            let maxLen = 50_000
+            if text.count > maxLen {
+                text = String(text.prefix(maxLen)) + "\n\n... (응답이 \(text.count)자로 잘렸습니다)"
+            }
+
+            return ToolResult(callID: call.id, content: text, isError: false)
+        } catch {
+            return ToolResult(callID: call.id, content: "요청 실패: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    /// Jira 이슈 JSON을 읽기 쉬운 텍스트로 변환
+    private static func formatJiraIssue(_ json: [String: Any]) -> String {
+        let key = json["key"] as? String ?? "?"
+        let fields = json["fields"] as? [String: Any] ?? [:]
+
+        let summary = fields["summary"] as? String ?? "(제목 없음)"
+        let status = (fields["status"] as? [String: Any])?["name"] as? String ?? "?"
+        let assignee = (fields["assignee"] as? [String: Any])?["displayName"] as? String ?? "미배정"
+        let priority = (fields["priority"] as? [String: Any])?["name"] as? String ?? "?"
+        let issueType = (fields["issuetype"] as? [String: Any])?["name"] as? String ?? "?"
+
+        // 설명 (Atlassian Document Format → 텍스트 추출)
+        var descriptionText = ""
+        if let description = fields["description"] as? [String: Any] {
+            descriptionText = extractADFText(description)
+        } else if let desc = fields["description"] as? String {
+            descriptionText = desc
+        }
+
+        // 댓글
+        var commentLines: [String] = []
+        if let commentObj = fields["comment"] as? [String: Any],
+           let comments = commentObj["comments"] as? [[String: Any]] {
+            for comment in comments.suffix(5) {
+                let author = (comment["author"] as? [String: Any])?["displayName"] as? String ?? "?"
+                let created = (comment["created"] as? String)?.prefix(10) ?? "?"
+                let body: String
+                if let adf = comment["body"] as? [String: Any] {
+                    body = extractADFText(adf)
+                } else {
+                    body = (comment["body"] as? String) ?? ""
+                }
+                commentLines.append("- \(author) (\(created)): \(body.prefix(300))")
+            }
+        }
+
+        var result = """
+        [\(key)] \(summary)
+        유형: \(issueType) | 상태: \(status) | 담당자: \(assignee) | 우선순위: \(priority)
+        """
+
+        if !descriptionText.isEmpty {
+            result += "\n---\n설명:\n\(descriptionText)"
+        }
+
+        if !commentLines.isEmpty {
+            result += "\n---\n댓글 (\(commentLines.count)개):\n\(commentLines.joined(separator: "\n"))"
+        }
+
+        return result
+    }
+
+    /// Atlassian Document Format (ADF) JSON에서 텍스트 추출
+    private static func extractADFText(_ adf: [String: Any]) -> String {
+        var texts: [String] = []
+        if let content = adf["content"] as? [[String: Any]] {
+            for block in content {
+                if let innerContent = block["content"] as? [[String: Any]] {
+                    let line = innerContent.compactMap { node -> String? in
+                        if node["type"] as? String == "text" {
+                            return node["text"] as? String
+                        }
+                        // 재귀: 인라인 노드 안의 텍스트
+                        if let nested = node["content"] as? [[String: Any]] {
+                            return nested.compactMap { $0["text"] as? String }.joined()
+                        }
+                        return nil
+                    }.joined()
+                    if !line.isEmpty { texts.append(line) }
+                } else if block["type"] as? String == "text",
+                          let text = block["text"] as? String {
+                    texts.append(text)
+                }
+            }
+        }
+        return texts.joined(separator: "\n")
     }
 
     // MARK: - shell_exec

@@ -130,21 +130,7 @@ struct Agent: Identifiable, Codable, Hashable {
     static func createMaster(providerName: String = "Claude Code", modelName: String = "claude-sonnet-4-6") -> Agent {
         Agent(
             name: "마스터",
-            persona: """
-            너는 에이전트 관리자야.
-            사용자의 요청을 분석해서 적절한 에이전트에게 작업을 위임해.
-
-            규칙:
-            1. 적합한 에이전트가 있으면 해당 에이전트의 이름을 JSON으로 알려줘
-            2. 적합한 에이전트가 없으면 직접 답변해
-            3. 여러 에이전트가 필요하면 목록을 알려줘
-
-            응답 형식 (위임 시):
-            {"action": "delegate", "agents": ["에이전트이름"], "task": "구체적 지시"}
-
-            응답 형식 (직접 답변 시):
-            {"action": "respond", "message": "답변 내용"}
-            """,
+            persona: "사용자의 요청을 분석하여 적합한 에이전트에게 위임하는 라우터.",
             providerName: providerName,
             modelName: modelName,
             isMaster: true

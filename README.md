@@ -36,7 +36,18 @@ macOS 플로팅 사이드바 기반 AI 에이전트 매니저.
 | OpenAI | API Key | GPT-4o 등 (Tool Use 지원) |
 | Google | API Key | Gemini 모델 (Tool Use 지원) |
 
-## 빌드 및 실행
+## 설치 및 실행
+
+### DMG로 설치 (일반 사용자)
+
+1. [Releases](releases)에서 `DOUGLAS.dmg` 다운로드
+2. DMG를 열고 `DOUGLAS.app`을 `Applications`로 드래그
+3. 최초 실행 시 macOS가 차단하면:
+   - `시스템 설정 → 개인정보 보호 및 보안 → "확인 없이 열기"` 클릭
+   - 또는 터미널에서: `xattr -cr /Applications/DOUGLAS.app`
+4. 앱 실행 → 온보딩 가이드가 자동으로 시작됨
+
+### 소스에서 빌드 (개발자)
 
 ```bash
 # 요구사항: macOS 14+, Swift 5.9+
@@ -49,6 +60,35 @@ swift build -c release
 
 # 개발 실행
 swift run DOUGLAS
+```
+
+## 사전 준비
+
+앱은 첫 실행 시 온보딩에서 아래 항목을 자동 감지합니다. 미리 준비하면 셋업이 빨라집니다.
+
+### 마스터 에이전트 (택 1)
+
+| 방법 | 준비 | 비고 |
+|------|------|------|
+| **Claude Code CLI** (권장) | `npm install -g @anthropic-ai/claude-code` 후 `claude` 로그인 | Node.js 18+ 필요 |
+| **Anthropic API** | [console.anthropic.com](https://console.anthropic.com)에서 API Key 발급 | Claude 모델 사용 |
+| **OpenAI API** | [platform.openai.com](https://platform.openai.com)에서 API Key 발급 | GPT-4o 등 |
+| **Google API** | [aistudio.google.com](https://aistudio.google.com)에서 API Key 발급 | Gemini 모델 |
+
+### 의존성 (선택)
+
+- **Node.js 18+** — Claude Code CLI 사용 시 필수. [nvm](https://github.com/nvm-sh/nvm) 또는 `brew install node`
+- **Git** — Tool Use(셸 실행) 기능에서 활용
+- **Homebrew** — 의존성 자동 설치 시 활용
+
+### 환경변수 (선택)
+
+터미널에서 실행(`swift run`)할 때만 자동 감지됩니다. Dock/Finder에서 실행 시에는 온보딩에서 직접 입력하세요.
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+export OPENAI_API_KEY="sk-..."
+export GOOGLE_API_KEY="AI..."
 ```
 
 ## 프로젝트 구조

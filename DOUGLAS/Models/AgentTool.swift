@@ -137,9 +137,9 @@ enum CapabilityPreset: String, Codable, CaseIterable, Identifiable {
     var includedToolIDs: [String] {
         switch self {
         case .none:       return []
-        case .researcher: return ["web_search"]
+        case .researcher: return ["web_search", "web_fetch"]
         case .developer:  return ["file_read", "file_write", "shell_exec"]
-        case .analyst:    return ["file_read", "shell_exec"]
+        case .analyst:    return ["file_read", "shell_exec", "web_fetch"]
         case .fullAccess: return ToolRegistry.allToolIDs
         case .custom:     return []
         }
@@ -183,6 +183,16 @@ enum ToolRegistry {
             description: "Search the web for information and return results. (미구현)",
             parameters: [
                 .init(name: "query", type: .string, description: "Search query string", required: true, enumValues: nil)
+            ]
+        ),
+        AgentTool(
+            id: "web_fetch",
+            name: "웹 페이지 가져오기",
+            description: "Fetch content from a URL. For Jira URLs, authentication is automatically applied. Returns the response body as text.",
+            parameters: [
+                .init(name: "url", type: .string, description: "URL to fetch", required: true, enumValues: nil),
+                .init(name: "method", type: .string, description: "HTTP method (GET, POST). Default: GET", required: false, enumValues: ["GET", "POST"]),
+                .init(name: "body", type: .string, description: "Request body for POST requests", required: false, enumValues: nil)
             ]
         ),
         AgentTool(
