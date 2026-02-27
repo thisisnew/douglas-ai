@@ -130,4 +130,117 @@ struct ProviderConfigTests {
         let config = makeTestProviderConfig(type: .custom, baseURL: "https://example.com")
         #expect(config.isConnected == true)
     }
+
+    @Test("isConnected - Claude Code (존재하지 않는 경로)")
+    func isConnectedClaudeCodeNotFound() {
+        let config = makeTestProviderConfig(type: .claudeCode, baseURL: "/nonexistent/path/claude")
+        #expect(config.isConnected == false)
+    }
+
+    // MARK: - apiKey (Keychain 통합)
+
+    @Test("apiKey - init에서 설정 → get으로 조회")
+    func apiKeyInitAndGet() {
+        let config = ProviderConfig(
+            name: "TestProvider",
+            type: .openAI,
+            baseURL: "https://api.openai.com",
+            authMethod: .apiKey,
+            apiKey: "sk-test-key-\(UUID().uuidString)"
+        )
+        let loaded = config.apiKey
+        #expect(loaded != nil)
+        #expect(loaded?.contains("sk-test-key-") == true)
+        // cleanup
+        var mutable = config
+        mutable.apiKey = nil
+    }
+
+    @Test("apiKey - set으로 변경")
+    func apiKeySet() {
+        var config = ProviderConfig(
+            name: "TestProvider",
+            type: .openAI,
+            baseURL: "https://api.openai.com"
+        )
+        let key = "new-key-\(UUID().uuidString)"
+        config.apiKey = key
+        #expect(config.apiKey == key)
+        // cleanup
+        config.apiKey = nil
+    }
+
+    @Test("apiKey - nil로 설정하면 삭제")
+    func apiKeyDelete() {
+        var config = ProviderConfig(
+            name: "TestProvider",
+            type: .openAI,
+            baseURL: "https://api.openai.com",
+            apiKey: "temp-key"
+        )
+        config.apiKey = nil
+        #expect(config.apiKey == nil)
+    }
+
+    @Test("isConnected - OpenAI (apiKey 있으면 true)")
+    func isConnectedOpenAIWithKey() {
+        let config = ProviderConfig(
+            name: "OpenAI",
+            type: .openAI,
+            baseURL: "https://api.openai.com",
+            authMethod: .apiKey,
+            apiKey: "sk-connected-\(UUID().uuidString)"
+        )
+        #expect(config.isConnected == true)
+        // cleanup
+        var mutable = config
+        mutable.apiKey = nil
+    }
+
+    // MARK: - 레거시 apiKey 마이그레이션
+
+    @Test("Decodable - 레거시 apiKey JSON에서 마이그레이션")
+    func decodeLegacyApiKey() throws {
+        let id = UUID()
+        let legacyKey = "legacy-api-key-\(UUID().uuidString)"
+        let json: [String: Any] = [
+            "id": id.uuidString,
+            "name": "OpenAI",
+            "type": "OpenAI",
+            "baseURL": "https://api.openai.com",
+            "authMethod": "API Key",
+            "apiKey": legacyKey  // 레거시 필드
+        ]
+        let data = try JSONSerialization.data(withJSONObject: json)
+
+        // 기존 Keychain에 해당 키가 없어야 마이그레이션 발생
+        _ = try? KeychainHelper.delete(key: "provider-apikey-\(id.uuidString)")
+
+        let config = try JSONDecoder().decode(ProviderConfig.self, from: data)
+        #expect(config.apiKey == legacyKey)
+        // cleanup
+        var mutable = config
+        mutable.apiKey = nil
+    }
+
+    // MARK: - ProviderType 추가
+
+    @Test("ProviderType - claudeCode defaultBaseURL")
+    func claudeCodeDefaultBaseURL() {
+        // findClaudePath()의 반환값 (환경에 따라 다름)
+        let url = ProviderType.claudeCode.defaultBaseURL
+        #expect(!url.isEmpty)
+    }
+
+    @Test("ProviderType - label 비어있지 않음")
+    func providerTypeLabels() {
+        for type in ProviderType.allCases {
+            #expect(!type.label.isEmpty)
+        }
+    }
+
+    @Test("ProviderType - CaseIterable")
+    func providerTypeCaseIterable() {
+        #expect(ProviderType.allCases.count == 7)
+    }
 }

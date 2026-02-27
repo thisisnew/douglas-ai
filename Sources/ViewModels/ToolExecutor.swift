@@ -4,6 +4,9 @@ import Foundation
 enum ToolExecutor {
     static let maxIterations = 10
 
+    /// 테스트에서 교체 가능한 URLSession (web_fetch용)
+    nonisolated(unsafe) static var urlSession: URLSession = .shared
+
     /// 도구 사용 가능한 경우 도구 루프 실행, 아니면 기존 sendMessage 폴백
     static func smartSend(
         provider: AIProvider,
@@ -311,7 +314,7 @@ enum ToolExecutor {
         }
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await urlSession.data(for: request)
             let httpResponse = response as? HTTPURLResponse
             let statusCode = httpResponse?.statusCode ?? 0
 
@@ -433,78 +436,49 @@ enum ToolExecutor {
         }
         let workDir = call.arguments["working_directory"]?.stringValue
 
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-                process.arguments = ["-c", command]
+        // 환경 변수 구성
+        var env = ProcessInfo.processInfo.environment
+        let homePath = env["HOME"] ?? "/Users/\(NSUserName())"
 
-                if let dir = workDir {
-                    process.currentDirectoryURL = URL(fileURLWithPath: dir)
-                }
-
-                // 환경 변수 상속
-                var env = ProcessInfo.processInfo.environment
-                let homePath = env["HOME"] ?? "/Users/\(NSUserName())"
-
-                // nvm: 동적으로 최신 버전 탐색
-                var additionalPaths: [String] = []
-                let nvmDir = "\(homePath)/.nvm/versions/node"
-                if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
-                    let sorted = versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
-                    for version in sorted {
-                        additionalPaths.append("\(nvmDir)/\(version)/bin")
-                    }
-                }
-                additionalPaths.append(contentsOf: [
-                    "/opt/homebrew/bin",
-                    "/usr/local/bin"
-                ])
-
-                if let existingPath = env["PATH"] {
-                    env["PATH"] = additionalPaths.joined(separator: ":") + ":" + existingPath
-                }
-                process.environment = env
-
-                let outputPipe = Pipe()
-                let errorPipe = Pipe()
-                process.standardOutput = outputPipe
-                process.standardError = errorPipe
-
-                do {
-                    try process.run()
-                    process.waitUntilExit()
-
-                    let stdout = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                    let stderr = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                    let exitCode = process.terminationStatus
-
-                    var output = ""
-                    if !stdout.isEmpty { output += stdout }
-                    if !stderr.isEmpty { output += (output.isEmpty ? "" : "\n") + "stderr: " + stderr }
-                    if output.isEmpty { output = "(출력 없음)" }
-
-                    // 출력 크기 제한
-                    let maxLen = 30_000
-                    if output.count > maxLen {
-                        output = String(output.prefix(maxLen)) + "\n... (출력이 잘렸습니다)"
-                    }
-
-                    output += "\n[종료 코드: \(exitCode)]"
-
-                    continuation.resume(returning: ToolResult(
-                        callID: call.id,
-                        content: output,
-                        isError: exitCode != 0
-                    ))
-                } catch {
-                    continuation.resume(returning: ToolResult(
-                        callID: call.id,
-                        content: "명령 실행 실패: \(error.localizedDescription)",
-                        isError: true
-                    ))
-                }
+        var additionalPaths: [String] = []
+        let nvmDir = "\(homePath)/.nvm/versions/node"
+        if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
+            let sorted = versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
+            for version in sorted {
+                additionalPaths.append("\(nvmDir)/\(version)/bin")
             }
         }
+        additionalPaths.append(contentsOf: ["/opt/homebrew/bin", "/usr/local/bin"])
+
+        if let existingPath = env["PATH"] {
+            env["PATH"] = additionalPaths.joined(separator: ":") + ":" + existingPath
+        }
+
+        let result = await ProcessRunner.run(
+            executable: "/bin/zsh",
+            args: ["-c", command],
+            env: env,
+            workDir: workDir
+        )
+
+        let exitCode = result.exitCode
+        var output = ""
+        if !result.stdout.isEmpty { output += result.stdout }
+        if !result.stderr.isEmpty { output += (output.isEmpty ? "" : "\n") + "stderr: " + result.stderr }
+        if output.isEmpty { output = "(출력 없음)" }
+
+        // 출력 크기 제한
+        let maxLen = 30_000
+        if output.count > maxLen {
+            output = String(output.prefix(maxLen)) + "\n... (출력이 잘렸습니다)"
+        }
+
+        output += "\n[종료 코드: \(exitCode)]"
+
+        return ToolResult(
+            callID: call.id,
+            content: output,
+            isError: exitCode != 0
+        )
     }
 }

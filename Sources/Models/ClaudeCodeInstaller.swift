@@ -77,39 +77,25 @@ class ClaudeCodeInstaller: ObservableObject {
     /// 백그라운드에서 claude 바이너리 탐색 (5초 타임아웃)
     private static func findClaudeInBackground() async -> String? {
         await withTaskGroup(of: String?.self) { group in
-            // 실제 탐색 (백그라운드 스레드)
+            // 실제 탐색
             group.addTask {
-                await withCheckedContinuation { continuation in
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        // 1. 하드코딩 경로 확인
-                        let path = ClaudeCodeProvider.findClaudePath()
-                        if FileManager.default.isExecutableFile(atPath: path) {
-                            continuation.resume(returning: path)
-                            return
-                        }
-
-                        // 2. 로그인 셸 which 폴백
-                        let process = Process()
-                        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-                        process.arguments = ["-l", "-c", "command -v claude"]
-                        let pipe = Pipe()
-                        process.standardOutput = pipe
-                        process.standardError = Pipe()
-                        do {
-                            try process.run()
-                            process.waitUntilExit()
-                            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                            let result = String(data: data, encoding: .utf8)?
-                                .trimmingCharacters(in: .whitespacesAndNewlines)
-                            if let result, !result.isEmpty, process.terminationStatus == 0,
-                               FileManager.default.isExecutableFile(atPath: result) {
-                                continuation.resume(returning: result)
-                                return
-                            }
-                        } catch {}
-                        continuation.resume(returning: nil)
-                    }
+                // 1. 하드코딩 경로 확인
+                let path = ClaudeCodeProvider.findClaudePath()
+                if FileManager.default.isExecutableFile(atPath: path) {
+                    return path
                 }
+
+                // 2. 로그인 셸 which 폴백
+                let result = await ProcessRunner.run(
+                    executable: "/bin/zsh",
+                    args: ["-l", "-c", "command -v claude"]
+                )
+                let found = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                if result.exitCode == 0, !found.isEmpty,
+                   FileManager.default.isExecutableFile(atPath: found) {
+                    return found
+                }
+                return nil
             }
             // 타임아웃
             group.addTask {
@@ -195,49 +181,29 @@ class ClaudeCodeInstaller: ObservableObject {
     // MARK: - 프로세스 실행
 
     private func runProcess(_ executablePath: String, arguments: [String]) async -> (success: Bool, output: String) {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: executablePath)
-                process.arguments = arguments
-
-                // PATH 보강
-                var env = ProcessInfo.processInfo.environment
-                let homePath = env["HOME"] ?? NSHomeDirectory()
-                var paths = ["/opt/homebrew/bin", "/usr/local/bin"]
-                let nvmDir = "\(homePath)/.nvm/versions/node"
-                if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
-                    let sorted = versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
-                    for version in sorted {
-                        paths.insert("\(nvmDir)/\(version)/bin", at: 0)
-                    }
-                }
-                let existing = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
-                env["PATH"] = paths.joined(separator: ":") + ":" + existing
-                process.environment = env
-                process.currentDirectoryURL = URL(fileURLWithPath: homePath)
-
-                let outputPipe = Pipe()
-                let errorPipe = Pipe()
-                process.standardOutput = outputPipe
-                process.standardError = errorPipe
-
-                do {
-                    try process.run()
-                    process.waitUntilExit()
-
-                    let outData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-                    let errData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                    let output = String(data: outData, encoding: .utf8) ?? ""
-                    let errorOutput = String(data: errData, encoding: .utf8) ?? ""
-
-                    let combined = (output + "\n" + errorOutput).trimmingCharacters(in: .whitespacesAndNewlines)
-                    continuation.resume(returning: (process.terminationStatus == 0, combined))
-                } catch {
-                    continuation.resume(returning: (false, error.localizedDescription))
-                }
+        // PATH 보강
+        var env = ProcessInfo.processInfo.environment
+        let homePath = env["HOME"] ?? NSHomeDirectory()
+        var paths = ["/opt/homebrew/bin", "/usr/local/bin"]
+        let nvmDir = "\(homePath)/.nvm/versions/node"
+        if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
+            let sorted = versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
+            for version in sorted {
+                paths.insert("\(nvmDir)/\(version)/bin", at: 0)
             }
         }
+        let existing = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        env["PATH"] = paths.joined(separator: ":") + ":" + existing
+
+        let result = await ProcessRunner.run(
+            executable: executablePath,
+            args: arguments,
+            env: env,
+            workDir: homePath
+        )
+
+        let combined = (result.stdout + "\n" + result.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
+        return (result.exitCode == 0, combined)
     }
 
     // MARK: - 유틸리티

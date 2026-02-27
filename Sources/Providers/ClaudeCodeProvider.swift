@@ -86,82 +86,55 @@ class ClaudeCodeProvider: AIProvider {
     }
 
     private func runClaude(path: String, prompt: String, model: String) async throws -> String {
-        return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async { [timeoutSeconds] in
-                let process = Process()
+        // claude CLI는 Node.js 스크립트 → 같은 디렉토리의 node를 직접 사용
+        let executable: String
+        var args: [String]
+        if let nodePath = ClaudeCodeProvider.findNodePath(forClaude: path) {
+            executable = nodePath
+            args = [path, "-p", prompt, "--model", model]
+        } else {
+            executable = path
+            args = ["-p", prompt, "--model", model]
+        }
 
-                // claude CLI는 Node.js 스크립트 → 같은 디렉토리의 node를 직접 사용
-                if let nodePath = ClaudeCodeProvider.findNodePath(forClaude: path) {
-                    process.executableURL = URL(fileURLWithPath: nodePath)
-                    process.arguments = [path, "-p", prompt, "--model", model]
-                } else {
-                    process.executableURL = URL(fileURLWithPath: path)
-                    process.arguments = ["-p", prompt, "--model", model]
-                }
+        // 환경변수 상속
+        var env = ProcessInfo.processInfo.environment
+        env.removeValue(forKey: "CLAUDECODE")
 
-                // 환경변수 상속
-                var env = ProcessInfo.processInfo.environment
-                env.removeValue(forKey: "CLAUDECODE")
-
-                let homePath = env["HOME"] ?? NSHomeDirectory()
-                var additionalPaths = [
-                    "/opt/homebrew/bin",
-                    "/usr/local/bin"
-                ]
-                let nvmDir = "\(homePath)/.nvm/versions/node"
-                if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
-                    let sorted = versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
-                    for version in sorted {
-                        additionalPaths.insert("\(nvmDir)/\(version)/bin", at: 0)
-                    }
-                }
-                let existingPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
-                env["PATH"] = additionalPaths.joined(separator: ":") + ":" + existingPath
-                process.environment = env
-                // 작업 디렉토리를 홈으로 설정 — macOS 디렉토리 접근 허락 다이얼로그 방지
-                process.currentDirectoryURL = URL(fileURLWithPath: homePath)
-
-                let outputPipe = Pipe()
-                let errorPipe = Pipe()
-                process.standardOutput = outputPipe
-                process.standardError = errorPipe
-
-                do {
-                    try process.run()
-
-                    // 타임아웃 감시
-                    let timer = DispatchSource.makeTimerSource(queue: .global())
-                    timer.schedule(deadline: .now() + timeoutSeconds)
-                    timer.setEventHandler {
-                        if process.isRunning {
-                            process.terminate()
-                        }
-                    }
-                    timer.resume()
-
-                    process.waitUntilExit()
-                    timer.cancel()
-
-                    let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-                    let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                    let output = String(data: outputData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    let errorOutput = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-                    if process.terminationStatus == 15 {
-                        // SIGTERM (타임아웃)
-                        continuation.resume(throwing: AIProviderError.apiError("Claude Code 응답 시간 초과 (\(Int(timeoutSeconds))초)"))
-                    } else if process.terminationStatus != 0 {
-                        let msg = errorOutput.isEmpty ? "Claude Code 실행 실패 (코드: \(process.terminationStatus))" : errorOutput
-                        continuation.resume(throwing: AIProviderError.apiError(msg))
-                    } else if output.isEmpty {
-                        continuation.resume(throwing: AIProviderError.invalidResponse)
-                    } else {
-                        continuation.resume(returning: output)
-                    }
-                } catch {
-                    continuation.resume(throwing: AIProviderError.networkError("Claude Code를 실행할 수 없습니다: \(error.localizedDescription)"))
-                }
+        let homePath = env["HOME"] ?? NSHomeDirectory()
+        var additionalPaths = [
+            "/opt/homebrew/bin",
+            "/usr/local/bin"
+        ]
+        let nvmDir = "\(homePath)/.nvm/versions/node"
+        if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
+            let sorted = versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
+            for version in sorted {
+                additionalPaths.insert("\(nvmDir)/\(version)/bin", at: 0)
             }
         }
+        let existingPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        env["PATH"] = additionalPaths.joined(separator: ":") + ":" + existingPath
+
+        let result = await ProcessRunner.run(
+            executable: executable,
+            args: args,
+            env: env,
+            workDir: homePath
+        )
+
+        let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        let errorOutput = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if result.exitCode == 15 {
+            // SIGTERM (타임아웃)
+            throw AIProviderError.apiError("Claude Code 응답 시간 초과 (\(Int(timeoutSeconds))초)")
+        } else if result.exitCode != 0 {
+            let msg = errorOutput.isEmpty ? "Claude Code 실행 실패 (코드: \(result.exitCode))" : errorOutput
+            throw AIProviderError.apiError(msg)
+        } else if output.isEmpty {
+            throw AIProviderError.invalidResponse
+        }
+        return output
     }
 }

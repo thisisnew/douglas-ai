@@ -6,6 +6,8 @@ class MockAIProvider: AIProvider {
 
     var fetchModelsResult: Result<[String], Error> = .success(["mock-model"])
     var sendMessageResult: Result<String, Error> = .success("mock response")
+    /// 순차 응답이 필요할 때 사용 (비어있으면 sendMessageResult 사용)
+    var sendMessageResults: [Result<String, Error>] = []
     var sendMessageCallCount = 0
     var lastSendMessageArgs: (model: String, systemPrompt: String, messages: [(role: String, content: String)])?
 
@@ -28,6 +30,13 @@ class MockAIProvider: AIProvider {
     func sendMessage(model: String, systemPrompt: String, messages: [(role: String, content: String)]) async throws -> String {
         sendMessageCallCount += 1
         lastSendMessageArgs = (model, systemPrompt, messages)
+        if !sendMessageResults.isEmpty {
+            let index = min(sendMessageCallCount - 1, sendMessageResults.count - 1)
+            switch sendMessageResults[index] {
+            case .success(let response): return response
+            case .failure(let error): throw error
+            }
+        }
         switch sendMessageResult {
         case .success(let response): return response
         case .failure(let error): throw error

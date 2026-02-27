@@ -129,4 +129,111 @@ struct ImageAttachmentTests {
         defer { att.delete() }
         #expect(att.filename.hasSuffix(".webp"))
     }
+
+    @Test("filename 확장자 - GIF")
+    func filenameExtGIF() throws {
+        let data = Data("test".utf8)
+        let att = try ImageAttachment.save(data: data, mimeType: "image/gif")
+        defer { att.delete() }
+        #expect(att.filename.hasSuffix(".gif"))
+    }
+
+    @Test("filename 확장자 - 알 수 없는 타입 → .dat")
+    func filenameExtUnknown() throws {
+        let data = Data("test".utf8)
+        let att = try ImageAttachment.save(data: data, mimeType: "application/octet-stream")
+        defer { att.delete() }
+        #expect(att.filename.hasSuffix(".dat"))
+    }
+
+    @Test("filename 확장자 - PNG")
+    func filenameExtPNG() throws {
+        let data = Data("test".utf8)
+        let att = try ImageAttachment.save(data: data, mimeType: "image/png")
+        defer { att.delete() }
+        #expect(att.filename.hasSuffix(".png"))
+    }
+
+    // MARK: - diskPath
+
+    @Test("diskPath - attachments 디렉토리 포함")
+    func diskPathContainsDir() throws {
+        let data = Data("test".utf8)
+        let att = try ImageAttachment.save(data: data, mimeType: "image/png")
+        defer { att.delete() }
+        #expect(att.diskPath.path.contains("attachments"))
+    }
+
+    // MARK: - 에러 타입
+
+    @Test("ImageAttachmentError.fileTooLarge - 에러 설명")
+    func errorFileTooLarge() {
+        let error = ImageAttachmentError.fileTooLarge(25 * 1024 * 1024)
+        #expect(error.localizedDescription.contains("25"))
+        #expect(error.localizedDescription.contains("20MB"))
+    }
+
+    @Test("ImageAttachmentError.unsupportedFormat - 에러 설명")
+    func errorUnsupportedFormat() {
+        let error = ImageAttachmentError.unsupportedFormat
+        #expect(error.localizedDescription.contains("지원하지 않는"))
+    }
+
+    // MARK: - 빈 데이터
+
+    @Test("save - 빈 데이터도 저장 가능")
+    func saveEmptyData() throws {
+        let att = try ImageAttachment.save(data: Data(), mimeType: "image/png")
+        defer { att.delete() }
+        #expect(att.fileSizeBytes == 0)
+        let loaded = try att.loadData()
+        #expect(loaded.isEmpty)
+    }
+
+    // MARK: - loadBase64/loadData 실패
+
+    @Test("loadData - 파일 삭제 후 실패")
+    func loadDataAfterDelete() throws {
+        let data = Data("test".utf8)
+        let att = try ImageAttachment.save(data: data, mimeType: "image/png")
+        att.delete()
+        #expect(throws: (any Error).self) {
+            _ = try att.loadData()
+        }
+    }
+
+    @Test("loadBase64 - 파일 삭제 후 실패")
+    func loadBase64AfterDelete() throws {
+        let data = Data("test".utf8)
+        let att = try ImageAttachment.save(data: data, mimeType: "image/png")
+        att.delete()
+        #expect(throws: (any Error).self) {
+            _ = try att.loadBase64()
+        }
+    }
+
+    // MARK: - 정확한 크기 경계
+
+    @Test("save - 정확히 20MB는 성공")
+    func saveExact20MB() throws {
+        let data = Data(repeating: 0x00, count: 20 * 1024 * 1024)
+        let att = try ImageAttachment.save(data: data, mimeType: "image/png")
+        att.delete()
+        #expect(att.fileSizeBytes == 20 * 1024 * 1024)
+    }
+
+    // MARK: - mimeType 4바이트 경계
+
+    @Test("mimeType - 정확히 4바이트")
+    func mimeTypeExact4Bytes() {
+        let data = Data([0x89, 0x50, 0x4E, 0x47]) // PNG 매직바이트 (4바이트)
+        #expect(ImageAttachment.mimeType(for: data) == "image/png")
+    }
+
+    @Test("mimeType - 3바이트 JPEG 앞부분")
+    func mimeType3BytesJPEG() {
+        let data = Data([0xFF, 0xD8, 0xFF])
+        // 4바이트 미만이면 nil
+        #expect(ImageAttachment.mimeType(for: data) == nil)
+    }
 }

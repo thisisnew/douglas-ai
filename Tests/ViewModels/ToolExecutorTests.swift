@@ -746,4 +746,266 @@ struct ToolExecutorTests {
         let toolResultMsg = lastMessages.first { $0.role == "tool" }
         #expect(toolResultMsg?.content?.contains("허용되지 않은") == true)
     }
+
+    // MARK: - smartSend (ConversationMessage 오버로드)
+
+    @Test("smartSend ConversationMessage — 도구·이미지 없으면 sendMessage 폴백")
+    func smartSendConvMessageFallback() async throws {
+        let provider = makeMockProvider(supportsTools: false)
+        provider.sendMessageResult = .success("simple response")
+        let agent = makeAgent(preset: nil) // 도구 없음
+
+        let messages = [ConversationMessage.user("hello"), ConversationMessage.assistant("hi")]
+        let result = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "sys",
+            conversationMessages: messages
+        )
+        #expect(result == "simple response")
+        #expect(provider.sendMessageCallCount == 1)
+        #expect(provider.sendMessageWithToolsCallCount == 0)
+    }
+
+    @Test("smartSend ConversationMessage — 이미지 있으면 sendMessageWithTools 사용")
+    func smartSendConvMessageWithImage() async throws {
+        let provider = makeMockProvider(supportsTools: false) // 도구 미지원이어도 이미지가 있으면 WithTools 경로
+        provider.sendMessageWithToolsResults = [.success(.text("image analyzed"))]
+        let agent = makeAgent(preset: nil) // 도구 없음
+
+        let attachment = try ImageAttachment.save(data: Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]), mimeType: "image/png")
+        defer { attachment.delete() }
+        let messages = [ConversationMessage.user("이미지 분석해줘", attachments: [attachment])]
+        let result = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "sys",
+            conversationMessages: messages
+        )
+        #expect(result == "image analyzed")
+        #expect(provider.sendMessageWithToolsCallCount == 1)
+    }
+
+    @Test("smartSend ConversationMessage — 도구 있으면 sendMessageWithTools 사용")
+    func smartSendConvMessageWithTools() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        provider.sendMessageWithToolsResults = [.success(.text("tool result"))]
+        let agent = makeAgent(preset: .developer)
+
+        let messages = [ConversationMessage.user("read file")]
+        let result = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "sys",
+            conversationMessages: messages
+        )
+        #expect(result == "tool result")
+        #expect(provider.sendMessageWithToolsCallCount == 1)
+    }
+
+    // MARK: - web_fetch
+
+    @Test("web_fetch — 유효하지 않은 URL")
+    func webFetchInvalidURL() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        // 탭/개행이 포함된 문자열은 URL(string:)이 nil을 반환
+        let call = ToolCall(id: "c1", toolName: "web_fetch", arguments: ["url": .string("ht\tp://bad")])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("handled"))
+        ]
+
+        let agent = makeAgent(preset: .researcher)
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "fetch")]
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResult = lastMessages.first { $0.role == "tool" }
+        #expect(toolResult?.content?.contains("url") == true)
+    }
+
+    @Test("web_fetch — url 파라미터 없음")
+    func webFetchMissingURL() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "web_fetch", arguments: [:])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("handled"))
+        ]
+
+        let agent = makeAgent(preset: .researcher)
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "fetch")]
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResult = lastMessages.first { $0.role == "tool" }
+        #expect(toolResult?.content?.contains("url") == true)
+    }
+
+    // MARK: - file_read 큰 파일 truncation
+
+    @Test("file_read — 큰 파일 잘림 (50,000자 제한)")
+    func fileReadTruncation() async throws {
+        let tmpDir = NSTemporaryDirectory()
+        let filePath = (tmpDir as NSString).appendingPathComponent("toolexec_large_\(UUID().uuidString).txt")
+        let bigContent = String(repeating: "A", count: 60_000)
+        try bigContent.write(toFile: filePath, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: filePath) }
+
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "file_read", arguments: ["path": .string(filePath)])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("read done"))
+        ]
+
+        let agent = makeAgent(preset: .developer)
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "read big file")]
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResult = lastMessages.first { $0.role == "tool" }
+        #expect(toolResult?.content?.contains("잘렸습니다") == true)
+    }
+
+    // MARK: - file_write 디렉토리 자동 생성
+
+    @Test("file_write — 존재하지 않는 디렉토리 자동 생성")
+    func fileWriteAutoCreateDir() async throws {
+        let tmpDir = NSTemporaryDirectory()
+        let nestedDir = (tmpDir as NSString).appendingPathComponent("toolexec_nested_\(UUID().uuidString)")
+        let filePath = (nestedDir as NSString).appendingPathComponent("deep/file.txt")
+        defer { try? FileManager.default.removeItem(atPath: nestedDir) }
+
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "file_write", arguments: [
+            "path": .string(filePath),
+            "content": .string("nested content")
+        ])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("write done"))
+        ]
+
+        let agent = makeAgent(preset: .developer)
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "write")]
+        )
+
+        // 파일이 생성되었는지 확인
+        let content = try? String(contentsOfFile: filePath, encoding: .utf8)
+        #expect(content == "nested content")
+    }
+
+    // MARK: - shell_exec with working_directory
+
+    @Test("shell_exec — working_directory 지정")
+    func shellExecWithWorkDir() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "shell_exec", arguments: [
+            "command": .string("pwd"),
+            "working_directory": .string("/tmp")
+        ])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("done"))
+        ]
+
+        let agent = makeAgent(preset: .developer)
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "pwd")]
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResult = lastMessages.first { $0.role == "tool" }
+        // /tmp은 macOS에서 /private/tmp으로 해석됨
+        #expect(toolResult?.content?.contains("tmp") == true)
+    }
+
+    // MARK: - shell_exec 큰 출력 truncation
+
+    @Test("shell_exec — 큰 출력 잘림 (30,000자 제한)")
+    func shellExecTruncation() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        // 50000개 문자 출력하는 명령
+        let call = ToolCall(id: "c1", toolName: "shell_exec", arguments: [
+            "command": .string("python3 -c \"print('A' * 40000)\"")
+        ])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("done"))
+        ]
+
+        let agent = makeAgent(preset: .developer)
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "big output")]
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResult = lastMessages.first { $0.role == "tool" }
+        #expect(toolResult?.content?.contains("잘렸습니다") == true)
+    }
+
+    // MARK: - smartSend system 역할 변환
+
+    @Test("smartSend — system 역할이 ConversationMessage.system으로 변환")
+    func smartSendSystemRoleConversion() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        provider.sendMessageWithToolsResults = [.success(.text("ok"))]
+        let agent = makeAgent(preset: .developer)
+
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "sys",
+            messages: [("system", "context"), ("user", "hello")]
+        )
+
+        let args = provider.lastSendMessageWithToolsArgs
+        #expect(args?.messages[0].role == "system")
+        #expect(args?.messages[1].role == "user")
+    }
+
+    // MARK: - isPathAllowed 추가 케이스
+
+    @Test("isPathAllowed — 틸드 경로 확장")
+    func pathAllowedTildeExpansion() {
+        #expect(ToolExecutor.isPathAllowed("~/Documents/test.txt") == true)
+        #expect(ToolExecutor.isPathAllowed("~/Desktop") == true)
+    }
+
+    @Test("isPathAllowed — /var/folders 허용")
+    func pathAllowedVarFolders() {
+        #expect(ToolExecutor.isPathAllowed("/var/folders/xx/test") == true)
+    }
+
+    // MARK: - smartSend ConversationMessage — nil content 메시지
+
+    @Test("smartSend ConversationMessage — nil content 메시지 필터링")
+    func smartSendConvMessageNilContent() async throws {
+        let provider = makeMockProvider(supportsTools: false)
+        provider.sendMessageResult = .success("ok")
+        let agent = makeAgent(preset: nil)
+
+        let msg1 = ConversationMessage.user("hello")
+        let msg2 = ConversationMessage.assistant("response")
+        // tool role message에는 content가 nil일 수 있음
+        let msg3 = ConversationMessage(role: "tool", content: nil, toolCalls: nil, toolCallID: "tc1", attachments: nil)
+        let messages = [msg1, msg2, msg3]
+
+        let result = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "sys",
+            conversationMessages: messages
+        )
+        #expect(result == "ok")
+        // nil content 메시지는 필터링되어 sendMessage에 전달되지 않아야 함
+        let sentMessages = provider.lastSendMessageArgs?.messages ?? []
+        #expect(sentMessages.count == 2)
+    }
 }

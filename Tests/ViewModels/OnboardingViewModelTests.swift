@@ -287,4 +287,157 @@ struct OnboardingViewModelTests {
         #expect(vm.useDetectedKey[.openAI] == true)
         #expect(vm.useDetectedKey[.google] == nil)
     }
+
+    // MARK: - startClaudeSetup
+
+    @Test("startClaudeSetup - 비동기 감지 실행")
+    func startClaudeSetup() async {
+        let vm = OnboardingViewModel()
+        await vm.startClaudeSetup()
+        // detect + checkAll 완료 후 installer 상태가 checking이 아님
+        #expect(vm.claudeInstaller.state != .checking)
+        #expect(vm.dependencyChecker.isChecking == false)
+    }
+
+    // MARK: - finishClaudeSetup
+
+    @Test("finishClaudeSetup - Claude 준비됨 → 마스터 설정")
+    func finishClaudeSetupReady() async {
+        let vm = OnboardingViewModel()
+        // Claude가 준비된 상태를 시뮬레이션
+        vm.claudeInstaller.state = .ready
+        await vm.finishClaudeSetup()
+
+        #expect(vm.claudeSetupDone == true)
+        #expect(vm.masterProviderType == .claudeCode)
+        #expect(vm.selectedTypes.contains(.claudeCode))
+        #expect(vm.isDetecting == false)
+        #expect(vm.currentStep == .providerSelection)
+    }
+
+    @Test("finishClaudeSetup - Claude 미준비 → 건너뛰기")
+    func finishClaudeSetupNotReady() async {
+        let vm = OnboardingViewModel()
+        vm.claudeInstaller.state = .notFound
+        await vm.finishClaudeSetup()
+
+        #expect(vm.claudeSetupDone == true)
+        #expect(vm.claudeSkipped == true)
+        #expect(vm.isDetecting == false)
+        #expect(vm.currentStep == .providerSelection)
+    }
+
+    // MARK: - skipClaudeSetup
+
+    @Test("skipClaudeSetup - 건너뛰기 후 프로바이더 감지")
+    func skipClaudeSetup() async {
+        let vm = OnboardingViewModel()
+        await vm.skipClaudeSetup()
+
+        #expect(vm.claudeSkipped == true)
+        #expect(vm.claudeSetupDone == true)
+        #expect(vm.isDetecting == false)
+        #expect(vm.currentStep == .providerSelection)
+    }
+
+    // MARK: - installClaudeCode
+
+    @Test("installClaudeCode - 크래시 없이 실행")
+    func installClaudeCode() async {
+        let vm = OnboardingViewModel()
+        await vm.installClaudeCode()
+        // 환경에 따라 다르지만 크래시 없이 완료되어야 함
+        #expect(vm.claudeInstaller.state != .checking)
+    }
+
+    // MARK: - apply 다양한 프로바이더
+
+    @Test("apply - 여러 프로바이더 + API 키")
+    func applyMultipleProviders() {
+        let original = OnboardingViewModel.isCompleted
+        defer { OnboardingViewModel.isCompleted = original }
+
+        let defaults = makeTestDefaults()
+        let vm = OnboardingViewModel()
+        vm.selectedTypes = [.openAI, .google]
+        vm.masterProviderType = .openAI
+        vm.apiKeys[.openAI] = "sk-test"
+        vm.apiKeys[.google] = "gk-test"
+
+        let providerManager = ProviderManager(defaults: defaults)
+        let agentStore = AgentStore(defaults: defaults)
+
+        vm.apply(providerManager: providerManager, agentStore: agentStore)
+
+        #expect(providerManager.configs.contains(where: { $0.type == .openAI }))
+        #expect(providerManager.configs.contains(where: { $0.type == .google }))
+        #expect(OnboardingViewModel.isCompleted == true)
+    }
+
+    @Test("apply - ClaudeCode 마스터 → 모델명 확인")
+    func applyClaudeCodeMaster() {
+        let original = OnboardingViewModel.isCompleted
+        defer { OnboardingViewModel.isCompleted = original }
+
+        let defaults = makeTestDefaults()
+        let vm = OnboardingViewModel()
+        vm.selectedTypes = [.claudeCode]
+        vm.masterProviderType = .claudeCode
+
+        let providerManager = ProviderManager(defaults: defaults)
+        let agentStore = AgentStore(defaults: defaults)
+
+        vm.apply(providerManager: providerManager, agentStore: agentStore)
+
+        let master = agentStore.masterAgent
+        #expect(master?.modelName == "claude-sonnet-4-6")
+    }
+
+    // MARK: - skipOnboarding 감지된 프로바이더 있을 때
+
+    @Test("skipOnboarding - 선택된 프로바이더가 있으면 apply 호출")
+    func skipOnboardingWithSelected() {
+        let original = OnboardingViewModel.isCompleted
+        defer { OnboardingViewModel.isCompleted = original }
+
+        let defaults = makeTestDefaults()
+        let vm = OnboardingViewModel()
+        vm.selectedTypes = [.ollama]
+        vm.masterProviderType = .ollama
+
+        let providerManager = ProviderManager(defaults: defaults)
+        let agentStore = AgentStore(defaults: defaults)
+
+        vm.skipOnboarding(providerManager: providerManager, agentStore: agentStore)
+
+        #expect(OnboardingViewModel.isCompleted == true)
+        #expect(providerManager.configs.contains(where: { $0.type == .ollama }))
+    }
+
+    // MARK: - startProviderDetection (finishClaudeSetup을 통한 간접 테스트)
+
+    @Test("startProviderDetection - allProviderTypes 채워짐")
+    func providerDetection() async {
+        let vm = OnboardingViewModel()
+        vm.claudeInstaller.state = .notFound
+        await vm.finishClaudeSetup()
+
+        // 감지 완료 후 allProviderTypes가 채워져야 함
+        #expect(!vm.allProviderTypes.isEmpty)
+        #expect(vm.isDetecting == false)
+    }
+
+    // MARK: - claudeInstaller / dependencyChecker 접근
+
+    @Test("claudeInstaller - 직접 접근 가능")
+    func claudeInstallerAccess() {
+        let vm = OnboardingViewModel()
+        #expect(vm.claudeInstaller.state == .checking)
+    }
+
+    @Test("dependencyChecker - 직접 접근 가능")
+    func dependencyCheckerAccess() {
+        let vm = OnboardingViewModel()
+        #expect(vm.dependencyChecker.dependencies.count == 3)
+    }
 }

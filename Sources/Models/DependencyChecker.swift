@@ -90,13 +90,11 @@ class DependencyChecker: ObservableObject {
 
     /// installHint 명령 실행 (예: "xcode-select --install")
     func runInstallCommand(_ command: String) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-            process.arguments = ["-l", "-c", command]
-            process.standardOutput = Pipe()
-            process.standardError = Pipe()
-            try? process.run()
+        Task {
+            _ = await ProcessRunner.run(
+                executable: "/bin/zsh",
+                args: ["-l", "-c", command]
+            )
         }
     }
 
@@ -107,36 +105,24 @@ class DependencyChecker: ObservableObject {
         await withTaskGroup(of: [String: String].self) { group in
             // 실제 탐색
             group.addTask {
-                await withCheckedContinuation { continuation in
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        let script = names.map { "echo \"\($0):$(command -v \($0) 2>/dev/null)\"" }.joined(separator: "; ")
-                        let process = Process()
-                        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-                        process.arguments = ["-l", "-c", script]
-                        let pipe = Pipe()
-                        process.standardOutput = pipe
-                        process.standardError = Pipe()
+                let script = names.map { "echo \"\($0):$(command -v \($0) 2>/dev/null)\"" }.joined(separator: "; ")
+                let processResult = await ProcessRunner.run(
+                    executable: "/bin/zsh",
+                    args: ["-l", "-c", script]
+                )
 
-                        var result: [String: String] = [:]
-                        do {
-                            try process.run()
-                            process.waitUntilExit()
-                            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                            let output = String(data: data, encoding: .utf8) ?? ""
-                            for line in output.components(separatedBy: "\n") {
-                                let parts = line.split(separator: ":", maxSplits: 1)
-                                if parts.count == 2 {
-                                    let name = String(parts[0])
-                                    let path = String(parts[1]).trimmingCharacters(in: .whitespaces)
-                                    if !path.isEmpty {
-                                        result[name] = path
-                                    }
-                                }
-                            }
-                        } catch {}
-                        continuation.resume(returning: result)
+                var result: [String: String] = [:]
+                for line in processResult.stdout.components(separatedBy: "\n") {
+                    let parts = line.split(separator: ":", maxSplits: 1)
+                    if parts.count == 2 {
+                        let name = String(parts[0])
+                        let path = String(parts[1]).trimmingCharacters(in: .whitespaces)
+                        if !path.isEmpty {
+                            result[name] = path
+                        }
                     }
                 }
+                return result
             }
             // 3초 타임아웃
             group.addTask {

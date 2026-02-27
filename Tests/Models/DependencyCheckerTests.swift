@@ -104,4 +104,47 @@ struct DependencyCheckerTests {
             #expect(dep.foundPath == nil)
         }
     }
+
+    // MARK: - runInstallCommand (크래시 없이 실행되는지 확인)
+
+    @Test("runInstallCommand - 크래시 없이 실행")
+    func runInstallCommandNoCrash() async {
+        let checker = DependencyChecker()
+        // echo는 안전한 명령 — 크래시 없이 실행되는지만 확인
+        checker.runInstallCommand("echo test-install-command")
+        // Task로 실행되므로 잠시 대기
+        try? await Task.sleep(nanoseconds: 100_000_000)
+    }
+
+    // MARK: - Dependency 구조체
+
+    @Test("Dependency - Identifiable")
+    func dependencyIdentifiable() {
+        let checker = DependencyChecker()
+        let ids = checker.dependencies.map(\.id)
+        let uniqueIDs = Set(ids)
+        #expect(uniqueIDs.count == ids.count) // 모두 고유해야 함
+    }
+
+    @Test("Dependency - isFound 설정 가능")
+    func dependencyIsFoundSettable() {
+        let checker = DependencyChecker()
+        checker.dependencies[0].isFound = true
+        checker.dependencies[0].foundPath = "/test/path"
+        #expect(checker.dependencies[0].isFound == true)
+        #expect(checker.dependencies[0].foundPath == "/test/path")
+    }
+
+    // MARK: - checkAll 후 foundPath 확인
+
+    @Test("checkAll - Git foundPath 설정됨")
+    func checkAllGitFoundPath() async {
+        let checker = DependencyChecker()
+        await checker.checkAll()
+        let git = checker.dependencies.first { $0.name == "Git" }
+        if git?.isFound == true {
+            #expect(git?.foundPath != nil)
+            #expect(git?.foundPath?.isEmpty == false)
+        }
+    }
 }

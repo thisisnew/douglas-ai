@@ -139,4 +139,154 @@ struct ProviderDetectorTests {
         #expect(provider.needsAPIKey == false)
     }
 
+    @Test("needsAPIKey - Custom은 불필요")
+    func needsAPIKeyCustom() {
+        let provider = DetectedProvider(
+            type: .custom, displayName: "", detail: "",
+            prefilledAPIKey: nil, isConfirmed: false
+        )
+        #expect(provider.needsAPIKey == false)
+    }
+
+    // MARK: - detectClaudeCode
+
+    @Test("detectClaudeCode - 바이너리 없으면 nil")
+    func detectClaudeCodeNotFound() async {
+        // findClaudePath가 "claude"를 반환하고 executable이 아닌 경우
+        let result = await ProviderDetector.detectClaudeCode()
+        // 실제 환경에 따라 다를 수 있음 — 결과가 nil이거나 올바른 DetectedProvider
+        if let r = result {
+            #expect(r.type == .claudeCode)
+            #expect(r.isConfirmed == true)
+        }
+    }
+
+    // MARK: - detectOpenAIKey
+
+    @Test("detectOpenAIKey - 환경변수 없으면 nil 가능")
+    func detectOpenAIKeyMissing() async {
+        // OPENAI_API_KEY 환경변수가 없으면 nil
+        let result = await ProviderDetector.detectOpenAIKey()
+        if ProcessInfo.processInfo.environment["OPENAI_API_KEY"] == nil {
+            #expect(result == nil)
+        } else {
+            #expect(result?.type == .openAI)
+            #expect(result?.prefilledAPIKey != nil)
+        }
+    }
+
+    // MARK: - detectAnthropicKey
+
+    @Test("detectAnthropicKey - 환경변수 없으면 nil 가능")
+    func detectAnthropicKeyMissing() async {
+        let result = await ProviderDetector.detectAnthropicKey()
+        if ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"] == nil {
+            #expect(result == nil)
+        } else {
+            #expect(result?.type == .anthropic)
+            #expect(result?.prefilledAPIKey != nil)
+        }
+    }
+
+    // MARK: - detectGoogleKey
+
+    @Test("detectGoogleKey - 환경변수 없으면 nil 가능")
+    func detectGoogleKeyMissing() async {
+        let result = await ProviderDetector.detectGoogleKey()
+        let hasKey = ProcessInfo.processInfo.environment["GOOGLE_API_KEY"] != nil
+            || ProcessInfo.processInfo.environment["GEMINI_API_KEY"] != nil
+        if !hasKey {
+            #expect(result == nil)
+        } else {
+            #expect(result?.type == .google)
+        }
+    }
+
+    // MARK: - detectOllama
+
+    @Test("detectOllama - 바이너리와 서버 상태 조합")
+    func detectOllamaResult() async {
+        let result = await ProviderDetector.detectOllama()
+        // 결과는 환경에 따라 다르지만 nil이거나 올바른 타입이어야 함
+        if let r = result {
+            #expect(r.type == .ollama)
+            #expect(r.displayName.contains("Ollama"))
+        }
+    }
+
+    // MARK: - detectLMStudio
+
+    @Test("detectLMStudio - 앱과 서버 상태 조합")
+    func detectLMStudioResult() async {
+        let result = await ProviderDetector.detectLMStudio()
+        if let r = result {
+            #expect(r.type == .lmStudio)
+            #expect(r.displayName.contains("LM Studio"))
+        }
+    }
+
+    // MARK: - detectAll
+
+    @Test("detectAll - 결과 배열 반환")
+    func detectAllReturnsArray() async {
+        let results = await ProviderDetector.detectAll()
+        // 모든 결과가 유효한 타입이어야 함
+        for r in results {
+            #expect(r.displayName.isEmpty == false)
+        }
+    }
+
+    // MARK: - checkHTTP (urlSession 목 테스트)
+
+    @Test("checkHTTP - 목 URLSession으로 성공 응답")
+    func checkHTTPSuccessMock() async {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocol.self]
+        let mockSession = URLSession(configuration: config)
+        let originalSession = ProviderDetector.urlSession
+        ProviderDetector.urlSession = mockSession
+        defer { ProviderDetector.urlSession = originalSession }
+
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 200,
+                httpVersion: nil, headerFields: nil
+            )!
+            return (response, Data())
+        }
+
+        // detectOllama uses checkHTTP internally
+        // We test via detectOllama with mocked HTTP
+        let result = await ProviderDetector.detectOllama()
+        // With HTTP mock returning 200, server should be "running"
+        if let r = result {
+            #expect(r.detail.contains("응답 확인") || r.detail.contains("설치됨"))
+        }
+    }
+
+    @Test("checkHTTP - 목 URLSession으로 실패 응답")
+    func checkHTTPFailureMock() async {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocol.self]
+        let mockSession = URLSession(configuration: config)
+        let originalSession = ProviderDetector.urlSession
+        ProviderDetector.urlSession = mockSession
+        defer { ProviderDetector.urlSession = originalSession }
+
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 500,
+                httpVersion: nil, headerFields: nil
+            )!
+            return (response, Data())
+        }
+
+        // detectLMStudio with mock returning 500
+        let result = await ProviderDetector.detectLMStudio()
+        if let r = result {
+            // 앱이 설치되어 있으면 "서버 미실행"으로 반환
+            #expect(r.detail.contains("서버 미실행") || r.detail.contains("응답 확인"))
+        }
+        // 앱이 없으면 nil일 수 있음 — 둘 다 유효
+    }
 }

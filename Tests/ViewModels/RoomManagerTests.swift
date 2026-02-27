@@ -383,4 +383,430 @@ struct RoomManagerTests {
         manager.deleteRoom(room.id)
         #expect(manager.rooms.first(where: { $0.id == room.id }) == nil)
     }
+
+    // MARK: - createManualRoom
+
+    @Test("createManualRoom - 방 생성 + 메시지 추가")
+    func createManualRoom() {
+        let (manager, store, providerManager) = makeConfiguredManager()
+        let agent = makeTestAgent(name: "Worker", providerName: "MockProvider")
+        store.addAgent(agent)
+
+        let mock = MockAIProvider()
+        mock.sendMessageResult = .success("mock response")
+        providerManager.testProviderOverrides["MockProvider"] = mock
+
+        manager.createManualRoom(title: "Manual", agentIDs: [agent.id], task: "작업하세요")
+
+        #expect(manager.rooms.count == 1)
+        let room = manager.rooms.first!
+        #expect(room.title == "Manual")
+        #expect(room.messages.contains(where: { $0.role == .user && $0.content == "작업하세요" }))
+    }
+
+    // MARK: - sendUserMessage
+
+    @Test("sendUserMessage - 메시지 추가 + 에이전트 응답")
+    func sendUserMessage() async {
+        let (manager, store, providerManager) = makeConfiguredManager()
+        let agent = makeTestAgent(name: "Worker", providerName: "MockProvider")
+        store.addAgent(agent)
+
+        let mock = MockAIProvider()
+        mock.sendMessageResult = .success("에이전트 응답")
+        providerManager.testProviderOverrides["MockProvider"] = mock
+
+        let room = manager.createRoom(title: "Chat", agentIDs: [agent.id], createdBy: .user)
+        await manager.sendUserMessage("추가 지시", to: room.id)
+
+        let msgs = manager.rooms.first(where: { $0.id == room.id })?.messages ?? []
+        #expect(msgs.contains(where: { $0.role == .user && $0.content == "추가 지시" }))
+        #expect(msgs.contains(where: { $0.role == .assistant && $0.content == "에이전트 응답" }))
+    }
+
+    @Test("sendUserMessage - 에이전트 오류 시 에러 메시지")
+    func sendUserMessageError() async {
+        let (manager, store, providerManager) = makeConfiguredManager()
+        let agent = makeTestAgent(name: "ErrorBot", providerName: "MockProvider")
+        store.addAgent(agent)
+
+        let mock = MockAIProvider()
+        mock.sendMessageResult = .failure(AIProviderError.apiError("서버 오류"))
+        providerManager.testProviderOverrides["MockProvider"] = mock
+
+        let room = manager.createRoom(title: "Error", agentIDs: [agent.id], createdBy: .user)
+        await manager.sendUserMessage("요청", to: room.id)
+
+        let msgs = manager.rooms.first(where: { $0.id == room.id })?.messages ?? []
+        #expect(msgs.contains(where: { $0.messageType == .error }))
+    }
+
+    @Test("sendUserMessage - 존재하지 않는 방 → 무시")
+    func sendUserMessageNoRoom() async {
+        let (manager, _, _) = makeConfiguredManager()
+        await manager.sendUserMessage("hello", to: UUID())
+        // 크래시 없이 완료
+    }
+
+    // MARK: - startRoomWorkflow (단일 에이전트)
+
+    @Test("startRoomWorkflow - 1인 → 토론 건너뛰기 → 계획 실패 → 폴백 실행")
+    func startWorkflowSingleAgent() async {
+        let (manager, store, providerManager) = makeConfiguredManager()
+        let agent = makeTestAgent(name: "Solo", providerName: "MockProvider")
+        store.addAgent(agent)
+
+        let mock = MockAIProvider()
+        // 계획 수립: 유효하지 않은 JSON → 폴백
+        // 실행: 일반 응답
+        mock.sendMessageResult = .success("작업 완료했습니다")
+        providerManager.testProviderOverrides["MockProvider"] = mock
+
+        let room = manager.createRoom(title: "Solo Work", agentIDs: [agent.id], createdBy: .user)
+        await manager.startRoomWorkflow(roomID: room.id, task: "테스트 작업")
+
+        let updated = manager.rooms.first(where: { $0.id == room.id })
+        #expect(updated?.status == .completed)
+        #expect(updated?.completedAt != nil)
+        #expect(updated?.plan != nil) // 폴백 계획이 설정됨
+    }
+
+    @Test("startRoomWorkflow - 1인 + 유효한 계획 → 정상 실행")
+    func startWorkflowWithValidPlan() async {
+        let (manager, store, providerManager) = makeConfiguredManager()
+        let agent = makeTestAgent(name: "Planner", providerName: "MockProvider")
+        store.addAgent(agent)
+
+        let mock = MockAIProvider()
+        let planJSON = """
+        {"plan": {"summary": "테스트 계획", "estimated_minutes": 2, "steps": ["1단계: 분석", "2단계: 실행"]}}
+        """
+        mock.sendMessageResults = [
+            .success(planJSON),       // requestPlan 응답
+            .success("1단계 완료"),   // executeStep (step 1)
+            .success("2단계 완료"),   // executeStep (step 2)
+            .success("일지 내용"),    // generateWorkLog
+        ]
+        providerManager.testProviderOverrides["MockProvider"] = mock
+
+        let room = manager.createRoom(title: "Planned", agentIDs: [agent.id], createdBy: .user)
+        await manager.startRoomWorkflow(roomID: room.id, task: "계획 실행")
+
+        let updated = manager.rooms.first(where: { $0.id == room.id })
+        #expect(updated?.status == .completed)
+        #expect(updated?.plan?.summary == "테스트 계획")
+        #expect(updated?.plan?.steps.count == 2)
+        #expect(updated?.workLog != nil)
+    }
+
+    // MARK: - startRoomWorkflow (복수 에이전트 → 토론)
+
+    @Test("startRoomWorkflow - 2인 → 토론 + 계획 + 실행")
+    func startWorkflowMultiAgent() async {
+        let (manager, store, providerManager) = makeConfiguredManager()
+        let agent1 = makeTestAgent(name: "토론자A", providerName: "MockProvider")
+        let agent2 = makeTestAgent(name: "토론자B", providerName: "MockProvider")
+        store.addAgent(agent1)
+        store.addAgent(agent2)
+
+        let mock = MockAIProvider()
+        // 토론: 첫 라운드부터 전원 합의
+        let planJSON = """
+        {"plan": {"summary": "합의 계획", "estimated_minutes": 1, "steps": ["실행"]}}
+        """
+        mock.sendMessageResults = [
+            .success("좋은 방향이네요 [합의]"),  // 토론자A 1라운드
+            .success("동의합니다 [합의]"),        // 토론자B 1라운드
+            .success("토론 요약"),                 // generateDiscussionSummary
+            .success(planJSON),                   // requestPlan
+            .success("실행 완료"),                 // executeStep (agent1)
+            .success("실행 완료"),                 // executeStep (agent2)
+            .success("일지"),                      // generateWorkLog
+        ]
+        providerManager.testProviderOverrides["MockProvider"] = mock
+
+        let room = manager.createRoom(
+            title: "Team Work",
+            agentIDs: [agent1.id, agent2.id],
+            createdBy: .user
+        )
+        await manager.startRoomWorkflow(roomID: room.id, task: "팀 작업")
+
+        let updated = manager.rooms.first(where: { $0.id == room.id })
+        #expect(updated?.status == .completed)
+    }
+
+    // MARK: - launchWorkflow
+
+    @Test("launchWorkflow - 비동기 시작 후 완료")
+    func launchWorkflow() async {
+        let (manager, store, providerManager) = makeConfiguredManager()
+        let agent = makeTestAgent(name: "LaunchBot", providerName: "MockProvider")
+        store.addAgent(agent)
+
+        let mock = MockAIProvider()
+        mock.sendMessageResult = .success("done")
+        providerManager.testProviderOverrides["MockProvider"] = mock
+
+        let room = manager.createRoom(title: "Launch", agentIDs: [agent.id], createdBy: .user)
+        manager.launchWorkflow(roomID: room.id, task: "launch test")
+
+        // 워크플로우 완료 대기
+        try? await Task.sleep(for: .seconds(3))
+        let updated = manager.rooms.first(where: { $0.id == room.id })
+        #expect(updated?.status != .planning) // planning 아닌 다른 상태
+    }
+
+    // MARK: - speakingAgentIDByRoom
+
+    @Test("deleteRoom - speakingAgentID 정리")
+    func deleteRoomClearsSpeaking() {
+        let manager = makeManager()
+        let room = manager.createRoom(title: "Test", agentIDs: [], createdBy: .user)
+        manager.speakingAgentIDByRoom[room.id] = UUID()
+        manager.deleteRoom(room.id)
+        #expect(manager.speakingAgentIDByRoom[room.id] == nil)
+    }
+
+    @Test("completeRoom - speakingAgentID 정리")
+    func completeRoomClearsSpeaking() {
+        let manager = makeManager()
+        let room = createInProgressRoom(manager)
+        manager.speakingAgentIDByRoom[room.id] = UUID()
+        manager.completeRoom(room.id)
+        #expect(manager.speakingAgentIDByRoom[room.id] == nil)
+    }
+
+    // MARK: - saveRooms / loadRooms
+
+    @Test("saveRooms / loadRooms 라운드트립")
+    func saveLoadRooms() async {
+        let manager = makeManager()
+        let room = manager.createRoom(title: "Persist Test", agentIDs: [], createdBy: .user)
+        manager.appendMessage(ChatMessage(role: .user, content: "saved"), to: room.id)
+
+        // scheduleSave 디바운스 대기
+        try? await Task.sleep(for: .seconds(1.5))
+
+        let manager2 = makeManager()
+        manager2.loadRooms()
+        let loaded = manager2.rooms.first(where: { $0.id == room.id })
+        #expect(loaded?.title == "Persist Test")
+
+        // cleanup
+        manager.deleteRoom(room.id)
+    }
+
+    @Test("loadRooms - 빈 디렉토리")
+    func loadRoomsEmpty() {
+        let manager = makeManager()
+        manager.loadRooms()
+        // 크래시 없이 완료
+    }
+
+    // MARK: - pendingAutoOpenRoomID
+
+    @Test("pendingAutoOpenRoomID - 초기값 nil")
+    func pendingAutoOpenInitial() {
+        let manager = makeManager()
+        #expect(manager.pendingAutoOpenRoomID == nil)
+    }
+
+    // MARK: - startRoomWorkflow 에러 경로
+
+    @Test("startRoomWorkflow - 존재하지 않는 방 → 무시")
+    func startWorkflowNonExistent() async {
+        let (manager, _, _) = makeConfiguredManager()
+        await manager.startRoomWorkflow(roomID: UUID(), task: "test")
+        // 크래시 없이 완료
+    }
+
+    @Test("startRoomWorkflow - 에이전트 없는 방 → 폴백 실행")
+    func startWorkflowNoAgents() async {
+        let (manager, _, _) = makeConfiguredManager()
+        let room = manager.createRoom(title: "Empty", agentIDs: [], createdBy: .user)
+        await manager.startRoomWorkflow(roomID: room.id, task: "작업")
+        let updated = manager.rooms.first(where: { $0.id == room.id })
+        // 에이전트가 없으면 계획 수립 실패 → 폴백 → 완료
+        #expect(updated?.status == .completed)
+    }
+
+    // MARK: - requestPlan 에러 경로
+
+    @Test("requestPlan 프로바이더 오류 → nil 반환")
+    func requestPlanProviderError() async {
+        let (manager, store, providerManager) = makeConfiguredManager()
+        let agent = makeTestAgent(name: "Planner", providerName: "MockProvider")
+        store.addAgent(agent)
+
+        let mock = MockAIProvider()
+        mock.sendMessageResult = .failure(AIProviderError.apiError("오류"))
+        providerManager.testProviderOverrides["MockProvider"] = mock
+
+        let room = manager.createRoom(title: "Plan Fail", agentIDs: [agent.id], createdBy: .user)
+        await manager.startRoomWorkflow(roomID: room.id, task: "테스트")
+
+        // 계획 실패 → 폴백 계획으로 실행
+        let updated = manager.rooms.first(where: { $0.id == room.id })
+        #expect(updated?.status == .completed)
+    }
+
+    // MARK: - extractJSON 다양한 포맷
+
+    @Test("parsePlan - JSON 코드 블록 포맷")
+    func parsePlanCodeBlock() async {
+        let (manager, store, providerManager) = makeConfiguredManager()
+        let agent = makeTestAgent(name: "Planner", providerName: "MockProvider")
+        store.addAgent(agent)
+
+        let mock = MockAIProvider()
+        let response = """
+        여기에 계획이 있습니다:
+        ```json
+        {"plan": {"summary": "코드블록 계획", "estimated_minutes": 3, "steps": ["단계1"]}}
+        ```
+        이것이 제 계획입니다.
+        """
+        mock.sendMessageResults = [
+            .success(response),      // requestPlan 응답
+            .success("단계1 완료"),   // executeStep
+            .success("일지"),         // generateWorkLog
+        ]
+        providerManager.testProviderOverrides["MockProvider"] = mock
+
+        let room = manager.createRoom(title: "CodeBlock", agentIDs: [agent.id], createdBy: .user)
+        await manager.startRoomWorkflow(roomID: room.id, task: "계획 실행")
+
+        let updated = manager.rooms.first(where: { $0.id == room.id })
+        #expect(updated?.plan?.summary == "코드블록 계획")
+        #expect(updated?.status == .completed)
+    }
+
+    // MARK: - executeStep 에러
+
+    @Test("executeStep 프로바이더 오류 → 에러 메시지 추가")
+    func executeStepError() async {
+        let (manager, store, providerManager) = makeConfiguredManager()
+        let agent = makeTestAgent(name: "FailBot", providerName: "MockProvider")
+        store.addAgent(agent)
+
+        let mock = MockAIProvider()
+        let planJSON = """
+        {"plan": {"summary": "실패 계획", "estimated_minutes": 1, "steps": ["실패 단계"]}}
+        """
+        mock.sendMessageResults = [
+            .success(planJSON),
+            .failure(AIProviderError.apiError("실행 오류")),  // executeStep 실패
+            .success("일지"),  // generateWorkLog
+        ]
+        providerManager.testProviderOverrides["MockProvider"] = mock
+
+        let room = manager.createRoom(title: "Fail", agentIDs: [agent.id], createdBy: .user)
+        await manager.startRoomWorkflow(roomID: room.id, task: "실패 테스트")
+
+        let msgs = manager.rooms.first(where: { $0.id == room.id })?.messages ?? []
+        #expect(msgs.contains(where: { $0.messageType == .error && $0.content.contains("오류") }))
+    }
+
+    // MARK: - executeDiscussion 과반 합의
+
+    @Test("토론 - 3인 중 과반 합의 → 종료")
+    func discussionMajority() async {
+        let (manager, store, providerManager) = makeConfiguredManager()
+        let a1 = makeTestAgent(name: "A", providerName: "MockProvider")
+        let a2 = makeTestAgent(name: "B", providerName: "MockProvider")
+        let a3 = makeTestAgent(name: "C", providerName: "MockProvider")
+        store.addAgent(a1)
+        store.addAgent(a2)
+        store.addAgent(a3)
+
+        let mock = MockAIProvider()
+        let planJSON = """
+        {"plan": {"summary": "합의 계획", "estimated_minutes": 1, "steps": ["실행"]}}
+        """
+        mock.sendMessageResults = [
+            // 토론 1라운드 (전원 합의 아님)
+            .success("좋은 의견이네요"),          // A
+            .success("동의합니다 [합의]"),         // B
+            .success("더 논의가 필요합니다"),       // C
+            // 토론 2라운드 (과반 합의: B + C)
+            .success("좋은 방향이에요 [합의]"),    // A
+            .success("동의합니다 [합의]"),         // B
+            .success("저도 합의합니다 [합의]"),    // C
+            // 토론 요약
+            .success("토론 요약"),
+            // 계획 + 실행 + 일지
+            .success(planJSON),
+            .success("실행 완료"), .success("실행 완료"), .success("실행 완료"),
+            .success("일지"),
+        ]
+        providerManager.testProviderOverrides["MockProvider"] = mock
+
+        let room = manager.createRoom(
+            title: "Majority",
+            agentIDs: [a1.id, a2.id, a3.id],
+            createdBy: .user
+        )
+        await manager.startRoomWorkflow(roomID: room.id, task: "토론 주제")
+
+        let msgs = manager.rooms.first(where: { $0.id == room.id })?.messages ?? []
+        // 합의 메시지가 있어야 함
+        #expect(msgs.contains(where: { $0.content.contains("합의") && $0.role == .system }))
+        let updated = manager.rooms.first(where: { $0.id == room.id })
+        #expect(updated?.status == .completed)
+    }
+
+    // MARK: - generateDiscussionSummary 오류
+
+    @Test("토론 요약 생성 실패 → 에러 메시지")
+    func discussionSummaryError() async {
+        let (manager, store, providerManager) = makeConfiguredManager()
+        let a1 = makeTestAgent(name: "토론A", providerName: "MockProvider")
+        let a2 = makeTestAgent(name: "토론B", providerName: "MockProvider")
+        store.addAgent(a1)
+        store.addAgent(a2)
+
+        let mock = MockAIProvider()
+        let planJSON = """
+        {"plan": {"summary": "계획", "estimated_minutes": 1, "steps": ["실행"]}}
+        """
+        mock.sendMessageResults = [
+            // 토론 1라운드 (전원 합의)
+            .success("동의합니다 [합의]"),
+            .success("저도 합의 [합의]"),
+            // 토론 요약 실패
+            .failure(AIProviderError.apiError("요약 오류")),
+            // 계획 + 실행 + 일지 (요약 실패해도 계속 진행)
+            .success(planJSON),
+            .success("실행 완료"), .success("실행 완료"),
+            .success("일지"),
+        ]
+        providerManager.testProviderOverrides["MockProvider"] = mock
+
+        let room = manager.createRoom(
+            title: "SummaryFail",
+            agentIDs: [a1.id, a2.id],
+            createdBy: .user
+        )
+        await manager.startRoomWorkflow(roomID: room.id, task: "토론")
+
+        let msgs = manager.rooms.first(where: { $0.id == room.id })?.messages ?? []
+        #expect(msgs.contains(where: { $0.messageType == .error && $0.content.contains("요약 생성 실패") }))
+    }
+
+    // MARK: - completedRooms 정렬
+
+    @Test("completedRooms - completedAt 기준 정렬")
+    func completedRoomsSorting() {
+        let manager = makeManager()
+        let room1 = createInProgressRoom(manager, title: "First")
+        let room2 = createInProgressRoom(manager, title: "Second")
+        manager.completeRoom(room1.id)
+        manager.completeRoom(room2.id)
+
+        let completed = manager.completedRooms
+        #expect(completed.count == 2)
+        // 최근 완료가 먼저 나와야 함
+        #expect(completed.first?.title == "Second")
+    }
 }

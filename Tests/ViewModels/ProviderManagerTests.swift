@@ -234,4 +234,75 @@ struct ProviderManagerTests {
         manager.updateConfig(fakeConfig)
         #expect(manager.configs.count == countBefore) // 변경 없음
     }
+
+    // MARK: - configureFromOnboarding - 기존 프로바이더 키 업데이트
+
+    @Test("configureFromOnboarding - 기존 프로바이더 API 키 업데이트")
+    func configureFromOnboardingUpdateKey() {
+        let defaults = makeTestDefaults()
+        let manager = ProviderManager(defaults: defaults)
+        // 먼저 openAI를 추가
+        manager.configureFromOnboarding(selectedTypes: [.openAI], apiKeys: [:])
+        #expect(manager.configs.contains(where: { $0.type == .openAI }))
+
+        // 같은 타입으로 다시 호출하면서 키 업데이트
+        manager.configureFromOnboarding(
+            selectedTypes: [.openAI],
+            apiKeys: [.openAI: "sk-updated"]
+        )
+        // 중복 추가 없어야 함
+        #expect(manager.configs.filter { $0.type == .openAI }.count == 1)
+        // 키가 업데이트되었는지 확인
+        let config = manager.configs.first(where: { $0.type == .openAI })
+        #expect(config?.apiKey == "sk-updated")
+        // cleanup
+        if let c = config {
+            try? KeychainHelper.delete(key: "provider-apikey-\(c.id.uuidString)")
+        }
+    }
+
+    // MARK: - connectedConfigs
+
+    @Test("connectedConfigs - 연결된 프로바이더만 반환")
+    func connectedConfigs() {
+        let defaults = makeTestDefaults()
+        let manager = ProviderManager(defaults: defaults)
+        // config 추가 (apiKey 없음 → 연결 안됨)
+        manager.configureFromOnboarding(selectedTypes: [.openAI, .ollama], apiKeys: [:])
+        let connected = manager.connectedConfigs
+        // ollama는 apiKey 불필요 (authMethod == .none)이므로 연결됨
+        // openAI는 apiKey 필요 (authMethod == .apiKey)이므로 연결 안됨
+        let ollamaConnected = connected.contains(where: { $0.type == .ollama })
+        #expect(ollamaConnected == true)
+    }
+
+    // MARK: - fetchModels with mock provider
+
+    @Test("fetchModels - testProviderOverrides로 mock 사용")
+    func fetchModelsWithMock() async throws {
+        let defaults = makeTestDefaults()
+        let manager = ProviderManager(defaults: defaults)
+        manager.configureFromOnboarding(selectedTypes: [.openAI], apiKeys: [:])
+
+        let mock = MockAIProvider()
+        mock.fetchModelsResult = .success(["gpt-4o", "gpt-3.5-turbo"])
+        manager.testProviderOverrides["OpenAI"] = mock
+
+        let models = try await manager.fetchModels(for: "OpenAI")
+        #expect(models.contains("gpt-4o"))
+        #expect(models.count == 2)
+    }
+
+    // MARK: - testProviderOverrides 동작
+
+    @Test("provider(named:) - testProviderOverrides 우선")
+    func providerOverridePriority() {
+        let defaults = makeTestDefaults()
+        let manager = ProviderManager(defaults: defaults)
+        let mock = MockAIProvider()
+        manager.testProviderOverrides["CustomMock"] = mock
+        let provider = manager.provider(named: "CustomMock")
+        #expect(provider != nil)
+        #expect(provider is MockAIProvider)
+    }
 }

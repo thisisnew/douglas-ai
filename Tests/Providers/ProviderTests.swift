@@ -706,6 +706,389 @@ struct ProviderTests {
         try? KeychainHelper.delete(key: "provider-apikey-\(config.id.uuidString)")
     }
 
+    // MARK: - ClaudeCode sendMessage (ProcessRunner mock)
+
+    @Test("ClaudeCode sendMessage - 성공 응답")
+    func claudeCodeSendMessageSuccess() async throws {
+        let originalHandler = ProcessRunner.handler
+        defer { ProcessRunner.handler = originalHandler }
+
+        var capturedArgs: [String]?
+        ProcessRunner.handler = { executable, args, env, workDir in
+            capturedArgs = args
+            return (exitCode: 0, stdout: "Hello from Claude Code", stderr: "")
+        }
+
+        let config = makeTestProviderConfig(type: .claudeCode, baseURL: "/usr/local/bin/claude")
+        let provider = ClaudeCodeProvider(config: config)
+        let result = try await provider.sendMessage(
+            model: "claude-sonnet-4-6",
+            systemPrompt: "Be helpful",
+            messages: [("user", "Hi")]
+        )
+        #expect(result == "Hello from Claude Code")
+        // 프롬프트에 시스템 지시가 포함되어야 함
+        let prompt = capturedArgs?.first(where: { $0.contains("[시스템 지시]") })
+        #expect(prompt != nil || capturedArgs?.contains(where: { $0.contains("Be helpful") }) == true)
+    }
+
+    @Test("ClaudeCode sendMessage - 종료 코드 비정상")
+    func claudeCodeSendMessageError() async {
+        let originalHandler = ProcessRunner.handler
+        defer { ProcessRunner.handler = originalHandler }
+
+        ProcessRunner.handler = { _, _, _, _ in
+            return (exitCode: 1, stdout: "", stderr: "Some error occurred")
+        }
+
+        let config = makeTestProviderConfig(type: .claudeCode, baseURL: "/usr/local/bin/claude")
+        let provider = ClaudeCodeProvider(config: config)
+        do {
+            _ = try await provider.sendMessage(model: "claude-sonnet-4-6", systemPrompt: "", messages: [("user", "Hi")])
+            Issue.record("Expected error")
+        } catch {
+            #expect(error is AIProviderError)
+        }
+    }
+
+    @Test("ClaudeCode sendMessage - 빈 응답")
+    func claudeCodeSendMessageEmpty() async {
+        let originalHandler = ProcessRunner.handler
+        defer { ProcessRunner.handler = originalHandler }
+
+        ProcessRunner.handler = { _, _, _, _ in
+            return (exitCode: 0, stdout: "", stderr: "")
+        }
+
+        let config = makeTestProviderConfig(type: .claudeCode, baseURL: "/usr/local/bin/claude")
+        let provider = ClaudeCodeProvider(config: config)
+        do {
+            _ = try await provider.sendMessage(model: "claude-sonnet-4-6", systemPrompt: "", messages: [("user", "Hi")])
+            Issue.record("Expected invalidResponse error")
+        } catch {
+            #expect(error is AIProviderError)
+        }
+    }
+
+    @Test("ClaudeCode sendMessage - SIGTERM (타임아웃)")
+    func claudeCodeSendMessageTimeout() async {
+        let originalHandler = ProcessRunner.handler
+        defer { ProcessRunner.handler = originalHandler }
+
+        ProcessRunner.handler = { _, _, _, _ in
+            return (exitCode: 15, stdout: "", stderr: "")
+        }
+
+        let config = makeTestProviderConfig(type: .claudeCode, baseURL: "/usr/local/bin/claude")
+        let provider = ClaudeCodeProvider(config: config)
+        do {
+            _ = try await provider.sendMessage(model: "claude-sonnet-4-6", systemPrompt: "", messages: [("user", "Hi")])
+            Issue.record("Expected timeout error")
+        } catch {
+            #expect(error is AIProviderError)
+        }
+    }
+
+    @Test("ClaudeCode sendMessage - 프롬프트 구성 (대화 이력 포함)")
+    func claudeCodePromptWithHistory() async throws {
+        let originalHandler = ProcessRunner.handler
+        defer { ProcessRunner.handler = originalHandler }
+
+        var capturedArgs: [String]?
+        ProcessRunner.handler = { _, args, _, _ in
+            capturedArgs = args
+            return (exitCode: 0, stdout: "response", stderr: "")
+        }
+
+        let config = makeTestProviderConfig(type: .claudeCode, baseURL: "/usr/local/bin/claude")
+        let provider = ClaudeCodeProvider(config: config)
+        _ = try await provider.sendMessage(
+            model: "claude-sonnet-4-6",
+            systemPrompt: "System prompt",
+            messages: [
+                ("user", "First message"),
+                ("assistant", "First response"),
+                ("user", "Second message")
+            ]
+        )
+        // -p 플래그와 프롬프트가 포함되어야 함
+        #expect(capturedArgs?.contains("-p") == true)
+        // 모델 지정
+        #expect(capturedArgs?.contains("claude-sonnet-4-6") == true)
+        #expect(capturedArgs?.contains("--model") == true)
+    }
+
+    @Test("ClaudeCode findClaudePath - 반환값 확인")
+    func claudeCodeFindClaudePath() {
+        let path = ClaudeCodeProvider.findClaudePath()
+        // 실제 환경에서 claude가 있으면 실제 경로, 없으면 "claude"
+        #expect(!path.isEmpty)
+    }
+
+    // MARK: - AIProvider default sendMessageWithTools (폴백)
+
+    @Test("AIProvider default sendMessageWithTools - tool 메시지 필터링")
+    func defaultSendMessageWithToolsFiltersTool() async throws {
+        let originalHandler = ProcessRunner.handler
+        defer { ProcessRunner.handler = originalHandler }
+
+        ProcessRunner.handler = { _, _, _, _ in
+            return (exitCode: 0, stdout: "fallback response", stderr: "")
+        }
+
+        let config = makeTestProviderConfig(type: .claudeCode, baseURL: "/usr/local/bin/claude")
+        let provider = ClaudeCodeProvider(config: config)
+
+        let messages: [ConversationMessage] = [
+            .user("Hello"),
+            .assistant("I'll use a tool"),
+            .toolResult(callID: "call1", content: "tool output"),
+            .user("Thanks")
+        ]
+
+        let result = try await provider.sendMessageWithTools(
+            model: "claude-sonnet-4-6",
+            systemPrompt: "sys",
+            messages: messages,
+            tools: []
+        )
+
+        if case .text(let text) = result {
+            #expect(text == "fallback response")
+        } else {
+            Issue.record("Expected .text response")
+        }
+    }
+
+    // MARK: - Anthropic 에러 파싱
+
+    @Test("Anthropic sendMessage - API 에러 (error 필드)")
+    func anthropicAPIError() async {
+        MockURLProtocol.requestHandler = { request in
+            let body: [String: Any] = [
+                "error": ["type": "invalid_request_error", "message": "Invalid model"]
+            ]
+            return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
+        }
+        let config = makeTestProviderConfig(type: .anthropic, baseURL: "https://api.anthropic.com")
+        let provider = AnthropicProvider(config: config, session: makeMockSession())
+        do {
+            _ = try await provider.sendMessage(model: "bad-model", systemPrompt: "", messages: [("user", "Hi")])
+            Issue.record("Expected error")
+        } catch {
+            #expect(error is AIProviderError)
+        }
+    }
+
+    @Test("Anthropic sendMessage - HTTP 에러")
+    func anthropicHTTPError() async {
+        MockURLProtocol.requestHandler = { request in
+            (mockHTTPResponse(url: request.url!.absoluteString, statusCode: 429), Data())
+        }
+        let config = makeTestProviderConfig(type: .anthropic, baseURL: "https://api.anthropic.com")
+        let provider = AnthropicProvider(config: config, session: makeMockSession())
+        do {
+            _ = try await provider.sendMessage(model: "claude-sonnet-4-6", systemPrompt: "", messages: [("user", "Hi")])
+            Issue.record("Expected error")
+        } catch {
+            #expect(error is AIProviderError)
+        }
+    }
+
+    // MARK: - Google 빈 응답
+
+    @Test("Google sendMessage - candidates 빈 배열이면 빈 문자열")
+    func googleEmptyResponse() async throws {
+        MockURLProtocol.requestHandler = { request in
+            let body: [String: Any] = ["candidates": []]
+            return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
+        }
+        let config = ProviderConfig(name: "Google", type: .google, baseURL: "https://generativelanguage.googleapis.com", authMethod: .apiKey, apiKey: "test-key-empty")
+        let provider = GoogleProvider(config: config, session: makeMockSession())
+        let result = try await provider.sendMessage(model: "gemini-2.0-flash", systemPrompt: "", messages: [("user", "Hi")])
+        #expect(result == "")
+        try? KeychainHelper.delete(key: "provider-apikey-\(config.id.uuidString)")
+    }
+
+    // MARK: - OpenAI sendMessageWithTools - 텍스트 응답
+
+    @Test("OpenAI sendMessageWithTools - 일반 텍스트 응답")
+    func openAIToolsTextResponse() async throws {
+        let config = ProviderConfig(
+            name: "TestOpenAI", type: .openAI, baseURL: "https://api.openai.com",
+            authMethod: .apiKey, apiKey: "test-key-txt"
+        )
+        let provider = OpenAIProvider(config: config, session: makeMockSession())
+
+        MockURLProtocol.requestHandler = { request in
+            let responseData = """
+            {"choices":[{"message":{"role":"assistant","content":"Just text"}}]}
+            """.data(using: .utf8)!
+            return (mockHTTPResponse(url: request.url!.absoluteString), responseData)
+        }
+
+        let messages: [ConversationMessage] = [.user("Hello")]
+        let result = try await provider.sendMessageWithTools(
+            model: "gpt-4o", systemPrompt: "s",
+            messages: messages,
+            tools: ToolRegistry.tools(for: ["file_read"])
+        )
+        if case .text(let text) = result {
+            #expect(text == "Just text")
+        } else {
+            Issue.record("Expected .text response")
+        }
+        try? KeychainHelper.delete(key: "provider-apikey-\(config.id.uuidString)")
+    }
+
+    // MARK: - Anthropic sendMessageWithTools - 텍스트 응답
+
+    @Test("Anthropic sendMessageWithTools - 일반 텍스트 응답")
+    func anthropicToolsTextResponse() async throws {
+        let config = ProviderConfig(
+            name: "TestAnthropic", type: .anthropic, baseURL: "https://api.anthropic.com",
+            authMethod: .apiKey, apiKey: "test-key-txt"
+        )
+        let provider = AnthropicProvider(config: config, session: makeMockSession())
+
+        MockURLProtocol.requestHandler = { request in
+            let responseData = """
+            {"content":[{"type":"text","text":"Just text"}]}
+            """.data(using: .utf8)!
+            return (mockHTTPResponse(url: request.url!.absoluteString), responseData)
+        }
+
+        let messages: [ConversationMessage] = [.user("Hello")]
+        let result = try await provider.sendMessageWithTools(
+            model: "claude-sonnet-4-6", systemPrompt: "s",
+            messages: messages,
+            tools: ToolRegistry.tools(for: ["file_read"])
+        )
+        if case .text(let text) = result {
+            #expect(text == "Just text")
+        } else {
+            Issue.record("Expected .text response")
+        }
+        try? KeychainHelper.delete(key: "provider-apikey-\(config.id.uuidString)")
+    }
+
+    // MARK: - Anthropic tool result 빌드
+
+    @Test("Anthropic sendMessageWithTools - tool_result 메시지 빌드")
+    func anthropicToolResultBuild() async throws {
+        let config = ProviderConfig(
+            name: "TestAnthropic", type: .anthropic, baseURL: "https://api.anthropic.com",
+            authMethod: .apiKey, apiKey: "test-key-tr"
+        )
+        let provider = AnthropicProvider(config: config, session: makeMockSession())
+
+        MockURLProtocol.requestHandler = { request in
+            if let body = request.httpBody,
+               let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+               let messages = json["messages"] as? [[String: Any]] {
+                let hasToolResult = messages.contains { msg in
+                    msg["role"] as? String == "user" &&
+                    (msg["content"] as? [[String: Any]])?.contains { $0["type"] as? String == "tool_result" } == true
+                }
+                #expect(hasToolResult == true)
+            }
+            let responseData = """
+            {"content":[{"type":"text","text":"processed"}]}
+            """.data(using: .utf8)!
+            return (mockHTTPResponse(url: request.url!.absoluteString), responseData)
+        }
+
+        let messages: [ConversationMessage] = [
+            .user("read file"),
+            .assistantToolCalls([ToolCall(id: "call1", toolName: "file_read", arguments: ["path": .string("/tmp/test")])], text: "I'll read that"),
+            .toolResult(callID: "call1", content: "file contents here")
+        ]
+        let tools = ToolRegistry.tools(for: ["file_read"])
+        let result = try await provider.sendMessageWithTools(
+            model: "claude-sonnet-4-6", systemPrompt: "s",
+            messages: messages,
+            tools: tools
+        )
+        if case .text(let text) = result {
+            #expect(text == "processed")
+        }
+        try? KeychainHelper.delete(key: "provider-apikey-\(config.id.uuidString)")
+    }
+
+    // MARK: - OpenAI tool result 빌드
+
+    @Test("OpenAI sendMessageWithTools - tool result 메시지 빌드")
+    func openAIToolResultBuild() async throws {
+        let config = ProviderConfig(
+            name: "TestOpenAI", type: .openAI, baseURL: "https://api.openai.com",
+            authMethod: .apiKey, apiKey: "test-key-tr"
+        )
+        let provider = OpenAIProvider(config: config, session: makeMockSession())
+
+        MockURLProtocol.requestHandler = { request in
+            if let body = request.httpBody,
+               let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+               let messages = json["messages"] as? [[String: Any]] {
+                let hasToolResult = messages.contains { $0["role"] as? String == "tool" }
+                #expect(hasToolResult == true)
+            }
+            let responseData = """
+            {"choices":[{"message":{"role":"assistant","content":"processed"}}]}
+            """.data(using: .utf8)!
+            return (mockHTTPResponse(url: request.url!.absoluteString), responseData)
+        }
+
+        let messages: [ConversationMessage] = [
+            .user("read file"),
+            .assistantToolCalls([ToolCall(id: "call1", toolName: "file_read", arguments: ["path": .string("/tmp/test")])], text: "reading"),
+            .toolResult(callID: "call1", content: "file contents")
+        ]
+        let tools = ToolRegistry.tools(for: ["file_read"])
+        let result = try await provider.sendMessageWithTools(
+            model: "gpt-4o", systemPrompt: "s",
+            messages: messages,
+            tools: tools
+        )
+        if case .text(let text) = result {
+            #expect(text == "processed")
+        }
+        try? KeychainHelper.delete(key: "provider-apikey-\(config.id.uuidString)")
+    }
+
+    // MARK: - Google tool result 빌드
+
+    @Test("Google sendMessageWithTools - functionResponse 빌드")
+    func googleToolResultBuild() async throws {
+        let config = ProviderConfig(
+            name: "TestGoogle", type: .google, baseURL: "https://generativelanguage.googleapis.com",
+            authMethod: .apiKey, apiKey: "test-key-tr"
+        )
+        let provider = GoogleProvider(config: config, session: makeMockSession())
+
+        MockURLProtocol.requestHandler = { request in
+            let responseData = """
+            {"candidates":[{"content":{"parts":[{"text":"processed"}]}}]}
+            """.data(using: .utf8)!
+            return (mockHTTPResponse(url: request.url!.absoluteString), responseData)
+        }
+
+        let messages: [ConversationMessage] = [
+            .user("read file"),
+            .assistantToolCalls([ToolCall(id: "call1", toolName: "file_read", arguments: ["path": .string("/tmp/test")])], text: "reading"),
+            .toolResult(callID: "call1", content: "file contents")
+        ]
+        let tools = ToolRegistry.tools(for: ["file_read"])
+        let result = try await provider.sendMessageWithTools(
+            model: "gemini-2.0-flash", systemPrompt: "s",
+            messages: messages,
+            tools: tools
+        )
+        if case .text(let text) = result {
+            #expect(text == "processed")
+        }
+        try? KeychainHelper.delete(key: "provider-apikey-\(config.id.uuidString)")
+    }
+
     @Test("Google sendMessage - API 키가 헤더에 있고 URL에 없음")
     func googleAPIKeyInHeader() async throws {
         let config = ProviderConfig(

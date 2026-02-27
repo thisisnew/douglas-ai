@@ -197,4 +197,78 @@ struct KeychainHelperTests {
         #expect(loaded == "updated")
         try KeychainHelper.delete(key: key)
     }
+
+    // MARK: - Base64 마이그레이션
+
+    @Test("load - Base64 파일에서 마이그레이션")
+    func loadMigratesBase64() throws {
+        let key = uniqueKey()
+        let value = "base64-migration-test"
+        let base64Data = Data(value.utf8).base64EncodedData()
+
+        // 직접 Base64 형식으로 파일 생성
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let keysDir = appSupport.appendingPathComponent("DOUGLAS/keys", isDirectory: true)
+        try? FileManager.default.createDirectory(at: keysDir, withIntermediateDirectories: true)
+        let safeName = key.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? key
+        let fileURL = keysDir.appendingPathComponent("\(safeName).key")
+        try base64Data.write(to: fileURL)
+
+        // load하면 Base64에서 값을 복구하고 암호화 형식으로 마이그레이션
+        let loaded = try KeychainHelper.load(key: key)
+        #expect(loaded == value)
+
+        // 마이그레이션 후 다시 로드해도 정상
+        let reloaded = try KeychainHelper.load(key: key)
+        #expect(reloaded == value)
+
+        try KeychainHelper.delete(key: key)
+    }
+
+    // MARK: - save 반환값
+
+    @Test("save - 성공 시 true 반환")
+    func saveReturnsTrue() throws {
+        let key = uniqueKey()
+        let result = try KeychainHelper.save(key: key, value: "test")
+        #expect(result == true)
+        try KeychainHelper.delete(key: key)
+    }
+
+    // MARK: - 암호화 키 재사용
+
+    @Test("암호화 키 - 동일 키로 여러 번 save/load")
+    func encryptionKeyReuse() throws {
+        let key1 = uniqueKey()
+        let key2 = uniqueKey()
+        try KeychainHelper.save(key: key1, value: "value1")
+        try KeychainHelper.save(key: key2, value: "value2")
+
+        // 같은 암호화 키를 재사용하므로 둘 다 복호화 성공
+        #expect(try KeychainHelper.load(key: key1) == "value1")
+        #expect(try KeychainHelper.load(key: key2) == "value2")
+
+        try KeychainHelper.delete(key: key1)
+        try KeychainHelper.delete(key: key2)
+    }
+
+    // MARK: - 키 이름 인코딩
+
+    @Test("save/load - 한글 키 이름")
+    func koreanKeyName() throws {
+        let key = "한글키-\(UUID().uuidString)"
+        try KeychainHelper.save(key: key, value: "한글값")
+        let loaded = try KeychainHelper.load(key: key)
+        #expect(loaded == "한글값")
+        try KeychainHelper.delete(key: key)
+    }
+
+    @Test("save/load - 매우 긴 키 이름")
+    func longKeyName() throws {
+        let key = String(repeating: "k", count: 200) + "-\(UUID().uuidString)"
+        try KeychainHelper.save(key: key, value: "long-key-test")
+        let loaded = try KeychainHelper.load(key: key)
+        #expect(loaded == "long-key-test")
+        try KeychainHelper.delete(key: key)
+    }
 }

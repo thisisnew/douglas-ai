@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import DOUGLAS
 
-@Suite("JiraConfig Tests")
+@Suite("JiraConfig Tests", .serialized)
 struct JiraConfigTests {
 
     // MARK: - 기본 초기화
@@ -169,5 +169,100 @@ struct JiraConfigTests {
         let config = try JSONDecoder().decode(JiraConfig.self, from: data)
         #expect(config.domain == "restored.atlassian.net")
         #expect(config.email == "user@restored.com")
+    }
+
+    // MARK: - apiToken (Keychain 통합)
+
+    @Test("apiToken - 설정 후 읽기")
+    func apiTokenSetGet() throws {
+        // cleanup first to avoid interference
+        _ = try? KeychainHelper.delete(key: "jira-api-token")
+
+        var config = JiraConfig(domain: "test.atlassian.net", email: "user@test.com")
+        let testToken = "test-token-\(UUID().uuidString)"
+        config.apiToken = testToken
+        let token = config.apiToken
+        #expect(token == testToken)
+        // cleanup
+        config.apiToken = nil
+    }
+
+    @Test("apiToken - nil로 설정하면 삭제")
+    func apiTokenDelete() throws {
+        _ = try? KeychainHelper.delete(key: "jira-api-token")
+
+        var config = JiraConfig(domain: "test.atlassian.net", email: "user@test.com")
+        config.apiToken = "temp-token"
+        config.apiToken = nil
+        #expect(config.apiToken == nil)
+    }
+
+    @Test("apiToken - 빈 문자열은 삭제와 같음")
+    func apiTokenEmptyString() throws {
+        _ = try? KeychainHelper.delete(key: "jira-api-token")
+
+        var config = JiraConfig(domain: "test.atlassian.net", email: "user@test.com")
+        config.apiToken = "some-token"
+        config.apiToken = ""
+        let loaded = config.apiToken
+        #expect(loaded == nil)
+    }
+
+    // MARK: - isConfigured (통합)
+
+    @Test("isConfigured - 모든 필드 설정 시 true")
+    func isConfiguredAllSet() {
+        var config = JiraConfig(domain: "company.atlassian.net", email: "user@company.com")
+        let uniqueToken = "isconfig-token-\(UUID().uuidString)"
+        config.apiToken = uniqueToken
+        #expect(config.isConfigured == true)
+        // cleanup
+        config.apiToken = nil
+    }
+
+    @Test("isConfigured - 토큰 없으면 false")
+    func isConfiguredNoToken() {
+        let config = JiraConfig(domain: "company.atlassian.net", email: "user@company.com")
+        // apiToken이 KeychainHelper에 없는 경우
+        // 이전 테스트에서 삭제했으므로 nil
+        // 단, 다른 테스트에서 설정했을 수 있으므로 명시적 확인
+        if config.apiToken == nil {
+            #expect(config.isConfigured == false)
+        }
+    }
+
+    // MARK: - authHeader (통합)
+
+    @Test("authHeader - 토큰 설정 후 Basic 헤더 반환")
+    func authHeaderWithToken() {
+        var config = JiraConfig(domain: "test.atlassian.net", email: "user@test.com")
+        let uniqueToken = "auth-header-token-\(UUID().uuidString)"
+        config.apiToken = uniqueToken
+        let header = config.authHeader()
+        #expect(header != nil)
+        #expect(header?.hasPrefix("Basic ") == true)
+        // cleanup
+        config.apiToken = nil
+    }
+
+    // MARK: - shared 싱글턴
+
+    @Test("shared - 저장 후 로드")
+    func sharedPersistence() {
+        let original = JiraConfig(domain: "shared-test.atlassian.net", email: "shared@test.com")
+        JiraConfig.shared = original
+        let loaded = JiraConfig.shared
+        #expect(loaded.domain == "shared-test.atlassian.net")
+        #expect(loaded.email == "shared@test.com")
+        // cleanup
+        UserDefaults.standard.removeObject(forKey: "jiraConfig")
+    }
+
+    @Test("shared - 저장 안 한 상태에서 기본값")
+    func sharedDefault() {
+        UserDefaults.standard.removeObject(forKey: "jiraConfig")
+        let config = JiraConfig.shared
+        #expect(config.domain == "")
+        #expect(config.email == "")
     }
 }

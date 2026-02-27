@@ -15,7 +15,7 @@ DOUGLAS/
 ├── CLAUDE.md                      # Claude Code 세션 규칙
 └── Sources/
     ├── App/                       # @main 진입점, AppDelegate
-    ├── Models/                    # 데이터 모델 (Agent, ChatMessage, AgentTool, ImageAttachment, ProviderConfig, ToolExecutionContext, DependencyChecker)
+    ├── Models/                    # 데이터 모델 (Agent, ChatMessage, AgentTool, ImageAttachment, ProviderConfig, ToolExecutionContext, DependencyChecker, ProcessRunner)
     ├── ViewModels/                # 비즈니스 로직 (AgentStore, ChatViewModel, ToolExecutor, ProviderManager, RoomManager)
     ├── Providers/                 # AI 프로바이더 (AIProvider 프로토콜, ToolFormatConverter, Claude/OpenAI/Google/Anthropic)
     └── Views/                     # SwiftUI 뷰
@@ -100,6 +100,50 @@ Files changed:
 ### Force Unwrap 금지
 - `applicationSupportDirectory` 등 시스템 경로에 `.first!` 사용 금지
 - `guard let ... else { return }` 또는 기본값 폴백 패턴 사용
+
+---
+
+## 테스트 규칙
+
+### 명령어
+- `swift test` — 전체 테스트 실행 (663개)
+- `swift test --enable-code-coverage` — 커버리지 포함 실행
+- `xcrun llvm-cov report ...` — 커버리지 리포트 조회
+
+### 테스트 프레임워크
+- **Swift Testing** (`@Test`, `#expect`, `@Suite`, `.serialized`)
+- XCTest 아님 — `import Testing` 사용
+
+### DI 패턴 (테스트 가능성)
+
+**ProcessRunner** (`Sources/Models/ProcessRunner.swift`):
+- `Process()` 직접 사용 금지 → `ProcessRunner.run()` 사용
+- 테스트에서 `ProcessRunner.handler = { ... }` 로 mock 주입
+- 반드시 `defer { ProcessRunner.handler = nil }` 로 정리
+
+**ProviderManager.testProviderOverrides**:
+- `provider(named:)` 호출 시 인스턴스 딕셔너리에서 우선 반환
+- 인스턴스 레벨이므로 병렬 테스트 안전 (static 아님)
+- 사용: `providerManager.testProviderOverrides["OpenAI"] = mockProvider`
+
+**ToolExecutor.urlSession**:
+- `URLSession.shared` 직접 사용 대신 `ToolExecutor.urlSession` 사용
+- 테스트에서 MockURLProtocol 기반 세션 주입
+- `defer { ToolExecutor.urlSession = .shared }` 로 정리
+
+### MockURLProtocol 주의사항
+- `MockURLProtocol.requestHandler`는 전역 static → 병렬 테스트 간 경쟁 조건 발생
+- HTTP 모킹 테스트 스위트는 반드시 `.serialized` 사용
+- 다른 스위트와 동시 실행 시에도 충돌 가능 → 네트워크 의존 테스트는 최소화
+
+### 테스트 헬퍼 (`Tests/Helpers/TestHelpers.swift`)
+- `makeTestAgent()`, `makeTestDefaults()`, `makeTestRoom()` 등 팩토리 함수
+- `makeTestProviderConfig()` — 격리된 ProviderConfig 생성
+- 테스트 간 격리를 위해 항상 새 `UserDefaults(suiteName:)` 사용
+
+### 모킹 (`Tests/Mocks/`)
+- `MockAIProvider`: `sendMessageResult`, `sendMessageResults` (순차), `fetchModelsResult`
+- `MockURLProtocol`: `requestHandler` 클로저로 HTTP 응답 제어
 
 ---
 

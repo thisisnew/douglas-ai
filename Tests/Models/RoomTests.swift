@@ -302,4 +302,215 @@ struct RoomTests {
         #expect(decoded.maxDiscussionRounds == 5)
         #expect(decoded.currentRound == 2)
     }
+
+    // MARK: - canTransition
+
+    @Test("canTransition - planning → inProgress 허용")
+    func canTransitionPlanningToInProgress() {
+        #expect(RoomStatus.planning.canTransition(to: .inProgress) == true)
+    }
+
+    @Test("canTransition - planning → failed 허용")
+    func canTransitionPlanningToFailed() {
+        #expect(RoomStatus.planning.canTransition(to: .failed) == true)
+    }
+
+    @Test("canTransition - inProgress → completed 허용")
+    func canTransitionInProgressToCompleted() {
+        #expect(RoomStatus.inProgress.canTransition(to: .completed) == true)
+    }
+
+    @Test("canTransition - inProgress → failed 허용")
+    func canTransitionInProgressToFailed() {
+        #expect(RoomStatus.inProgress.canTransition(to: .failed) == true)
+    }
+
+    @Test("canTransition - completed → 어디든 불가")
+    func canTransitionCompletedToAny() {
+        #expect(RoomStatus.completed.canTransition(to: .planning) == false)
+        #expect(RoomStatus.completed.canTransition(to: .inProgress) == false)
+        #expect(RoomStatus.completed.canTransition(to: .failed) == false)
+    }
+
+    @Test("canTransition - failed → 어디든 불가")
+    func canTransitionFailedToAny() {
+        #expect(RoomStatus.failed.canTransition(to: .planning) == false)
+        #expect(RoomStatus.failed.canTransition(to: .inProgress) == false)
+        #expect(RoomStatus.failed.canTransition(to: .completed) == false)
+    }
+
+    @Test("canTransition - planning → planning 불가 (같은 상태)")
+    func canTransitionSameState() {
+        #expect(RoomStatus.planning.canTransition(to: .planning) == false)
+    }
+
+    @Test("canTransition - planning → completed 불가 (건너뛰기)")
+    func canTransitionPlanningToCompleted() {
+        #expect(RoomStatus.planning.canTransition(to: .completed) == false)
+    }
+
+    @Test("canTransition - inProgress → planning 불가 (역전)")
+    func canTransitionInProgressToPlanning() {
+        #expect(RoomStatus.inProgress.canTransition(to: .planning) == false)
+    }
+
+    // MARK: - transitionTo
+
+    @Test("transitionTo - 유효한 전이 성공")
+    func transitionToValid() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .planning)
+        let result = room.transitionTo(.inProgress)
+        #expect(result == true)
+        #expect(room.status == .inProgress)
+    }
+
+    @Test("transitionTo - 무효한 전이 실패")
+    func transitionToInvalid() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .completed)
+        let result = room.transitionTo(.planning)
+        #expect(result == false)
+        #expect(room.status == .completed) // 변경되지 않음
+    }
+
+    @Test("transitionTo - planning → failed")
+    func transitionToFailed() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .planning)
+        let result = room.transitionTo(.failed)
+        #expect(result == true)
+        #expect(room.status == .failed)
+    }
+
+    @Test("transitionTo - inProgress → completed")
+    func transitionToCompleted() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .inProgress)
+        let result = room.transitionTo(.completed)
+        #expect(result == true)
+        #expect(room.status == .completed)
+    }
+
+    // MARK: - setCurrentStep
+
+    @Test("setCurrentStep - 유효 인덱스")
+    func setCurrentStepValid() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user)
+        room.plan = RoomPlan(summary: "계획", estimatedSeconds: 60, steps: ["A", "B", "C"])
+        room.setCurrentStep(1)
+        #expect(room.currentStepIndex == 1)
+    }
+
+    @Test("setCurrentStep - 음수 → 0")
+    func setCurrentStepNegative() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user)
+        room.plan = RoomPlan(summary: "계획", estimatedSeconds: 60, steps: ["A", "B"])
+        room.setCurrentStep(-1)
+        #expect(room.currentStepIndex == 0)
+    }
+
+    @Test("setCurrentStep - 초과 → 최대")
+    func setCurrentStepOverflow() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user)
+        room.plan = RoomPlan(summary: "계획", estimatedSeconds: 60, steps: ["A", "B"])
+        room.setCurrentStep(10)
+        #expect(room.currentStepIndex == 1) // steps.count - 1 = 1
+    }
+
+    @Test("setCurrentStep - plan nil이면 0")
+    func setCurrentStepNoPlan() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user)
+        room.setCurrentStep(5)
+        #expect(room.currentStepIndex == 0) // max(0, (nil ?? 1) - 1) = 0
+    }
+
+    // MARK: - WorkLog
+
+    @Test("WorkLog 기본 초기화")
+    func workLogInit() {
+        let log = WorkLog(
+            roomTitle: "테스트 방",
+            participants: ["에이전트A", "에이전트B"],
+            task: "테스트 작업",
+            discussionSummary: "토론 요약",
+            planSummary: "계획 요약",
+            outcome: "결과",
+            durationSeconds: 120
+        )
+        #expect(log.roomTitle == "테스트 방")
+        #expect(log.participants.count == 2)
+        #expect(log.task == "테스트 작업")
+        #expect(log.durationSeconds == 120)
+    }
+
+    @Test("WorkLog Codable 라운드트립")
+    func workLogCodable() throws {
+        let log = WorkLog(
+            roomTitle: "방",
+            participants: ["A"],
+            task: "작업",
+            outcome: "완료",
+            durationSeconds: 60
+        )
+        let data = try JSONEncoder().encode(log)
+        let decoded = try JSONDecoder().decode(WorkLog.self, from: data)
+        #expect(decoded.roomTitle == "방")
+        #expect(decoded.participants == ["A"])
+        #expect(decoded.outcome == "완료")
+        #expect(decoded.durationSeconds == 60)
+        #expect(decoded.discussionSummary == "")
+        #expect(decoded.planSummary == "")
+    }
+
+    @Test("WorkLog Identifiable - 고유 ID")
+    func workLogIdentifiable() {
+        let a = WorkLog(roomTitle: "A", participants: [], task: "t", outcome: "o", durationSeconds: 1)
+        let b = WorkLog(roomTitle: "A", participants: [], task: "t", outcome: "o", durationSeconds: 1)
+        #expect(a.id != b.id)
+    }
+
+    // MARK: - Room with WorkLog
+
+    @Test("Room Codable - workLog 포함")
+    func roomCodableWithWorkLog() throws {
+        var room = Room(title: "Work", assignedAgentIDs: [], createdBy: .user)
+        room.workLog = WorkLog(
+            roomTitle: "Work",
+            participants: ["A"],
+            task: "test",
+            outcome: "done",
+            durationSeconds: 30
+        )
+        let data = try JSONEncoder().encode(room)
+        let decoded = try JSONDecoder().decode(Room.self, from: data)
+        #expect(decoded.workLog?.roomTitle == "Work")
+        #expect(decoded.workLog?.durationSeconds == 30)
+    }
+
+    // MARK: - maxDiscussionRounds 최소값
+
+    @Test("Room - maxDiscussionRounds 최소 1")
+    func maxDiscussionRoundsMinimum() {
+        let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, maxDiscussionRounds: 0)
+        #expect(room.maxDiscussionRounds == 1) // max(1, 0) = 1
+    }
+
+    @Test("Room - maxDiscussionRounds 음수도 1로")
+    func maxDiscussionRoundsNegative() {
+        let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, maxDiscussionRounds: -5)
+        #expect(room.maxDiscussionRounds == 1)
+    }
+
+    // MARK: - discussionProgressText 추가
+
+    @Test("discussionProgressText - inProgress 상태")
+    func discussionProgressTextInProgressStatus() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, mode: .discussion)
+        room.status = .inProgress
+        #expect(room.discussionProgressText == "토론 완료")
+    }
+
+    @Test("discussionProgressText - failed 상태")
+    func discussionProgressTextFailed() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, mode: .discussion)
+        room.status = .failed
+        #expect(room.discussionProgressText == "토론 완료")
+    }
 }

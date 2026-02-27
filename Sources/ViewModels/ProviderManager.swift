@@ -103,7 +103,13 @@ class ProviderManager: ObservableObject {
         }
     }
 
+    /// 테스트에서 MockAIProvider 주입용 (인스턴스별 격리)
+    var testProviderOverrides: [String: AIProvider] = [:]
+
     func provider(named name: String) -> AIProvider? {
+        if let override = testProviderOverrides[name] {
+            return override
+        }
         guard let config = configs.first(where: { $0.name == name }) else {
             return nil
         }

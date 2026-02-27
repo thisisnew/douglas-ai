@@ -24,6 +24,9 @@ struct DetectedProvider: Identifiable {
 /// 시스템에서 AI 프로바이더를 자동 감지
 enum ProviderDetector {
 
+    /// 테스트에서 교체 가능한 URLSession (프로덕션: .shared)
+    nonisolated(unsafe) static var urlSession: URLSession = .shared
+
     /// 모든 감지를 병렬 실행
     static func detectAll() async -> [DetectedProvider] {
         async let claude = detectClaudeCode()
@@ -138,7 +141,7 @@ enum ProviderDetector {
         request.timeoutInterval = timeout
         request.httpMethod = "GET"
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (_, response) = try await urlSession.data(for: request)
             return (response as? HTTPURLResponse)?.statusCode == 200
         } catch {
             return false

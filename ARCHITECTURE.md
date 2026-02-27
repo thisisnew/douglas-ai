@@ -44,6 +44,7 @@ DOUGLAS/
 │   │   ├── ProviderConfig.swift     # 프로바이더 설정 (AuthMethod, ProviderType, isConnected)
 │   │   ├── ProviderDetector.swift   # 시스템 AI 프로바이더 자동 감지
 │   │   ├── ClaudeCodeInstaller.swift # Claude Code CLI 설치/검증 유틸리티
+│   │   ├── ProcessRunner.swift      # 테스트 가능한 프로세스 실행기 (DI seam)
 │   │   ├── Room.swift               # 프로젝트 방 모델 (상태 전이, 타이머, 토론 모드)
 │   │   └── KeychainHelper.swift     # 파일 기반 API 키 저장 (Keychain 레거시 마이그레이션)
 │   ├── ViewModels/
@@ -250,7 +251,7 @@ protocol AIProvider {
 
 ### ClaudeCodeProvider (`Providers/ClaudeCodeProvider.swift`)
 
-가장 독특한 프로바이더. Claude Code CLI를 `Process`로 실행한다.
+가장 독특한 프로바이더. Claude Code CLI를 `ProcessRunner`로 실행한다.
 
 - `findClaudePath()`: nvm, homebrew, local 등 다양한 경로에서 claude 바이너리 탐색
 - `claude -p <prompt> --model <model>` 형태로 비대화형 실행
@@ -780,6 +781,7 @@ executeWithTools() 루프 (최대 10회):
 | GoogleProvider.swift | ~130 | Gemini API + Tool Use + Vision |
 | AnthropicProvider.swift | ~130 | Anthropic API + Tool Use + Vision |
 | AddProviderSheet.swift | ~169 | 프로바이더 설정 |
+| ProcessRunner.swift | ~40 | 테스트 가능 프로세스 실행기 (DI seam) |
 | KeychainHelper.swift | ~40 | Keychain 헬퍼 |
 | DOUGLASApp.swift | ~29 | 앱 진입점 |
 | ToolExecutionContext.swift | ~16 | 도구 실행 컨텍스트 (Sendable) |
@@ -791,48 +793,62 @@ executeWithTools() 루프 (최대 10회):
 ### 개요
 
 - **프레임워크**: Swift Testing (`@Test`, `#expect`)
-- **테스트 수**: 410개 (19 파일 + 3 헬퍼/모킹)
+- **테스트 수**: 663개 (24 파일 + 3 헬퍼/모킹)
 - **명령어**: `swift test`
-- **모킹**: MockAIProvider, MockURLProtocol, 격리 UserDefaults
+- **커버리지**: 87% (테스트 가능 코드 기준, Views/App 제외)
+- **모킹**: MockAIProvider, MockURLProtocol, ProcessRunner.handler, 격리 UserDefaults
 
 ### 테스트 구조
 
 ```
 Tests/
 ├── Models/
-│   ├── AgentTests.swift              # 12 tests — 초기화, 팩토리, Codable, 레거시 디코딩
+│   ├── AgentTests.swift              # 28 tests — 초기화, 팩토리, Codable, 레거시 디코딩, imageData I/O, resolvedToolIDs
 │   ├── AgentToolTests.swift          # 34 tests — AgentTool/ToolCall/ToolResult Codable, CapabilityPreset, ToolRegistry (7종 도구), ConversationMessage
 │   ├── ChatMessageTests.swift        # 12 tests — 모든 MessageType, Codable 라운드트립, 이미지 첨부 호환
-│   ├── ImageAttachmentTests.swift    # 13 tests — MIME 판별, save/load 라운드트립, 크기 제한, 파일 확장자
-│   ├── DependencyCheckerTests.swift  # 11 tests — allRequiredFound, 초기 상태, Homebrew 선택 사항
-│   ├── ProviderConfigTests.swift     # 14 tests — AuthMethod, Keychain 분리, 레거시 호환, isConnected
-│   ├── ProviderDetectorTests.swift   # 13 tests — DetectedProvider 모델, maskedKey
-│   ├── KeychainHelperTests.swift     # 18 tests — 파일 기반 저장/로드/삭제, 특수 문자, 에러 타입
-│   └── RoomTests.swift              # 29 tests — 상태 전이, 타이머, 토론 모드, 레거시 디코딩
+│   ├── ClaudeCodeInstallerTests.swift # 32 tests — detect/install (ProcessRunner mock), 경로 탐색, 상태 전이
+│   ├── DependencyCheckerTests.swift  # 15 tests — allRequiredFound, checkAll, shellWhichAll (ProcessRunner mock)
+│   ├── ImageAttachmentTests.swift    # 25 tests — MIME 판별, save/load 라운드트립, 크기 제한, 파일 확장자, tempFileURL
+│   ├── JiraConfigTests.swift         # 28 tests — apiToken Keychain, authHeader, isConfigured, baseURL
+│   ├── KeychainHelperTests.swift     # 23 tests — 파일 기반 저장/로드/삭제, 특수 문자, 에러 타입, 암호화 키 관리
+│   ├── ProviderConfigTests.swift     # 23 tests — AuthMethod, Keychain 분리, 레거시 호환, isConnected, apiKey 라운드트립
+│   ├── ProviderDetectorTests.swift   # 23 tests — DetectedProvider 모델, maskedKey, needsAPIKey, detectAll
+│   ├── RoomTests.swift              # 54 tests — 상태 전이, 타이머, 토론 모드, 레거시 디코딩, RoomPlan/WorkLog Codable
+│   └── ToolExecutionContextTests.swift # 6 tests — 생성, empty, agentListString
 ├── ViewModels/
-│   ├── ChatViewModelTests.swift      # 20 tests — 상태 관리, 메시지 격리, 로딩, 히스토리 필터
-│   ├── ChatViewModelParsingTests.swift # 18 tests — JSON 추출, parseMasterResponse 전체 액션
 │   ├── AgentStoreTests.swift         # 25 tests — CRUD, 마스터 보호, updateMasterProvider
-│   ├── RoomManagerTests.swift        # 33 tests — 방 생명주기, 에이전트 동기화, activeRoomCount
-│   ├── ProviderManagerTests.swift    # 19 tests — 팩토리, configureFromOnboarding, 영속화
-│   ├── OnboardingViewModelTests.swift # 26 tests — Claude 셋업, 의존성 체크, 프로바이더 선택, 마스터 우선순위
-│   └── ToolExecutorTests.swift      # 37 tests — smartSend 분기, 도구 루프, 개별 도구 실행, invite_agent/list_agents
+│   ├── ChatViewModelTests.swift      # 36 tests — 상태 관리, 메시지 격리, 로딩, 히스토리 필터
+│   ├── ChatViewModelParsingTests.swift # 18 tests — JSON 추출, parseMasterResponse 전체 액션
+│   ├── ChatViewModelIntegrationTests.swift # 26 tests — 위임 재시도, 체이닝, 요약, 알림, 메시지 영속화
+│   ├── OnboardingViewModelTests.swift # 37 tests — Claude 셋업, 의존성 체크, 프로바이더 선택, 마스터 우선순위
+│   ├── ProviderManagerTests.swift    # 23 tests — 팩토리, configureFromOnboarding, 영속화, connectedConfigs, mock 오버라이드
+│   ├── RoomManagerTests.swift        # 54 tests — 방 생명주기, 에이전트 동기화, 워크플로우, 토론 과반, 계획 파싱
+│   └── ToolExecutorTests.swift      # 50 tests — smartSend 분기, 도구 루프, 개별 도구 실행, invite_agent/list_agents, web_fetch
 ├── Providers/
-│   ├── ProviderTests.swift          # 47 tests — HTTP 검증, 인증, 전체 프로바이더 모킹
+│   ├── ProviderTests.swift          # 62 tests — HTTP 검증, 인증, 전체 프로바이더 모킹, 이미지 첨부, tool result
 │   ├── ToolFormatConverterTests.swift # 21 tests — OpenAI/Anthropic/Google 형식 변환, JSON Schema
 │   └── ToolFormatConverterImageTests.swift # 8 tests — 프로바이더별 이미지 블록 변환 검증
 ├── Helpers/
-│   └── TestHelpers.swift            # 팩토리 함수 (makeTestAgent, makeTestDefaults 등)
+│   └── TestHelpers.swift            # 팩토리 함수 (makeTestAgent, makeTestDefaults, makeTestRoom 등)
 └── Mocks/
-    ├── MockAIProvider.swift         # 가짜 프로바이더 (호출 추적 + Tool Use 모킹)
+    ├── MockAIProvider.swift         # 가짜 프로바이더 (호출 추적 + Tool Use + 순차 응답)
     └── MockURLProtocol.swift        # URLProtocol 서브클래스 (HTTP 모킹)
 ```
 
+### 테스트 DI 패턴
+
+| 패턴 | 대상 | 방식 |
+|------|------|------|
+| `ProcessRunner.handler` | Process 실행 (ClaudeCode, DependencyChecker 등) | `nonisolated(unsafe) static var handler` — 테스트에서 클로저 주입 |
+| `ProviderManager.testProviderOverrides` | AI 프로바이더 교체 | 인스턴스 딕셔너리 — `provider(named:)` 호출 시 우선 반환 |
+| `ToolExecutor.urlSession` | HTTP 요청 (web_fetch) | `nonisolated(unsafe) static var urlSession` — MockURLProtocol 세션 주입 |
+| `MockURLProtocol` | URLSession HTTP 응답 | `requestHandler` 클로저로 응답 제어 |
+
 ### 커버리지 요약
 
-| 계층 | 테스트 수 | 커버리지 |
-|------|----------|---------|
-| Models | 156 | Agent, AgentTool, ToolCall, ToolResult, CapabilityPreset, ToolRegistry, ChatMessage, ImageAttachment, DependencyChecker, ProviderConfig, Room, DetectedProvider, KeychainHelper |
-| ViewModels | 178 | ChatViewModel, AgentStore, ProviderManager, RoomManager, OnboardingViewModel, ToolExecutor |
-| Providers | 76 | OpenAI, Anthropic, Google, Ollama, LM Studio, Custom, ClaudeCode, ToolFormatConverter (도구 + 이미지) |
-| **합계** | **410** | 비즈니스 로직 전체 커버 (View 레이어는 UI 테스트 특성상 제외) |
+| 계층 | 테스트 수 | 주요 커버리지 |
+|------|----------|-------------|
+| Models | 303 | Agent, AgentTool, ChatMessage, ClaudeCodeInstaller, DependencyChecker, ImageAttachment, JiraConfig, KeychainHelper, ProviderConfig, ProviderDetector, Room, ToolExecutionContext |
+| ViewModels | 269 | ChatViewModel (통합+파싱+상태), AgentStore, ProviderManager, RoomManager, OnboardingViewModel, ToolExecutor |
+| Providers | 91 | OpenAI, Anthropic, Google, Ollama, LM Studio, Custom, ClaudeCode, ToolFormatConverter (도구 + 이미지) |
+| **합계** | **663** | 테스트 가능 코드 87% 라인 커버리지 (View/App 레이어는 UI 특성상 제외) |
