@@ -60,33 +60,29 @@ class DependencyChecker: ObservableObject {
     func checkAll() async {
         isChecking = true
 
-        // 로그인 셸에서 모든 바이너리를 한 번에 탐색 (GUI 앱은 PATH 제한적)
+        // 1단계: 하드코딩 경로 즉시 체크 (GUI 앱에서도 안정적)
+        for i in dependencies.indices {
+            let (f, p) = findAnyBinary(dependencies[i].binaryNames)
+            dependencies[i].isFound = f
+            dependencies[i].foundPath = p
+        }
+
+        // 2단계: 로그인 셸 탐색으로 보충 (3초 타임아웃)
         let allNames = dependencies.flatMap(\.binaryNames)
         let shellResults = await Self.shellWhichAll(allNames)
 
         for i in dependencies.indices {
-            var found = false
-            var foundPath: String?
-
-            // 1. 로그인 셸 which 결과
-            for name in dependencies[i].binaryNames {
-                if let path = shellResults[name] {
-                    found = true
-                    foundPath = path
-                    break
+            if !dependencies[i].isFound {
+                for name in dependencies[i].binaryNames {
+                    if let path = shellResults[name] {
+                        dependencies[i].isFound = true
+                        dependencies[i].foundPath = path
+                        break
+                    }
                 }
             }
-
-            // 2. 하드코딩 경로 폴백
-            if !found {
-                let (f, p) = findAnyBinary(dependencies[i].binaryNames)
-                found = f
-                foundPath = p
-            }
-
-            dependencies[i].isFound = found
-            dependencies[i].foundPath = foundPath
         }
+
         isChecking = false
     }
 
@@ -106,37 +102,50 @@ class DependencyChecker: ObservableObject {
 
     // MARK: - 로그인 셸 탐색
 
-    /// 여러 바이너리를 한 번의 로그인 셸 호출로 탐색 (백그라운드)
+    /// 여러 바이너리를 한 번의 로그인 셸 호출로 탐색 (백그라운드, 3초 타임아웃)
     private static func shellWhichAll(_ names: [String]) async -> [String: String] {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let script = names.map { "echo \"\($0):$(command -v \($0) 2>/dev/null)\"" }.joined(separator: "; ")
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-                process.arguments = ["-l", "-c", script]
-                let pipe = Pipe()
-                process.standardOutput = pipe
-                process.standardError = Pipe()
+        await withTaskGroup(of: [String: String].self) { group in
+            // 실제 탐색
+            group.addTask {
+                await withCheckedContinuation { continuation in
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        let script = names.map { "echo \"\($0):$(command -v \($0) 2>/dev/null)\"" }.joined(separator: "; ")
+                        let process = Process()
+                        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+                        process.arguments = ["-l", "-c", script]
+                        let pipe = Pipe()
+                        process.standardOutput = pipe
+                        process.standardError = Pipe()
 
-                var result: [String: String] = [:]
-                do {
-                    try process.run()
-                    process.waitUntilExit()
-                    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                    let output = String(data: data, encoding: .utf8) ?? ""
-                    for line in output.components(separatedBy: "\n") {
-                        let parts = line.split(separator: ":", maxSplits: 1)
-                        if parts.count == 2 {
-                            let name = String(parts[0])
-                            let path = String(parts[1]).trimmingCharacters(in: .whitespaces)
-                            if !path.isEmpty {
-                                result[name] = path
+                        var result: [String: String] = [:]
+                        do {
+                            try process.run()
+                            process.waitUntilExit()
+                            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                            let output = String(data: data, encoding: .utf8) ?? ""
+                            for line in output.components(separatedBy: "\n") {
+                                let parts = line.split(separator: ":", maxSplits: 1)
+                                if parts.count == 2 {
+                                    let name = String(parts[0])
+                                    let path = String(parts[1]).trimmingCharacters(in: .whitespaces)
+                                    if !path.isEmpty {
+                                        result[name] = path
+                                    }
+                                }
                             }
-                        }
+                        } catch {}
+                        continuation.resume(returning: result)
                     }
-                } catch {}
-                continuation.resume(returning: result)
+                }
             }
+            // 3초 타임아웃
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                return [:]
+            }
+            let first = await group.next() ?? [:]
+            group.cancelAll()
+            return first
         }
     }
 

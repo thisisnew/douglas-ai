@@ -90,6 +90,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupNotifications()
         setupStatusItem()
         registerSidebarHotkey()
+        // 사이드바 자동 표시
+        showSidebar()
     }
 
     private func setupNotifications() {

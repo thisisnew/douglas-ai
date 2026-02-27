@@ -21,11 +21,12 @@ macOS 플로팅 사이드바 기반 AI 에이전트 매니저.
 
 - **자동 위임** — 마스터가 요청을 분석하여 서브 에이전트 조합으로 방 구성
 - **병렬 / 순차 처리** — 여러 에이전트 동시 투입 또는 A→B 체이닝
-- **Tool Use** — 파일 읽기/쓰기, 셸 실행, 에이전트 초대 등 6종 도구
+- **Tool Use** — 파일 읽기/쓰기, 셸 실행, 웹 페이지 가져오기, 에이전트 초대 등 7종 도구
+- **Jira 연동** — Jira Cloud 티켓 URL 자동 인식 + REST API 조회
 - **이미지 첨부 + Vision** — 이미지를 첨부하여 Vision API로 분석
 - **플로팅 사이드바** — 다른 앱 위에 떠 있으며, 드래그로 자유 이동
 - **글로벌 핫키** — `⌘⇧E` 사이드바 토글, `⌘⇧A` 커맨드 바
-- **온보딩** — 첫 실행 시 필요 환경(Node.js, Git 등) 자동 체크
+- **온보딩** — 첫 실행 시 환경(Node.js, Git 등) + Claude Code 자동 감지, 완료 후 사이드바 자동 시작
 
 ## 지원 프로바이더
 
@@ -35,6 +36,8 @@ macOS 플로팅 사이드바 기반 AI 에이전트 매니저.
 | Anthropic | API Key | Claude 모델 (Tool Use 지원) |
 | OpenAI | API Key | GPT-4o 등 (Tool Use 지원) |
 | Google | API Key | Gemini 모델 (Tool Use 지원) |
+| Ollama | 없음 | 로컬 모델 (llama3 등) |
+| LM Studio | 없음 | 로컬 모델 |
 
 ## 설치 및 실행
 
@@ -99,11 +102,11 @@ DOUGLAS/
 ├── scripts/build-app.sh   # 앱 번들 + 코드서명 + DMG
 ├── Sources/               # 소스
 │   ├── App/               # @main 진입점, AppDelegate, 윈도우/패널 관리
-│   ├── Models/            # Agent, Room, ChatMessage, ProviderConfig
-│   ├── ViewModels/        # AgentStore, ChatViewModel, RoomManager
-│   ├── Providers/         # AIProvider 프로토콜 + 구현체
-│   └── Views/             # SwiftUI 뷰
-└── Tests/                 # 테스트
+│   ├── Models/            # Agent, Room, ChatMessage, ProviderConfig, JiraConfig
+│   ├── ViewModels/        # AgentStore, ChatViewModel, RoomManager, ToolExecutor
+│   ├── Providers/         # AIProvider 프로토콜 + 구현체 (6종)
+│   └── Views/             # SwiftUI 뷰 (19개)
+└── Tests/                 # 477+ 테스트
 ```
 
 ## 단축키

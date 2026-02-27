@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 @MainActor
 class OnboardingViewModel: ObservableObject {
@@ -16,6 +17,20 @@ class OnboardingViewModel: ObservableObject {
 
     /// 의존성 체커
     let dependencyChecker = DependencyChecker()
+
+    /// 중첩 ObservableObject 변경을 상위로 전파
+    private var cancellables = Set<AnyCancellable>()
+
+    init() {
+        claudeInstaller.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        dependencyChecker.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+    }
 
     /// Claude Code 설정이 완료되었는지 (설치됨 or 사용자가 건너뜀)
     @Published var claudeSetupDone = false

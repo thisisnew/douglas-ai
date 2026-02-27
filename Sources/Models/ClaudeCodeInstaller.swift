@@ -49,7 +49,18 @@ class ClaudeCodeInstaller: ObservableObject {
     func detect() async {
         state = .checking
 
-        // 백그라운드에서 탐색 (메인 스레드 블로킹 방지 + 5초 타임아웃)
+        // 1단계: 하드코딩 경로 동기 체크 (즉시 완료, 메인 스레드에서)
+        let quickPath = ClaudeCodeProvider.findClaudePath()
+        if quickPath != "claude", FileManager.default.isExecutableFile(atPath: quickPath) {
+            if checkAuthStatus() {
+                state = .ready
+            } else {
+                state = .found(path: quickPath)
+            }
+            return
+        }
+
+        // 2단계: 셸 탐색 (백그라운드, 5초 타임아웃)
         let foundPath: String? = await Self.findClaudeInBackground()
 
         if let path = foundPath {
