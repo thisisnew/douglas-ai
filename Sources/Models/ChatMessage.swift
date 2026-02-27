@@ -16,6 +16,8 @@ enum MessageType: String, Codable {
     case discussionRound
     case toolActivity
     case buildStatus
+    case qaStatus
+    case approvalRequest
 }
 
 struct ChatMessage: Identifiable, Codable {

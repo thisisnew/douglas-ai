@@ -39,6 +39,16 @@ struct RoomChatView: View {
                     BuildStatusCard(room: room)
                 }
 
+                // QA 상태 카드 (QA 루프 활성 시)
+                if let qaStatus = room.qaLoopStatus, qaStatus != .idle {
+                    QAStatusCard(room: room)
+                }
+
+                // 승인 대기 카드 (승인 게이트 활성 시)
+                if room.status == .awaitingApproval {
+                    ApprovalCard(roomID: room.id)
+                }
+
                 // 계획 카드 (계획 수립 후)
                 if let plan = room.plan {
                     PlanCard(plan: plan, currentStep: room.currentStepIndex, status: room.status)
@@ -279,6 +289,13 @@ struct RoomChatView: View {
                 Text("진행중")
                     .font(.caption2)
                     .foregroundColor(.orange)
+            case .awaitingApproval:
+                Image(systemName: "hand.raised.fill")
+                    .font(.system(size: 9))
+                    .foregroundColor(.yellow)
+                Text("승인 대기")
+                    .font(.caption2)
+                    .foregroundColor(.yellow)
             case .completed:
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 9))
@@ -352,7 +369,12 @@ struct PlanCard: View {
                 ForEach(Array(plan.steps.enumerated()), id: \.offset) { index, step in
                     HStack(spacing: 6) {
                         stepIcon(index: index)
-                        Text(step)
+                        if step.requiresApproval {
+                            Image(systemName: "hand.raised.fill")
+                                .font(.system(size: 8))
+                                .foregroundColor(.orange)
+                        }
+                        Text(step.text)
                             .font(.caption2)
                             .foregroundColor(stepColor(index: index))
                             .lineLimit(1)
@@ -618,6 +640,124 @@ struct BuildStatusCard: View {
                 .foregroundColor(.red)
         case .idle, .none:
             Image(systemName: "hammer")
+                .font(.caption)
+                .foregroundColor(.gray)
+        }
+    }
+}
+
+// MARK: - 승인 카드
+
+struct ApprovalCard: View {
+    let roomID: UUID
+    @EnvironmentObject var roomManager: RoomManager
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "hand.raised.fill")
+                .font(.caption)
+                .foregroundColor(.yellow)
+            Text("이 단계는 승인이 필요합니다")
+                .font(.caption2.bold())
+                .foregroundColor(.primary)
+            Spacer()
+            Button("거부") {
+                roomManager.rejectStep(roomID: roomID)
+            }
+            .font(.caption2)
+            .foregroundColor(.red)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Color.red.opacity(0.1))
+            .cornerRadius(6)
+
+            Button("승인") {
+                roomManager.approveStep(roomID: roomID)
+            }
+            .font(.caption2.bold())
+            .foregroundColor(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Color.green)
+            .cornerRadius(6)
+        }
+        .padding(10)
+        .background(Color.yellow.opacity(0.08))
+        .cornerRadius(10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+    }
+}
+
+// MARK: - QA 상태 카드
+
+struct QAStatusCard: View {
+    let room: Room
+
+    var body: some View {
+        HStack(spacing: 8) {
+            qaStatusIcon
+            VStack(alignment: .leading, spacing: 2) {
+                Text(qaStatusText)
+                    .font(.caption2.bold())
+                    .foregroundColor(qaStatusColor)
+                if let cmd = room.testCommand {
+                    Text(cmd)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+            }
+            Spacer()
+            if room.qaRetryCount > 0 {
+                Text("\(room.qaRetryCount)/\(room.maxQARetries)")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(8)
+        .background(qaStatusColor.opacity(0.06))
+        .cornerRadius(10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+    }
+
+    private var qaStatusText: String {
+        switch room.qaLoopStatus {
+        case .testing:   return "테스트 실행 중..."
+        case .analyzing: return "실패 분석/수정 중..."
+        case .passed:    return "테스트 통과"
+        case .failed:    return "테스트 실패"
+        case .idle, .none: return "테스트 대기"
+        }
+    }
+
+    private var qaStatusColor: Color {
+        switch room.qaLoopStatus {
+        case .testing:   return .teal
+        case .analyzing: return .yellow
+        case .passed:    return .green
+        case .failed:    return .red
+        case .idle, .none: return .gray
+        }
+    }
+
+    @ViewBuilder
+    private var qaStatusIcon: some View {
+        switch room.qaLoopStatus {
+        case .testing, .analyzing:
+            ProgressView()
+                .scaleEffect(0.5)
+                .frame(width: 16, height: 16)
+        case .passed:
+            Image(systemName: "checkmark.shield.fill")
+                .font(.caption)
+                .foregroundColor(.green)
+        case .failed:
+            Image(systemName: "xmark.shield.fill")
+                .font(.caption)
+                .foregroundColor(.red)
+        case .idle, .none:
+            Image(systemName: "checkmark.shield")
                 .font(.caption)
                 .foregroundColor(.gray)
         }

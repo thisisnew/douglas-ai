@@ -194,6 +194,12 @@ enum ToolExecutor {
             return await executeInviteAgent(call, context: context)
         case "list_agents":
             return await executeListAgents(call, context: context)
+        case "jira_create_subtask":
+            return await executeJiraCreateSubtask(call)
+        case "jira_update_status":
+            return await executeJiraUpdateStatus(call)
+        case "jira_add_comment":
+            return await executeJiraAddComment(call)
         default:
             return ToolResult(callID: call.id, content: "알 수 없는 도구: \(call.toolName)", isError: true)
         }
@@ -449,6 +455,174 @@ enum ToolExecutor {
             }
         }
         return texts.joined(separator: "\n")
+    }
+
+    // MARK: - Jira 도구 공통 헬퍼
+
+    /// Jira REST API 요청 생성 + 인증 헤더 + JSON 콘텐츠 타입
+    private static func makeJiraRequest(path: String, method: String = "GET", body: Data? = nil) -> (URLRequest, JiraConfig)? {
+        let config = JiraConfig.shared
+        guard config.isConfigured else { return nil }
+        guard let url = URL(string: "\(config.baseURL)\(path)") else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = 30
+        if let auth = config.authHeader() {
+            request.setValue(auth, forHTTPHeaderField: "Authorization")
+        }
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = body
+        }
+        return (request, config)
+    }
+
+    // MARK: - jira_create_subtask
+
+    private static func executeJiraCreateSubtask(_ call: ToolCall) async -> ToolResult {
+        guard let parentKey = call.arguments["parent_key"]?.stringValue else {
+            return ToolResult(callID: call.id, content: "parent_key 파라미터가 필요합니다.", isError: true)
+        }
+        guard let summary = call.arguments["summary"]?.stringValue else {
+            return ToolResult(callID: call.id, content: "summary 파라미터가 필요합니다.", isError: true)
+        }
+        let projectKey = call.arguments["project_key"]?.stringValue
+            ?? parentKey.components(separatedBy: "-").first ?? ""
+
+        let fields: [String: Any] = [
+            "project": ["key": projectKey],
+            "parent": ["key": parentKey],
+            "summary": summary,
+            "issuetype": ["name": "Sub-task"]
+        ]
+        let payload: [String: Any] = ["fields": fields]
+        guard let body = try? JSONSerialization.data(withJSONObject: payload) else {
+            return ToolResult(callID: call.id, content: "JSON 직렬화 실패", isError: true)
+        }
+        guard let (request, _) = makeJiraRequest(path: "/rest/api/3/issue", method: "POST", body: body) else {
+            return ToolResult(callID: call.id, content: "Jira가 설정되지 않았습니다. 설정 → Jira에서 도메인과 API 토큰을 입력하세요.", isError: true)
+        }
+
+        do {
+            let (data, response) = try await urlSession.data(for: request)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(statusCode) else {
+                let errBody = String(data: data, encoding: .utf8) ?? "(응답 없음)"
+                return ToolResult(callID: call.id, content: "Jira API 오류 (HTTP \(statusCode)): \(String(errBody.prefix(2000)))", isError: true)
+            }
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let key = json["key"] as? String {
+                return ToolResult(callID: call.id, content: "서브태스크 생성 완료: \(key) — \(summary)", isError: false)
+            }
+            return ToolResult(callID: call.id, content: "서브태스크 생성 완료 (응답 파싱 실패)", isError: false)
+        } catch {
+            return ToolResult(callID: call.id, content: "Jira 요청 실패: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    // MARK: - jira_update_status
+
+    private static func executeJiraUpdateStatus(_ call: ToolCall) async -> ToolResult {
+        guard let issueKey = call.arguments["issue_key"]?.stringValue else {
+            return ToolResult(callID: call.id, content: "issue_key 파라미터가 필요합니다.", isError: true)
+        }
+        guard let statusName = call.arguments["status_name"]?.stringValue else {
+            return ToolResult(callID: call.id, content: "status_name 파라미터가 필요합니다.", isError: true)
+        }
+
+        // 1) 사용 가능한 전이 목록 조회
+        guard let (getRequest, _) = makeJiraRequest(path: "/rest/api/3/issue/\(issueKey)/transitions") else {
+            return ToolResult(callID: call.id, content: "Jira가 설정되지 않았습니다. 설정 → Jira에서 도메인과 API 토큰을 입력하세요.", isError: true)
+        }
+
+        do {
+            let (getData, getResponse) = try await urlSession.data(for: getRequest)
+            let getStatus = (getResponse as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(getStatus) else {
+                let errBody = String(data: getData, encoding: .utf8) ?? ""
+                return ToolResult(callID: call.id, content: "전이 목록 조회 실패 (HTTP \(getStatus)): \(String(errBody.prefix(1000)))", isError: true)
+            }
+
+            guard let json = try? JSONSerialization.jsonObject(with: getData) as? [String: Any],
+                  let transitions = json["transitions"] as? [[String: Any]] else {
+                return ToolResult(callID: call.id, content: "전이 목록 파싱 실패", isError: true)
+            }
+
+            // 2) 대소문자 무시 매칭
+            let targetLower = statusName.lowercased()
+            guard let matched = transitions.first(where: {
+                ($0["name"] as? String)?.lowercased() == targetLower
+            }), let transitionID = matched["id"] as? String else {
+                let available = transitions.compactMap { $0["name"] as? String }.joined(separator: ", ")
+                return ToolResult(callID: call.id, content: "'\(statusName)' 상태를 찾을 수 없습니다. 사용 가능한 전이: \(available.isEmpty ? "(없음)" : available)", isError: true)
+            }
+
+            // 3) 전이 실행
+            let payload: [String: Any] = ["transition": ["id": transitionID]]
+            guard let body = try? JSONSerialization.data(withJSONObject: payload) else {
+                return ToolResult(callID: call.id, content: "JSON 직렬화 실패", isError: true)
+            }
+            guard let (postRequest, _) = makeJiraRequest(path: "/rest/api/3/issue/\(issueKey)/transitions", method: "POST", body: body) else {
+                return ToolResult(callID: call.id, content: "Jira 요청 생성 실패", isError: true)
+            }
+
+            let (postData, postResponse) = try await urlSession.data(for: postRequest)
+            let postStatus = (postResponse as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(postStatus) else {
+                let errBody = String(data: postData, encoding: .utf8) ?? ""
+                return ToolResult(callID: call.id, content: "상태 변경 실패 (HTTP \(postStatus)): \(String(errBody.prefix(1000)))", isError: true)
+            }
+
+            return ToolResult(callID: call.id, content: "\(issueKey) 상태가 '\(statusName)'(으)로 변경되었습니다.", isError: false)
+        } catch {
+            return ToolResult(callID: call.id, content: "Jira 요청 실패: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    // MARK: - jira_add_comment
+
+    private static func executeJiraAddComment(_ call: ToolCall) async -> ToolResult {
+        guard let issueKey = call.arguments["issue_key"]?.stringValue else {
+            return ToolResult(callID: call.id, content: "issue_key 파라미터가 필요합니다.", isError: true)
+        }
+        guard let comment = call.arguments["comment"]?.stringValue else {
+            return ToolResult(callID: call.id, content: "comment 파라미터가 필요합니다.", isError: true)
+        }
+
+        // Atlassian Document Format (ADF) body
+        let adfBody: [String: Any] = [
+            "body": [
+                "version": 1,
+                "type": "doc",
+                "content": [
+                    [
+                        "type": "paragraph",
+                        "content": [
+                            ["type": "text", "text": comment]
+                        ]
+                    ]
+                ]
+            ]
+        ]
+        guard let body = try? JSONSerialization.data(withJSONObject: adfBody) else {
+            return ToolResult(callID: call.id, content: "JSON 직렬화 실패", isError: true)
+        }
+        guard let (request, _) = makeJiraRequest(path: "/rest/api/3/issue/\(issueKey)/comment", method: "POST", body: body) else {
+            return ToolResult(callID: call.id, content: "Jira가 설정되지 않았습니다. 설정 → Jira에서 도메인과 API 토큰을 입력하세요.", isError: true)
+        }
+
+        do {
+            let (data, response) = try await urlSession.data(for: request)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(statusCode) else {
+                let errBody = String(data: data, encoding: .utf8) ?? ""
+                return ToolResult(callID: call.id, content: "코멘트 추가 실패 (HTTP \(statusCode)): \(String(errBody.prefix(1000)))", isError: true)
+            }
+            return ToolResult(callID: call.id, content: "\(issueKey)에 코멘트가 추가되었습니다.", isError: false)
+        } catch {
+            return ToolResult(callID: call.id, content: "Jira 요청 실패: \(error.localizedDescription)", isError: true)
+        }
     }
 
     // MARK: - shell_exec

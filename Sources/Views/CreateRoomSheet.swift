@@ -11,6 +11,7 @@ struct CreateRoomSheet: View {
     @State private var selectedAgentIDs: Set<UUID> = []
     @State private var projectPath: String?
     @State private var buildCommand = ""
+    @State private var testCommand = ""
 
     /// 서브에이전트 (마스터 제외)
     private var availableAgents: [Agent] {
@@ -126,6 +127,7 @@ struct CreateRoomSheet: View {
                                 Button {
                                     projectPath = nil
                                     buildCommand = ""
+                                    testCommand = ""
                                 } label: {
                                     Image(systemName: "xmark.circle.fill")
                                         .foregroundColor(.secondary)
@@ -162,7 +164,18 @@ struct CreateRoomSheet: View {
                                     .background(Color.primary.opacity(0.04))
                                     .cornerRadius(6)
                             }
-                            Text("빌드 명령이 있으면 각 단계 후 자동 빌드 + 오류 수정을 실행합니다.")
+                            HStack(spacing: 6) {
+                                Image(systemName: "checkmark.shield")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                TextField("테스트 명령 (예: swift test)", text: $testCommand)
+                                    .textFieldStyle(.plain)
+                                    .font(.callout)
+                                    .padding(6)
+                                    .background(Color.primary.opacity(0.04))
+                                    .cornerRadius(6)
+                            }
+                            Text("빌드/테스트 명령이 있으면 각 단계 후 자동 빌드→테스트→수정 루프를 실행합니다.")
                                 .font(.caption2)
                                 .foregroundColor(.secondary.opacity(0.6))
                         }
@@ -171,7 +184,7 @@ struct CreateRoomSheet: View {
                 .padding(24)
             }
         }
-        .frame(width: 440, height: 640)
+        .frame(width: 440, height: 680)
     }
 
     // MARK: - Components
@@ -246,12 +259,14 @@ struct CreateRoomSheet: View {
         guard !trimmedTitle.isEmpty, !trimmedTask.isEmpty, !selectedAgentIDs.isEmpty else { return }
 
         let trimmedBuild = buildCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedTest = testCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         roomManager.createManualRoom(
             title: trimmedTitle,
             agentIDs: Array(selectedAgentIDs),
             task: trimmedTask,
             projectPath: projectPath,
-            buildCommand: trimmedBuild.isEmpty ? nil : trimmedBuild
+            buildCommand: trimmedBuild.isEmpty ? nil : trimmedBuild,
+            testCommand: trimmedTest.isEmpty ? nil : trimmedTest
         )
         // NSWindow 닫기
         NSApp.keyWindow?.close()
@@ -266,10 +281,32 @@ struct CreateRoomSheet: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         projectPath = url.path
 
-        // 빌드 명령 자동 감지
+        // 빌드/테스트 명령 자동 감지
         if buildCommand.isEmpty {
             buildCommand = detectBuildCommand(at: url.path)
         }
+        if testCommand.isEmpty {
+            testCommand = detectTestCommand(at: url.path)
+        }
+    }
+
+    /// 프로젝트 디렉토리에서 테스트 명령 자동 감지
+    private func detectTestCommand(at path: String) -> String {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: (path as NSString).appendingPathComponent("Package.swift")) {
+            return "swift test"
+        }
+        if fm.fileExists(atPath: (path as NSString).appendingPathComponent("package.json")) {
+            return "npm test"
+        }
+        if fm.fileExists(atPath: (path as NSString).appendingPathComponent("Cargo.toml")) {
+            return "cargo test"
+        }
+        if fm.fileExists(atPath: (path as NSString).appendingPathComponent("build.gradle")) ||
+           fm.fileExists(atPath: (path as NSString).appendingPathComponent("build.gradle.kts")) {
+            return "./gradlew test"
+        }
+        return ""
     }
 
     /// 프로젝트 디렉토리에서 빌드 명령 자동 감지

@@ -74,6 +74,73 @@ struct BuildLoopRunnerTests {
         #expect(prompt.contains("수정"))
     }
 
+    // MARK: - runTests (Phase C-3)
+
+    @Test("테스트 성공 시 QAResult.success == true")
+    func testSuccess() async {
+        let original = ProcessRunner.handler
+        ProcessRunner.handler = { _, _, _, _ in
+            (exitCode: 0, stdout: "All tests passed!", stderr: "")
+        }
+        defer { ProcessRunner.handler = original }
+
+        let result = await BuildLoopRunner.runTests(
+            command: "swift test",
+            workingDirectory: "/tmp"
+        )
+        #expect(result.success == true)
+        #expect(result.exitCode == 0)
+        #expect(result.output.contains("All tests passed!"))
+    }
+
+    @Test("테스트 실패 시 QAResult.success == false")
+    func testFailure() async {
+        let original = ProcessRunner.handler
+        ProcessRunner.handler = { _, _, _, _ in
+            (exitCode: 1, stdout: "", stderr: "2 tests failed")
+        }
+        defer { ProcessRunner.handler = original }
+
+        let result = await BuildLoopRunner.runTests(
+            command: "npm test",
+            workingDirectory: "/tmp"
+        )
+        #expect(result.success == false)
+        #expect(result.exitCode == 1)
+        #expect(result.output.contains("2 tests failed"))
+    }
+
+    @Test("테스트 출력 크기 제한")
+    func testOutputTruncation() async {
+        let original = ProcessRunner.handler
+        let longOutput = String(repeating: "x", count: 20_000)
+        ProcessRunner.handler = { _, _, _, _ in
+            (exitCode: 0, stdout: longOutput, stderr: "")
+        }
+        defer { ProcessRunner.handler = original }
+
+        let result = await BuildLoopRunner.runTests(
+            command: "test",
+            workingDirectory: "/tmp"
+        )
+        #expect(result.output.count < longOutput.count)
+        #expect(result.output.contains("생략"))
+    }
+
+    @Test("QA 수정 프롬프트 형식 검증")
+    func qaFixPromptFormat() {
+        let prompt = BuildLoopRunner.qaFixPrompt(
+            testCommand: "swift test",
+            testOutput: "testFoo FAILED",
+            retryNumber: 1,
+            maxRetries: 3
+        )
+        #expect(prompt.contains("시도 1/3"))
+        #expect(prompt.contains("swift test"))
+        #expect(prompt.contains("testFoo FAILED"))
+        #expect(prompt.contains("수정"))
+    }
+
     @Test("빌드 명령이 working directory로 전달됨")
     func workingDirectoryPassed() async {
         let original = ProcessRunner.handler

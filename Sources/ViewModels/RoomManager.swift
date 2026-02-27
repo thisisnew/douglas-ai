@@ -15,6 +15,8 @@ class RoomManager: ObservableObject {
     private var saveTask: Task<Void, Never>?
     /// 방별 워크플로우 태스크 (취소 가능)
     private var roomTasks: [UUID: Task<Void, Never>] = [:]
+    /// 승인 게이트 대기 중인 continuation (방 ID → continuation)
+    private var approvalContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
 
     // MARK: - 계산 프로퍼티
 
@@ -43,7 +45,7 @@ class RoomManager: ObservableObject {
 
     /// 마스터 위임 또는 사용자가 방 생성
     @discardableResult
-    func createRoom(title: String, agentIDs: [UUID], createdBy: RoomCreator, mode: RoomMode = .task, maxDiscussionRounds: Int = 3, projectPath: String? = nil, buildCommand: String? = nil) -> Room {
+    func createRoom(title: String, agentIDs: [UUID], createdBy: RoomCreator, mode: RoomMode = .task, maxDiscussionRounds: Int = 3, projectPath: String? = nil, buildCommand: String? = nil, testCommand: String? = nil) -> Room {
         let room = Room(
             title: title,
             assignedAgentIDs: agentIDs,
@@ -51,7 +53,8 @@ class RoomManager: ObservableObject {
             mode: mode,
             maxDiscussionRounds: maxDiscussionRounds,
             projectPath: projectPath,
-            buildCommand: buildCommand
+            buildCommand: buildCommand,
+            testCommand: testCommand
         )
         rooms.append(room)
         selectedRoomID = room.id
@@ -61,8 +64,8 @@ class RoomManager: ObservableObject {
     }
 
     /// 사용자 수동 방 생성 + 바로 작업 시작
-    func createManualRoom(title: String, agentIDs: [UUID], task: String, projectPath: String? = nil, buildCommand: String? = nil) {
-        let room = createRoom(title: title, agentIDs: agentIDs, createdBy: .user, projectPath: projectPath, buildCommand: buildCommand)
+    func createManualRoom(title: String, agentIDs: [UUID], task: String, projectPath: String? = nil, buildCommand: String? = nil, testCommand: String? = nil) {
+        let room = createRoom(title: title, agentIDs: agentIDs, createdBy: .user, projectPath: projectPath, buildCommand: buildCommand, testCommand: testCommand)
 
         // 사용자 메시지 추가
         let userMsg = ChatMessage(role: .user, content: task)
@@ -87,6 +90,24 @@ class RoomManager: ObservableObject {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
         rooms[idx].messages.append(message)
         scheduleSave()
+    }
+
+    // MARK: - 승인 게이트
+
+    /// 승인 대기 중인 단계를 승인
+    func approveStep(roomID: UUID) {
+        guard let cont = approvalContinuations.removeValue(forKey: roomID) else { return }
+        let msg = ChatMessage(role: .user, content: "승인")
+        appendMessage(msg, to: roomID)
+        cont.resume(returning: true)
+    }
+
+    /// 승인 대기 중인 단계를 거부
+    func rejectStep(roomID: UUID) {
+        guard let cont = approvalContinuations.removeValue(forKey: roomID) else { return }
+        let msg = ChatMessage(role: .user, content: "거부")
+        appendMessage(msg, to: roomID)
+        cont.resume(returning: false)
     }
 
     /// 사용자가 방에 메시지 보내기
@@ -212,7 +233,7 @@ class RoomManager: ObservableObject {
             appendMessage(fallbackMsg, to: roomID)
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].plan = RoomPlan(summary: task, estimatedSeconds: 300, steps: [task])
+                rooms[i].plan = RoomPlan(summary: task, estimatedSeconds: 300, steps: [RoomStep(text: task)])
                 rooms[i].timerDurationSeconds = 300
                 rooms[i].timerStartedAt = Date()
                 rooms[i].transitionTo(.inProgress)
@@ -273,12 +294,13 @@ class RoomManager: ObservableObject {
         현재 작업방에 배정되었습니다. 팀원들과의 토론이 완료되었습니다.
         토론 내용을 바탕으로 반드시 아래 형식의 JSON으로 실행 계획을 제출하세요:
 
-        {"plan": {"summary": "전체 계획 요약", "estimated_minutes": 5, "steps": ["1단계: ...", "2단계: ..."]}}
+        {"plan": {"summary": "전체 계획 요약", "estimated_minutes": 5, "steps": ["1단계: ...", {"text": "위험한 단계", "requires_approval": true}, "3단계: ..."]}}
 
         규칙:
         - 토론에서 합의된 방향을 반영하세요
         - estimated_minutes는 현실적으로 추정하세요 (1~30분)
         - steps는 구체적이고 실행 가능한 단계로 나누세요
+        - 배포, 데이터 삭제 등 위험한 단계는 {"text": "...", "requires_approval": true} 형식으로 표기하세요
         - 반드시 유효한 JSON으로만 응답하세요
         """
 
@@ -319,9 +341,22 @@ class RoomManager: ObservableObject {
               let planDict = json["plan"] as? [String: Any],
               let summary = planDict["summary"] as? String,
               let estimatedMinutes = planDict["estimated_minutes"] as? Int,
-              let steps = planDict["steps"] as? [String] else {
+              let rawSteps = planDict["steps"] as? [Any] else {
             return nil
         }
+
+        // steps: plain String과 {"text":"...", "requires_approval": true} 혼합 지원
+        var steps: [RoomStep] = []
+        for raw in rawSteps {
+            if let str = raw as? String {
+                steps.append(RoomStep(text: str))
+            } else if let dict = raw as? [String: Any], let text = dict["text"] as? String {
+                let requiresApproval = dict["requires_approval"] as? Bool ?? false
+                steps.append(RoomStep(text: text, requiresApproval: requiresApproval))
+            }
+        }
+        guard !steps.isEmpty else { return nil }
+
         return RoomPlan(
             summary: summary,
             estimatedSeconds: estimatedMinutes * 60,
@@ -362,6 +397,57 @@ class RoomManager: ObservableObject {
                   let currentRoom = rooms.first(where: { $0.id == roomID }),
                   currentRoom.status == .inProgress else { break }
 
+            // 승인 게이트: requiresApproval인 단계에서 일시 정지
+            if step.requiresApproval {
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.awaitingApproval)
+                    rooms[i].pendingApprovalStepIndex = stepIndex
+                }
+                let approvalMsg = ChatMessage(
+                    role: .system,
+                    content: "[\(stepIndex + 1)/\(plan.steps.count)] \"\(step.text)\" — 이 단계는 승인이 필요합니다.",
+                    messageType: .approvalRequest
+                )
+                appendMessage(approvalMsg, to: roomID)
+                scheduleSave()
+
+                let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                    approvalContinuations[roomID] = continuation
+                }
+
+                approvalContinuations.removeValue(forKey: roomID)
+
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].pendingApprovalStepIndex = nil
+                }
+
+                if !approved {
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].transitionTo(.failed)
+                        rooms[i].completedAt = Date()
+                    }
+                    let rejectMsg = ChatMessage(
+                        role: .system,
+                        content: "단계 \(stepIndex + 1)이 거부되어 작업을 중단합니다.",
+                        messageType: .error
+                    )
+                    appendMessage(rejectMsg, to: roomID)
+                    syncAgentStatuses()
+                    scheduleSave()
+                    return
+                }
+
+                // 승인됨 → inProgress 복귀
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.inProgress)
+                }
+                let resumeMsg = ChatMessage(
+                    role: .system,
+                    content: "단계 \(stepIndex + 1) 승인됨. 실행을 계속합니다."
+                )
+                appendMessage(resumeMsg, to: roomID)
+            }
+
             // 현재 단계 업데이트
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].setCurrentStep(stepIndex)
@@ -372,7 +458,7 @@ class RoomManager: ObservableObject {
 
             let progressMsg = ChatMessage(
                 role: .system,
-                content: "[\(stepIndex + 1)/\(plan.steps.count)] \(step)"
+                content: "[\(stepIndex + 1)/\(plan.steps.count)] \(step.text)"
             )
             appendMessage(progressMsg, to: roomID)
 
@@ -381,7 +467,7 @@ class RoomManager: ObservableObject {
                 for agentID in room.assignedAgentIDs {
                     group.addTask { [self] in
                         await self.executeStep(
-                            step: step,
+                            step: step.text,
                             fullTask: task,
                             agentID: agentID,
                             roomID: roomID,
@@ -429,6 +515,31 @@ class RoomManager: ObservableObject {
                     syncAgentStatuses()
                     scheduleSave()
                     return
+                }
+
+                // QA 루프 실행 (빌드 성공 + testCommand가 있을 때만)
+                if let testCmd = rooms.first(where: { $0.id == roomID })?.testCommand {
+                    let qaSuccess = await runQALoop(
+                        roomID: roomID,
+                        testCommand: testCmd,
+                        projectPath: projPath,
+                        fileWriteTracker: tracker
+                    )
+                    if !qaSuccess {
+                        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                            rooms[i].transitionTo(.failed)
+                            rooms[i].completedAt = Date()
+                        }
+                        let failMsg = ChatMessage(
+                            role: .system,
+                            content: "테스트 반복 실패로 작업을 중단합니다.",
+                            messageType: .error
+                        )
+                        appendMessage(failMsg, to: roomID)
+                        syncAgentStatuses()
+                        scheduleSave()
+                        return
+                    }
                 }
             }
         }
@@ -642,6 +753,139 @@ class RoomManager: ObservableObject {
             rooms[i].buildLoopStatus = .failed
         }
         return false
+    }
+
+    // MARK: - QA 루프
+
+    /// 테스트→실패→에이전트 수정→재테스트 루프. 성공 시 true, 최대 재시도 초과 시 false.
+    private func runQALoop(
+        roomID: UUID,
+        testCommand: String,
+        projectPath: String,
+        fileWriteTracker: FileWriteTracker?
+    ) async -> Bool {
+        guard let room = rooms.first(where: { $0.id == roomID }) else { return false }
+        let maxRetries = room.maxQARetries
+
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].qaLoopStatus = .testing
+            rooms[i].qaRetryCount = 0
+        }
+
+        let testMsg = ChatMessage(
+            role: .system,
+            content: "테스트 실행 중: `\(testCommand)`",
+            messageType: .qaStatus
+        )
+        appendMessage(testMsg, to: roomID)
+
+        let result = await BuildLoopRunner.runTests(command: testCommand, workingDirectory: projectPath)
+
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].lastQAResult = result
+        }
+
+        if result.success {
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].qaLoopStatus = .passed
+            }
+            let successMsg = ChatMessage(
+                role: .system,
+                content: "테스트 통과",
+                messageType: .qaStatus
+            )
+            appendMessage(successMsg, to: roomID)
+            return true
+        }
+
+        // 테스트 실패 → 수정 루프
+        for retry in 1...maxRetries {
+            guard !Task.isCancelled,
+                  let currentRoom = rooms.first(where: { $0.id == roomID }),
+                  currentRoom.status == .inProgress else { return false }
+
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].qaLoopStatus = .analyzing
+                rooms[i].qaRetryCount = retry
+            }
+
+            let failMsg = ChatMessage(
+                role: .system,
+                content: "테스트 실패 (시도 \(retry)/\(maxRetries)). 에이전트에게 수정 요청 중...",
+                messageType: .qaStatus
+            )
+            appendMessage(failMsg, to: roomID)
+
+            let lastOutput = rooms.first(where: { $0.id == roomID })?.lastQAResult?.output ?? ""
+            let fixPrompt = BuildLoopRunner.qaFixPrompt(
+                testCommand: testCommand,
+                testOutput: lastOutput,
+                retryNumber: retry,
+                maxRetries: maxRetries
+            )
+
+            // QA 에이전트 우선, 없으면 첫 번째 에이전트
+            let fixAgentID = qaAgentID(in: room) ?? room.assignedAgentIDs.first
+            if let agentID = fixAgentID {
+                await executeStep(
+                    step: fixPrompt,
+                    fullTask: "테스트 실패 수정",
+                    agentID: agentID,
+                    roomID: roomID,
+                    stepIndex: 0,
+                    totalSteps: 1,
+                    fileWriteTracker: fileWriteTracker
+                )
+            }
+
+            // 재테스트
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].qaLoopStatus = .testing
+            }
+
+            let retestMsg = ChatMessage(
+                role: .system,
+                content: "재테스트 실행 중... (시도 \(retry)/\(maxRetries))",
+                messageType: .qaStatus
+            )
+            appendMessage(retestMsg, to: roomID)
+
+            let retryResult = await BuildLoopRunner.runTests(command: testCommand, workingDirectory: projectPath)
+
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].lastQAResult = retryResult
+            }
+
+            if retryResult.success {
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].qaLoopStatus = .passed
+                }
+                let successMsg = ChatMessage(
+                    role: .system,
+                    content: "테스트 통과 (시도 \(retry) 후)",
+                    messageType: .qaStatus
+                )
+                appendMessage(successMsg, to: roomID)
+                return true
+            }
+        }
+
+        // 최대 재시도 초과
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].qaLoopStatus = .failed
+        }
+        return false
+    }
+
+    /// QA 에이전트 우선 선택 (roleTemplateID == "qa_engineer" 에이전트 우선)
+    private func qaAgentID(in room: Room) -> UUID? {
+        for agentID in room.assignedAgentIDs {
+            if let agent = agentStore?.agents.first(where: { $0.id == agentID }),
+               agent.roleTemplateID == "qa_engineer" {
+                return agentID
+            }
+        }
+        return nil
     }
 
     // MARK: - 토론 실행
@@ -1036,6 +1280,10 @@ class RoomManager: ObservableObject {
         roomTasks[roomID]?.cancel()
         roomTasks.removeValue(forKey: roomID)
         speakingAgentIDByRoom.removeValue(forKey: roomID)
+        // 대기 중인 승인 continuation 해제
+        if let cont = approvalContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: false)
+        }
         guard rooms[idx].transitionTo(.completed) else { return }
         rooms[idx].completedAt = Date()
         syncAgentStatuses()
@@ -1059,6 +1307,10 @@ class RoomManager: ObservableObject {
         roomTasks[roomID]?.cancel()
         roomTasks.removeValue(forKey: roomID)
         speakingAgentIDByRoom.removeValue(forKey: roomID)
+        // 대기 중인 승인 continuation 해제
+        if let cont = approvalContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: false)
+        }
 
         rooms.removeAll { $0.id == roomID }
         if selectedRoomID == roomID { selectedRoomID = nil }

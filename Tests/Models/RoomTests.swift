@@ -590,4 +590,134 @@ struct RoomTests {
         #expect(decoded.maxBuildRetries == 3)
         #expect(decoded.lastBuildResult == nil)
     }
+
+    // MARK: - Phase C-2: 승인 게이트
+
+    @Test("RoomStatus awaitingApproval rawValue")
+    func awaitingApprovalRawValue() {
+        #expect(RoomStatus.awaitingApproval.rawValue == "awaitingApproval")
+    }
+
+    @Test("canTransition - inProgress → awaitingApproval 허용")
+    func canTransitionInProgressToAwaiting() {
+        #expect(RoomStatus.inProgress.canTransition(to: .awaitingApproval) == true)
+    }
+
+    @Test("canTransition - awaitingApproval → inProgress 허용")
+    func canTransitionAwaitingToInProgress() {
+        #expect(RoomStatus.awaitingApproval.canTransition(to: .inProgress) == true)
+    }
+
+    @Test("canTransition - awaitingApproval → failed 허용")
+    func canTransitionAwaitingToFailed() {
+        #expect(RoomStatus.awaitingApproval.canTransition(to: .failed) == true)
+    }
+
+    @Test("canTransition - awaitingApproval → completed 불가")
+    func canTransitionAwaitingToCompleted() {
+        #expect(RoomStatus.awaitingApproval.canTransition(to: .completed) == false)
+    }
+
+    @Test("canTransition - planning → awaitingApproval 불가")
+    func canTransitionPlanningToAwaiting() {
+        #expect(RoomStatus.planning.canTransition(to: .awaitingApproval) == false)
+    }
+
+    @Test("Room isActive - awaitingApproval")
+    func roomIsActiveAwaiting() {
+        let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .inProgress)
+        var mutable = room
+        mutable.status = .awaitingApproval
+        #expect(mutable.isActive == true)
+    }
+
+    @Test("Room timerDisplayText - awaitingApproval")
+    func roomTimerDisplayTextAwaiting() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .inProgress)
+        room.status = .awaitingApproval
+        #expect(room.timerDisplayText == "승인 대기")
+    }
+
+    @Test("Room pendingApprovalStepIndex 기본값 nil")
+    func pendingApprovalDefault() {
+        let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user)
+        #expect(room.pendingApprovalStepIndex == nil)
+    }
+
+    @Test("Room pendingApprovalStepIndex Codable 라운드트립")
+    func pendingApprovalCodable() throws {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user)
+        room.pendingApprovalStepIndex = 2
+        let data = try JSONEncoder().encode(room)
+        let decoded = try JSONDecoder().decode(Room.self, from: data)
+        #expect(decoded.pendingApprovalStepIndex == 2)
+    }
+
+    // MARK: - Phase C-3: QA 필드
+
+    @Test("testCommand 기본값 nil")
+    func testCommandDefaults() {
+        let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user)
+        #expect(room.testCommand == nil)
+        #expect(room.qaLoopStatus == nil)
+        #expect(room.qaRetryCount == 0)
+        #expect(room.maxQARetries == 3)
+        #expect(room.lastQAResult == nil)
+    }
+
+    @Test("testCommand 명시적 설정")
+    func testCommandExplicit() {
+        let room = Room(
+            title: "QA Test",
+            assignedAgentIDs: [],
+            createdBy: .user,
+            testCommand: "swift test"
+        )
+        #expect(room.testCommand == "swift test")
+    }
+
+    @Test("QA 필드 Codable 라운드트립")
+    func qaFieldsCodable() throws {
+        var room = Room(
+            title: "QA",
+            assignedAgentIDs: [],
+            createdBy: .user,
+            testCommand: "npm test"
+        )
+        room.qaLoopStatus = .testing
+        room.qaRetryCount = 1
+        room.maxQARetries = 5
+        room.lastQAResult = QAResult(success: false, output: "FAIL", exitCode: 1)
+
+        let data = try JSONEncoder().encode(room)
+        let decoded = try JSONDecoder().decode(Room.self, from: data)
+
+        #expect(decoded.testCommand == "npm test")
+        #expect(decoded.qaLoopStatus == .testing)
+        #expect(decoded.qaRetryCount == 1)
+        #expect(decoded.maxQARetries == 5)
+        #expect(decoded.lastQAResult?.success == false)
+        #expect(decoded.lastQAResult?.exitCode == 1)
+    }
+
+    @Test("QA 필드 없는 기존 데이터 역호환")
+    func qaFieldsBackwardCompatible() throws {
+        let room = Room(title: "Old Room", assignedAgentIDs: [], createdBy: .user)
+        let data = try JSONEncoder().encode(room)
+
+        var json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        json.removeValue(forKey: "testCommand")
+        json.removeValue(forKey: "qaLoopStatus")
+        json.removeValue(forKey: "qaRetryCount")
+        json.removeValue(forKey: "maxQARetries")
+        json.removeValue(forKey: "lastQAResult")
+        let modifiedData = try JSONSerialization.data(withJSONObject: json)
+
+        let decoded = try JSONDecoder().decode(Room.self, from: modifiedData)
+        #expect(decoded.testCommand == nil)
+        #expect(decoded.qaLoopStatus == nil)
+        #expect(decoded.qaRetryCount == 0)
+        #expect(decoded.maxQARetries == 3)
+        #expect(decoded.lastQAResult == nil)
+    }
 }

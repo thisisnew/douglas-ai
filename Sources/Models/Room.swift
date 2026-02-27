@@ -10,10 +10,11 @@ enum RoomMode: String, Codable {
 // MARK: - 방 상태
 
 enum RoomStatus: String, Codable {
-    case planning      // 에이전트가 계획 수립 중
-    case inProgress    // 타이머 진행 중 (작업 중)
-    case completed     // 작업 완료
-    case failed        // 실패
+    case planning           // 에이전트가 계획 수립 중
+    case inProgress         // 타이머 진행 중 (작업 중)
+    case awaitingApproval   // 승인 대기 (Human-in-the-loop)
+    case completed          // 작업 완료
+    case failed             // 실패
 
     /// 허용된 상태 전이 검증
     func canTransition(to target: RoomStatus) -> Bool {
@@ -22,7 +23,10 @@ enum RoomStatus: String, Codable {
              (.planning, .completed),
              (.planning, .failed),
              (.inProgress, .completed),
-             (.inProgress, .failed):
+             (.inProgress, .failed),
+             (.inProgress, .awaitingApproval),
+             (.awaitingApproval, .inProgress),
+             (.awaitingApproval, .failed):
             return true
         default:
             return false
@@ -37,12 +41,64 @@ enum RoomCreator: Codable, Equatable {
     case user                      // 사용자가 수동 생성
 }
 
+// MARK: - 작업 단계
+
+/// 개별 실행 단계 (승인 게이트 지원)
+struct RoomStep: Codable, Equatable {
+    let text: String
+    let requiresApproval: Bool
+
+    init(text: String, requiresApproval: Bool = false) {
+        self.text = text
+        self.requiresApproval = requiresApproval
+    }
+
+    /// 커스텀 디코딩: plain String 또는 {"text":..., "requires_approval":...} 둘 다 지원
+    init(from decoder: Decoder) throws {
+        // 먼저 plain String 시도
+        if let container = try? decoder.singleValueContainer(),
+           let str = try? container.decode(String.self) {
+            self.text = str
+            self.requiresApproval = false
+            return
+        }
+        // object 형태
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.text = try container.decode(String.self, forKey: .text)
+        self.requiresApproval = try container.decodeIfPresent(Bool.self, forKey: .requiresApproval) ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        // 승인 불필요면 plain String으로 인코딩 (역호환)
+        if !requiresApproval {
+            var container = encoder.singleValueContainer()
+            try container.encode(text)
+        } else {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(text, forKey: .text)
+            try container.encode(requiresApproval, forKey: .requiresApproval)
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case text
+        case requiresApproval = "requires_approval"
+    }
+}
+
+extension RoomStep: ExpressibleByStringLiteral {
+    init(stringLiteral value: String) {
+        self.text = value
+        self.requiresApproval = false
+    }
+}
+
 // MARK: - 작업 계획
 
 struct RoomPlan: Codable {
     let summary: String           // 계획 요약
     let estimatedSeconds: Int     // 예상 소요 시간 (초)
-    let steps: [String]           // 단계별 작업
+    let steps: [RoomStep]         // 단계별 작업
 }
 
 // MARK: - 작업일지
@@ -137,6 +193,14 @@ struct Room: Identifiable, Codable {
     var buildRetryCount: Int
     var maxBuildRetries: Int
     var lastBuildResult: BuildResult?
+    // 승인 게이트
+    var pendingApprovalStepIndex: Int?
+    // QA 루프
+    var testCommand: String?
+    var qaLoopStatus: QALoopStatus?
+    var qaRetryCount: Int
+    var maxQARetries: Int
+    var lastQAResult: QAResult?
     // 작업일지
     var workLog: WorkLog?
 
@@ -148,9 +212,9 @@ struct Room: Identifiable, Codable {
         return max(0, duration - elapsed)
     }
 
-    /// 활성 방 여부 (planning 또는 inProgress)
+    /// 활성 방 여부 (planning, inProgress, awaitingApproval)
     var isActive: Bool {
-        status == .planning || status == .inProgress
+        status == .planning || status == .inProgress || status == .awaitingApproval
     }
 
     /// 토론 진행률 텍스트 (합의 기반)
@@ -171,6 +235,8 @@ struct Room: Identifiable, Codable {
             let min = remaining / 60
             let sec = remaining % 60
             return String(format: "%d:%02d", min, sec)
+        case .awaitingApproval:
+            return "승인 대기"
         case .completed:
             return "완료"
         case .failed:
@@ -202,7 +268,8 @@ struct Room: Identifiable, Codable {
         maxDiscussionRounds: Int = 10,
         createdAt: Date = Date(),
         projectPath: String? = nil,
-        buildCommand: String? = nil
+        buildCommand: String? = nil,
+        testCommand: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -227,6 +294,12 @@ struct Room: Identifiable, Codable {
         self.buildRetryCount = 0
         self.maxBuildRetries = 3
         self.lastBuildResult = nil
+        self.pendingApprovalStepIndex = nil
+        self.testCommand = testCommand
+        self.qaLoopStatus = nil
+        self.qaRetryCount = 0
+        self.maxQARetries = 3
+        self.lastQAResult = nil
         self.workLog = nil
     }
 
@@ -256,6 +329,12 @@ struct Room: Identifiable, Codable {
         buildRetryCount = try container.decodeIfPresent(Int.self, forKey: .buildRetryCount) ?? 0
         maxBuildRetries = try container.decodeIfPresent(Int.self, forKey: .maxBuildRetries) ?? 3
         lastBuildResult = try container.decodeIfPresent(BuildResult.self, forKey: .lastBuildResult)
+        pendingApprovalStepIndex = try container.decodeIfPresent(Int.self, forKey: .pendingApprovalStepIndex)
+        testCommand = try container.decodeIfPresent(String.self, forKey: .testCommand)
+        qaLoopStatus = try container.decodeIfPresent(QALoopStatus.self, forKey: .qaLoopStatus)
+        qaRetryCount = try container.decodeIfPresent(Int.self, forKey: .qaRetryCount) ?? 0
+        maxQARetries = try container.decodeIfPresent(Int.self, forKey: .maxQARetries) ?? 3
+        lastQAResult = try container.decodeIfPresent(QAResult.self, forKey: .lastQAResult)
         workLog = try container.decodeIfPresent(WorkLog.self, forKey: .workLog)
     }
 }

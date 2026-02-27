@@ -174,10 +174,10 @@ struct AgentToolTests {
 
     // MARK: - ToolRegistry
 
-    @Test("ToolRegistry 모든 도구 존재")
+    @Test("ToolRegistry 모든 도구 존재 (Jira 도구 3개 포함)")
     func registryAllTools() {
-        #expect(ToolRegistry.allTools.count == 7)
-        #expect(ToolRegistry.allToolIDs.count == 7)
+        #expect(ToolRegistry.allTools.count == 10)
+        #expect(ToolRegistry.allToolIDs.count == 10)
     }
 
     @Test("ToolRegistry invite_agent 등록 확인")
@@ -311,5 +311,60 @@ struct AgentToolTests {
         #expect(decoded.capabilityPreset == .developer)
         #expect(decoded.enabledToolIDs == nil)
         #expect(decoded.resolvedToolIDs == CapabilityPreset.developer.includedToolIDs)
+    }
+
+    // MARK: - Jira 도구 (Phase C-1)
+
+    @Test("Jira 도구 ID 목록에 포함")
+    func jiraToolsInRegistry() {
+        let ids = ToolRegistry.allToolIDs
+        #expect(ids.contains("jira_create_subtask"))
+        #expect(ids.contains("jira_update_status"))
+        #expect(ids.contains("jira_add_comment"))
+    }
+
+    @Test("analyst 프리셋에 Jira 쓰기 도구 포함")
+    func analystPresetIncludesJiraTools() {
+        let analystTools = CapabilityPreset.analyst.includedToolIDs
+        #expect(analystTools.contains("jira_create_subtask"))
+        #expect(analystTools.contains("jira_update_status"))
+        #expect(analystTools.contains("jira_add_comment"))
+        // 기존 도구도 유지
+        #expect(analystTools.contains("file_read"))
+        #expect(analystTools.contains("shell_exec"))
+        #expect(analystTools.contains("web_fetch"))
+    }
+
+    @Test("jira_create_subtask 파라미터 정의")
+    func jiraCreateSubtaskParams() {
+        let tool = ToolRegistry.allTools.first { $0.id == "jira_create_subtask" }
+        #expect(tool != nil)
+        #expect(tool?.parameters.count == 3)
+        #expect(tool?.parameters[0].name == "parent_key")
+        #expect(tool?.parameters[0].required == true)
+        #expect(tool?.parameters[1].name == "summary")
+        #expect(tool?.parameters[1].required == true)
+        #expect(tool?.parameters[2].name == "project_key")
+        #expect(tool?.parameters[2].required == false)
+    }
+
+    @Test("jira_update_status 파라미터 정의")
+    func jiraUpdateStatusParams() {
+        let tool = ToolRegistry.allTools.first { $0.id == "jira_update_status" }
+        #expect(tool != nil)
+        #expect(tool?.parameters.count == 2)
+        #expect(tool?.parameters[0].name == "issue_key")
+        #expect(tool?.parameters[1].name == "status_name")
+        #expect(tool?.parameters.allSatisfy { $0.required } == true)
+    }
+
+    @Test("jira_add_comment 파라미터 정의")
+    func jiraAddCommentParams() {
+        let tool = ToolRegistry.allTools.first { $0.id == "jira_add_comment" }
+        #expect(tool != nil)
+        #expect(tool?.parameters.count == 2)
+        #expect(tool?.parameters[0].name == "issue_key")
+        #expect(tool?.parameters[1].name == "comment")
+        #expect(tool?.parameters.allSatisfy { $0.required } == true)
     }
 }

@@ -149,6 +149,8 @@ struct MessageBubble: View {
         case .suggestion:    return Color.orange.opacity(0.1)
         case .toolActivity:  return Color.gray.opacity(0.08)
         case .buildStatus:   return Color.orange.opacity(0.1)
+        case .qaStatus:      return Color.teal.opacity(0.1)
+        case .approvalRequest: return Color.yellow.opacity(0.1)
         default:             return Color.black.opacity(0.05)
         }
     }
@@ -166,6 +168,8 @@ struct MessageBubble: View {
         case .error:         return "exclamationmark.triangle"
         case .toolActivity:  return "wrench.and.screwdriver"
         case .buildStatus:   return "hammer"
+        case .qaStatus:      return "checkmark.shield"
+        case .approvalRequest: return "hand.raised"
         default:             return nil
         }
     }
@@ -179,6 +183,8 @@ struct MessageBubble: View {
         case .suggestion:    return .orange
         case .toolActivity:  return .gray
         case .buildStatus:   return .orange
+        case .qaStatus:      return .teal
+        case .approvalRequest: return .yellow
         default:             return .secondary
         }
     }

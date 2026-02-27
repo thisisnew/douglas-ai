@@ -102,19 +102,21 @@ enum DesignTokens {
     enum RoomStatusColor {
         static func color(for status: RoomStatus) -> Color {
             switch status {
-            case .planning:   return .purple
-            case .inProgress: return .orange
-            case .completed:  return .green
-            case .failed:     return .red
+            case .planning:          return .purple
+            case .inProgress:        return .orange
+            case .awaitingApproval:  return .yellow
+            case .completed:         return .green
+            case .failed:            return .red
             }
         }
 
         static func label(for status: RoomStatus) -> String {
             switch status {
-            case .planning:   return "계획 중"
-            case .inProgress: return "진행중"
-            case .completed:  return "완료"
-            case .failed:     return "실패"
+            case .planning:          return "계획 중"
+            case .inProgress:        return "진행중"
+            case .awaitingApproval:  return "승인 대기"
+            case .completed:         return "완료"
+            case .failed:            return "실패"
             }
         }
     }
@@ -133,6 +135,8 @@ enum DesignTokens {
             case .discussionRound: return .gray
             case .toolActivity:    return .gray
             case .buildStatus:     return .orange
+            case .qaStatus:        return .teal
+            case .approvalRequest: return .yellow
             }
         }
 

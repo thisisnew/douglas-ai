@@ -39,10 +39,10 @@ DOUGLAS/
 │   │   ├── AgentRoleTemplateRegistry.swift # 빌트인 6개 템플릿 (jira_analyst, backend_dev 등)
 │   │   ├── AgentTool.swift          # 도구 시스템 (AgentTool, ToolCall, ToolResult, CapabilityPreset, ToolRegistry, ConversationMessage)
 │   │   ├── ArtifactParser.swift     # 토론 산출물 파서 (artifact 블록 추출/제거)
-│   │   ├── ChatMessage.swift        # 메시지 모델 (MessageType 포함: toolActivity 등, ImageAttachment 첨부)
+│   │   ├── ChatMessage.swift        # 메시지 모델 (MessageType 포함: toolActivity, buildStatus, qaStatus, approvalRequest 등, ImageAttachment 첨부)
 │   │   ├── DiscussionArtifact.swift # 토론 산출물 모델 (ArtifactType, 버전 관리)
 │   │   ├── ImageAttachment.swift    # 이미지 첨부 모델 (디스크 저장, base64 로드, MIME 판별)
-│   │   ├── BuildResult.swift         # 빌드 결과 모델 + BuildLoopStatus 상태
+│   │   ├── BuildResult.swift         # 빌드 결과 모델 + BuildLoopStatus + QAResult + QALoopStatus
 │   │   ├── FileWriteTracker.swift   # 병렬 실행 파일 쓰기 충돌 감지 (actor)
 │   │   ├── ToolExecutionContext.swift # 도구 실행 컨텍스트 (방/에이전트/프로젝트 정보 스냅샷)
 │   │   ├── DependencyChecker.swift  # 의존성 체크 (Node.js, Git, Homebrew)
@@ -51,15 +51,15 @@ DOUGLAS/
 │   │   ├── ProviderDetector.swift   # 시스템 AI 프로바이더 자동 감지
 │   │   ├── ClaudeCodeInstaller.swift # Claude Code CLI 설치/검증 유틸리티
 │   │   ├── ProcessRunner.swift      # 테스트 가능한 프로세스 실행기 (DI seam)
-│   │   ├── Room.swift               # 프로젝트 방 모델 (상태 전이, 타이머, 토론 모드, RoomBriefing)
+│   │   ├── Room.swift               # 프로젝트 방 모델 (상태 전이, 타이머, 토론 모드, RoomBriefing, RoomStep 승인 게이트)
 │   │   └── KeychainHelper.swift     # 파일 기반 API 키 저장 (Keychain 레거시 마이그레이션)
 │   ├── ViewModels/
 │   │   ├── AgentStore.swift         # 에이전트 CRUD, 마스터 생명주기
 │   │   ├── ChatViewModel.swift      # 메시지 전송, 마스터 오케스트레이션
 │   │   ├── OnboardingViewModel.swift # 첫 실행 온보딩 (의존성 체크 + Claude 설정 + 프로바이더 선택)
 │   │   ├── ProviderManager.swift    # 프로바이더 설정 관리
-│   │   ├── BuildLoopRunner.swift     # 빌드 실행 + 수정 프롬프트 생성 엔진
-│   │   ├── RoomManager.swift        # 프로젝트 방 생명주기, 팀 작업 조율, 빌드 루프
+│   │   ├── BuildLoopRunner.swift     # 빌드/테스트 실행 + 수정 프롬프트 생성 엔진
+│   │   ├── RoomManager.swift        # 프로젝트 방 생명주기, 팀 작업 조율, 빌드/QA 루프, 승인 게이트
 │   │   └── ToolExecutor.swift       # 도구 호출 루프 + smartSend + 경로 해석/충돌 추적
 │   ├── Providers/
 │   │   ├── AIProvider.swift         # AIProvider 프로토콜 + 공통 인증 + Tool Use 확장
@@ -584,6 +584,9 @@ MessageType에 따른 시각 차별화:
 | error | 빨강 10% | exclamationmark.triangle | - |
 | discussionRound | 파랑 5% | bubble.left.and.bubble.right | - |
 | toolActivity | 회색 8% | wrench.and.screwdriver | - |
+| buildStatus | 주황 10% | hammer | - |
+| qaStatus | 틸 10% | checkmark.shield | - |
+| approvalRequest | 노랑 10% | hand.raised | - |
 
 사용자 메시지: accentColor 배경, 흰색 텍스트, 오른쪽 정렬
 
@@ -746,8 +749,8 @@ MessageType에 따른 시각 차별화:
 | `.none` | (없음) |
 | `.researcher` | web_search, web_fetch |
 | `.developer` | file_read, file_write, shell_exec |
-| `.analyst` | file_read, shell_exec, web_fetch |
-| `.fullAccess` | 전체 7종 |
+| `.analyst` | file_read, shell_exec, web_fetch, jira_create_subtask, jira_update_status, jira_add_comment |
+| `.fullAccess` | 전체 10종 |
 | `.custom` | enabledToolIDs로 직접 선택 |
 
 ### 내장 도구 (ToolRegistry)
@@ -761,6 +764,9 @@ MessageType에 따른 시각 차별화:
 | `web_fetch` | 웹 페이지 가져오기 | URL → HTML 가져오기 + Jira REST API 티켓 조회 (JiraConfig 연동) |
 | `invite_agent` | 에이전트 초대 | 방에 다른 에이전트를 런타임 초대 (params: agent_name, reason) |
 | `list_agents` | 에이전트 목록 | 등록된 서브 에이전트 목록 조회 (params: 없음) |
+| `jira_create_subtask` | Jira 서브태스크 생성 | 상위 이슈에 서브태스크 자동 생성 (params: parent_key, summary, project_key?) |
+| `jira_update_status` | Jira 상태 변경 | 이슈 상태 전이 (params: issue_key, status_name) |
+| `jira_add_comment` | Jira 코멘트 작성 | ADF 형식으로 코멘트 추가 (params: issue_key, comment) |
 
 ### ToolFormatConverter (`Providers/ToolFormatConverter.swift`)
 
@@ -799,6 +805,10 @@ executeWithTools() 루프 (최대 10회):
 - **web_fetch**: URL → HTTP GET, Jira URL 감지 시 JiraConfig 인증 + REST API 자동 변환
 - **invite_agent**: `ToolExecutionContext.inviteAgent` 클로저 호출로 방에 에이전트 초대
 - **list_agents**: `ToolExecutionContext.agentListString` 스냅샷 반환
+- **jira_create_subtask**: POST `/rest/api/3/issue` — parent_key에서 projectKey 자동 추론
+- **jira_update_status**: GET transitions → 대소문자 무시 이름 매칭 → POST transition
+- **jira_add_comment**: POST ADF 형식 코멘트 body
+- **Jira 공통**: `makeJiraRequest()` 헬퍼로 JiraConfig.shared 인증 + JSON 헤더 처리
 
 ### 통합 지점
 
@@ -808,6 +818,10 @@ executeWithTools() 루프 (최대 10회):
 | `RoomManager.swift` | `sendUserMessage`, `executeStep` → `ToolExecutor.smartSend()` + `ToolExecutionContext` 전달 (invite_agent/list_agents 지원) |
 
 **방 워크플로우** (`startRoomWorkflow`): 에이전트 2명 이상일 때만 토론 실행. 1명이면 토론 스킵 → 바로 계획 수립 → 실행.
+
+**승인 게이트** (`executeRoomWork`): `step.requiresApproval == true`이면 `.awaitingApproval` 상태 전환 + `CheckedContinuation`으로 비동기 일시 정지. `approveStep(roomID:)` / `rejectStep(roomID:)` 호출 시 continuation resume. 거부 시 `.failed` 전환.
+
+**QA 루프** (`runQALoop`): 빌드 루프 성공 후 `testCommand`가 있으면 자동 실행. `BuildLoopRunner.runTests()` → 실패 시 QA 에이전트(`roleTemplateID == "qa_engineer"`)에게 수정 프롬프트 → 재테스트 (최대 `maxQARetries`회).
 
 **컨텍스트 압축**: 토론 종료 후 `generateBriefing()`이 전체 히스토리를 JSON 브리핑으로 압축.
 - 계획 수립: 브리핑 + 산출물만 전달 (40msg → ~500토큰)
@@ -838,13 +852,13 @@ executeWithTools() 루프 (최대 10회):
 | B-2 | **빌드→에러→수정 자율 루프**: `BuildLoopRunner.runBuild()` → 실패 시 에이전트에게 수정 프롬프트 → 재빌드 (최대 `maxBuildRetries`회). `BuildResult`, `BuildLoopStatus` 모델. `RoomManager.runBuildLoop()` 통합. BuildStatusCard UI. | ✅ |
 | B-3 | **병렬 실행 파일 충돌 감지**: `FileWriteTracker` actor — 에이전트별 파일 쓰기 기록, 동일 파일 다중 에이전트 수정 시 충돌 경고. `ToolExecutionContext`에 `currentAgentID`, `fileWriteTracker` 추가. 단계별 충돌 초기화. | ✅ |
 
-### Phase C — 통합
+### Phase C — 통합 ✅ 완료
 
-| 항목 | 내용 | 핵심 변경 |
-|------|------|----------|
-| C-1 | **Jira 깊은 연동** | 티켓 URL 조회(현재) → 서브태스크 자동 생성, 상태 업데이트(`In Progress`→`Done`), 코멘트 자동 작성. `jira_create_subtask`, `jira_update_status` 도구 추가. |
-| C-2 | **Human-in-the-loop 승인 게이트** | 실행 단계 중 특정 step에서 사용자 승인 대기. `RoomPlan.steps`에 `requiresApproval: Bool` 플래그. UI에 승인/거부 버튼. |
-| C-3 | **QA 자동 검증 프레임워크** | 에이전트 작업 결과를 QA 에이전트가 자동 검증. 테스트 실행, 코드 리뷰, 보안 체크 등. 검증 실패 시 자동 재작업 루프. |
+| 항목 | 내용 | 상태 |
+|------|------|------|
+| C-1 | **Jira 깊은 연동**: `jira_create_subtask`(서브태스크 생성), `jira_update_status`(상태 전이), `jira_add_comment`(ADF 코멘트) 3개 쓰기 도구 추가. analyst 프리셋에 포함. `makeJiraRequest()` 공통 인증 헬퍼. | ✅ |
+| C-2 | **Human-in-the-loop 승인 게이트**: `RoomStep` 구조체 (plain String + object 혼합 Codable). `RoomStatus.awaitingApproval` 추가. `CheckedContinuation`으로 비동기 일시 정지. ApprovalCard UI. | ✅ |
+| C-3 | **QA 자동 검증**: `QAResult`/`QALoopStatus` 모델. `BuildLoopRunner.runTests()` + `qaFixPrompt()`. `RoomManager.runQALoop()` — 빌드 성공 후 테스트 자동 실행, 실패 시 QA 에이전트가 수정 루프. 테스트 명령 자동 감지. | ✅ |
 
 ---
 
@@ -871,7 +885,7 @@ executeWithTools() 루프 (최대 10회):
 | EditAgentSheet.swift | ~315 | 에이전트 편집 (도구 프리셋 포함) |
 | AppDelegate.swift | ~320 | 윈도우/패널 관리 |
 | ToolFormatConverter.swift | ~290 | 프로바이더별 도구/이미지 형식 변환 |
-| AgentTool.swift | ~230 | 도구 시스템 타입 (ToolRegistry 7종 도구) |
+| AgentTool.swift | ~260 | 도구 시스템 타입 (ToolRegistry 10종 도구) |
 | ChatView.swift | ~200 | 채팅 UI + 메시지 버블 (이미지 썸네일) |
 | Agent.swift | ~180 | 에이전트 모델 (isMaster, 이미지, 도구 설정) |
 | AddAgentSheet.swift | ~154 | 에이전트 등록 |
@@ -903,7 +917,7 @@ executeWithTools() 루프 (최대 10회):
 ### 개요
 
 - **프레임워크**: Swift Testing (`@Test`, `#expect`)
-- **테스트 수**: 709개 (27 파일 + 3 헬퍼/모킹)
+- **테스트 수**: 790개 (28 파일 + 3 헬퍼/모킹)
 - **명령어**: `swift test`
 - **커버리지**: 87% (테스트 가능 코드 기준, Views/App 제외)
 - **모킹**: MockAIProvider, MockURLProtocol, ProcessRunner.handler, 격리 UserDefaults
@@ -915,7 +929,7 @@ Tests/
 ├── Models/
 │   ├── AgentTests.swift              # 28 tests — 초기화, 팩토리, Codable, 레거시 디코딩, imageData I/O, resolvedToolIDs
 │   ├── AgentRoleTemplateTests.swift  # 19 tests — 템플릿 초기화, 레지스트리, resolvedPersona, Codable
-│   ├── AgentToolTests.swift          # 34 tests — AgentTool/ToolCall/ToolResult Codable, CapabilityPreset, ToolRegistry (7종 도구), ConversationMessage
+│   ├── AgentToolTests.swift          # 39 tests — AgentTool/ToolCall/ToolResult Codable, CapabilityPreset, ToolRegistry (10종 도구), ConversationMessage, Jira 도구
 │   ├── ArtifactParserTests.swift     # 15 tests — 산출물 추출, 다중 산출물, 타입별 파싱, 블록 제거
 │   ├── ChatMessageTests.swift        # 12 tests — 모든 MessageType, Codable 라운드트립, 이미지 첨부 호환
 │   ├── ClaudeCodeInstallerTests.swift # 32 tests — detect/install (ProcessRunner mock), 경로 탐색, 상태 전이
@@ -925,7 +939,8 @@ Tests/
 │   ├── KeychainHelperTests.swift     # 23 tests — 파일 기반 저장/로드/삭제, 특수 문자, 에러 타입, 암호화 키 관리
 │   ├── ProviderConfigTests.swift     # 23 tests — AuthMethod, Keychain 분리, 레거시 호환, isConnected, apiKey 라운드트립
 │   ├── ProviderDetectorTests.swift   # 23 tests — DetectedProvider 모델, maskedKey, needsAPIKey, detectAll
-│   ├── RoomTests.swift              # 54 tests — 상태 전이, 타이머, 토론 모드, 레거시 디코딩, RoomPlan/WorkLog Codable
+│   ├── RoomStepTests.swift          # 16 tests — RoomStep 초기화, Codable (plain String/object/혼합 배열), 역호환, Equatable
+│   ├── RoomTests.swift              # 65 tests — 상태 전이 (awaitingApproval 포함), 타이머, 토론 모드, 레거시 디코딩, RoomPlan/WorkLog Codable, QA/승인 필드
 │   ├── RoomBriefingTests.swift      # 12 tests — RoomBriefing Codable, asContextString, Room 역호환
 │   └── ToolExecutionContextTests.swift # 6 tests — 생성, empty, agentListString
 ├── ViewModels/
@@ -936,7 +951,7 @@ Tests/
 │   ├── OnboardingViewModelTests.swift # 37 tests — Claude 셋업, 의존성 체크, 프로바이더 선택, 마스터 우선순위
 │   ├── ProviderManagerTests.swift    # 23 tests — 팩토리, configureFromOnboarding, 영속화, connectedConfigs, mock 오버라이드
 │   ├── RoomManagerTests.swift        # 54 tests — 방 생명주기, 에이전트 동기화, 워크플로우, 토론 과반, 계획 파싱
-│   └── ToolExecutorTests.swift      # 50 tests — smartSend 분기, 도구 루프, 개별 도구 실행, invite_agent/list_agents, web_fetch
+│   └── ToolExecutorTests.swift      # 57 tests — smartSend 분기, 도구 루프, 개별 도구 실행, invite_agent/list_agents, web_fetch, Jira 도구
 ├── Providers/
 │   ├── ProviderTests.swift          # 62 tests — HTTP 검증, 인증, 전체 프로바이더 모킹, 이미지 첨부, tool result
 │   ├── ToolFormatConverterTests.swift # 21 tests — OpenAI/Anthropic/Google 형식 변환, JSON Schema
@@ -961,7 +976,7 @@ Tests/
 
 | 계층 | 테스트 수 | 주요 커버리지 |
 |------|----------|-------------|
-| Models | 349 | Agent, AgentRoleTemplate, AgentTool, ArtifactParser, ChatMessage, ClaudeCodeInstaller, DependencyChecker, DiscussionArtifact, ImageAttachment, JiraConfig, KeychainHelper, ProviderConfig, ProviderDetector, Room, RoomBriefing, ToolExecutionContext |
-| ViewModels | 269 | ChatViewModel (통합+파싱+상태), AgentStore, ProviderManager, RoomManager, OnboardingViewModel, ToolExecutor |
+| Models | 397 | Agent, AgentRoleTemplate, AgentTool, ArtifactParser, ChatMessage, ClaudeCodeInstaller, DependencyChecker, DiscussionArtifact, ImageAttachment, JiraConfig, KeychainHelper, ProviderConfig, ProviderDetector, Room, RoomBriefing, RoomStep, ToolExecutionContext, BuildResult (QA 포함) |
+| ViewModels | 302 | ChatViewModel (통합+파싱+상태), AgentStore, ProviderManager, RoomManager, OnboardingViewModel, ToolExecutor (Jira 도구 포함), BuildLoopRunner (QA 포함) |
 | Providers | 91 | OpenAI, Anthropic, Google, Ollama, LM Studio, Custom, ClaudeCode, ToolFormatConverter (도구 + 이미지) |
-| **합계** | **709** | 테스트 가능 코드 87% 라인 커버리지 (View/App 레이어는 UI 특성상 제외) |
+| **합계** | **790** | 테스트 가능 코드 87% 라인 커버리지 (View/App 레이어는 UI 특성상 제외) |

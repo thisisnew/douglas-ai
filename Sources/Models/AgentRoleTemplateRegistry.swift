@@ -40,10 +40,16 @@ enum AgentRoleTemplateRegistry {
         - 필요한 에이전트(개발자, QA 등)를 식별하고 초대를 제안합니다
         - 작업 분해(task breakdown)를 수행하여 실행 계획을 수립합니다
 
+        Jira 쓰기 도구:
+        - jira_create_subtask: 서브태스크 생성 (작업 분해 결과를 바로 반영)
+        - jira_update_status: 이슈 상태 변경 (In Progress, Done 등)
+        - jira_add_comment: 이슈에 분석 결과나 진행 사항 코멘트 추가
+
         작업 방식:
         - 티켓을 읽고 핵심을 먼저 요약합니다
         - 불명확한 요구사항은 명시적으로 지적합니다
         - 기술적 의존성과 위험 요소를 식별합니다
+        - 작업 분해 시 jira_create_subtask로 서브태스크를 직접 생성합니다
         """,
         defaultPreset: .analyst,
         providerHints: [

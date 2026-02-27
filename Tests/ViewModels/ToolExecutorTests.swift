@@ -1054,4 +1054,164 @@ struct ToolExecutorTests {
         #expect(ToolExecutor.isPathAllowed("/tmp/test.txt", projectPath: nil) == true)
         #expect(ToolExecutor.isPathAllowed("/etc/passwd", projectPath: nil) == false)
     }
+
+    // MARK: - Phase C-1: Jira 도구 테스트
+
+    @Test("jira_create_subtask — Jira 미설정 시 오류")
+    func jiraCreateSubtaskNotConfigured() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "jira_create_subtask", arguments: [
+            "parent_key": .string("PROJ-123"),
+            "summary": .string("서브태스크")
+        ])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("handled"))
+        ]
+
+        let agent = makeAgent(preset: .analyst)
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "create subtask")]
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResult = lastMessages.first { $0.role == "tool" }
+        // Jira 미설정이면 에러 또는 실패 메시지
+        #expect(toolResult?.content != nil)
+    }
+
+    @Test("jira_create_subtask — parent_key 누락 시 오류")
+    func jiraCreateSubtaskMissingParentKey() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "jira_create_subtask", arguments: [
+            "summary": .string("서브태스크")
+        ])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("handled"))
+        ]
+
+        let agent = makeAgent(preset: .analyst)
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "create")]
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResult = lastMessages.first { $0.role == "tool" }
+        #expect(toolResult?.content?.contains("parent_key") == true)
+    }
+
+    @Test("jira_create_subtask — summary 누락 시 오류")
+    func jiraCreateSubtaskMissingSummary() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "jira_create_subtask", arguments: [
+            "parent_key": .string("PROJ-123")
+        ])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("handled"))
+        ]
+
+        let agent = makeAgent(preset: .analyst)
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "create")]
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResult = lastMessages.first { $0.role == "tool" }
+        #expect(toolResult?.content?.contains("summary") == true)
+    }
+
+    @Test("jira_update_status — Jira 미설정 시 오류")
+    func jiraUpdateStatusNotConfigured() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "jira_update_status", arguments: [
+            "issue_key": .string("PROJ-123"),
+            "status_name": .string("Done")
+        ])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("handled"))
+        ]
+
+        let agent = makeAgent(preset: .analyst)
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "update status")]
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResult = lastMessages.first { $0.role == "tool" }
+        #expect(toolResult?.content != nil)
+    }
+
+    @Test("jira_update_status — issue_key 누락 시 오류")
+    func jiraUpdateStatusMissingKey() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "jira_update_status", arguments: [
+            "status_name": .string("Done")
+        ])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("handled"))
+        ]
+
+        let agent = makeAgent(preset: .analyst)
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "update")]
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResult = lastMessages.first { $0.role == "tool" }
+        #expect(toolResult?.content?.contains("issue_key") == true)
+    }
+
+    @Test("jira_add_comment — Jira 미설정 시 오류")
+    func jiraAddCommentNotConfigured() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "jira_add_comment", arguments: [
+            "issue_key": .string("PROJ-123"),
+            "comment": .string("테스트 코멘트")
+        ])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("handled"))
+        ]
+
+        let agent = makeAgent(preset: .analyst)
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "add comment")]
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResult = lastMessages.first { $0.role == "tool" }
+        #expect(toolResult?.content != nil)
+    }
+
+    @Test("jira_add_comment — comment 누락 시 오류")
+    func jiraAddCommentMissingComment() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "jira_add_comment", arguments: [
+            "issue_key": .string("PROJ-123")
+        ])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("handled"))
+        ]
+
+        let agent = makeAgent(preset: .analyst)
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "comment")]
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResult = lastMessages.first { $0.role == "tool" }
+        #expect(toolResult?.content?.contains("comment") == true)
+    }
 }

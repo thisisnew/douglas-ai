@@ -139,7 +139,7 @@ enum CapabilityPreset: String, Codable, CaseIterable, Identifiable {
         case .none:       return []
         case .researcher: return ["web_search", "web_fetch"]
         case .developer:  return ["file_read", "file_write", "shell_exec"]
-        case .analyst:    return ["file_read", "shell_exec", "web_fetch"]
+        case .analyst:    return ["file_read", "shell_exec", "web_fetch", "jira_create_subtask", "jira_update_status", "jira_add_comment"]
         case .fullAccess: return ToolRegistry.allToolIDs
         case .custom:     return []
         }
@@ -209,6 +209,34 @@ enum ToolRegistry {
             name: "에이전트 목록",
             description: "List all available agents that can be invited to the current room.",
             parameters: []
+        ),
+        AgentTool(
+            id: "jira_create_subtask",
+            name: "Jira 서브태스크 생성",
+            description: "Create a Jira sub-task under the given parent issue. Returns the created issue key.",
+            parameters: [
+                .init(name: "parent_key", type: .string, description: "Parent issue key (e.g. PROJ-123)", required: true, enumValues: nil),
+                .init(name: "summary", type: .string, description: "Sub-task summary/title", required: true, enumValues: nil),
+                .init(name: "project_key", type: .string, description: "Project key (optional, inferred from parent_key if omitted)", required: false, enumValues: nil)
+            ]
+        ),
+        AgentTool(
+            id: "jira_update_status",
+            name: "Jira 상태 변경",
+            description: "Transition a Jira issue to a new status. Uses case-insensitive name matching against available transitions.",
+            parameters: [
+                .init(name: "issue_key", type: .string, description: "Issue key (e.g. PROJ-123)", required: true, enumValues: nil),
+                .init(name: "status_name", type: .string, description: "Target status name (e.g. In Progress, Done)", required: true, enumValues: nil)
+            ]
+        ),
+        AgentTool(
+            id: "jira_add_comment",
+            name: "Jira 코멘트 추가",
+            description: "Add a comment to a Jira issue using Atlassian Document Format.",
+            parameters: [
+                .init(name: "issue_key", type: .string, description: "Issue key (e.g. PROJ-123)", required: true, enumValues: nil),
+                .init(name: "comment", type: .string, description: "Comment text to add", required: true, enumValues: nil)
+            ]
         )
     ]
 
