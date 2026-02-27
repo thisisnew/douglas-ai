@@ -25,7 +25,7 @@ macOS 플로팅 사이드바 기반 AI 에이전트 매니저.
 - **Jira 연동** — Jira Cloud 티켓 URL 자동 인식 + REST API 조회
 - **이미지 첨부 + Vision** — 이미지를 첨부하여 Vision API로 분석
 - **플로팅 사이드바** — 다른 앱 위에 떠 있으며, 드래그로 자유 이동
-- **글로벌 핫키** — `⌘⇧E` 사이드바 토글, `⌘⇧A` 커맨드 바
+- **글로벌 핫키** — `⌘⇧E` 사이드바 토글
 - **온보딩** — 첫 실행 시 환경(Node.js, Git 등) + Claude Code 자동 감지, 완료 후 사이드바 자동 시작
 
 ## 지원 프로바이더
@@ -104,8 +104,8 @@ DOUGLAS/
 │   ├── App/               # @main 진입점, AppDelegate, 윈도우/패널 관리
 │   ├── Models/            # Agent, Room, ChatMessage, ProviderConfig, JiraConfig
 │   ├── ViewModels/        # AgentStore, ChatViewModel, RoomManager, ToolExecutor
-│   ├── Providers/         # AIProvider 프로토콜 + 구현체 (6종)
-│   └── Views/             # SwiftUI 뷰 (19개)
+│   ├── Providers/         # AIProvider 프로토콜 + 구현체 (8파일)
+│   └── Views/             # SwiftUI 뷰 (18개)
 └── Tests/                 # 477+ 테스트
 ```
 
@@ -114,7 +114,6 @@ DOUGLAS/
 | 키 | 동작 |
 |----|------|
 | `⌘⇧E` | 사이드바 토글 |
-| `⌘⇧A` | 글로벌 커맨드 바 |
 | `⌘⏎` | 메시지 전송 |
 
 ## 테스트
