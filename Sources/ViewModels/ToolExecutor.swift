@@ -137,15 +137,19 @@ enum ToolExecutor {
 
     // MARK: - 경로 검증
 
-    /// 파일 접근이 허용된 경로인지 확인. $HOME, /tmp, 시스템 임시 디렉토리 허용.
-    static func isPathAllowed(_ path: String) -> Bool {
+    /// 파일 접근이 허용된 경로인지 확인. $HOME, /tmp, 시스템 임시 디렉토리, projectPath 허용.
+    static func isPathAllowed(_ path: String, projectPath: String? = nil) -> Bool {
         let expandedPath = NSString(string: path).expandingTildeInPath
         let url = URL(fileURLWithPath: expandedPath).standardized
         let resolved = url.path
 
         let homePath = FileManager.default.homeDirectoryForCurrentUser.path
         let tempDir = NSTemporaryDirectory()
-        let allowedPrefixes = [homePath, "/tmp", "/private/tmp", tempDir, "/var/folders"]
+        var allowedPrefixes = [homePath, "/tmp", "/private/tmp", tempDir, "/var/folders"]
+        if let proj = projectPath {
+            let normalizedProj = URL(fileURLWithPath: proj).standardized.path
+            allowedPrefixes.append(normalizedProj)
+        }
         let blockedPrefixes = [
             "\(homePath)/Library/Keychains",
             "\(homePath)/.ssh",
@@ -165,16 +169,23 @@ enum ToolExecutor {
         return false
     }
 
+    /// 상대 경로를 projectPath 기준으로 절대 경로로 변환
+    static func resolvePath(_ path: String, projectPath: String?) -> String {
+        if path.hasPrefix("/") || path.hasPrefix("~") { return path }
+        guard let base = projectPath else { return path }
+        return (base as NSString).appendingPathComponent(path)
+    }
+
     // MARK: - 개별 도구 실행
 
     private static func executeSingleTool(_ call: ToolCall, context: ToolExecutionContext = .empty) async -> ToolResult {
         switch call.toolName {
         case "file_read":
-            return await executeFileRead(call)
+            return await executeFileRead(call, context: context)
         case "file_write":
-            return await executeFileWrite(call)
+            return await executeFileWrite(call, context: context)
         case "shell_exec":
-            return await executeShellExec(call)
+            return await executeShellExec(call, context: context)
         case "web_search":
             return ToolResult(callID: call.id, content: "웹 검색 기능은 아직 구현되지 않았습니다.", isError: true)
         case "web_fetch":
@@ -230,11 +241,12 @@ enum ToolExecutor {
 
     // MARK: - file_read
 
-    private static func executeFileRead(_ call: ToolCall) async -> ToolResult {
-        guard let path = call.arguments["path"]?.stringValue else {
+    private static func executeFileRead(_ call: ToolCall, context: ToolExecutionContext = .empty) async -> ToolResult {
+        guard let rawPath = call.arguments["path"]?.stringValue else {
             return ToolResult(callID: call.id, content: "path 파라미터가 필요합니다.", isError: true)
         }
-        guard isPathAllowed(path) else {
+        let path = resolvePath(rawPath, projectPath: context.projectPath)
+        guard isPathAllowed(path, projectPath: context.projectPath) else {
             return ToolResult(callID: call.id, content: "접근이 허용되지 않은 경로입니다: \(path)", isError: true)
         }
         do {
@@ -256,11 +268,12 @@ enum ToolExecutor {
 
     // MARK: - file_write
 
-    private static func executeFileWrite(_ call: ToolCall) async -> ToolResult {
-        guard let path = call.arguments["path"]?.stringValue else {
+    private static func executeFileWrite(_ call: ToolCall, context: ToolExecutionContext = .empty) async -> ToolResult {
+        guard let rawPath = call.arguments["path"]?.stringValue else {
             return ToolResult(callID: call.id, content: "path 파라미터가 필요합니다.", isError: true)
         }
-        guard isPathAllowed(path) else {
+        let path = resolvePath(rawPath, projectPath: context.projectPath)
+        guard isPathAllowed(path, projectPath: context.projectPath) else {
             return ToolResult(callID: call.id, content: "접근이 허용되지 않은 경로입니다: \(path)", isError: true)
         }
         guard let content = call.arguments["content"]?.stringValue else {
@@ -271,7 +284,17 @@ enum ToolExecutor {
             let dir = (path as NSString).deletingLastPathComponent
             try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
             try content.write(toFile: path, atomically: true, encoding: .utf8)
-            return ToolResult(callID: call.id, content: "파일 저장 완료: \(path) (\(content.count)자)", isError: false)
+
+            // 파일 쓰기 충돌 추적
+            var conflictWarning = ""
+            if let tracker = context.fileWriteTracker, let agentID = context.currentAgentID {
+                let hasConflict = await tracker.recordWrite(path: path, agentID: agentID)
+                if hasConflict {
+                    conflictWarning = "\n⚠️ 다른 에이전트가 이미 이 파일을 수정했습니다. 충돌 가능성 있음."
+                }
+            }
+
+            return ToolResult(callID: call.id, content: "파일 저장 완료: \(path) (\(content.count)자)\(conflictWarning)", isError: false)
         } catch {
             return ToolResult(callID: call.id, content: "파일 쓰기 실패: \(error.localizedDescription)", isError: true)
         }
@@ -430,11 +453,12 @@ enum ToolExecutor {
 
     // MARK: - shell_exec
 
-    private static func executeShellExec(_ call: ToolCall) async -> ToolResult {
+    private static func executeShellExec(_ call: ToolCall, context: ToolExecutionContext = .empty) async -> ToolResult {
         guard let command = call.arguments["command"]?.stringValue else {
             return ToolResult(callID: call.id, content: "command 파라미터가 필요합니다.", isError: true)
         }
-        let workDir = call.arguments["working_directory"]?.stringValue
+        // working_directory 미지정 시 projectPath를 기본값으로 사용
+        let workDir = call.arguments["working_directory"]?.stringValue ?? context.projectPath
 
         // 환경 변수 구성
         var env = ProcessInfo.processInfo.environment

@@ -34,6 +34,11 @@ struct RoomChatView: View {
                     ArtifactListBar(artifacts: room.artifacts)
                 }
 
+                // 빌드 상태 카드 (빌드 루프 활성 시)
+                if let buildStatus = room.buildLoopStatus, buildStatus != .idle {
+                    BuildStatusCard(room: room)
+                }
+
                 // 계획 카드 (계획 수립 후)
                 if let plan = room.plan {
                     PlanCard(plan: plan, currentStep: room.currentStepIndex, status: room.status)
@@ -541,5 +546,80 @@ struct ArtifactListBar: View {
         .cornerRadius(10)
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - 빌드 상태 카드
+
+struct BuildStatusCard: View {
+    let room: Room
+
+    var body: some View {
+        HStack(spacing: 8) {
+            statusIcon
+            VStack(alignment: .leading, spacing: 2) {
+                Text(statusText)
+                    .font(.caption2.bold())
+                    .foregroundColor(statusColor)
+                if let cmd = room.buildCommand {
+                    Text(cmd)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+            }
+            Spacer()
+            if room.buildRetryCount > 0 {
+                Text("\(room.buildRetryCount)/\(room.maxBuildRetries)")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(8)
+        .background(statusColor.opacity(0.06))
+        .cornerRadius(10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+    }
+
+    private var statusText: String {
+        switch room.buildLoopStatus {
+        case .building: return "빌드 실행 중..."
+        case .fixing:   return "오류 수정 중..."
+        case .passed:   return "빌드 성공"
+        case .failed:   return "빌드 실패"
+        case .idle, .none: return "빌드 대기"
+        }
+    }
+
+    private var statusColor: Color {
+        switch room.buildLoopStatus {
+        case .building: return .orange
+        case .fixing:   return .yellow
+        case .passed:   return .green
+        case .failed:   return .red
+        case .idle, .none: return .gray
+        }
+    }
+
+    @ViewBuilder
+    private var statusIcon: some View {
+        switch room.buildLoopStatus {
+        case .building, .fixing:
+            ProgressView()
+                .scaleEffect(0.5)
+                .frame(width: 16, height: 16)
+        case .passed:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.caption)
+                .foregroundColor(.green)
+        case .failed:
+            Image(systemName: "xmark.circle.fill")
+                .font(.caption)
+                .foregroundColor(.red)
+        case .idle, .none:
+            Image(systemName: "hammer")
+                .font(.caption)
+                .foregroundColor(.gray)
+        }
     }
 }

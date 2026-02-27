@@ -513,4 +513,81 @@ struct RoomTests {
         room.status = .failed
         #expect(room.discussionProgressText == "토론 완료")
     }
+
+    // MARK: - Phase B 필드
+
+    @Test("projectPath, buildCommand 기본값 nil")
+    func projectPathDefaults() {
+        let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user)
+        #expect(room.projectPath == nil)
+        #expect(room.buildCommand == nil)
+        #expect(room.buildLoopStatus == nil)
+        #expect(room.buildRetryCount == 0)
+        #expect(room.maxBuildRetries == 3)
+        #expect(room.lastBuildResult == nil)
+    }
+
+    @Test("projectPath, buildCommand 명시적 설정")
+    func projectPathExplicit() {
+        let room = Room(
+            title: "Build Test",
+            assignedAgentIDs: [],
+            createdBy: .user,
+            projectPath: "/Users/test/project",
+            buildCommand: "swift build"
+        )
+        #expect(room.projectPath == "/Users/test/project")
+        #expect(room.buildCommand == "swift build")
+    }
+
+    @Test("빌드 관련 필드 Codable 라운드트립")
+    func buildFieldsCodable() throws {
+        var room = Room(
+            title: "Build",
+            assignedAgentIDs: [],
+            createdBy: .user,
+            projectPath: "/tmp/project",
+            buildCommand: "make"
+        )
+        room.buildLoopStatus = .building
+        room.buildRetryCount = 2
+        room.maxBuildRetries = 5
+        room.lastBuildResult = BuildResult(success: false, output: "error", exitCode: 1)
+
+        let data = try JSONEncoder().encode(room)
+        let decoded = try JSONDecoder().decode(Room.self, from: data)
+
+        #expect(decoded.projectPath == "/tmp/project")
+        #expect(decoded.buildCommand == "make")
+        #expect(decoded.buildLoopStatus == .building)
+        #expect(decoded.buildRetryCount == 2)
+        #expect(decoded.maxBuildRetries == 5)
+        #expect(decoded.lastBuildResult?.success == false)
+        #expect(decoded.lastBuildResult?.exitCode == 1)
+    }
+
+    @Test("빌드 필드 없는 기존 데이터 역호환")
+    func buildFieldsBackwardCompatible() throws {
+        // projectPath, buildCommand 등이 없는 기존 JSON으로 디코딩
+        let room = Room(title: "Old Room", assignedAgentIDs: [], createdBy: .user)
+        let data = try JSONEncoder().encode(room)
+
+        // JSON에서 빌드 관련 키를 제거해 기존 데이터 시뮬레이션
+        var json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        json.removeValue(forKey: "projectPath")
+        json.removeValue(forKey: "buildCommand")
+        json.removeValue(forKey: "buildLoopStatus")
+        json.removeValue(forKey: "buildRetryCount")
+        json.removeValue(forKey: "maxBuildRetries")
+        json.removeValue(forKey: "lastBuildResult")
+        let modifiedData = try JSONSerialization.data(withJSONObject: json)
+
+        let decoded = try JSONDecoder().decode(Room.self, from: modifiedData)
+        #expect(decoded.projectPath == nil)
+        #expect(decoded.buildCommand == nil)
+        #expect(decoded.buildLoopStatus == nil)
+        #expect(decoded.buildRetryCount == 0)
+        #expect(decoded.maxBuildRetries == 3)
+        #expect(decoded.lastBuildResult == nil)
+    }
 }

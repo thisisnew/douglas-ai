@@ -43,13 +43,15 @@ class RoomManager: ObservableObject {
 
     /// 마스터 위임 또는 사용자가 방 생성
     @discardableResult
-    func createRoom(title: String, agentIDs: [UUID], createdBy: RoomCreator, mode: RoomMode = .task, maxDiscussionRounds: Int = 3) -> Room {
+    func createRoom(title: String, agentIDs: [UUID], createdBy: RoomCreator, mode: RoomMode = .task, maxDiscussionRounds: Int = 3, projectPath: String? = nil, buildCommand: String? = nil) -> Room {
         let room = Room(
             title: title,
             assignedAgentIDs: agentIDs,
             createdBy: createdBy,
             mode: mode,
-            maxDiscussionRounds: maxDiscussionRounds
+            maxDiscussionRounds: maxDiscussionRounds,
+            projectPath: projectPath,
+            buildCommand: buildCommand
         )
         rooms.append(room)
         selectedRoomID = room.id
@@ -59,8 +61,8 @@ class RoomManager: ObservableObject {
     }
 
     /// 사용자 수동 방 생성 + 바로 작업 시작
-    func createManualRoom(title: String, agentIDs: [UUID], task: String) {
-        let room = createRoom(title: title, agentIDs: agentIDs, createdBy: .user)
+    func createManualRoom(title: String, agentIDs: [UUID], task: String, projectPath: String? = nil, buildCommand: String? = nil) {
+        let room = createRoom(title: title, agentIDs: agentIDs, createdBy: .user, projectPath: projectPath, buildCommand: buildCommand)
 
         // 사용자 메시지 추가
         let userMsg = ChatMessage(role: .user, content: task)
@@ -125,21 +127,29 @@ class RoomManager: ObservableObject {
 
     // MARK: - 도구 실행 컨텍스트
 
-    private func makeToolContext(roomID: UUID) -> ToolExecutionContext {
+    private func makeToolContext(
+        roomID: UUID,
+        currentAgentID: UUID? = nil,
+        fileWriteTracker: FileWriteTracker? = nil
+    ) -> ToolExecutionContext {
         guard let store = agentStore else { return .empty }
         let subAgents = store.subAgents
+        let room = rooms.first { $0.id == roomID }
         return ToolExecutionContext(
             roomID: roomID,
             agentsByName: Dictionary(uniqueKeysWithValues: subAgents.map { ($0.name, $0.id) }),
             agentListString: subAgents
                 .map { "- \($0.name) [\($0.providerName)/\($0.modelName)]" }
                 .joined(separator: "\n"),
-            inviteAgent: { @Sendable [weak self] agentID in
+            inviteAgent: { @Sendable [weak self] (agentID: UUID) -> Bool in
                 await MainActor.run { [weak self] in
                     self?.addAgent(agentID, to: roomID)
                     return true
                 }
-            }
+            },
+            projectPath: room?.projectPath,
+            currentAgentID: currentAgentID,
+            fileWriteTracker: fileWriteTracker
         )
     }
 
@@ -343,6 +353,9 @@ class RoomManager: ObservableObject {
         guard let room = rooms.first(where: { $0.id == roomID }),
               let plan = room.plan else { return }
 
+        // 병렬 실행 시 파일 충돌 추적용
+        let tracker = FileWriteTracker()
+
         for (stepIndex, step) in plan.steps.enumerated() {
             // 취소 또는 방 삭제 감지
             guard !Task.isCancelled,
@@ -353,6 +366,9 @@ class RoomManager: ObservableObject {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].setCurrentStep(stepIndex)
             }
+
+            // 단계별 충돌 추적 초기화
+            await tracker.reset()
 
             let progressMsg = ChatMessage(
                 role: .system,
@@ -370,9 +386,49 @@ class RoomManager: ObservableObject {
                             agentID: agentID,
                             roomID: roomID,
                             stepIndex: stepIndex,
-                            totalSteps: plan.steps.count
+                            totalSteps: plan.steps.count,
+                            fileWriteTracker: tracker
                         )
                     }
+                }
+            }
+
+            // 충돌 감지 경고
+            let conflicts = await tracker.getConflicts()
+            if !conflicts.isEmpty {
+                let conflictPaths = conflicts.map { $0.path }.joined(separator: ", ")
+                let warnMsg = ChatMessage(
+                    role: .system,
+                    content: "⚠️ 파일 충돌 감지: \(conflictPaths). 에이전트 간 동일 파일 수정 발생.",
+                    messageType: .error
+                )
+                appendMessage(warnMsg, to: roomID)
+            }
+
+            // 빌드 루프 실행 (buildCommand가 있을 때만)
+            if let buildCmd = rooms.first(where: { $0.id == roomID })?.buildCommand,
+               let projPath = rooms.first(where: { $0.id == roomID })?.projectPath {
+                let buildSuccess = await runBuildLoop(
+                    roomID: roomID,
+                    buildCommand: buildCmd,
+                    projectPath: projPath,
+                    fileWriteTracker: tracker
+                )
+                if !buildSuccess {
+                    // 빌드 실패 → 방 실패 처리
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].transitionTo(.failed)
+                        rooms[i].completedAt = Date()
+                    }
+                    let failMsg = ChatMessage(
+                        role: .system,
+                        content: "빌드 반복 실패로 작업을 중단합니다.",
+                        messageType: .error
+                    )
+                    appendMessage(failMsg, to: roomID)
+                    syncAgentStatuses()
+                    scheduleSave()
+                    return
                 }
             }
         }
@@ -400,7 +456,8 @@ class RoomManager: ObservableObject {
         agentID: UUID,
         roomID: UUID,
         stepIndex: Int,
-        totalSteps: Int
+        totalSteps: Int,
+        fileWriteTracker: FileWriteTracker? = nil
     ) async {
         guard let agent = agentStore?.agents.first(where: { $0.id == agentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return }
@@ -435,7 +492,7 @@ class RoomManager: ObservableObject {
             agentStore?.updateStatus(agentID: agentID, status: .working)
             speakingAgentIDByRoom[roomID] = agentID
 
-            let context = makeToolContext(roomID: roomID)
+            let context = makeToolContext(roomID: roomID, currentAgentID: agentID, fileWriteTracker: fileWriteTracker)
             let messagesWithStep = history + [ConversationMessage.user(stepPrompt)]
             let response = try await ToolExecutor.smartSend(
                 provider: provider,
@@ -463,6 +520,128 @@ class RoomManager: ObservableObject {
             )
             appendMessage(errorMsg, to: roomID)
         }
+    }
+
+    // MARK: - 빌드 루프
+
+    /// 빌드→실패→에이전트 수정→재빌드 루프. 성공 시 true, 최대 재시도 초과 시 false.
+    private func runBuildLoop(
+        roomID: UUID,
+        buildCommand: String,
+        projectPath: String,
+        fileWriteTracker: FileWriteTracker?
+    ) async -> Bool {
+        guard let room = rooms.first(where: { $0.id == roomID }) else { return false }
+        let maxRetries = room.maxBuildRetries
+
+        // 빌드 루프 상태 초기화
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].buildLoopStatus = .building
+            rooms[i].buildRetryCount = 0
+        }
+
+        let buildMsg = ChatMessage(
+            role: .system,
+            content: "빌드 실행 중: `\(buildCommand)`",
+            messageType: .buildStatus
+        )
+        appendMessage(buildMsg, to: roomID)
+
+        let result = await BuildLoopRunner.runBuild(command: buildCommand, workingDirectory: projectPath)
+
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].lastBuildResult = result
+        }
+
+        if result.success {
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].buildLoopStatus = .passed
+            }
+            let successMsg = ChatMessage(
+                role: .system,
+                content: "빌드 성공",
+                messageType: .buildStatus
+            )
+            appendMessage(successMsg, to: roomID)
+            return true
+        }
+
+        // 빌드 실패 → 수정 루프
+        for retry in 1...maxRetries {
+            guard !Task.isCancelled,
+                  let currentRoom = rooms.first(where: { $0.id == roomID }),
+                  currentRoom.status == .inProgress else { return false }
+
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].buildLoopStatus = .fixing
+                rooms[i].buildRetryCount = retry
+            }
+
+            let failMsg = ChatMessage(
+                role: .system,
+                content: "빌드 실패 (시도 \(retry)/\(maxRetries)). 에이전트에게 수정 요청 중...",
+                messageType: .buildStatus
+            )
+            appendMessage(failMsg, to: roomID)
+
+            // 첫 번째 에이전트에게 수정 요청
+            let lastOutput = rooms.first(where: { $0.id == roomID })?.lastBuildResult?.output ?? ""
+            let fixPrompt = BuildLoopRunner.buildFixPrompt(
+                buildCommand: buildCommand,
+                buildOutput: lastOutput,
+                retryNumber: retry,
+                maxRetries: maxRetries
+            )
+
+            if let firstAgentID = room.assignedAgentIDs.first {
+                await executeStep(
+                    step: fixPrompt,
+                    fullTask: "빌드 오류 수정",
+                    agentID: firstAgentID,
+                    roomID: roomID,
+                    stepIndex: 0,
+                    totalSteps: 1,
+                    fileWriteTracker: fileWriteTracker
+                )
+            }
+
+            // 재빌드
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].buildLoopStatus = .building
+            }
+
+            let rebuildMsg = ChatMessage(
+                role: .system,
+                content: "재빌드 실행 중... (시도 \(retry)/\(maxRetries))",
+                messageType: .buildStatus
+            )
+            appendMessage(rebuildMsg, to: roomID)
+
+            let retryResult = await BuildLoopRunner.runBuild(command: buildCommand, workingDirectory: projectPath)
+
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].lastBuildResult = retryResult
+            }
+
+            if retryResult.success {
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].buildLoopStatus = .passed
+                }
+                let successMsg = ChatMessage(
+                    role: .system,
+                    content: "빌드 성공 (시도 \(retry) 후)",
+                    messageType: .buildStatus
+                )
+                appendMessage(successMsg, to: roomID)
+                return true
+            }
+        }
+
+        // 최대 재시도 초과
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].buildLoopStatus = .failed
+        }
+        return false
     }
 
     // MARK: - 토론 실행

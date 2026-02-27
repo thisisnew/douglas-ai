@@ -129,6 +129,14 @@ struct Room: Identifiable, Codable {
     var artifacts: [DiscussionArtifact]
     // 토론 브리핑 (컨텍스트 압축)
     var briefing: RoomBriefing?
+    // 프로젝트 연동
+    var projectPath: String?
+    var buildCommand: String?
+    // 빌드 루프
+    var buildLoopStatus: BuildLoopStatus?
+    var buildRetryCount: Int
+    var maxBuildRetries: Int
+    var lastBuildResult: BuildResult?
     // 작업일지
     var workLog: WorkLog?
 
@@ -192,7 +200,9 @@ struct Room: Identifiable, Codable {
         mode: RoomMode = .task,
         status: RoomStatus = .planning,
         maxDiscussionRounds: Int = 10,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        projectPath: String? = nil,
+        buildCommand: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -211,6 +221,12 @@ struct Room: Identifiable, Codable {
         self.currentRound = 0
         self.artifacts = []
         self.briefing = nil
+        self.projectPath = projectPath
+        self.buildCommand = buildCommand
+        self.buildLoopStatus = nil
+        self.buildRetryCount = 0
+        self.maxBuildRetries = 3
+        self.lastBuildResult = nil
         self.workLog = nil
     }
 
@@ -234,6 +250,12 @@ struct Room: Identifiable, Codable {
         currentRound = try container.decodeIfPresent(Int.self, forKey: .currentRound) ?? 0
         artifacts = try container.decodeIfPresent([DiscussionArtifact].self, forKey: .artifacts) ?? []
         briefing = try container.decodeIfPresent(RoomBriefing.self, forKey: .briefing)
+        projectPath = try container.decodeIfPresent(String.self, forKey: .projectPath)
+        buildCommand = try container.decodeIfPresent(String.self, forKey: .buildCommand)
+        buildLoopStatus = try container.decodeIfPresent(BuildLoopStatus.self, forKey: .buildLoopStatus)
+        buildRetryCount = try container.decodeIfPresent(Int.self, forKey: .buildRetryCount) ?? 0
+        maxBuildRetries = try container.decodeIfPresent(Int.self, forKey: .maxBuildRetries) ?? 3
+        lastBuildResult = try container.decodeIfPresent(BuildResult.self, forKey: .lastBuildResult)
         workLog = try container.decodeIfPresent(WorkLog.self, forKey: .workLog)
     }
 }

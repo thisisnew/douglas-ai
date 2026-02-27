@@ -165,6 +165,34 @@ Files changed:
 
 ---
 
+## 빌드 루프 (Phase B)
+
+### BuildLoopRunner
+- `runBuild(command:, workingDirectory:)` — ProcessRunner.run() 사용, nvm/homebrew PATH 자동 설정
+- 빌드 출력 15,000자 초과 시 앞부분(3,000) + 뒷부분(12,000) 보존 (에러는 보통 뒤에 있으므로)
+- `buildFixPrompt()` — 빌드 오류를 에이전트에게 전달하는 프롬프트 생성
+
+### 프로젝트 경로 규칙
+- `Room.projectPath` — 방 생성 시 선택한 프로젝트 디렉토리 경로
+- `ToolExecutor.resolvePath()` — 상대 경로를 projectPath 기준으로 해석 (`src/main.swift` → `/path/to/project/src/main.swift`)
+- `isPathAllowed(_, projectPath:)` — projectPath도 허용 경로에 추가
+- `executeShellExec` — `working_directory` 미지정 시 projectPath를 기본값으로 사용
+
+### FileWriteTracker
+- Swift `actor` — 병렬 에이전트 실행 시 파일 쓰기 충돌 감지
+- 단계(step)별 `reset()` 호출로 초기화
+- 충돌 발생 시 `.error` 타입 시스템 메시지로 경고
+
+### 빌드 명령 자동 감지
+CreateRoomSheet에서 프로젝트 디렉토리 선택 시 다음 파일로 빌드 명령 자동 감지:
+- `Package.swift` → `swift build`
+- `package.json` → `npm run build`
+- `Makefile` → `make`
+- `Cargo.toml` → `cargo build`
+- `build.gradle` / `build.gradle.kts` → `./gradlew build`
+
+---
+
 ## ARCHITECTURE.md 동기화 규칙
 
 - 새 파일 추가 → 프로젝트 구조 섹션에 추가

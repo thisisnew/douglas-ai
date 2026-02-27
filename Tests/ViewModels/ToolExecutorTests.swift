@@ -1008,4 +1008,50 @@ struct ToolExecutorTests {
         let sentMessages = provider.lastSendMessageArgs?.messages ?? []
         #expect(sentMessages.count == 2)
     }
+
+    // MARK: - Phase B: 경로 해석 + projectPath 허용
+
+    @Test("resolvePath — 절대 경로는 그대로")
+    func resolvePathAbsolute() {
+        let result = ToolExecutor.resolvePath("/usr/local/bin/test", projectPath: "/tmp/project")
+        #expect(result == "/usr/local/bin/test")
+    }
+
+    @Test("resolvePath — 상대 경로를 projectPath 기준으로 해석")
+    func resolvePathRelative() {
+        let result = ToolExecutor.resolvePath("src/main.swift", projectPath: "/tmp/project")
+        #expect(result == "/tmp/project/src/main.swift")
+    }
+
+    @Test("resolvePath — projectPath nil이면 상대 경로 그대로")
+    func resolvePathNoProject() {
+        let result = ToolExecutor.resolvePath("src/main.swift", projectPath: nil)
+        #expect(result == "src/main.swift")
+    }
+
+    @Test("resolvePath — 틸드 경로는 그대로")
+    func resolvePathTilde() {
+        let result = ToolExecutor.resolvePath("~/Documents/test.txt", projectPath: "/tmp/project")
+        #expect(result == "~/Documents/test.txt")
+    }
+
+    @Test("isPathAllowed — projectPath 경로 허용")
+    func pathAllowedProjectPath() {
+        let projectPath = "/opt/my-project"
+        #expect(ToolExecutor.isPathAllowed("/opt/my-project/src/main.swift", projectPath: projectPath) == true)
+        #expect(ToolExecutor.isPathAllowed("/opt/my-project/Package.swift", projectPath: projectPath) == true)
+    }
+
+    @Test("isPathAllowed — projectPath 외부는 기존 규칙 적용")
+    func pathBlockedOutsideProject() {
+        let projectPath = "/opt/my-project"
+        #expect(ToolExecutor.isPathAllowed("/etc/passwd", projectPath: projectPath) == false)
+        #expect(ToolExecutor.isPathAllowed("/opt/other-project/file.txt", projectPath: projectPath) == false)
+    }
+
+    @Test("isPathAllowed — projectPath nil이면 기존 동작")
+    func pathAllowedNoProjectPath() {
+        #expect(ToolExecutor.isPathAllowed("/tmp/test.txt", projectPath: nil) == true)
+        #expect(ToolExecutor.isPathAllowed("/etc/passwd", projectPath: nil) == false)
+    }
 }

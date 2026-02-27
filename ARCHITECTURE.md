@@ -42,7 +42,9 @@ DOUGLAS/
 │   │   ├── ChatMessage.swift        # 메시지 모델 (MessageType 포함: toolActivity 등, ImageAttachment 첨부)
 │   │   ├── DiscussionArtifact.swift # 토론 산출물 모델 (ArtifactType, 버전 관리)
 │   │   ├── ImageAttachment.swift    # 이미지 첨부 모델 (디스크 저장, base64 로드, MIME 판별)
-│   │   ├── ToolExecutionContext.swift # 도구 실행 컨텍스트 (방/에이전트 정보 스냅샷)
+│   │   ├── BuildResult.swift         # 빌드 결과 모델 + BuildLoopStatus 상태
+│   │   ├── FileWriteTracker.swift   # 병렬 실행 파일 쓰기 충돌 감지 (actor)
+│   │   ├── ToolExecutionContext.swift # 도구 실행 컨텍스트 (방/에이전트/프로젝트 정보 스냅샷)
 │   │   ├── DependencyChecker.swift  # 의존성 체크 (Node.js, Git, Homebrew)
 │   │   ├── JiraConfig.swift          # Jira Cloud 연동 설정 (도메인, 이메일, API 토큰)
 │   │   ├── ProviderConfig.swift     # 프로바이더 설정 (AuthMethod, ProviderType, isConnected)
@@ -56,8 +58,9 @@ DOUGLAS/
 │   │   ├── ChatViewModel.swift      # 메시지 전송, 마스터 오케스트레이션
 │   │   ├── OnboardingViewModel.swift # 첫 실행 온보딩 (의존성 체크 + Claude 설정 + 프로바이더 선택)
 │   │   ├── ProviderManager.swift    # 프로바이더 설정 관리
-│   │   ├── RoomManager.swift        # 프로젝트 방 생명주기, 팀 작업 조율
-│   │   └── ToolExecutor.swift       # 도구 호출 루프 + smartSend + invite_agent/list_agents
+│   │   ├── BuildLoopRunner.swift     # 빌드 실행 + 수정 프롬프트 생성 엔진
+│   │   ├── RoomManager.swift        # 프로젝트 방 생명주기, 팀 작업 조율, 빌드 루프
+│   │   └── ToolExecutor.swift       # 도구 호출 루프 + smartSend + 경로 해석/충돌 추적
 │   ├── Providers/
 │   │   ├── AIProvider.swift         # AIProvider 프로토콜 + 공통 인증 + Tool Use 확장
 │   │   ├── ToolFormatConverter.swift # 프로바이더별 도구 형식 변환 + Vision 이미지 블록 빌더
@@ -827,13 +830,13 @@ executeWithTools() 루프 (최대 10회):
 | A-2 | 토론 산출물 구조화 (artifact 블록 자동 추출, 버전 관리) | ✅ |
 | A-3 | 컨텍스트 요약/압축 전달 메커니즘 (RoomBriefing) | ✅ |
 
-### Phase B — 개발 루프
+### Phase B — 개발 루프 ✅ 완료
 
-| 항목 | 내용 | 핵심 변경 |
-|------|------|----------|
-| B-1 | **프로젝트 디렉토리 연동** (`ProjectContext`) | 방 생성 시 프로젝트 경로 지정 → 에이전트가 해당 디렉토리 내에서만 파일 읽기/쓰기/셸 실행. `Room.projectPath: String?` 추가. 도구 실행 시 작업 디렉토리 자동 설정. |
-| B-2 | **빌드→에러→수정 자율 루프** | `shell_exec`로 빌드 실행 → 에러 파싱 → 에이전트가 자동 수정 → 재빌드. 최대 N회 반복 후 사용자에게 보고. `BuildLoopExecutor` 신규. |
-| B-3 | **에이전트 간 병렬 실행 최적화** | 현재 `withTaskGroup` 기반 병렬 실행을 개선: 에이전트별 독립 파일 영역 할당, 충돌 감지, 결과 머지 전략. |
+| 항목 | 내용 | 상태 |
+|------|------|------|
+| B-1 | **프로젝트 디렉토리 연동**: 방 생성 시 `projectPath` 지정 → 상대 경로 해석, `isPathAllowed` projectPath 허용, `shell_exec` 기본 workDir. `Room.projectPath`, `Room.buildCommand` 추가. CreateRoomSheet에 디렉토리 선택 + 빌드 명령 자동 감지 UI. | ✅ |
+| B-2 | **빌드→에러→수정 자율 루프**: `BuildLoopRunner.runBuild()` → 실패 시 에이전트에게 수정 프롬프트 → 재빌드 (최대 `maxBuildRetries`회). `BuildResult`, `BuildLoopStatus` 모델. `RoomManager.runBuildLoop()` 통합. BuildStatusCard UI. | ✅ |
+| B-3 | **병렬 실행 파일 충돌 감지**: `FileWriteTracker` actor — 에이전트별 파일 쓰기 기록, 동일 파일 다중 에이전트 수정 시 충돌 경고. `ToolExecutionContext`에 `currentAgentID`, `fileWriteTracker` 추가. 단계별 충돌 초기화. | ✅ |
 
 ### Phase C — 통합
 

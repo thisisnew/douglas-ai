@@ -148,6 +148,7 @@ struct MessageBubble: View {
         case .delegation:    return Color.orange.opacity(0.1)
         case .suggestion:    return Color.orange.opacity(0.1)
         case .toolActivity:  return Color.gray.opacity(0.08)
+        case .buildStatus:   return Color.orange.opacity(0.1)
         default:             return Color.black.opacity(0.05)
         }
     }
@@ -164,6 +165,7 @@ struct MessageBubble: View {
         case .suggestion:    return "sparkles"
         case .error:         return "exclamationmark.triangle"
         case .toolActivity:  return "wrench.and.screwdriver"
+        case .buildStatus:   return "hammer"
         default:             return nil
         }
     }
@@ -176,6 +178,7 @@ struct MessageBubble: View {
         case .error:         return .red
         case .suggestion:    return .orange
         case .toolActivity:  return .gray
+        case .buildStatus:   return .orange
         default:             return .secondary
         }
     }

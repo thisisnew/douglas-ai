@@ -132,6 +132,7 @@ enum DesignTokens {
             case .text:            return .gray
             case .discussionRound: return .gray
             case .toolActivity:    return .gray
+            case .buildStatus:     return .orange
             }
         }
 

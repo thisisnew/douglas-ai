@@ -81,4 +81,47 @@ struct ToolExecutionContextTests {
         #expect(context.roomID == nil)
         #expect(context.agentsByName.count == 1)
     }
+
+    // MARK: - Phase B 필드
+
+    @Test("projectPath 기본값 nil")
+    func projectPathDefault() {
+        let context = ToolExecutionContext(
+            roomID: UUID(),
+            agentsByName: [:],
+            agentListString: "",
+            inviteAgent: { _ in false }
+        )
+        #expect(context.projectPath == nil)
+        #expect(context.currentAgentID == nil)
+        #expect(context.fileWriteTracker == nil)
+    }
+
+    @Test("projectPath 명시적 설정")
+    func projectPathExplicit() {
+        let agentID = UUID()
+        let context = ToolExecutionContext(
+            roomID: UUID(),
+            agentsByName: [:],
+            agentListString: "",
+            inviteAgent: { _ in false },
+            projectPath: "/Users/test/project",
+            currentAgentID: agentID
+        )
+        #expect(context.projectPath == "/Users/test/project")
+        #expect(context.currentAgentID == agentID)
+    }
+
+    @Test("fileWriteTracker 설정")
+    func fileWriteTrackerSet() {
+        let tracker = FileWriteTracker()
+        let context = ToolExecutionContext(
+            roomID: UUID(),
+            agentsByName: [:],
+            agentListString: "",
+            inviteAgent: { _ in false },
+            fileWriteTracker: tracker
+        )
+        #expect(context.fileWriteTracker != nil)
+    }
 }
