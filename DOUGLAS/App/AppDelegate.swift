@@ -8,12 +8,15 @@ extension Notification.Name {
 class ClickThroughPanel: NSPanel {
     override var canBecomeKey: Bool { true }
 
-    // 패널 프레임 제한 — 높이만 화면에 맞추고, x 위치는 AppDelegate가 제어
+    // 패널 프레임 제한 — 높이를 화면에 맞추고, 화면 밖 이탈 방지
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         guard let screen = screen ?? NSScreen.screens.first else { return frameRect }
         var rect = frameRect
-        rect.origin.y = screen.visibleFrame.minY
-        rect.size.height = screen.visibleFrame.height
+        let sf = screen.visibleFrame
+        rect.origin.y = sf.minY
+        rect.size.height = sf.height
+        // 패널이 화면 밖으로 나가지 않도록 X 클램핑
+        rect.origin.x = max(sf.minX - rect.width + 40, min(rect.origin.x, sf.maxX - 40))
         return rect
     }
 }
@@ -102,6 +105,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         guard let event = NSApp.currentEvent else { return }
         if event.type == .rightMouseUp {
             showStatusMenu()
+        } else if event.clickCount == 2 {
+            // 더블클릭: 오른쪽 사이드바 위치로 스냅
+            snapSidebarToRight()
         } else {
             toggleSidebar()
         }
@@ -197,7 +203,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         sidebarPanel.isFloatingPanel = true
         sidebarPanel.hidesOnDeactivate = false
         sidebarPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        sidebarPanel.isMovableByWindowBackground = false
+        sidebarPanel.isMovableByWindowBackground = true
         sidebarPanel.backgroundColor = .clear
         sidebarPanel.isOpaque = false
         sidebarPanel.titlebarAppearsTransparent = true
@@ -264,6 +270,31 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             })
         }
         currentScreen = nil
+    }
+
+    /// 사이드바를 오른쪽 끝으로 스냅 (더블클릭 시)
+    private func snapSidebarToRight() {
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) ?? NSScreen.screens.first
+        guard let screen = screen else { return }
+        let sf = screen.visibleFrame
+        let targetX = sf.maxX - panelWidth
+
+        if !isSidebarVisible {
+            // 숨겨져 있으면 오른쪽에서 표시
+            showSidebar(on: screen)
+        } else {
+            // 이미 표시 중이면 오른쪽으로 애니메이션 이동
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.2
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                self.sidebarPanel.animator().setFrame(
+                    NSRect(x: targetX, y: sf.minY, width: self.panelWidth, height: sf.height),
+                    display: true
+                )
+            }
+            currentScreen = screen
+        }
     }
 
     // MARK: - 수동 토글

@@ -41,7 +41,7 @@ class DependencyChecker: ObservableObject {
             Dependency(
                 name: "Git",
                 binaryNames: ["git"],
-                isRequired: true,
+                isRequired: false,
                 downloadURL: nil,
                 installHint: "xcode-select --install"
             ),

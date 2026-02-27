@@ -61,18 +61,12 @@ struct RoomListView: View {
 
             // 방 리스트
             if filteredRooms.isEmpty {
-                HStack {
-                    Spacer()
-                    Text(selectedFilter == .all ? "아직 방이 없습니다" : "'\(selectedFilter.rawValue)' 상태의 방이 없습니다")
-                        .font(.caption)
-                        .foregroundColor(.secondary.opacity(0.6))
-                    Spacer()
-                }
-                .padding(.vertical, 12)
-                .background(Color.black.opacity(0.03))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .padding(.horizontal, 12)
-                .padding(.bottom, 4)
+                Spacer()
+                Text(selectedFilter == .all ? "아직 방이 없습니다" : "'\(selectedFilter.rawValue)' 상태의 방이 없습니다")
+                    .font(.caption)
+                    .foregroundColor(.secondary.opacity(0.6))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
                 Spacer()
             } else {
                 ScrollView(.vertical, showsIndicators: false) {

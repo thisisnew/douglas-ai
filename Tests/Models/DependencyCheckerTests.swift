@@ -58,11 +58,11 @@ struct DependencyCheckerTests {
         #expect(node?.binaryNames == ["node", "npm"])
     }
 
-    @Test("Git - 필수 의존성, installHint 포함")
-    func gitIsRequired() {
+    @Test("Git - 선택 의존성, installHint 포함")
+    func gitIsOptional() {
         let checker = DependencyChecker()
         let git = checker.dependencies.first { $0.name == "Git" }
-        #expect(git?.isRequired == true)
+        #expect(git?.isRequired == false)
         #expect(git?.installHint == "xcode-select --install")
         #expect(git?.downloadURL == nil)
     }

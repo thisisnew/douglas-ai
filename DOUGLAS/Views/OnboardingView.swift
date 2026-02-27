@@ -255,7 +255,13 @@ struct OnboardingView: View {
     private var claudeSetupButtons: some View {
         switch viewModel.claudeInstaller.state {
         case .checking:
-            EmptyView()
+            HStack {
+                Button("건너뛰기") {
+                    Task { await viewModel.skipClaudeSetup() }
+                }
+                .foregroundColor(.secondary)
+                Spacer()
+            }
 
         case .found:
             HStack {

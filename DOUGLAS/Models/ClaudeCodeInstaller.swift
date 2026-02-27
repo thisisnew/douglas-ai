@@ -48,16 +48,33 @@ class ClaudeCodeInstaller: ObservableObject {
 
     func detect() async {
         state = .checking
-        let path = ClaudeCodeProvider.findClaudePath()
 
-        if FileManager.default.isExecutableFile(atPath: path) {
-            // 바이너리 있음 → 인증 상태 확인
-            if checkAuthStatus() {
-                state = .ready
-            } else {
-                state = .found(path: path)
+        // 타임아웃 5초: 파일 시스템 검색이 멈추면 .notFound 처리
+        let completed = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { @MainActor in
+                let path = ClaudeCodeProvider.findClaudePath()
+                if FileManager.default.isExecutableFile(atPath: path) {
+                    if self.checkAuthStatus() {
+                        self.state = .ready
+                    } else {
+                        self.state = .found(path: path)
+                    }
+                } else {
+                    self.state = .notFound
+                }
+                return true
             }
-        } else {
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                return false
+            }
+            // 먼저 끝나는 쪽 채택
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+
+        if !completed && state == .checking {
             state = .notFound
         }
     }
