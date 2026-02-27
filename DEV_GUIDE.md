@@ -13,8 +13,8 @@ DOUGLAS/
 ├── ARCHITECTURE.md                # 전체 코드 분석 문서
 ├── DEV_GUIDE.md                   # 이 파일 (개발 규칙)
 ├── CLAUDE.md                      # Claude Code 세션 규칙
-└── DOUGLAS/
-    ├── App/                       # 앱 진입점, AppDelegate
+└── Sources/
+    ├── App/                       # @main 진입점, AppDelegate
     ├── Models/                    # 데이터 모델 (Agent, ChatMessage, AgentTool, ImageAttachment, ProviderConfig, ToolExecutionContext, DependencyChecker)
     ├── ViewModels/                # 비즈니스 로직 (AgentStore, ChatViewModel, ToolExecutor, ProviderManager, RoomManager)
     ├── Providers/                 # AI 프로바이더 (AIProvider 프로토콜, ToolFormatConverter, Claude/OpenAI/Google/Anthropic)

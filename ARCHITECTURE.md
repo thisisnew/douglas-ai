@@ -27,13 +27,12 @@ DOUGLAS/
 ├── ARCHITECTURE.md                  # 이 문서 (코드 분석/구조)
 ├── scripts/
 │   └── build-app.sh                 # 빌드 → .app 번들 → 코드서명 → DMG 생성
-├── DOUGLAS/
+├── Sources/
 │   ├── App/
+│   │   ├── DOUGLASApp.swift         # @main 진입점
 │   │   ├── AppDelegate.swift        # 사이드바 패널(400pt), 채팅 윈도우, 마우스 트래킹
 │   │   ├── CommandBarPanel.swift    # Spotlight 스타일 커맨드 바 NSPanel
 │   │   └── CommandBarManager.swift  # 글로벌 핫키(⌘⇧A) 등록, 커맨드 바 생명주기
-├── DOUGLASApp/
-│   └── DOUGLASApp.swift        # @main 진입점, MenuBarExtra (실행 타겟)
 │   ├── Models/
 │   │   ├── Agent.swift              # 에이전트 모델 (이름, 페르소나, 이미지, isMaster, 도구 설정)
 │   │   ├── AgentTool.swift          # 도구 시스템 (AgentTool, ToolCall, ToolResult, CapabilityPreset, ToolRegistry, ConversationMessage)
@@ -41,6 +40,7 @@ DOUGLAS/
 │   │   ├── ImageAttachment.swift    # 이미지 첨부 모델 (디스크 저장, base64 로드, MIME 판별)
 │   │   ├── ToolExecutionContext.swift # 도구 실행 컨텍스트 (방/에이전트 정보 스냅샷)
 │   │   ├── DependencyChecker.swift  # 의존성 체크 (Node.js, Git, Homebrew)
+│   │   ├── JiraConfig.swift          # Jira Cloud 연동 설정 (도메인, 이메일, API 토큰)
 │   │   ├── ProviderConfig.swift     # 프로바이더 설정 (AuthMethod, ProviderType, isConnected)
 │   │   ├── ProviderDetector.swift   # 시스템 AI 프로바이더 자동 감지
 │   │   ├── ClaudeCodeInstaller.swift # Claude Code CLI 설치/검증 유틸리티
@@ -162,8 +162,10 @@ DOUGLAS/
 - `subAgents`: 마스터를 제외한 일반 에이전트 필터
 
 **masterSystemPrompt()**: 마스터 에이전트의 동적 시스템 프롬프트 생성
-- 현재 등록된 서브 에이전트 목록 (이름, 프로바이더, 모델, 페르소나 요약) 포함
-- 5가지 JSON 응답 형식 명시: delegate, delegate+context_from, chain, respond, suggest_agent
+- 현재 등록된 서브 에이전트 목록 (이름, 도구 목록, 페르소나 요약) 포함
+- 3가지 JSON 응답 형식 명시: delegate, chain, suggest_agent (직접 응답 금지)
+- suggest_agent에 `recommended_preset` 포함 (에이전트 생성 시 도구 자동 설정)
+- Jira 연동 상태 (JiraConfig.shared.isConfigured) 표시
 - 에이전트 목록이 비어있으면 "(없음)" 표시
 
 ### 3. ChatViewModel (`ViewModels/ChatViewModel.swift`)
@@ -173,22 +175,21 @@ DOUGLAS/
 **MasterAction enum**:
 ```
 delegate  → 병렬 위임 (여러 에이전트 동시 실행)
-respond   → 마스터 직접 응답
-suggest   → 새 에이전트 생성 제안
+suggest   → 새 에이전트 생성 제안 (preset 포함)
 chain     → 순차 워크플로우 (A→B→C)
 unknown   → JSON 파싱 실패 시 원문 표시
 ```
+(respond 액션 제거됨 — 마스터는 직접 응답 금지, 반드시 delegate/suggest_agent/chain만 사용)
 
-**6대 핵심 기능**:
+**5대 핵심 기능**:
 
 | # | 기능 | 메서드 | 설명 |
 |---|------|--------|------|
 | 1 | 자동 라우팅 | `handleDelegation()` | 마스터가 JSON으로 위임 에이전트 지정, `withTaskGroup`으로 병렬 실행 |
 | 2 | 결과 취합 | `generateSummary()` | 2개 이상 에이전트 응답 시 마스터가 종합 요약 생성 |
-| 3 | 에이전트 제안 | `handleAgentSuggestion()` | 적합한 에이전트 없을 때 새 에이전트 생성 제안 (SuggestionCard) |
+| 3 | 에이전트 제안 | `handleAgentSuggestion()` | 적합한 에이전트 없을 때 새 에이전트 생성 제안 (SuggestionCard, preset 포함) |
 | 4 | 오류 재시도 | `executeDelegation()` | 실패 시 최대 2회 재시도 (2초 간격), 실패 시 마스터 폴백 응답 |
 | 5 | 워크플로우 체이닝 | `handleChain()` | 순차 실행, 이전 단계 출력을 다음 단계 입력에 주입 |
-| 6 | 컨텍스트 공유 | `buildContextMessages()` | 다른 에이전트의 최근 대화 내역을 위임 메시지에 포함 |
 
 **JSON 파싱 (`parseMasterResponse`)**:
 - 마크다운 코드블록 (` ```json ... ``` `) 내부 JSON 추출
@@ -383,6 +384,24 @@ struct ToolExecutionContext: Sendable {
 - **레거시 Keychain 마이그레이션**: macOS Keychain에서 파일 기반으로 자동 이전
 - `ProviderConfig.apiKey`가 computed property로 작동 (get → 복호화 / set → 암호화)
 
+### JiraConfig (`Models/JiraConfig.swift`)
+
+```swift
+class JiraConfig: ObservableObject {
+    static let shared = JiraConfig()
+    @Published var domain: String      // "mycompany.atlassian.net"
+    @Published var email: String       // Jira 계정 이메일
+    @Published var apiToken: String    // Jira API 토큰
+    var isConfigured: Bool             // 3개 필드 모두 입력됐는지 (computed)
+    var baseURL: String                // "https://{domain}" (computed)
+}
+```
+
+- 싱글턴: `JiraConfig.shared`로 앱 전역 접근
+- UserDefaults 영속화: `jira_domain`, `jira_email` 키 (API 토큰은 KeychainHelper)
+- `web_fetch` 도구에서 Jira URL 감지 시 자동으로 REST API 호출에 인증 헤더 추가
+- `masterSystemPrompt()`에서 Jira 연동 상태 표시
+
 ### ProviderConfig (`Models/ProviderConfig.swift`)
 
 ```swift
@@ -515,15 +534,17 @@ MessageType에 따른 시각 차별화:
 
 마스터가 `suggest_agent` 응답 시 채팅 내에 표시되는 인라인 카드:
 - 제안된 에이전트의 이름, 역할, 프로바이더/모델 표시
-- "생성" 버튼: 즉시 에이전트 추가
+- "생성" 버튼: 즉시 에이전트 추가 (recommended_preset → capabilityPreset 자동 설정)
 - "무시" 버튼: 제안 닫기
+- `resolvePreset()`: 문자열 프리셋명 → `CapabilityPreset` 변환 (researcher, developer, analyst, fullAccess)
 
 ### AddProviderSheet (`Views/AddProviderSheet.swift`)
 
-3개 프로바이더 설정 UI:
+프로바이더 설정 UI:
 - **Claude Code**: CLI 경로 표시, 연결 상태 확인
 - **OpenAI**: SecureField로 API 키 입력, 연결 테스트, 저장
 - **Google**: SecureField로 API 키 입력, 연결 테스트, 저장
+- **Jira Cloud**: 도메인 + 이메일 + API 토큰 설정 (JiraConfig에 저장, web_fetch 도구에서 사용)
 
 ---
 
@@ -647,10 +668,10 @@ MessageType에 따른 시각 차별화:
 | 프리셋 | 포함 도구 |
 |--------|----------|
 | `.none` | (없음) |
-| `.researcher` | web_search |
+| `.researcher` | web_search, web_fetch |
 | `.developer` | file_read, file_write, shell_exec |
-| `.analyst` | file_read, web_search |
-| `.fullAccess` | 전체 4종 |
+| `.analyst` | file_read, shell_exec, web_fetch |
+| `.fullAccess` | 전체 7종 |
 | `.custom` | enabledToolIDs로 직접 선택 |
 
 ### 내장 도구 (ToolRegistry)
@@ -661,6 +682,7 @@ MessageType에 따른 시각 차별화:
 | `file_write` | 파일 쓰기 | 지정 경로에 파일 작성 |
 | `shell_exec` | 셸 실행 | zsh 명령어 실행 (30K자 출력 제한) |
 | `web_search` | 웹 검색 | 웹 검색 (미구현 placeholder) |
+| `web_fetch` | 웹 페이지 가져오기 | URL → HTML 가져오기 + Jira REST API 티켓 조회 (JiraConfig 연동) |
 | `invite_agent` | 에이전트 초대 | 방에 다른 에이전트를 런타임 초대 (params: agent_name, reason) |
 | `list_agents` | 에이전트 목록 | 등록된 서브 에이전트 목록 조회 (params: 없음) |
 
@@ -698,6 +720,7 @@ executeWithTools() 루프 (최대 10회):
 - `onToolActivity` 콜백으로 도구 사용 상태를 채팅에 표시 (`.toolActivity` 메시지)
 - **경로 검증**: `isPathAllowed()` — `$HOME`, `/tmp`, 시스템 임시 디렉토리만 허용. `.ssh`, `.gnupg`, `Library/Keychains` 차단
 - **shell_exec**: nvm 버전 동적 탐색 (하드코딩 아님)
+- **web_fetch**: URL → HTTP GET, Jira URL 감지 시 JiraConfig 인증 + REST API 자동 변환
 - **invite_agent**: `ToolExecutionContext.inviteAgent` 클로저 호출로 방에 에이전트 초대
 - **list_agents**: `ToolExecutionContext.agentListString` 스냅샷 반환
 
@@ -707,6 +730,8 @@ executeWithTools() 루프 (최대 10회):
 |------|------|
 | `ChatViewModel.swift` | `handleAgentMessage`, `executeDelegation` → `ToolExecutor.smartSend()` (이미지 포함 시 conversationMessages 오버로드) |
 | `RoomManager.swift` | `sendUserMessage`, `executeStep` → `ToolExecutor.smartSend()` + `ToolExecutionContext` 전달 (invite_agent/list_agents 지원) |
+
+**방 워크플로우** (`startRoomWorkflow`): 에이전트 2명 이상일 때만 토론 실행. 1명이면 토론 스킵 → 바로 계획 수립 → 실행.
 
 마스터 라우팅, 요약 생성, 토론 턴 등 텍스트 전용 호출은 기존 `sendMessage()` 유지.
 
@@ -719,8 +744,8 @@ executeWithTools() 루프 (최대 10회):
 3. **마스터 프롬프트 커스터마이징**: EditAgentSheet에서 마스터 페르소나 수정 시 위임 전략도 변경됨
 4. **에이전트 간 직접 통신**: 현재는 마스터를 통해서만 위임. `invite_agent` 도구로 방 내 에이전트 초대 가능
 5. **새 도구 추가**: `ToolRegistry`에 `AgentTool` 추가 + `ToolExecutor.executeSingleTool()`에 case 추가 + `CapabilityPreset` 필요 시 업데이트
-7. **MCP (Model Context Protocol)**: 현재 내장 도구 방식. 외부 MCP 서버 연동으로 확장 가능
-8. **web_search 도구 구현**: 현재 placeholder. 실제 검색 API 연동 필요
+6. **MCP (Model Context Protocol)**: 현재 내장 도구 방식. 외부 MCP 서버 연동으로 확장 가능
+7. **web_search 도구 구현**: 현재 placeholder. 실제 검색 API 연동 필요
 
 ---
 
@@ -731,11 +756,11 @@ executeWithTools() 루프 (최대 10회):
 | FloatingSidebarView.swift | ~970 | 사이드바 + 슬래시 커맨드 + 이미지 첨부 + UtilityWindowManager |
 | ChatViewModel.swift | ~890 | 핵심 오케스트레이션 + 이미지 첨부 지원 |
 | RoomChatView.swift | ~460 | 방별 채팅 인터페이스 + 이미지 첨부 |
-| ToolExecutor.swift | ~360 | 도구 호출 루프 + smartSend 2종 + invite_agent/list_agents |
+| ToolExecutor.swift | ~400 | 도구 호출 루프 + smartSend 2종 + web_fetch + invite_agent/list_agents |
 | EditAgentSheet.swift | ~315 | 에이전트 편집 (도구 프리셋 포함) |
 | AppDelegate.swift | ~320 | 윈도우/패널 관리 |
 | ToolFormatConverter.swift | ~290 | 프로바이더별 도구/이미지 형식 변환 |
-| AgentTool.swift | ~210 | 도구 시스템 타입 (ToolRegistry 6종 도구) |
+| AgentTool.swift | ~230 | 도구 시스템 타입 (ToolRegistry 7종 도구) |
 | ChatView.swift | ~200 | 채팅 UI + 메시지 버블 (이미지 썸네일) |
 | Agent.swift | ~180 | 에이전트 모델 (isMaster, 이미지, 도구 설정) |
 | AddAgentSheet.swift | ~154 | 에이전트 등록 |
@@ -776,7 +801,7 @@ executeWithTools() 루프 (최대 10회):
 Tests/
 ├── Models/
 │   ├── AgentTests.swift              # 12 tests — 초기화, 팩토리, Codable, 레거시 디코딩
-│   ├── AgentToolTests.swift          # 34 tests — AgentTool/ToolCall/ToolResult Codable, CapabilityPreset, ToolRegistry (6종 도구), ConversationMessage
+│   ├── AgentToolTests.swift          # 34 tests — AgentTool/ToolCall/ToolResult Codable, CapabilityPreset, ToolRegistry (7종 도구), ConversationMessage
 │   ├── ChatMessageTests.swift        # 12 tests — 모든 MessageType, Codable 라운드트립, 이미지 첨부 호환
 │   ├── ImageAttachmentTests.swift    # 13 tests — MIME 판별, save/load 라운드트립, 크기 제한, 파일 확장자
 │   ├── DependencyCheckerTests.swift  # 11 tests — allRequiredFound, 초기 상태, Homebrew 선택 사항

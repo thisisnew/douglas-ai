@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import DOUGLASLib
+@testable import DOUGLAS
 
 @Suite("ProviderConfig Model Tests")
 struct ProviderConfigTests {

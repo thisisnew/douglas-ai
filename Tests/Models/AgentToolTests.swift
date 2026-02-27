@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import DOUGLASLib
+@testable import DOUGLAS
 
 // MARK: - AgentTool 테스트
 
@@ -147,10 +147,10 @@ struct AgentToolTests {
         #expect(!ids.contains("web_search"))
     }
 
-    @Test("CapabilityPreset.researcher는 웹 검색")
+    @Test("CapabilityPreset.researcher는 웹 검색 + 웹 페이지 가져오기")
     func presetResearcher() {
         let ids = CapabilityPreset.researcher.includedToolIDs
-        #expect(ids == ["web_search"])
+        #expect(ids == ["web_search", "web_fetch"])
     }
 
     @Test("CapabilityPreset.fullAccess는 전체 도구")
@@ -176,8 +176,8 @@ struct AgentToolTests {
 
     @Test("ToolRegistry 모든 도구 존재")
     func registryAllTools() {
-        #expect(ToolRegistry.allTools.count == 6)
-        #expect(ToolRegistry.allToolIDs.count == 6)
+        #expect(ToolRegistry.allTools.count == 7)
+        #expect(ToolRegistry.allToolIDs.count == 7)
     }
 
     @Test("ToolRegistry invite_agent 등록 확인")

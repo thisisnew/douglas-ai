@@ -53,11 +53,14 @@ struct SuggestionCard: View {
             ? (agentStore.masterAgent?.modelName ?? "claude-sonnet-4-6")
             : suggestion.recommendedModel
 
+        let preset = Self.resolvePreset(suggestion.recommendedPreset)
+
         let agent = Agent(
             name: suggestion.name,
             persona: suggestion.persona,
             providerName: providerName,
-            modelName: modelName
+            modelName: modelName,
+            capabilityPreset: preset
         )
         agentStore.addAgent(agent)
 
@@ -89,5 +92,16 @@ struct SuggestionCard: View {
         roomManager.launchWorkflow(roomID: room.id, task: task)
 
         chatVM.pendingSuggestion = nil
+    }
+
+    private static func resolvePreset(_ str: String?) -> CapabilityPreset? {
+        guard let s = str?.lowercased() else { return nil }
+        switch s {
+        case "researcher": return .researcher
+        case "developer":  return .developer
+        case "analyst":    return .analyst
+        case "fullaccess", "full_access": return .fullAccess
+        default: return nil
+        }
     }
 }

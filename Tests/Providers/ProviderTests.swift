@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import DOUGLASLib
+@testable import DOUGLAS
 
 /// 모든 Provider 테스트는 MockURLProtocol.requestHandler를 공유하므로 직렬 실행 필수
 @Suite("Provider Tests", .serialized)

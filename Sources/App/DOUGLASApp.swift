@@ -1,6 +1,5 @@
 import SwiftUI
 import AppKit
-import DOUGLASLib
 
 @main
 struct DOUGLASApp: App {

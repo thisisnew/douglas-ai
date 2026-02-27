@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import DOUGLASLib
+@testable import DOUGLAS
 
 @Suite("ChatViewModel JSON Parsing Tests")
 @MainActor
@@ -121,14 +121,15 @@ struct ChatViewModelParsingTests {
     @Test("parseMasterResponse - suggest_agent")
     func parseSuggestAgent() {
         let input = """
-        {"action": "suggest_agent", "name": "Coder", "persona": "writes code", "recommended_provider": "OpenAI", "recommended_model": "gpt-4o"}
+        {"action": "suggest_agent", "name": "Coder", "persona": "writes code", "recommended_provider": "OpenAI", "recommended_model": "gpt-4o", "recommended_preset": "developer"}
         """
         let result = vm.parseMasterResponse(input)
-        if case .suggestAgent(let name, let persona, let provider, let model) = result {
+        if case .suggestAgent(let name, let persona, let provider, let model, let preset) = result {
             #expect(name == "Coder")
             #expect(persona == "writes code")
             #expect(provider == "OpenAI")
             #expect(model == "gpt-4o")
+            #expect(preset == "developer")
         } else {
             Issue.record("Expected .suggestAgent")
         }

@@ -28,7 +28,7 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 cp "$EXECUTABLE" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
 # SPM 리소스 번들 복사 (Contents/Resources 안에 배치)
-RESOURCE_BUNDLE="$PROJECT_DIR/.build/arm64-apple-macosx/release/DOUGLAS_DOUGLASLib.bundle"
+RESOURCE_BUNDLE="$PROJECT_DIR/.build/arm64-apple-macosx/release/DOUGLAS_DOUGLAS.bundle"
 if [ -d "$RESOURCE_BUNDLE" ]; then
     cp -R "$RESOURCE_BUNDLE" "$APP_BUNDLE/Contents/Resources/"
     echo "리소스 번들 복사 완료"

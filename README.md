@@ -40,7 +40,7 @@ macOS 플로팅 사이드바 기반 AI 에이전트 매니저.
 
 ### DMG로 설치 (일반 사용자)
 
-1. [Releases](releases)에서 `DOUGLAS.dmg` 다운로드
+1. `./scripts/build-app.sh` 실행 후 `dist/DOUGLAS.dmg` 획득
 2. DMG를 열고 `DOUGLAS.app`을 `Applications`로 드래그
 3. 최초 실행 시 macOS가 차단하면:
    - `시스템 설정 → 개인정보 보호 및 보안 → "확인 없이 열기"` 클릭
@@ -97,13 +97,12 @@ export GOOGLE_API_KEY="AI..."
 DOUGLAS/
 ├── Package.swift          # SPM 정의
 ├── scripts/build-app.sh   # 앱 번들 + 코드서명 + DMG
-├── DOUGLAS/               # DOUGLASLib (소스)
-│   ├── App/               # AppDelegate, 윈도우/패널 관리
+├── Sources/               # 소스
+│   ├── App/               # @main 진입점, AppDelegate, 윈도우/패널 관리
 │   ├── Models/            # Agent, Room, ChatMessage, ProviderConfig
 │   ├── ViewModels/        # AgentStore, ChatViewModel, RoomManager
 │   ├── Providers/         # AIProvider 프로토콜 + 구현체
 │   └── Views/             # SwiftUI 뷰
-├── DOUGLASApp/            # @main 진입점
 └── Tests/                 # 테스트
 ```
 

@@ -164,28 +164,33 @@ class RoomManager: ObservableObject {
     func startRoomWorkflow(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
-        // ── Phase 1: 토론 ──
         rooms[idx].status = .planning
         syncAgentStatuses()
 
-        let agentCount = max(1, rooms[idx].assignedAgentIDs.count)
+        let agentCount = rooms[idx].assignedAgentIDs.count
 
-        let startMsg = ChatMessage(
-            role: .system,
-            content: "토론을 시작합니다. 참여자: \(agentCount)명 | 합의 시 자동 종료"
-        )
-        appendMessage(startMsg, to: roomID)
+        // ── Phase 1: 토론 (2명 이상일 때만) ──
+        if agentCount > 1 {
+            let startMsg = ChatMessage(
+                role: .system,
+                content: "토론을 시작합니다. 참여자: \(agentCount)명 | 합의 시 자동 종료"
+            )
+            appendMessage(startMsg, to: roomID)
 
-        await executeDiscussion(roomID: roomID, topic: task)
-        guard !Task.isCancelled,
-              rooms.first(where: { $0.id == roomID })?.status == .planning else { return }
+            await executeDiscussion(roomID: roomID, topic: task)
+            guard !Task.isCancelled,
+                  rooms.first(where: { $0.id == roomID })?.status == .planning else { return }
 
-        // 토론 요약 생성
-        await generateDiscussionSummary(roomID: roomID, topic: task)
-        guard !Task.isCancelled else { return }
+            // 토론 요약 생성
+            await generateDiscussionSummary(roomID: roomID, topic: task)
+            guard !Task.isCancelled else { return }
+        }
 
         // ── Phase 2: 계획 수립 ──
-        let planningMsg = ChatMessage(role: .system, content: "토론 결과를 바탕으로 계획을 수립하는 중...")
+        let planningMsg = ChatMessage(
+            role: .system,
+            content: agentCount > 1 ? "토론 결과를 바탕으로 계획을 수립하는 중..." : "계획을 수립하는 중..."
+        )
         appendMessage(planningMsg, to: roomID)
 
         let planResult = await requestPlan(roomID: roomID, task: task)

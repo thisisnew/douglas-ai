@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import DOUGLASLib
+@testable import DOUGLAS
 
 @Suite("OnboardingViewModel Tests")
 @MainActor
@@ -209,7 +209,10 @@ struct OnboardingViewModelTests {
         let vm = OnboardingViewModel()
         // 사전 조건: 미완료 상태
         UserDefaults.standard.set(false, forKey: "onboardingCompleted")
-        vm.skipOnboarding()
+        let defaults = makeTestDefaults()
+        let providerManager = ProviderManager(defaults: defaults)
+        let agentStore = AgentStore(defaults: defaults)
+        vm.skipOnboarding(providerManager: providerManager, agentStore: agentStore)
         #expect(OnboardingViewModel.isCompleted == true)
         // cleanup
         UserDefaults.standard.removeObject(forKey: "onboardingCompleted")

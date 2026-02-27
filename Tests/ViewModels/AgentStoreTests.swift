@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import DOUGLASLib
+@testable import DOUGLAS
 
 @Suite("AgentStore Tests")
 @MainActor
@@ -159,7 +159,8 @@ struct AgentStoreTests {
         let store = AgentStore(defaults: defaults)
         let prompt = store.masterSystemPrompt()
         #expect(prompt.contains("delegate"))
-        #expect(prompt.contains("respond"))
+        #expect(prompt.contains("suggest_agent"))
+        #expect(!prompt.contains("\"respond\""))
     }
 
     @Test("masterSystemPrompt - JSON 형식 포함")
@@ -169,8 +170,8 @@ struct AgentStoreTests {
         let prompt = store.masterSystemPrompt()
         #expect(prompt.contains("delegate"))
         #expect(prompt.contains("chain"))
-        #expect(prompt.contains("respond"))
         #expect(prompt.contains("suggest_agent"))
+        #expect(prompt.contains("recommended_preset"))
     }
 
     @Test("minimizedAgentIDs - 초기 빈 상태")

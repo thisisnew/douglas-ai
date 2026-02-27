@@ -1,5 +1,5 @@
 import Foundation
-@testable import DOUGLASLib
+@testable import DOUGLAS
 
 /// 격리된 UserDefaults 생성 (테스트 후 자동 정리용)
 func makeTestDefaults() -> UserDefaults {

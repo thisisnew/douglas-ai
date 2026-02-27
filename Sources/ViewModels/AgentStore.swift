@@ -85,29 +85,53 @@ class AgentStore: ObservableObject {
         saveAgents()
     }
 
-    /// 마스터의 시스템 프롬프트에 현재 에이전트 목록 + 응답 형식을 주입
+    /// 마스터의 시스템 프롬프트에 현재 에이전트 목록 + 도구 정보 + 응답 형식을 주입
     func masterSystemPrompt() -> String {
         let agentLines = subAgents.map { agent in
-            "- \(agent.name): \(agent.persona.prefix(100))"
+            let tools = agent.resolvedToolIDs
+            let toolStr = tools.isEmpty ? "도구 없음" : tools.joined(separator: ", ")
+            return "- \(agent.name) [도구: \(toolStr)]: \(agent.persona.prefix(80))"
         }
         let agentList = agentLines.joined(separator: "\n")
 
+        let jiraStatus = JiraConfig.shared.isConfigured
+            ? "Jira 연동: 활성 (web_fetch 도구로 Jira 티켓 조회 가능)"
+            : "Jira 연동: 미설정 (API 설정에서 Jira 연결 필요)"
+
         return """
-        너는 라우터다. 사용자 요청을 분석해서 에이전트에게 위임하라. JSON만 출력.
+        너는 라우터다. 사용자 요청을 분석해서 적합한 에이전트에게 위임하라.
+        직접 답변은 절대 금지. 반드시 delegate 또는 suggest_agent 중 하나를 선택하라.
+        JSON만 출력.
 
         에이전트 목록:
         \(agentList.isEmpty ? "(없음)" : agentList)
 
-        출력 형식:
+        \(jiraStatus)
+
+        출력 형식 (택 1):
+
+        1) 적합한 에이전트가 있을 때:
         {"action":"delegate","agents":["이름1","이름2"],"task":"구체적 지시"}
 
-        에이전트가 없을 때만:
-        {"action":"suggest_agent","name":"이름","persona":"역할 설명"}
+        2) 여러 에이전트를 순차 실행할 때:
+        {"action":"chain","steps":[{"agent":"이름","task":"지시"}]}
 
-        직접 답변할 때:
-        {"action":"respond","message":"답변"}
+        3) 적합한 에이전트가 없을 때 — 새 에이전트 제안:
+        {"action":"suggest_agent","name":"이름","persona":"역할 설명","recommended_preset":"프리셋"}
 
-        규칙: 적합한 에이전트가 있으면 무조건 delegate. 여러 명 필요하면 agents에 복수. JSON만 출력.
+        recommended_preset 선택지:
+        - researcher: web_search, web_fetch (URL·웹 조회)
+        - developer: file_read, file_write, shell_exec (코드·파일)
+        - analyst: file_read, shell_exec, web_fetch (분석·URL)
+        - fullAccess: 전체 도구
+
+        규칙:
+        - 적합한 에이전트가 있으면 무조건 delegate
+        - 에이전트가 있어도 요청에 적합하지 않으면 suggest_agent
+        - URL이 포함된 요청은 web_fetch 도구가 있는 에이전트에게 위임
+        - Jira URL인데 Jira 연동이 미설정이면 task에 "Jira 연동이 필요합니다. API 설정에서 Jira를 연결해주세요." 안내 포함
+        - 여러 명 필요하면 agents에 복수 지정
+        - JSON만 출력. 부가 설명 금지.
         """
     }
 

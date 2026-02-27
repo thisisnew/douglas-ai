@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import DOUGLASLib
+@testable import DOUGLAS
 
 @Suite("ToolExecutor Tests")
 struct ToolExecutorTests {
@@ -647,7 +647,7 @@ struct ToolExecutorTests {
     func smartSendToolFiltering() async throws {
         let provider = makeMockProvider(supportsTools: true)
         provider.sendMessageWithToolsResults = [.success(.text("ok"))]
-        let agent = makeAgent(preset: .researcher) // web_search만
+        let agent = makeAgent(preset: .researcher) // web_search + web_fetch
 
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
@@ -655,8 +655,9 @@ struct ToolExecutorTests {
         )
 
         let tools = provider.lastSendMessageWithToolsArgs?.tools ?? []
-        #expect(tools.count == 1)
-        #expect(tools[0].id == "web_search")
+        #expect(tools.count == 2)
+        #expect(tools.contains(where: { $0.id == "web_search" }))
+        #expect(tools.contains(where: { $0.id == "web_fetch" }))
     }
 
     // MARK: - 경로 검증 테스트

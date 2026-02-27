@@ -5,9 +5,8 @@ import UserNotifications
 
 enum MasterAction {
     case delegate(agents: [String], task: String, contextFrom: [String]?)
-    case suggestAgent(name: String, persona: String, provider: String, model: String)
+    case suggestAgent(name: String, persona: String, provider: String, model: String, preset: String?)
     case chain(steps: [ChainStep])
-    case respond(message: String)
     case unknown(rawResponse: String)
 
     struct ChainStep {
@@ -24,6 +23,7 @@ struct AgentSuggestion: Identifiable {
     let persona: String
     let recommendedProvider: String
     let recommendedModel: String
+    let recommendedPreset: String?
     let masterAgentID: UUID
     let originalTask: String
 }
@@ -174,10 +174,10 @@ class ChatViewModel: ObservableObject {
                     masterAgent: agent, agentStore: agentStore, providerManager: providerManager
                 )
 
-            case .suggestAgent(let name, let persona, let prov, let model):
+            case .suggestAgent(let name, let persona, let prov, let model, let preset):
                 await handleAgentSuggestion(
                     name: name, persona: persona, provider: prov, model: model,
-                    masterAgent: agent, originalTask: text
+                    preset: preset, masterAgent: agent, originalTask: text
                 )
 
             case .chain(let steps):
@@ -185,14 +185,6 @@ class ChatViewModel: ObservableObject {
                     steps: steps, masterAgent: agent,
                     agentStore: agentStore, providerManager: providerManager
                 )
-
-            case .respond(let message):
-                let reply = ChatMessage(
-                    role: .assistant,
-                    content: message,
-                    agentName: "마스터"
-                )
-                appendMessage(reply, for: agent.id)
 
             case .unknown(let rawResponse):
                 // JSON 파싱 실패 시 원본 텍스트를 답변으로 표시 (에러가 아닌 일반 메시지)
@@ -482,6 +474,7 @@ class ChatViewModel: ObservableObject {
         persona: String,
         provider: String,
         model: String,
+        preset: String?,
         masterAgent: Agent,
         originalTask: String
     ) async {
@@ -498,6 +491,7 @@ class ChatViewModel: ObservableObject {
             persona: persona,
             recommendedProvider: provider,
             recommendedModel: model,
+            recommendedPreset: preset,
             masterAgentID: masterAgent.id,
             originalTask: originalTask
         )
@@ -716,7 +710,8 @@ class ChatViewModel: ObservableObject {
             }
             let provider = json["recommended_provider"] as? String ?? ""
             let model = json["recommended_model"] as? String ?? ""
-            return .suggestAgent(name: name, persona: persona, provider: provider, model: model)
+            let preset = json["recommended_preset"] as? String
+            return .suggestAgent(name: name, persona: persona, provider: provider, model: model, preset: preset)
 
         case "chain":
             guard let stepsArray = json["steps"] as? [[String: String]] else {
@@ -727,10 +722,6 @@ class ChatViewModel: ObservableObject {
                 return MasterAction.ChainStep(agent: agent, task: task)
             }
             return steps.isEmpty ? .unknown(rawResponse: response) : .chain(steps: steps)
-
-        case "respond":
-            let message = json["message"] as? String ?? response
-            return .respond(message: message)
 
         default:
             return .unknown(rawResponse: response)

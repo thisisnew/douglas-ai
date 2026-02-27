@@ -1,5 +1,5 @@
 import Foundation
-@testable import DOUGLASLib
+@testable import DOUGLAS
 
 class MockAIProvider: AIProvider {
     let config: ProviderConfig

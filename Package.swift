@@ -5,9 +5,9 @@ let package = Package(
     name: "DOUGLAS",
     platforms: [.macOS(.v14)],
     targets: [
-        .target(
-            name: "DOUGLASLib",
-            path: "DOUGLAS",
+        .executableTarget(
+            name: "DOUGLAS",
+            path: "Sources",
             exclude: [
                 "Resources/DOUGLAS.entitlements",
                 "Resources/Assets.xcassets"
@@ -16,14 +16,9 @@ let package = Package(
                 .copy("Resources/douglas_profile.png")
             ]
         ),
-        .executableTarget(
-            name: "DOUGLAS",
-            dependencies: ["DOUGLASLib"],
-            path: "DOUGLASApp"
-        ),
         .testTarget(
             name: "DOUGLASTests",
-            dependencies: ["DOUGLASLib"],
+            dependencies: ["DOUGLAS"],
             path: "Tests"
         )
     ]

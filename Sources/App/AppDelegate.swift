@@ -34,7 +34,7 @@ class ClickThroughHostingView<Content: View>: NSHostingView<Content> {
 }
 
 @MainActor
-public class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate {
     var sidebarPanel: NSPanel!
 
     let agentStore = AgentStore()
@@ -52,7 +52,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
     /// 온보딩 윈도우
     private var onboardingWindow: NSWindow?
 
-    public func applicationDidFinishLaunching(_ notification: Notification) {
+    func applicationDidFinishLaunching(_ notification: Notification) {
         // 구 도메인(AgentManager) → 신 도메인(DOUGLAS) 마이그레이션
         migrateUserDefaultsIfNeeded()
 
@@ -185,7 +185,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         onboardingWindow = window
     }
 
-    public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
     }
 
@@ -336,7 +336,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - 수동 토글
 
-    public func toggleSidebar() {
+    func toggleSidebar() {
         if isSidebarVisible {
             hideSidebar()
         } else {
