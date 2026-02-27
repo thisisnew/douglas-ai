@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import AgentManagerLib
+@testable import DOUGLASLib
 
 @Suite("KeychainHelper Tests")
 struct KeychainHelperTests {
@@ -152,7 +152,7 @@ struct KeychainHelperTests {
 
         // 파일을 직접 읽어서 평문이 아닌지 확인
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let keysDir = appSupport.appendingPathComponent("AgentManager/keys", isDirectory: true)
+        let keysDir = appSupport.appendingPathComponent("DOUGLAS/keys", isDirectory: true)
         let safeName = key.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? key
         let fileURL = keysDir.appendingPathComponent("\(safeName).key")
 

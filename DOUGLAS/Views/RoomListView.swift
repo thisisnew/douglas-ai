@@ -73,6 +73,7 @@ struct RoomListView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .padding(.horizontal, 12)
                 .padding(.bottom, 4)
+                Spacer()
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 2) {

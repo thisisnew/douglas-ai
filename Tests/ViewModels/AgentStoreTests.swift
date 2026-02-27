@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import AgentManagerLib
+@testable import DOUGLASLib
 
 @Suite("AgentStore Tests")
 @MainActor

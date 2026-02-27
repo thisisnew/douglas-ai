@@ -867,7 +867,7 @@ struct ProfileImageView: View {
         }
         // 2. Contents/Resources/ 내 번들
         if let resourceURL = Bundle.main.resourceURL?
-            .appendingPathComponent("AgentManager_AgentManagerLib.bundle")
+            .appendingPathComponent("DOUGLAS_DOUGLASLib.bundle")
             .appendingPathComponent("douglas_profile.png"),
            let img = NSImage(contentsOf: resourceURL) {
             return img

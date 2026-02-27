@@ -2,7 +2,7 @@
 set -e
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="AgentManager"
+APP_NAME="DOUGLAS"
 BUILD_DIR="$PROJECT_DIR/.build/release"
 APP_BUNDLE="$PROJECT_DIR/dist/${APP_NAME}.app"
 DMG_OUTPUT="$PROJECT_DIR/dist/${APP_NAME}.dmg"
@@ -28,7 +28,7 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 cp "$EXECUTABLE" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
 # SPM 리소스 번들 복사 (Contents/Resources 안에 배치)
-RESOURCE_BUNDLE="$PROJECT_DIR/.build/arm64-apple-macosx/release/AgentManager_AgentManagerLib.bundle"
+RESOURCE_BUNDLE="$PROJECT_DIR/.build/arm64-apple-macosx/release/DOUGLAS_DOUGLASLib.bundle"
 if [ -d "$RESOURCE_BUNDLE" ]; then
     cp -R "$RESOURCE_BUNDLE" "$APP_BUNDLE/Contents/Resources/"
     echo "리소스 번들 복사 완료"
@@ -43,17 +43,17 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << 'PLIST'
     <key>CFBundleDevelopmentRegion</key>
     <string>ko</string>
     <key>CFBundleExecutable</key>
-    <string>AgentManager</string>
+    <string>DOUGLAS</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>com.agentmanager.app</string>
+    <string>com.douglas.app</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Agent Manager</string>
+    <string>DOUGLAS</string>
     <key>CFBundleDisplayName</key>
-    <string>Agent Manager</string>
+    <string>DOUGLAS</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -93,7 +93,7 @@ rm -f "$DMG_OUTPUT"
 # create-dmg가 있으면 사용, 없으면 hdiutil 사용
 if command -v create-dmg &> /dev/null; then
     create-dmg \
-        --volname "Agent Manager" \
+        --volname "DOUGLAS" \
         --window-pos 200 120 \
         --window-size 600 400 \
         --icon-size 100 \
@@ -110,7 +110,7 @@ else
     cp -R "$APP_BUNDLE" "$STAGING/"
     ln -s /Applications "$STAGING/Applications"
 
-    hdiutil create -volname "Agent Manager" \
+    hdiutil create -volname "DOUGLAS" \
         -srcfolder "$STAGING" \
         -ov -format UDZO \
         "$DMG_OUTPUT"

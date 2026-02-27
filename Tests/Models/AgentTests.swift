@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import AgentManagerLib
+@testable import DOUGLASLib
 
 @Suite("Agent Model Tests")
 struct AgentTests {

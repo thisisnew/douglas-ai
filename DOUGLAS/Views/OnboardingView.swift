@@ -86,7 +86,7 @@ struct OnboardingView: View {
                 Text("마스터 에이전트 설정")
                     .font(.title3.bold())
 
-                Text("AgentManager는 Claude Code CLI를\n마스터 에이전트로 사용합니다")
+                Text("DOUGLAS는 Claude Code CLI를\n마스터 에이전트로 사용합니다")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)

@@ -1,19 +1,19 @@
-# AgentManager 개발 가이드 (DEV_GUIDE)
+# DOUGLAS 개발 가이드 (DEV_GUIDE)
 
-이 문서는 AgentManager의 개발 규칙서입니다.
+이 문서는 DOUGLAS의 개발 규칙서입니다.
 
 ---
 
 ## 프로젝트 구조
 
 ```
-AgentManager/
+DOUGLAS/
 ├── Package.swift                  # SPM, macOS 14+
 ├── scripts/build-app.sh           # 빌드 → .app → 코드서명 → DMG
 ├── ARCHITECTURE.md                # 전체 코드 분석 문서
 ├── DEV_GUIDE.md                   # 이 파일 (개발 규칙)
 ├── CLAUDE.md                      # Claude Code 세션 규칙
-└── AgentManager/
+└── DOUGLAS/
     ├── App/                       # 앱 진입점, AppDelegate
     ├── Models/                    # 데이터 모델 (Agent, ChatMessage, AgentTool, ImageAttachment, ProviderConfig, ToolExecutionContext, DependencyChecker)
     ├── ViewModels/                # 비즈니스 로직 (AgentStore, ChatViewModel, ToolExecutor, ProviderManager, RoomManager)
@@ -37,9 +37,9 @@ AgentManager/
 ### 데이터 저장
 - 에이전트/프로바이더 설정: `UserDefaults`
 - API 키: `KeychainHelper`
-- 이미지: `~/Library/Application Support/AgentManager/avatars/`
-- 채팅 기록: `~/Library/Application Support/AgentManager/chats/`
-- 이미지 첨부: `~/Library/Application Support/AgentManager/attachments/`
+- 이미지: `~/Library/Application Support/DOUGLAS/avatars/`
+- 채팅 기록: `~/Library/Application Support/DOUGLAS/chats/`
+- 이미지 첨부: `~/Library/Application Support/DOUGLAS/attachments/`
 
 ### UI 텍스트
 - 한국어 (앱 내 모든 사용자 대면 텍스트)

@@ -1,4 +1,4 @@
-# AgentManager
+# DOUGLAS
 
 macOS 네이티브 AI 에이전트 관리 데스크톱 앱.
 
@@ -50,8 +50,8 @@ macOS 네이티브 AI 에이전트 관리 데스크톱 앱.
 ### 소스에서 빌드
 
 ```bash
-git clone https://github.com/your-username/AgentManager.git
-cd AgentManager
+git clone https://github.com/your-username/DOUGLAS.git
+cd DOUGLAS
 
 # 릴리즈 빌드
 swift build -c release
@@ -60,31 +60,31 @@ swift build -c release
 ./scripts/build-app.sh
 ```
 
-빌드 결과물은 `dist/AgentManager.app`에 생성됩니다.
+빌드 결과물은 `dist/DOUGLAS.app`에 생성됩니다.
 
 ### 직접 실행 (개발용)
 
 ```bash
-swift run AgentManager
+swift run DOUGLAS
 ```
 
 ## 프로젝트 구조
 
 ```
-AgentManager/
+DOUGLAS/
 ├── Package.swift               # SPM 패키지 정의
 ├── CLAUDE.md                   # 개발 규칙
 ├── ARCHITECTURE.md             # 코드 분석 문서
 ├── DEV_GUIDE.md                # 개발 가이드
 ├── scripts/
 │   └── build-app.sh            # .app 번들 → 코드서명 → DMG
-├── AgentManager/               # 라이브러리 (AgentManagerLib)
+├── DOUGLAS/               # 라이브러리 (DOUGLASLib)
 │   ├── App/                    # AppDelegate, 윈도우 관리
 │   ├── Models/                 # Agent, ChatMessage, ProviderConfig 등
 │   ├── ViewModels/             # AgentStore, ChatViewModel, RoomManager 등
 │   ├── Providers/              # AIProvider 프로토콜 + 구현체
 │   └── Views/                  # SwiftUI 뷰
-├── AgentManagerApp/            # 실행 타겟 (@main 진입점)
+├── DOUGLASApp/            # 실행 타겟 (@main 진입점)
 └── Tests/                      # 테스트 (410개)
 ```
 

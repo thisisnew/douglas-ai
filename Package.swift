@@ -2,14 +2,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "AgentManager",
+    name: "DOUGLAS",
     platforms: [.macOS(.v14)],
     targets: [
         .target(
-            name: "AgentManagerLib",
-            path: "AgentManager",
+            name: "DOUGLASLib",
+            path: "DOUGLAS",
             exclude: [
-                "Resources/AgentManager.entitlements",
+                "Resources/DOUGLAS.entitlements",
                 "Resources/Assets.xcassets"
             ],
             resources: [
@@ -17,13 +17,13 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "AgentManager",
-            dependencies: ["AgentManagerLib"],
-            path: "AgentManagerApp"
+            name: "DOUGLAS",
+            dependencies: ["DOUGLASLib"],
+            path: "DOUGLASApp"
         ),
         .testTarget(
-            name: "AgentManagerTests",
-            dependencies: ["AgentManagerLib"],
+            name: "DOUGLASTests",
+            dependencies: ["DOUGLASLib"],
             path: "Tests"
         )
     ]

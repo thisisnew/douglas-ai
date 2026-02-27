@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// AgentManager 통합 디자인 시스템
+/// DOUGLAS 통합 디자인 시스템
 enum DesignTokens {
 
     // MARK: - 간격

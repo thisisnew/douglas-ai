@@ -1,4 +1,4 @@
-# CLAUDE.md - AgentManager 개발 규칙
+# CLAUDE.md - DOUGLAS 개발 규칙
 
 ## 핵심 규칙
 **모든 작업은 문서 업데이트와 반드시 세트로 수행한다.**

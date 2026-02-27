@@ -3,7 +3,6 @@ import SwiftUI
 
 extension Notification.Name {
     static let sidebarHideRequested = Notification.Name("sidebarHideRequested")
-    static let sidebarPinToggled = Notification.Name("sidebarPinToggled")
 }
 
 class ClickThroughPanel: NSPanel {
@@ -31,15 +30,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
     let providerManager = ProviderManager()
     let chatVM = ChatViewModel()
     let roomManager = RoomManager()
-    private var commandBarManager: CommandBarManager?
+    private var statusItem: NSStatusItem?
+    private var sidebarHotkeyMonitor: Any?
+    private var sidebarGlobalMonitor: Any?
 
-    private var mouseMonitor: Any?
-    private var localMouseMonitor: Any?
     private var isSidebarVisible = false
-    private var isSidebarPinned = false
-    private let edgeThreshold: CGFloat = 50
     private let panelWidth: CGFloat = 400
-    private var hideTimer: Timer?
     /// 현재 사이드바가 표시 중인 화면
     private weak var currentScreen: NSScreen?
     /// 온보딩 윈도우
@@ -74,36 +70,73 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         startNormalFlow()
     }
 
-    /// 사이드바 + 마우스 추적 + 알림 + 커맨드바 시작
+    /// 사이드바 + 알림 + 상태바 아이콘 시작
     private func startNormalFlow() {
         createSidebarPanel()
-        startMouseTracking()
         setupNotifications()
-        setupCommandBar()
+        setupStatusItem()
+        registerSidebarHotkey()
     }
 
     private func setupNotifications() {
         NotificationCenter.default.addObserver(forName: .sidebarHideRequested, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
-                self?.isSidebarPinned = false
                 self?.hideSidebar()
-            }
-        }
-        NotificationCenter.default.addObserver(forName: .sidebarPinToggled, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in
-                self?.isSidebarPinned.toggle()
             }
         }
     }
 
-    private func setupCommandBar() {
-        commandBarManager = CommandBarManager(
-            agentStore: agentStore,
-            providerManager: providerManager,
-            chatVM: chatVM,
-            openChatWindow: { _ in }
-        )
-        commandBarManager?.registerHotkey()
+    // MARK: - 상태바 아이콘 (클릭 → 사이드바 토글)
+
+    private func setupStatusItem() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let button = statusItem?.button {
+            button.image = NSImage(systemSymbolName: "brain.head.profile", accessibilityDescription: "DOUGLAS")
+            button.target = self
+            button.action = #selector(statusItemClicked(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        }
+    }
+
+    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        guard let event = NSApp.currentEvent else { return }
+        if event.type == .rightMouseUp {
+            showStatusMenu()
+        } else {
+            toggleSidebar()
+        }
+    }
+
+    private func showStatusMenu() {
+        let menu = NSMenu()
+        menu.addItem(NSMenuItem(title: "종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        statusItem?.menu = menu
+        statusItem?.button?.performClick(nil)
+        DispatchQueue.main.async { [weak self] in
+            self?.statusItem?.menu = nil
+        }
+    }
+
+    // MARK: - 사이드바 핫키 (Cmd+Shift+E)
+
+    private func registerSidebarHotkey() {
+        sidebarGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if Self.isSidebarHotkey(event) {
+                DispatchQueue.main.async { self?.toggleSidebar() }
+            }
+        }
+        sidebarHotkeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if Self.isSidebarHotkey(event) {
+                DispatchQueue.main.async { self?.toggleSidebar() }
+                return nil
+            }
+            return event
+        }
+    }
+
+    private static func isSidebarHotkey(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return event.keyCode == 0x0E && flags == [.command, .shift] // 0x0E = 'e'
     }
 
     // MARK: - 온보딩
@@ -116,7 +149,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             defer: false
         )
         window.isReleasedWhenClosed = false
-        window.title = "AgentManager 설정"
+        window.title = "DOUGLAS 설정"
         window.center()
 
         let onboardingView = OnboardingView(onComplete: { [weak self] in
@@ -191,68 +224,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         isSidebarVisible = false
     }
 
-    // MARK: - 마우스 감지
-
-    func startMouseTracking() {
-        mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved]) { [weak self] _ in
-            DispatchQueue.main.async { self?.handleMouseMove() }
-        }
-        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { [weak self] event in
-            DispatchQueue.main.async { self?.handleMouseMove() }
-            return event
-        }
-    }
-
-    /// 마우스가 위치한 화면 중 오른쪽 끝에 가까운 화면을 반환
-    private func screenAtRightEdge(_ mouseLocation: NSPoint) -> NSScreen? {
-        for screen in NSScreen.screens {
-            let frame = screen.frame
-            guard frame.contains(mouseLocation) else { continue }
-            let distFromRight = frame.maxX - mouseLocation.x
-            if distFromRight <= edgeThreshold {
-                return screen
-            }
-        }
-        return nil
-    }
-
-    private func handleMouseMove() {
-        let mouseLocation = NSEvent.mouseLocation
-
-        if !isSidebarVisible {
-            // 어떤 모니터든 오른쪽 끝에 마우스 → 나타남
-            if let screen = screenAtRightEdge(mouseLocation) {
-                hideTimer?.invalidate()
-                showSidebar(on: screen)
-            }
-        } else {
-            if isSidebarPinned { return }
-            let mouseInPanel = sidebarPanel.frame.contains(mouseLocation)
-            if mouseInPanel {
-                // 패널 안에 있으면 숨김 취소
-                hideTimer?.invalidate()
-            } else {
-                // 다른 모니터의 오른쪽 끝에 마우스가 있으면 → 그 모니터로 이동
-                if let newScreen = screenAtRightEdge(mouseLocation),
-                   newScreen !== currentScreen {
-                    hideSidebar()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { [weak self] in
-                        self?.showSidebar(on: newScreen)
-                    }
-                    return
-                }
-                // 패널 밖이면 무조건 숨김 예약 (사각지대 없음)
-                scheduleHide()
-            }
-        }
-    }
+    // MARK: - 사이드바 Show / Hide
 
     private func showSidebar(on screen: NSScreen? = nil) {
         guard !isSidebarVisible else { return }
         guard let screen = screen ?? NSScreen.screens.first else { return }
         isSidebarVisible = true
         currentScreen = screen
-        hideTimer?.invalidate()
         sidebarPanel.ignoresMouseEvents = false
         let sf = screen.visibleFrame
         let targetX = sf.maxX - panelWidth
@@ -269,22 +247,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func scheduleHide() {
-        // 이미 타이머가 돌고 있으면 중복 생성하지 않음
-        guard hideTimer == nil || !(hideTimer?.isValid ?? false) else { return }
-        hideTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
-            DispatchQueue.main.async { self?.hideSidebar() }
-        }
-    }
-
     private func hideSidebar() {
-        hideTimer?.invalidate()
-        hideTimer = nil
-        if isSidebarPinned { return }
-        if !isSidebarVisible { return }
-        if sidebarPanel.frame.contains(NSEvent.mouseLocation) { return }
-        // 유틸리티 윈도우가 열려있으면 사이드바 숨기지 않음
-        if UtilityWindowManager.shared.hasOpenWindows { return }
+        guard isSidebarVisible else { return }
         isSidebarVisible = false
         sidebarPanel.ignoresMouseEvents = true
         if let screen = currentScreen ?? NSScreen.screens.first {
@@ -293,7 +257,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                 ctx.duration = 0.15
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
                 self.sidebarPanel.animator().alphaValue = 0.0
-                // 8pt 오른쪽으로 밀려나며 사라짐
                 self.sidebarPanel.animator().setFrame(
                     NSRect(x: sf.maxX - self.panelWidth + 8, y: sf.minY, width: self.panelWidth, height: sf.height),
                     display: true
@@ -307,7 +270,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
 
     public func toggleSidebar() {
         if isSidebarVisible {
-            isSidebarPinned = false
             hideSidebar()
         } else {
             // 마우스가 있는 화면에 표시
@@ -317,7 +279,4 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    public func toggleCommandBar() {
-        commandBarManager?.toggle()
-    }
 }

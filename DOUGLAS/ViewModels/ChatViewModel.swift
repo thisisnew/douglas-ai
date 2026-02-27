@@ -24,6 +24,7 @@ struct AgentSuggestion: Identifiable {
     let recommendedProvider: String
     let recommendedModel: String
     let masterAgentID: UUID
+    let originalTask: String
 }
 
 // MARK: - ChatViewModel
@@ -166,7 +167,7 @@ class ChatViewModel: ObservableObject {
             case .suggestAgent(let name, let persona, let prov, let model):
                 await handleAgentSuggestion(
                     name: name, persona: persona, provider: prov, model: model,
-                    masterAgent: agent
+                    masterAgent: agent, originalTask: text
                 )
 
             case .chain(let steps):
@@ -463,7 +464,8 @@ class ChatViewModel: ObservableObject {
         persona: String,
         provider: String,
         model: String,
-        masterAgent: Agent
+        masterAgent: Agent,
+        originalTask: String
     ) async {
         let suggestionMsg = ChatMessage(
             role: .assistant,
@@ -478,7 +480,8 @@ class ChatViewModel: ObservableObject {
             persona: persona,
             recommendedProvider: provider,
             recommendedModel: model,
-            masterAgentID: masterAgent.id
+            masterAgentID: masterAgent.id,
+            originalTask: originalTask
         )
     }
 
@@ -751,7 +754,7 @@ class ChatViewModel: ObservableObject {
     private static var chatDirectory: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".agentmanager")
-        let dir = appSupport.appendingPathComponent("AgentManager/chats", isDirectory: true)
+        let dir = appSupport.appendingPathComponent("DOUGLAS/chats", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }

@@ -4,6 +4,7 @@ struct SuggestionCard: View {
     let suggestion: AgentSuggestion
     @EnvironmentObject var agentStore: AgentStore
     @EnvironmentObject var chatVM: ChatViewModel
+    @EnvironmentObject var roomManager: RoomManager
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -67,6 +68,26 @@ struct SuggestionCard: View {
             messageType: .text
         )
         chatVM.appendMessagePublic(msg, for: suggestion.masterAgentID)
+
+        // 방 생성 + 워크플로우 시작
+        let task = suggestion.originalTask
+        let room = roomManager.createRoom(
+            title: task,
+            agentIDs: [agent.id],
+            createdBy: .master(agentID: suggestion.masterAgentID)
+        )
+        roomManager.pendingAutoOpenRoomID = room.id
+
+        let delegationMsg = ChatMessage(
+            role: .assistant,
+            content: "'\(suggestion.name)' 에이전트로 방을 생성합니다: \(task)",
+            agentName: "마스터",
+            messageType: .delegation
+        )
+        chatVM.appendMessagePublic(delegationMsg, for: suggestion.masterAgentID)
+
+        roomManager.launchWorkflow(roomID: room.id, task: task)
+
         chatVM.pendingSuggestion = nil
     }
 }

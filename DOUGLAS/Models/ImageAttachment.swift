@@ -12,7 +12,7 @@ struct ImageAttachment: Codable, Identifiable {
     private static var attachmentsDir: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".agentmanager")
-        let dir = appSupport.appendingPathComponent("AgentManager/attachments", isDirectory: true)
+        let dir = appSupport.appendingPathComponent("DOUGLAS/attachments", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }

@@ -1,6 +1,6 @@
-name: AgentManager
+name: DOUGLAS
 options:
-  bundleIdPrefix: com.agentmanager
+  bundleIdPrefix: com.douglas
   deploymentTarget:
     macOS: "14.0"
   xcodeVersion: "15.0"
@@ -12,24 +12,24 @@ settings:
     MACOSX_DEPLOYMENT_TARGET: "14.0"
 
 targets:
-  AgentManager:
+  DOUGLAS:
     type: application
     platform: macOS
     sources:
-      - path: AgentManager
+      - path: DOUGLAS
         excludes:
           - "Resources/Assets.xcassets/AppIcon.appiconset"
     resources:
-      - path: AgentManager/Resources/Assets.xcassets
+      - path: DOUGLAS/Resources/Assets.xcassets
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.agentmanager.app
+        PRODUCT_BUNDLE_IDENTIFIER: com.douglas.app
         INFOPLIST_GENERATION_MODE: GeneratedFile
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: 1
-        PRODUCT_NAME: AgentManager
+        PRODUCT_NAME: DOUGLAS
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.developer-tools"
-        INFOPLIST_KEY_CFBundleDisplayName: "Agent Manager"
-        CODE_SIGN_ENTITLEMENTS: AgentManager/Resources/AgentManager.entitlements
+        INFOPLIST_KEY_CFBundleDisplayName: "DOUGLAS"
+        CODE_SIGN_ENTITLEMENTS: DOUGLAS/Resources/DOUGLAS.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

@@ -36,7 +36,7 @@ enum KeychainHelper {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             return dir
         }
-        let dir = appSupport.appendingPathComponent("AgentManager/keys", isDirectory: true)
+        let dir = appSupport.appendingPathComponent("DOUGLAS/keys", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
