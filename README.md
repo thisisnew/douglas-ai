@@ -24,17 +24,20 @@ macOS 네이티브 AI 에이전트 관리 데스크톱 앱.
 - **순차 체이닝**: A의 결과를 B에게 전달하는 워크플로 체인
 - **컨텍스트 공유**: 에이전트 간 대화 내역 참조
 - **에이전트 제안**: 적합한 에이전트가 없으면 자동 생성 제안
-- **플로팅 사이드바**: 화면 오른쪽에 항상 대기, 다른 앱 작업 방해 없음
+- **Tool Use**: 에이전트별 도구 활성화 — 파일 읽기/쓰기, 셸 실행, 에이전트 초대 등 6종
+- **이미지 첨부 + Vision**: 이미지를 첨부하여 Vision API 지원 프로바이더로 분석
+- **플로팅 사이드바**: 메뉴바 아이콘 또는 `⌘⇧E`로 토글, 다른 앱 작업 방해 없음
 - **글로벌 커맨드 바**: `⌘⇧A`로 어디서든 마스터에게 빠르게 접근
-- **워즈니악 (유지보수 담당자)**: 앱 개선, 코드 수정, 버그 수정을 처리하는 내장 개발 에이전트
+- **온보딩 + 의존성 체커**: 첫 실행 시 Node.js, Git 등 필요 환경 자동 확인
 
 ## 지원 AI 프로바이더
 
 | 프로바이더 | 인증 방식 | 비고 |
 |-----------|----------|------|
 | Claude Code | CLI (키 불필요) | `claude` CLI 실행 |
-| OpenAI | API Key | GPT-4o 등 |
-| Google | API Key | Gemini 2.0 Flash 등 |
+| Anthropic | API Key | Claude 3.5 Sonnet 등 (Tool Use 지원) |
+| OpenAI | API Key | GPT-4o 등 (Tool Use 지원) |
+| Google | API Key | Gemini 2.0 Flash 등 (Tool Use 지원) |
 
 ## 요구 사항
 
@@ -72,7 +75,7 @@ AgentManager/
 ├── Package.swift               # SPM 패키지 정의
 ├── CLAUDE.md                   # 개발 규칙
 ├── ARCHITECTURE.md             # 코드 분석 문서
-├── DEV_GUIDE.md                # 워즈니악 참조 개발 가이드
+├── DEV_GUIDE.md                # 개발 가이드
 ├── scripts/
 │   └── build-app.sh            # .app 번들 → 코드서명 → DMG
 ├── AgentManager/               # 라이브러리 (AgentManagerLib)
@@ -82,7 +85,7 @@ AgentManager/
 │   ├── Providers/              # AIProvider 프로토콜 + 구현체
 │   └── Views/                  # SwiftUI 뷰
 ├── AgentManagerApp/            # 실행 타겟 (@main 진입점)
-└── Tests/                      # 테스트 (220개)
+└── Tests/                      # 테스트 (410개)
 ```
 
 ## 아키텍처
@@ -90,20 +93,21 @@ AgentManager/
 MVVM 패턴 기반으로 구성되어 있습니다.
 
 ```
-Models          ViewModels           Views
-─────────       ──────────────       ──────────────
-Agent       ←── AgentStore       ←── FloatingSidebarView
-ChatMessage ←── ChatViewModel    ←── ChatView
-Room        ←── RoomManager      ←── RoomListView
-ProviderCfg ←── ProviderManager  ←── AddProviderSheet
-ChangeRecord←── DevAgentManager  ←── ChangeHistoryView
-                     │
-              ┌──────┴──────┐
-              │  Providers  │
-              │ ClaudeCode  │
-              │ OpenAI      │
-              │ Google      │
-              └─────────────┘
+Models            ViewModels           Views
+──────────        ──────────────       ──────────────
+Agent         ←── AgentStore       ←── FloatingSidebarView
+ChatMessage   ←── ChatViewModel    ←── ChatView
+Room          ←── RoomManager      ←── RoomListView
+ProviderCfg   ←── ProviderManager  ←── AddProviderSheet
+AgentTool     ←── ToolExecutor     ←── RoomChatView
+                       │
+                ┌──────┴──────┐
+                │  Providers  │
+                │ ClaudeCode  │
+                │ Anthropic   │
+                │ OpenAI      │
+                │ Google      │
+                └─────────────┘
 ```
 
 ## 테스트
@@ -127,7 +131,7 @@ swift test --filter ChatViewModelParsingTests
 ## 문서
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — 전체 코드 분석 및 구조 문서
-- [DEV_GUIDE.md](./DEV_GUIDE.md) — 개발 규칙 및 워즈니악 참조 가이드
+- [DEV_GUIDE.md](./DEV_GUIDE.md) — 개발 규칙 및 가이드
 - [CLAUDE.md](./CLAUDE.md) — Claude Code 세션 규칙
 
 ## 라이선스
