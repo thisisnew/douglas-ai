@@ -19,6 +19,7 @@ enum RoomStatus: String, Codable {
     func canTransition(to target: RoomStatus) -> Bool {
         switch (self, target) {
         case (.planning, .inProgress),
+             (.planning, .completed),
              (.planning, .failed),
              (.inProgress, .completed),
              (.inProgress, .failed):

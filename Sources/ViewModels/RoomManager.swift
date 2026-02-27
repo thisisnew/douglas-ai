@@ -736,11 +736,26 @@ class RoomManager: ObservableObject {
 
     func completeRoom(_ roomID: UUID) {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
+        // 진행 중인 워크플로우 취소
+        roomTasks[roomID]?.cancel()
+        roomTasks.removeValue(forKey: roomID)
         speakingAgentIDByRoom.removeValue(forKey: roomID)
-        rooms[idx].transitionTo(.completed)
+        guard rooms[idx].transitionTo(.completed) else { return }
         rooms[idx].completedAt = Date()
         syncAgentStatuses()
         scheduleSave()
+    }
+
+    func completeRooms(_ roomIDs: Set<UUID>) {
+        for roomID in roomIDs {
+            completeRoom(roomID)
+        }
+    }
+
+    func deleteRooms(_ roomIDs: Set<UUID>) {
+        for roomID in roomIDs {
+            deleteRoom(roomID)
+        }
     }
 
     func deleteRoom(_ roomID: UUID) {

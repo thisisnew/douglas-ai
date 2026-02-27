@@ -221,13 +221,14 @@ struct RoomManagerTests {
         #expect(found?.completedAt != nil)
     }
 
-    @Test("completeRoom - planning에서는 전이 불가")
+    @Test("completeRoom - planning에서도 완료 가능")
     func completeRoomFromPlanning() {
         let manager = makeManager()
         let room = manager.createRoom(title: "Test", agentIDs: [], createdBy: .user)
         manager.completeRoom(room.id)
-        // planning → completed 직접 전이는 불가
-        #expect(manager.rooms.first?.status == .planning)
+        let found = manager.rooms.first(where: { $0.id == room.id })
+        #expect(found?.status == .completed)
+        #expect(found?.completedAt != nil)
     }
 
     @Test("completeRoom - 존재하지 않는 방")

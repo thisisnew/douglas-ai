@@ -75,7 +75,7 @@ DOUGLAS/
 │       ├── AddProviderSheet.swift   # 프로바이더 설정 시트
 │       ├── CreateRoomSheet.swift    # 방 생성 시트
 │       ├── OnboardingView.swift     # 첫 실행 온보딩 2단계 UI
-│       ├── RoomListView.swift       # 방 목록 + 상태 필터
+│       ├── RoomListView.swift       # 방 목록 + 상태 필터 + 편집 모드 (전체 선택/일괄 완료·삭제)
 │       ├── RoomChatView.swift       # 방별 채팅 인터페이스
 │       ├── WorkLogView.swift        # 방 작업 로그 뷰
 │       ├── AgentAvatarView.swift    # 원형 아바타 (마스터/서브 아이콘 분기)

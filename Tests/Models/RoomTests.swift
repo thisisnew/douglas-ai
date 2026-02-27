@@ -344,9 +344,9 @@ struct RoomTests {
         #expect(RoomStatus.planning.canTransition(to: .planning) == false)
     }
 
-    @Test("canTransition - planning → completed 불가 (건너뛰기)")
+    @Test("canTransition - planning → completed 허용 (수동 완료)")
     func canTransitionPlanningToCompleted() {
-        #expect(RoomStatus.planning.canTransition(to: .completed) == false)
+        #expect(RoomStatus.planning.canTransition(to: .completed) == true)
     }
 
     @Test("canTransition - inProgress → planning 불가 (역전)")
