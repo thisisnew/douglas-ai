@@ -94,25 +94,22 @@ struct RoomListView: View {
                 Spacer()
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 2) {
+                    LazyVStack(spacing: 2) {
                         ForEach(filteredRooms) { room in
-                            HStack(spacing: 0) {
-                                // 편집 모드: 체크박스
-                                if isEditMode {
-                                    checkboxButton(for: room.id)
-                                        .transition(.move(edge: .leading).combined(with: .opacity))
-                                }
-
-                                RoomListItem(room: room)
-                                    .onTapGesture {
-                                        if isEditMode {
-                                            toggleSelection(room.id)
-                                        } else {
-                                            onRoomTap(room.id)
-                                        }
+                            RoomRow(
+                                room: room,
+                                isEditMode: isEditMode,
+                                isSelected: selectedIDs.contains(room.id),
+                                onTap: {
+                                    if isEditMode {
+                                        toggleSelection(room.id)
+                                    } else {
+                                        onRoomTap(room.id)
                                     }
-                                    .contextMenu { roomContextMenu(room) }
-                            }
+                                },
+                                onComplete: { roomManager.completeRoom(room.id) },
+                                onDelete: { roomManager.deleteRoom(room.id) }
+                            )
                         }
                     }
                     .padding(.horizontal, 6)
@@ -128,7 +125,6 @@ struct RoomListView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: isEditMode)
-        .animation(.easeInOut(duration: 0.15), value: selectedIDs)
         .confirmationDialog(
             "선택한 \(selectedIDs.count)개 방을 삭제할까요?",
             isPresented: $showDeleteConfirm,
@@ -171,12 +167,10 @@ struct RoomListView: View {
     private var selectAllBar: some View {
         HStack(spacing: 8) {
             Button {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    if isAllSelected {
-                        selectedIDs.removeAll()
-                    } else {
-                        selectedIDs = Set(filteredRooms.map(\.id))
-                    }
+                if isAllSelected {
+                    selectedIDs.removeAll()
+                } else {
+                    selectedIDs = Set(filteredRooms.map(\.id))
                 }
             } label: {
                 HStack(spacing: 6) {
@@ -203,22 +197,6 @@ struct RoomListView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
         .background(Color.primary.opacity(0.03))
-    }
-
-    // MARK: - 체크박스
-
-    private func checkboxButton(for id: UUID) -> some View {
-        let isSelected = selectedIDs.contains(id)
-        return Button {
-            toggleSelection(id)
-        } label: {
-            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 16))
-                .foregroundColor(isSelected ? .accentColor : .secondary.opacity(0.35))
-                .frame(width: 32)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: - 하단 액션 바
@@ -329,40 +307,54 @@ struct RoomListView: View {
         }
     }
 
-    // MARK: - Context Menu
-
-    @ViewBuilder
-    private func roomContextMenu(_ room: Room) -> some View {
-        if room.isActive {
-            Button {
-                roomManager.completeRoom(room.id)
-            } label: {
-                Label("완료 처리", systemImage: "checkmark.circle")
-            }
-        }
-        Divider()
-        Button(role: .destructive) {
-            roomManager.deleteRoom(room.id)
-        } label: {
-            Label("삭제", systemImage: "trash")
-        }
-    }
-
     // MARK: - Helpers
 
     private func toggleSelection(_ id: UUID) {
-        withAnimation(.easeInOut(duration: 0.15)) {
-            if selectedIDs.contains(id) {
-                selectedIDs.remove(id)
-            } else {
-                selectedIDs.insert(id)
-            }
+        if selectedIDs.contains(id) {
+            selectedIDs.remove(id)
+        } else {
+            selectedIDs.insert(id)
         }
     }
 
     private func exitEditModeIfEmpty() {
         if filteredRooms.isEmpty {
             withAnimation { isEditMode = false }
+        }
+    }
+}
+
+// MARK: - 방 행 (편집 모드 지원)
+
+struct RoomRow: View {
+    let room: Room
+    let isEditMode: Bool
+    let isSelected: Bool
+    let onTap: () -> Void
+    let onComplete: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 8) {
+                if isEditMode {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 16))
+                        .foregroundColor(isSelected ? .accentColor : .secondary.opacity(0.4))
+                }
+                RoomListItem(room: room)
+            }
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            if room.isActive {
+                Button { onComplete() } label: {
+                    Label("완료 처리", systemImage: "checkmark.circle")
+                }
+            }
+            Button(role: .destructive) { onDelete() } label: {
+                Label("삭제", systemImage: "trash")
+            }
         }
     }
 }

@@ -90,7 +90,7 @@ class AgentStore: ObservableObject {
         let agentLines = subAgents.map { agent in
             let tools = agent.resolvedToolIDs
             let toolStr = tools.isEmpty ? "도구 없음" : tools.joined(separator: ", ")
-            return "- \(agent.name) [도구: \(toolStr)]: \(agent.persona.prefix(80))"
+            return "- \"\(agent.name)\" [도구: \(toolStr)]: \(agent.persona)"
         }
         let agentList = agentLines.joined(separator: "\n")
 
@@ -111,10 +111,10 @@ class AgentStore: ObservableObject {
         출력 형식 (택 1):
 
         1) 적합한 에이전트가 있을 때:
-        {"action":"delegate","agents":["이름1","이름2"],"task":"구체적 지시"}
+        {"action":"delegate","agents":["에이전트 이름(정확히)"],"task":"구체적 지시"}
 
         2) 여러 에이전트를 순차 실행할 때:
-        {"action":"chain","steps":[{"agent":"이름","task":"지시"}]}
+        {"action":"chain","steps":[{"agent":"에이전트 이름(정확히)","task":"지시"}]}
 
         3) 적합한 에이전트가 없을 때 — 새 에이전트 제안:
         {"action":"suggest_agent","name":"이름","persona":"역할 설명","recommended_preset":"프리셋"}
@@ -125,9 +125,14 @@ class AgentStore: ObservableObject {
         - analyst: file_read, shell_exec, web_fetch (분석·URL)
         - fullAccess: 전체 도구
 
-        규칙:
-        - 적합한 에이전트가 있으면 무조건 delegate
-        - 에이전트가 있어도 요청에 적합하지 않으면 suggest_agent
+        에이전트 매칭 규칙 (우선순위 순서):
+        1. 이름 매칭: 사용자가 에이전트 이름이나 역할 키워드를 언급하면 해당 에이전트를 delegate. 예: "QA 불러줘" → 이름에 "QA"가 포함된 에이전트 선택
+        2. 역할 매칭: 이름에 없으면 persona 설명에서 역할이 일치하는 에이전트 선택
+        3. 능력 매칭: 요청에 필요한 도구를 가진 에이전트 선택
+        4. 해당 없음: 위 모두 불일치 시에만 suggest_agent
+
+        기타 규칙:
+        - agents 배열에 넣는 이름은 에이전트 목록에 있는 이름을 정확히 사용
         - URL이 포함된 요청은 web_fetch 도구가 있는 에이전트에게 위임
         - Jira URL인데 Jira 연동이 미설정이면 task에 "Jira 연동이 필요합니다. API 설정에서 Jira를 연결해주세요." 안내 포함
         - 여러 명 필요하면 agents에 복수 지정

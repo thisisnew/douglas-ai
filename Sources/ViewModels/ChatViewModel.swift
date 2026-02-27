@@ -275,7 +275,7 @@ class ChatViewModel: ObservableObject {
         providerManager: ProviderManager
     ) async {
         let resolvedAgents = agentNames.compactMap { name in
-            agentStore.agents.first(where: { $0.name == name })
+            resolveAgent(name: name, in: agentStore)
         }
 
         if resolvedAgents.isEmpty {
@@ -510,7 +510,7 @@ class ChatViewModel: ObservableObject {
         // 체인의 모든 에이전트 해석
         let allAgentNames = Array(Set(steps.map { $0.agent }))
         let resolvedAgents = allAgentNames.compactMap { name in
-            agentStore.agents.first(where: { $0.name == name })
+            resolveAgent(name: name, in: agentStore)
         }
         let agentIDs = resolvedAgents.map { $0.id }
 
@@ -557,7 +557,7 @@ class ChatViewModel: ObservableObject {
         var previousOutput: String? = nil
 
         for (index, step) in steps.enumerated() {
-            guard let subAgent = agentStore.subAgents.first(where: { $0.name == step.agent }) else {
+            guard let subAgent = resolveAgent(name: step.agent, in: agentStore) else {
                 let errorMsg = ChatMessage(
                     role: .assistant,
                     content: "체인 중단: '\(step.agent)' 에이전트를 찾을 수 없습니다.",
@@ -750,6 +750,43 @@ class ChatViewModel: ObservableObject {
             return String(text[start...end])
         }
         return text
+    }
+
+    // MARK: - 에이전트 이름 해석 (퍼지 매칭)
+
+    /// 마스터가 반환한 이름으로 에이전트를 찾되, 정확 일치 → 대소문자 무시 → 포함 매칭 순으로 시도
+    private func resolveAgent(name: String, in agentStore: AgentStore) -> Agent? {
+        let candidates = agentStore.subAgents
+
+        // 1. 정확 일치
+        if let exact = candidates.first(where: { $0.name == name }) {
+            return exact
+        }
+
+        let lower = name.lowercased()
+
+        // 2. 대소문자 무시 일치
+        if let ci = candidates.first(where: { $0.name.lowercased() == lower }) {
+            return ci
+        }
+
+        // 3. 공백·특수문자 제거 후 일치 (예: "QA 전문가" vs "QA전문가")
+        let normalized = name.filter { $0.isLetter || $0.isNumber }.lowercased()
+        if !normalized.isEmpty,
+           let norm = candidates.first(where: {
+               $0.name.filter { $0.isLetter || $0.isNumber }.lowercased() == normalized
+           }) {
+            return norm
+        }
+
+        // 4. 에이전트 이름이 입력을 포함하거나 입력이 에이전트 이름을 포함
+        if let contains = candidates.first(where: {
+            $0.name.lowercased().contains(lower) || lower.contains($0.name.lowercased())
+        }) {
+            return contains
+        }
+
+        return nil
     }
 
     // MARK: - Helpers
