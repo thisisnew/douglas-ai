@@ -49,33 +49,65 @@ class ClaudeCodeInstaller: ObservableObject {
     func detect() async {
         state = .checking
 
-        // 타임아웃 5초: 파일 시스템 검색이 멈추면 .notFound 처리
-        let completed = await withTaskGroup(of: Bool.self) { group in
-            group.addTask { @MainActor in
-                let path = ClaudeCodeProvider.findClaudePath()
-                if FileManager.default.isExecutableFile(atPath: path) {
-                    if self.checkAuthStatus() {
-                        self.state = .ready
-                    } else {
-                        self.state = .found(path: path)
-                    }
-                } else {
-                    self.state = .notFound
-                }
-                return true
+        // 백그라운드에서 탐색 (메인 스레드 블로킹 방지 + 5초 타임아웃)
+        let foundPath: String? = await Self.findClaudeInBackground()
+
+        if let path = foundPath {
+            if checkAuthStatus() {
+                state = .ready
+            } else {
+                state = .found(path: path)
             }
+        } else {
+            state = .notFound
+        }
+    }
+
+    /// 백그라운드에서 claude 바이너리 탐색 (5초 타임아웃)
+    private static func findClaudeInBackground() async -> String? {
+        await withTaskGroup(of: String?.self) { group in
+            // 실제 탐색 (백그라운드 스레드)
+            group.addTask {
+                await withCheckedContinuation { continuation in
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        // 1. 하드코딩 경로 확인
+                        let path = ClaudeCodeProvider.findClaudePath()
+                        if FileManager.default.isExecutableFile(atPath: path) {
+                            continuation.resume(returning: path)
+                            return
+                        }
+
+                        // 2. 로그인 셸 which 폴백
+                        let process = Process()
+                        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+                        process.arguments = ["-l", "-c", "command -v claude"]
+                        let pipe = Pipe()
+                        process.standardOutput = pipe
+                        process.standardError = Pipe()
+                        do {
+                            try process.run()
+                            process.waitUntilExit()
+                            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                            let result = String(data: data, encoding: .utf8)?
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                            if let result, !result.isEmpty, process.terminationStatus == 0,
+                               FileManager.default.isExecutableFile(atPath: result) {
+                                continuation.resume(returning: result)
+                                return
+                            }
+                        } catch {}
+                        continuation.resume(returning: nil)
+                    }
+                }
+            }
+            // 타임아웃
             group.addTask {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
-                return false
+                return nil
             }
-            // 먼저 끝나는 쪽 채택
-            let first = await group.next() ?? false
+            let first = await group.next() ?? nil
             group.cancelAll()
             return first
-        }
-
-        if !completed && state == .checking {
-            state = .notFound
         }
     }
 

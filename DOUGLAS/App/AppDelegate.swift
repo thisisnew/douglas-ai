@@ -8,15 +8,14 @@ extension Notification.Name {
 class ClickThroughPanel: NSPanel {
     override var canBecomeKey: Bool { true }
 
-    // 패널 프레임 제한 — 높이를 화면에 맞추고, 화면 밖 이탈 방지
+    // 패널이 화면 밖으로 완전히 벗어나지 않도록만 제한 (자유 드래그 허용)
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         guard let screen = screen ?? NSScreen.screens.first else { return frameRect }
         var rect = frameRect
         let sf = screen.visibleFrame
-        rect.origin.y = sf.minY
-        rect.size.height = sf.height
-        // 패널이 화면 밖으로 나가지 않도록 X 클램핑
+        // 최소 40pt는 화면 안에 보이도록 클램핑
         rect.origin.x = max(sf.minX - rect.width + 40, min(rect.origin.x, sf.maxX - 40))
+        rect.origin.y = max(sf.minY - rect.height + 40, min(rect.origin.y, sf.maxY - 40))
         return rect
     }
 }
@@ -45,6 +44,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
     private var onboardingWindow: NSWindow?
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
+        // 구 도메인(AgentManager) → 신 도메인(DOUGLAS) 마이그레이션
+        migrateUserDefaultsIfNeeded()
+
         // RoomManager 먼저 설정
         roomManager.configure(agentStore: agentStore, providerManager: providerManager)
         roomManager.loadRooms()
@@ -101,15 +103,26 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private var clickTimer: DispatchWorkItem?
+
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
         guard let event = NSApp.currentEvent else { return }
         if event.type == .rightMouseUp {
             showStatusMenu()
-        } else if event.clickCount == 2 {
-            // 더블클릭: 오른쪽 사이드바 위치로 스냅
+            return
+        }
+        if event.clickCount == 2 {
+            // 더블클릭 감지 → 싱글클릭 타이머 취소 후 오른쪽 스냅
+            clickTimer?.cancel()
+            clickTimer = nil
             snapSidebarToRight()
         } else {
-            toggleSidebar()
+            // 싱글클릭: 더블클릭 여부 확인을 위해 지연
+            let work = DispatchWorkItem { [weak self] in
+                self?.toggleSidebar()
+            }
+            clickTimer = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
         }
     }
 
@@ -178,6 +191,32 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
+    // MARK: - UserDefaults 마이그레이션
+
+    /// AgentManager → DOUGLAS 리네이밍 시 UserDefaults 도메인 마이그레이션
+    private func migrateUserDefaultsIfNeeded() {
+        let migrated = UserDefaults.standard.bool(forKey: "migrated_from_AgentManager")
+        guard !migrated else { return }
+
+        // 구 도메인에서 데이터 읽기
+        guard let oldDefaults = UserDefaults(suiteName: "AgentManager") else { return }
+        let oldDict = oldDefaults.dictionaryRepresentation()
+
+        // 마이그레이션 대상 키
+        let keysToMigrate = ["onboardingCompleted", "savedAgents", "providerConfigs"]
+        var didMigrate = false
+        for key in keysToMigrate {
+            if let value = oldDict[key], UserDefaults.standard.object(forKey: key) == nil {
+                UserDefaults.standard.set(value, forKey: key)
+                didMigrate = true
+            }
+        }
+
+        if didMigrate {
+            UserDefaults.standard.set(true, forKey: "migrated_from_AgentManager")
+        }
+    }
+
     // MARK: - 사이드바 패널
 
     func createSidebarPanel() {
@@ -203,7 +242,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         sidebarPanel.isFloatingPanel = true
         sidebarPanel.hidesOnDeactivate = false
         sidebarPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        sidebarPanel.isMovableByWindowBackground = true
+        sidebarPanel.isMovableByWindowBackground = false
         sidebarPanel.backgroundColor = .clear
         sidebarPanel.isOpaque = false
         sidebarPanel.titlebarAppearsTransparent = true

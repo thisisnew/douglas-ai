@@ -63,10 +63,10 @@ struct RoomListView: View {
             if filteredRooms.isEmpty {
                 Spacer()
                 Text(selectedFilter == .all ? "아직 방이 없습니다" : "'\(selectedFilter.rawValue)' 상태의 방이 없습니다")
-                    .font(.caption)
+                    .font(.system(size: 13))
                     .foregroundColor(.secondary.opacity(0.6))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .multilineTextAlignment(.center)
                 Spacer()
             } else {
                 ScrollView(.vertical, showsIndicators: false) {

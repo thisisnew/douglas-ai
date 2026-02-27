@@ -162,6 +162,9 @@ struct FloatingSidebarView: View {
     /// Room 목록 높이 (pt 단위, 드래그로 조절)
     @State private var roomListHeight: CGFloat = 160
     @State private var roomDragStartHeight: CGFloat = 160
+    /// 윈도우 드래그 시작 시 마우스-윈도우 간 오프셋
+    @State private var windowDragOffset: CGFloat = 0
+    @State private var isDraggingWindow = false
 
     private var masterAgent: Agent? { agentStore.masterAgent }
     private var masterID: UUID? { masterAgent?.id }
@@ -182,9 +185,48 @@ struct FloatingSidebarView: View {
 
     @State private var sectionHandleHovered = false
 
+    /// 윈도우 드래그용 마우스 오프셋 (Y축 포함)
+    @State private var windowDragOffsetY: CGFloat = 0
+
+    /// 상단 드래그 핸들 — 패널 자유 이동용
+    private var dragHandle: some View {
+        RoundedRectangle(cornerRadius: 2.5)
+            .fill(Color.primary.opacity(0.15))
+            .frame(width: 36, height: 5)
+            .frame(maxWidth: .infinity)
+            .frame(height: 14)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        guard let panel = NSApp.windows.first(where: { $0.title == "Tell, Don't Ask" }) else { return }
+                        let mouse = NSEvent.mouseLocation
+                        if !isDraggingWindow {
+                            isDraggingWindow = true
+                            windowDragOffset = mouse.x - panel.frame.origin.x
+                            windowDragOffsetY = mouse.y - panel.frame.origin.y
+                        }
+                        panel.setFrameOrigin(NSPoint(
+                            x: mouse.x - windowDragOffset,
+                            y: mouse.y - windowDragOffsetY
+                        ))
+                    }
+                    .onEnded { _ in
+                        isDraggingWindow = false
+                    }
+            )
+            .onHover { hovering in
+                if hovering { NSCursor.openHand.push() }
+                else { NSCursor.pop() }
+            }
+    }
+
     var body: some View {
         GeometryReader { sidebarGeo in
             VStack(spacing: 0) {
+                // ── 드래그 핸들 ──
+                dragHandle
+
                 // ── 헤더 ──
                 header
 

@@ -1,70 +1,53 @@
 # DOUGLAS
 
-macOS 네이티브 AI 에이전트 관리 데스크톱 앱.
+macOS 플로팅 사이드바 기반 AI 에이전트 매니저.
 
-마스터 에이전트가 사용자의 요청을 분석하여 적합한 서브 에이전트에게 자동으로 작업을 위임하는 **"사장님 모드"** 워크플로를 제공합니다.
+마스터 에이전트에게 지시하면, 알아서 서브 에이전트를 골라 방(Room)을 만들고, 작업을 위임하고, 결과를 취합합니다.
 
-![Platform](https://img.shields.io/badge/platform-macOS%2014+-blue)
+![Platform](https://img.shields.io/badge/macOS-14.0+-blue)
 ![Swift](https://img.shields.io/badge/Swift-5.9-orange)
-![Architecture](https://img.shields.io/badge/architecture-MVVM-green)
+![Architecture](https://img.shields.io/badge/MVVM-green)
 
-## 핵심 컨셉
-
-사용자는 에이전트를 직접 골라서 시키지 않습니다. 사이드바에 타이핑하면 마스터 에이전트가 알아서 적합한 팀원(서브 에이전트)에게 분배합니다.
+## 동작 방식
 
 ```
-사용자: "블로그 글 하나 써줘"
-  → 마스터가 분석 → 마케팅 에이전트에게 위임 → 방 생성 → 결과 취합
+사용자 → 사이드바에 입력 → 마스터 에이전트가 분석
+  → 적합한 서브 에이전트 선택 → 방 생성 → 작업 위임 → 결과 취합
 ```
+
+사용자가 에이전트를 직접 고르지 않습니다. 마스터가 판단합니다.
 
 ## 주요 기능
 
-- **자동 위임**: 마스터가 요청을 분석하여 최적의 에이전트 조합으로 방을 구성
-- **병렬 처리**: 여러 에이전트에게 동시에 작업 위임
-- **순차 체이닝**: A의 결과를 B에게 전달하는 워크플로 체인
-- **컨텍스트 공유**: 에이전트 간 대화 내역 참조
-- **에이전트 제안**: 적합한 에이전트가 없으면 자동 생성 제안
-- **Tool Use**: 에이전트별 도구 활성화 — 파일 읽기/쓰기, 셸 실행, 에이전트 초대 등 6종
-- **이미지 첨부 + Vision**: 이미지를 첨부하여 Vision API 지원 프로바이더로 분석
-- **플로팅 사이드바**: 메뉴바 아이콘 또는 `⌘⇧E`로 토글, 다른 앱 작업 방해 없음
-- **글로벌 커맨드 바**: `⌘⇧A`로 어디서든 마스터에게 빠르게 접근
-- **온보딩 + 의존성 체커**: 첫 실행 시 Node.js, Git 등 필요 환경 자동 확인
+- **자동 위임** — 마스터가 요청을 분석하여 서브 에이전트 조합으로 방 구성
+- **병렬 / 순차 처리** — 여러 에이전트 동시 투입 또는 A→B 체이닝
+- **Tool Use** — 파일 읽기/쓰기, 셸 실행, 에이전트 초대 등 6종 도구
+- **이미지 첨부 + Vision** — 이미지를 첨부하여 Vision API로 분석
+- **플로팅 사이드바** — 다른 앱 위에 떠 있으며, 드래그로 자유 이동
+- **글로벌 핫키** — `⌘⇧E` 사이드바 토글, `⌘⇧A` 커맨드 바
+- **온보딩** — 첫 실행 시 필요 환경(Node.js, Git 등) 자동 체크
 
-## 지원 AI 프로바이더
+## 지원 프로바이더
 
-| 프로바이더 | 인증 방식 | 비고 |
-|-----------|----------|------|
-| Claude Code | CLI (키 불필요) | `claude` CLI 실행 |
-| Anthropic | API Key | Claude 3.5 Sonnet 등 (Tool Use 지원) |
+| 프로바이더 | 인증 | 비고 |
+|-----------|------|------|
+| Claude Code | CLI | `claude` CLI 직접 실행 |
+| Anthropic | API Key | Claude 모델 (Tool Use 지원) |
 | OpenAI | API Key | GPT-4o 등 (Tool Use 지원) |
-| Google | API Key | Gemini 2.0 Flash 등 (Tool Use 지원) |
+| Google | API Key | Gemini 모델 (Tool Use 지원) |
 
-## 요구 사항
-
-- macOS 14.0 (Sonoma) 이상
-- Swift 5.9+
-- Xcode 15+ 또는 Swift Toolchain
-
-## 설치 및 실행
-
-### 소스에서 빌드
+## 빌드 및 실행
 
 ```bash
-git clone https://github.com/your-username/DOUGLAS.git
-cd DOUGLAS
+# 요구사항: macOS 14+, Swift 5.9+
 
-# 릴리즈 빌드
+# 빌드
 swift build -c release
 
-# .app 번들 + DMG 생성
+# .app + DMG 생성
 ./scripts/build-app.sh
-```
 
-빌드 결과물은 `dist/DOUGLAS.app`에 생성됩니다.
-
-### 직접 실행 (개발용)
-
-```bash
+# 개발 실행
 swift run DOUGLAS
 ```
 
@@ -72,67 +55,32 @@ swift run DOUGLAS
 
 ```
 DOUGLAS/
-├── Package.swift               # SPM 패키지 정의
-├── CLAUDE.md                   # 개발 규칙
-├── ARCHITECTURE.md             # 코드 분석 문서
-├── DEV_GUIDE.md                # 개발 가이드
-├── scripts/
-│   └── build-app.sh            # .app 번들 → 코드서명 → DMG
-├── DOUGLAS/               # 라이브러리 (DOUGLASLib)
-│   ├── App/                    # AppDelegate, 윈도우 관리
-│   ├── Models/                 # Agent, ChatMessage, ProviderConfig 등
-│   ├── ViewModels/             # AgentStore, ChatViewModel, RoomManager 등
-│   ├── Providers/              # AIProvider 프로토콜 + 구현체
-│   └── Views/                  # SwiftUI 뷰
-├── DOUGLASApp/            # 실행 타겟 (@main 진입점)
-└── Tests/                      # 테스트 (410개)
-```
-
-## 아키텍처
-
-MVVM 패턴 기반으로 구성되어 있습니다.
-
-```
-Models            ViewModels           Views
-──────────        ──────────────       ──────────────
-Agent         ←── AgentStore       ←── FloatingSidebarView
-ChatMessage   ←── ChatViewModel    ←── ChatView
-Room          ←── RoomManager      ←── RoomListView
-ProviderCfg   ←── ProviderManager  ←── AddProviderSheet
-AgentTool     ←── ToolExecutor     ←── RoomChatView
-                       │
-                ┌──────┴──────┐
-                │  Providers  │
-                │ ClaudeCode  │
-                │ Anthropic   │
-                │ OpenAI      │
-                │ Google      │
-                └─────────────┘
-```
-
-## 테스트
-
-```bash
-# 전체 테스트 실행
-swift test
-
-# 특정 테스트 실행
-swift test --filter ChatViewModelParsingTests
+├── Package.swift          # SPM 정의
+├── scripts/build-app.sh   # 앱 번들 + 코드서명 + DMG
+├── DOUGLAS/               # DOUGLASLib (소스)
+│   ├── App/               # AppDelegate, 윈도우/패널 관리
+│   ├── Models/            # Agent, Room, ChatMessage, ProviderConfig
+│   ├── ViewModels/        # AgentStore, ChatViewModel, RoomManager
+│   ├── Providers/         # AIProvider 프로토콜 + 구현체
+│   └── Views/             # SwiftUI 뷰
+├── DOUGLASApp/            # @main 진입점
+└── Tests/                 # 테스트
 ```
 
 ## 단축키
 
-| 단축키 | 동작 |
-|--------|------|
-| `⌘⇧A` | 글로벌 커맨드 바 토글 |
+| 키 | 동작 |
+|----|------|
 | `⌘⇧E` | 사이드바 토글 |
+| `⌘⇧A` | 글로벌 커맨드 바 |
 | `⌘⏎` | 메시지 전송 |
 
-## 문서
+## 테스트
 
-- [ARCHITECTURE.md](./ARCHITECTURE.md) — 전체 코드 분석 및 구조 문서
-- [DEV_GUIDE.md](./DEV_GUIDE.md) — 개발 규칙 및 가이드
-- [CLAUDE.md](./CLAUDE.md) — Claude Code 세션 규칙
+```bash
+swift test
+swift test --filter ChatViewModelParsingTests
+```
 
 ## 라이선스
 

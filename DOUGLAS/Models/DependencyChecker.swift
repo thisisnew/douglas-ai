@@ -59,15 +59,88 @@ class DependencyChecker: ObservableObject {
 
     func checkAll() async {
         isChecking = true
+
+        // 로그인 셸에서 모든 바이너리를 한 번에 탐색 (GUI 앱은 PATH 제한적)
+        let allNames = dependencies.flatMap(\.binaryNames)
+        let shellResults = await Self.shellWhichAll(allNames)
+
         for i in dependencies.indices {
-            let (found, path) = findAnyBinary(dependencies[i].binaryNames)
+            var found = false
+            var foundPath: String?
+
+            // 1. 로그인 셸 which 결과
+            for name in dependencies[i].binaryNames {
+                if let path = shellResults[name] {
+                    found = true
+                    foundPath = path
+                    break
+                }
+            }
+
+            // 2. 하드코딩 경로 폴백
+            if !found {
+                let (f, p) = findAnyBinary(dependencies[i].binaryNames)
+                found = f
+                foundPath = p
+            }
+
             dependencies[i].isFound = found
-            dependencies[i].foundPath = path
+            dependencies[i].foundPath = foundPath
         }
         isChecking = false
     }
 
-    // MARK: - 바이너리 탐색
+    // MARK: - 설치 명령 실행
+
+    /// installHint 명령 실행 (예: "xcode-select --install")
+    func runInstallCommand(_ command: String) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+            process.arguments = ["-l", "-c", command]
+            process.standardOutput = Pipe()
+            process.standardError = Pipe()
+            try? process.run()
+        }
+    }
+
+    // MARK: - 로그인 셸 탐색
+
+    /// 여러 바이너리를 한 번의 로그인 셸 호출로 탐색 (백그라운드)
+    private static func shellWhichAll(_ names: [String]) async -> [String: String] {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let script = names.map { "echo \"\($0):$(command -v \($0) 2>/dev/null)\"" }.joined(separator: "; ")
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+                process.arguments = ["-l", "-c", script]
+                let pipe = Pipe()
+                process.standardOutput = pipe
+                process.standardError = Pipe()
+
+                var result: [String: String] = [:]
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                    let output = String(data: data, encoding: .utf8) ?? ""
+                    for line in output.components(separatedBy: "\n") {
+                        let parts = line.split(separator: ":", maxSplits: 1)
+                        if parts.count == 2 {
+                            let name = String(parts[0])
+                            let path = String(parts[1]).trimmingCharacters(in: .whitespaces)
+                            if !path.isEmpty {
+                                result[name] = path
+                            }
+                        }
+                    }
+                } catch {}
+                continuation.resume(returning: result)
+            }
+        }
+    }
+
+    // MARK: - 하드코딩 경로 폴백
 
     private func findAnyBinary(_ names: [String]) -> (Bool, String?) {
         for name in names {
@@ -78,17 +151,25 @@ class DependencyChecker: ObservableObject {
         return (false, nil)
     }
 
-    /// ClaudeCodeInstaller와 동일한 패턴: 다양한 경로에서 실행 파일 탐색
     private func findExecutable(_ name: String) -> String? {
         let homePath = NSHomeDirectory()
-        let candidates = [
+        var candidates = [
             "/opt/homebrew/bin/\(name)",
             "/usr/local/bin/\(name)",
             "/usr/bin/\(name)",
-            "\(homePath)/.nvm/current/bin/\(name)",
             "\(homePath)/.volta/bin/\(name)",
             "\(homePath)/.local/bin/\(name)",
         ]
+
+        // nvm 버전별 경로 추가
+        let nvmDir = "\(homePath)/.nvm/versions/node"
+        if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
+            let sorted = versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
+            for version in sorted {
+                candidates.insert("\(nvmDir)/\(version)/bin/\(name)", at: 0)
+            }
+        }
+
         for path in candidates {
             if FileManager.default.isExecutableFile(atPath: path) {
                 return path

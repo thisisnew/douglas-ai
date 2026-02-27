@@ -155,13 +155,38 @@ struct OnboardingView: View {
                                 .font(.caption2)
                                 .foregroundColor(.accentColor)
                         } else if let hint = dep.installHint {
-                            Text(hint)
-                                .font(.system(size: 9, design: .monospaced))
-                                .foregroundColor(.secondary)
-                                .textSelection(.enabled)
+                            Button(action: {
+                                viewModel.dependencyChecker.runInstallCommand(hint)
+                            }) {
+                                HStack(spacing: 2) {
+                                    Image(systemName: "terminal")
+                                        .font(.system(size: 9))
+                                    Text(hint)
+                                        .font(.system(size: 9, design: .monospaced))
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(.accentColor)
+                            .help("클릭하여 실행")
                         }
                     }
                 }
+            }
+
+            if !viewModel.dependencyChecker.isChecking {
+                Button(action: {
+                    Task { await viewModel.dependencyChecker.checkAll() }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 10))
+                        Text("다시 확인")
+                            .font(.caption2)
+                    }
+                    .foregroundColor(.accentColor)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
             }
         }
         .padding(12)
@@ -282,6 +307,18 @@ struct OnboardingView: View {
                 .foregroundColor(.secondary)
 
                 Spacer()
+
+                Button(action: {
+                    Task { await viewModel.claudeInstaller.detect() }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.caption)
+                        Text("다시 확인")
+                    }
+                }
+                .foregroundColor(.accentColor)
+                .buttonStyle(.plain)
 
                 Button(action: {
                     Task { await viewModel.installClaudeCode() }
