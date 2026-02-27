@@ -720,4 +720,65 @@ struct RoomTests {
         #expect(decoded.maxQARetries == 3)
         #expect(decoded.lastQAResult == nil)
     }
+
+    // MARK: - Phase D: RoomAgentSuggestion
+
+    @Test("RoomAgentSuggestion Codable 라운드트립")
+    func suggestionCodable() throws {
+        let suggestion = RoomAgentSuggestion(
+            name: "QA 엔지니어",
+            persona: "테스트 전문가",
+            recommendedPreset: "개발자",
+            reason: "테스트 필요",
+            suggestedBy: "분석가"
+        )
+        let data = try JSONEncoder().encode(suggestion)
+        let decoded = try JSONDecoder().decode(RoomAgentSuggestion.self, from: data)
+        #expect(decoded.name == "QA 엔지니어")
+        #expect(decoded.persona == "테스트 전문가")
+        #expect(decoded.recommendedPreset == "개발자")
+        #expect(decoded.reason == "테스트 필요")
+        #expect(decoded.suggestedBy == "분석가")
+        #expect(decoded.status == .pending)
+    }
+
+    @Test("Room - pendingAgentSuggestions 기본값 빈 배열")
+    func roomDefaultSuggestions() {
+        let room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
+        #expect(room.pendingAgentSuggestions.isEmpty)
+    }
+
+    @Test("Room - needsUserAttention: pending suggestion → true")
+    func roomNeedsAttentionWithSuggestion() {
+        var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
+        room.pendingAgentSuggestions = [
+            RoomAgentSuggestion(name: "Dev", persona: "개발자", suggestedBy: "분석가")
+        ]
+        #expect(room.needsUserAttention == true)
+    }
+
+    @Test("Room - needsUserAttention: no pending → false")
+    func roomNoAttentionNeeded() {
+        let room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
+        #expect(room.needsUserAttention == false)
+    }
+
+    @Test("Room - needsUserAttention: awaitingApproval → true")
+    func roomNeedsAttentionApproval() {
+        var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user, status: .inProgress)
+        room.transitionTo(.awaitingApproval)
+        #expect(room.needsUserAttention == true)
+    }
+
+    @Test("Room - pendingAgentSuggestions 역호환 (필드 없는 JSON)")
+    func roomSuggestionBackwardCompat() throws {
+        let room = Room(title: "역호환", assignedAgentIDs: [], createdBy: .user)
+        let data = try JSONEncoder().encode(room)
+        var json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        json.removeValue(forKey: "pendingAgentSuggestions")
+        let modifiedData = try JSONSerialization.data(withJSONObject: json)
+
+        let decoded = try JSONDecoder().decode(Room.self, from: modifiedData)
+        #expect(decoded.pendingAgentSuggestions.isEmpty)
+    }
 }

@@ -36,7 +36,7 @@ DOUGLAS/
 │   ├── Models/
 │   │   ├── Agent.swift              # 에이전트 모델 (이름, 페르소나, 이미지, isMaster, 도구 설정, roleTemplateID)
 │   │   ├── AgentRoleTemplate.swift  # 역할 템플릿 (프로바이더별 힌트, 카테고리)
-│   │   ├── AgentRoleTemplateRegistry.swift # 빌트인 6개 템플릿 (jira_analyst, backend_dev 등)
+│   │   ├── AgentRoleTemplateRegistry.swift # 빌트인 9개 템플릿 (requirements_analyst, backend_dev, QA 4종 등)
 │   │   ├── AgentTool.swift          # 도구 시스템 (AgentTool, ToolCall, ToolResult, CapabilityPreset, ToolRegistry, ConversationMessage)
 │   │   ├── ArtifactParser.swift     # 토론 산출물 파서 (artifact 블록 추출/제거)
 │   │   ├── ChatMessage.swift        # 메시지 모델 (MessageType 포함: toolActivity, buildStatus, qaStatus, approvalRequest 등, ImageAttachment 첨부)
@@ -373,7 +373,7 @@ struct AgentRoleTemplate: Identifiable, Codable {
 }
 ```
 
-- `AgentRoleTemplateRegistry`: 빌트인 6개 템플릿 (jira_analyst, backend_dev, frontend_dev, qa_engineer, tech_writer, devops_engineer)
+- `AgentRoleTemplateRegistry`: 빌트인 9개 템플릿 (requirements_analyst, backend_dev, frontend_dev, qa_test_automation, qa_exploratory, qa_security, qa_code_review, tech_writer, devops_engineer)
 - 에이전트 생성 시 템플릿 선택 → persona/capabilityPreset/name 자동 설정
 - `Agent.roleTemplateID`: 적용된 템플릿 ID (nil = 사용자 정의)
 
@@ -860,6 +860,17 @@ executeWithTools() 루프 (최대 10회):
 | C-2 | **Human-in-the-loop 승인 게이트**: `RoomStep` 구조체 (plain String + object 혼합 Codable). `RoomStatus.awaitingApproval` 추가. `CheckedContinuation`으로 비동기 일시 정지. ApprovalCard UI. | ✅ |
 | C-3 | **QA 자동 검증**: `QAResult`/`QALoopStatus` 모델. `BuildLoopRunner.runTests()` + `qaFixPrompt()`. `RoomManager.runQALoop()` — 빌드 성공 후 테스트 자동 실행, 실패 시 QA 에이전트가 수정 루프. 테스트 명령 자동 감지. | ✅ |
 
+### Phase D — 분석가 중심 워크플로우 재구조화 ✅ 완료
+
+| 항목 | 내용 | 상태 |
+|------|------|------|
+| D-1 | **요구사항 분석가 리팩토링**: `jira_analyst` → `requirements_analyst`로 개명. 범용 요구사항 분석 + 팀 빌딩(invite_agent, suggest_agent_creation, list_agents) 중심 역할. 레거시 별칭 유지. | ✅ |
+| D-2 | **마스터 라우팅 변경**: 분석가 에이전트 존재 시 복잡한 작업을 분석가에게 우선 위임. 분석가 없으면 suggest_agent로 생성 제안. | ✅ |
+| D-3 | **에이전트 생성 제안**: `RoomAgentSuggestion` 모델 + `suggest_agent_creation` 도구 + `ToolExecutionContext.suggestAgentCreation` 콜백 + `RoomManager` 승인/거부 관리 + `AgentSuggestionCard` UI. | ✅ |
+| D-4 | **방 목록 "확인 필요" 플래그**: `Room.needsUserAttention` (승인 대기 or pending suggestion). 방 목록에 주황 캡슐 뱃지 표시. | ✅ |
+| D-5 | **하드코딩 빌드/QA 루프 제거**: `executeRoomWork()`에서 빌드/QA 자동 호출 블록 제거. 에이전트가 계획 단계에서 직접 shell_exec으로 처리. | ✅ |
+| D-6 | **QA 템플릿 세분화**: `qa_engineer` 1개 → `qa_test_automation`, `qa_exploratory`, `qa_security`, `qa_code_review` 4종. 레거시 별칭 유지. | ✅ |
+
 ---
 
 ## 확장 포인트
@@ -885,7 +896,7 @@ executeWithTools() 루프 (최대 10회):
 | EditAgentSheet.swift | ~315 | 에이전트 편집 (도구 프리셋 포함) |
 | AppDelegate.swift | ~320 | 윈도우/패널 관리 |
 | ToolFormatConverter.swift | ~290 | 프로바이더별 도구/이미지 형식 변환 |
-| AgentTool.swift | ~260 | 도구 시스템 타입 (ToolRegistry 10종 도구) |
+| AgentTool.swift | ~260 | 도구 시스템 타입 (ToolRegistry 11종 도구) |
 | ChatView.swift | ~200 | 채팅 UI + 메시지 버블 (이미지 썸네일) |
 | Agent.swift | ~180 | 에이전트 모델 (isMaster, 이미지, 도구 설정) |
 | AddAgentSheet.swift | ~154 | 에이전트 등록 |
@@ -917,7 +928,7 @@ executeWithTools() 루프 (최대 10회):
 ### 개요
 
 - **프레임워크**: Swift Testing (`@Test`, `#expect`)
-- **테스트 수**: 790개 (28 파일 + 3 헬퍼/모킹)
+- **테스트 수**: 807개 (28 파일 + 3 헬퍼/모킹)
 - **명령어**: `swift test`
 - **커버리지**: 87% (테스트 가능 코드 기준, Views/App 제외)
 - **모킹**: MockAIProvider, MockURLProtocol, ProcessRunner.handler, 격리 UserDefaults
@@ -979,4 +990,4 @@ Tests/
 | Models | 397 | Agent, AgentRoleTemplate, AgentTool, ArtifactParser, ChatMessage, ClaudeCodeInstaller, DependencyChecker, DiscussionArtifact, ImageAttachment, JiraConfig, KeychainHelper, ProviderConfig, ProviderDetector, Room, RoomBriefing, RoomStep, ToolExecutionContext, BuildResult (QA 포함) |
 | ViewModels | 302 | ChatViewModel (통합+파싱+상태), AgentStore, ProviderManager, RoomManager, OnboardingViewModel, ToolExecutor (Jira 도구 포함), BuildLoopRunner (QA 포함) |
 | Providers | 91 | OpenAI, Anthropic, Google, Ollama, LM Studio, Custom, ClaudeCode, ToolFormatConverter (도구 + 이미지) |
-| **합계** | **790** | 테스트 가능 코드 87% 라인 커버리지 (View/App 레이어는 UI 특성상 제외) |
+| **합계** | **807** | 테스트 가능 코드 87% 라인 커버리지 (View/App 레이어는 UI 특성상 제외) |

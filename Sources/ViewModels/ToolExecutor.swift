@@ -194,6 +194,8 @@ enum ToolExecutor {
             return await executeInviteAgent(call, context: context)
         case "list_agents":
             return await executeListAgents(call, context: context)
+        case "suggest_agent_creation":
+            return await executeSuggestAgentCreation(call, context: context)
         case "jira_create_subtask":
             return await executeJiraCreateSubtask(call)
         case "jira_update_status":
@@ -243,6 +245,46 @@ enum ToolExecutor {
             return ToolResult(callID: call.id, content: "사용 가능한 에이전트가 없습니다.", isError: false)
         }
         return ToolResult(callID: call.id, content: "사용 가능한 에이전트:\n\(context.agentListString)", isError: false)
+    }
+
+    // MARK: - suggest_agent_creation
+
+    private static func executeSuggestAgentCreation(_ call: ToolCall, context: ToolExecutionContext) async -> ToolResult {
+        guard context.roomID != nil else {
+            return ToolResult(callID: call.id, content: "이 도구는 방 안에서만 사용할 수 있습니다.", isError: true)
+        }
+        guard let name = call.arguments["name"]?.stringValue, !name.isEmpty else {
+            return ToolResult(callID: call.id, content: "name 파라미터가 필요합니다.", isError: true)
+        }
+        guard let persona = call.arguments["persona"]?.stringValue, !persona.isEmpty else {
+            return ToolResult(callID: call.id, content: "persona 파라미터가 필요합니다.", isError: true)
+        }
+
+        // 이미 존재하는 에이전트 이름 체크
+        if context.agentsByName[name] != nil {
+            return ToolResult(callID: call.id, content: "'\(name)' 이름의 에이전트가 이미 존재합니다. invite_agent를 사용하세요.", isError: true)
+        }
+
+        let suggestion = RoomAgentSuggestion(
+            name: name,
+            persona: persona,
+            recommendedPreset: call.arguments["recommended_preset"]?.stringValue,
+            recommendedProvider: call.arguments["recommended_provider"]?.stringValue,
+            recommendedModel: call.arguments["recommended_model"]?.stringValue,
+            reason: call.arguments["reason"]?.stringValue ?? "",
+            suggestedBy: context.currentAgentName ?? "알 수 없음"
+        )
+
+        let success = await context.suggestAgentCreation(suggestion)
+        if success {
+            return ToolResult(
+                callID: call.id,
+                content: "'\(name)' 에이전트 생성을 제안했습니다. 사용자 승인을 기다립니다.",
+                isError: false
+            )
+        } else {
+            return ToolResult(callID: call.id, content: "에이전트 생성 제안에 실패했습니다.", isError: true)
+        }
     }
 
     // MARK: - file_read

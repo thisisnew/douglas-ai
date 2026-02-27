@@ -156,6 +156,9 @@ class RoomManager: ObservableObject {
         guard let store = agentStore else { return .empty }
         let subAgents = store.subAgents
         let room = rooms.first { $0.id == roomID }
+        let currentAgentName = currentAgentID.flatMap { id in
+            store.agents.first { $0.id == id }?.name
+        }
         return ToolExecutionContext(
             roomID: roomID,
             agentsByName: Dictionary(uniqueKeysWithValues: subAgents.map { ($0.name, $0.id) }),
@@ -168,10 +171,87 @@ class RoomManager: ObservableObject {
                     return true
                 }
             },
+            suggestAgentCreation: { @Sendable [weak self] (suggestion: RoomAgentSuggestion) -> Bool in
+                await MainActor.run { [weak self] in
+                    self?.addAgentSuggestion(suggestion, to: roomID)
+                    return true
+                }
+            },
             projectPath: room?.projectPath,
             currentAgentID: currentAgentID,
+            currentAgentName: currentAgentName,
             fileWriteTracker: fileWriteTracker
         )
+    }
+
+    // MARK: - 에이전트 생성 제안 관리
+
+    /// 방에 에이전트 생성 제안 추가
+    func addAgentSuggestion(_ suggestion: RoomAgentSuggestion, to roomID: UUID) {
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
+        rooms[idx].pendingAgentSuggestions.append(suggestion)
+
+        let msg = ChatMessage(
+            role: .system,
+            content: "\(suggestion.suggestedBy)이(가) '\(suggestion.name)' 에이전트 생성을 제안했습니다.\(suggestion.reason.isEmpty ? "" : " 사유: \(suggestion.reason)")",
+            messageType: .suggestion
+        )
+        appendMessage(msg, to: roomID)
+        scheduleSave()
+    }
+
+    /// 에이전트 생성 제안 승인 → 에이전트 생성 + 방에 초대
+    func approveAgentSuggestion(suggestionID: UUID, in roomID: UUID) {
+        guard let roomIdx = rooms.firstIndex(where: { $0.id == roomID }),
+              let sugIdx = rooms[roomIdx].pendingAgentSuggestions.firstIndex(where: { $0.id == suggestionID }) else { return }
+
+        var suggestion = rooms[roomIdx].pendingAgentSuggestions[sugIdx]
+        suggestion.status = .approved
+        rooms[roomIdx].pendingAgentSuggestions[sugIdx] = suggestion
+
+        // 에이전트 생성
+        let preset = resolvePreset(suggestion.recommendedPreset)
+        let providerName = suggestion.recommendedProvider ?? "Anthropic"
+        let modelName = suggestion.recommendedModel ?? "claude-sonnet-4-20250514"
+
+        let newAgent = Agent(
+            name: suggestion.name,
+            persona: suggestion.persona,
+            providerName: providerName,
+            modelName: modelName,
+            capabilityPreset: preset
+        )
+        agentStore?.addAgent(newAgent)
+        addAgent(newAgent.id, to: roomID)
+
+        let msg = ChatMessage(
+            role: .system,
+            content: "'\(suggestion.name)' 에이전트가 생성되어 방에 참여했습니다."
+        )
+        appendMessage(msg, to: roomID)
+        scheduleSave()
+    }
+
+    /// 에이전트 생성 제안 거부
+    func rejectAgentSuggestion(suggestionID: UUID, in roomID: UUID) {
+        guard let roomIdx = rooms.firstIndex(where: { $0.id == roomID }),
+              let sugIdx = rooms[roomIdx].pendingAgentSuggestions.firstIndex(where: { $0.id == suggestionID }) else { return }
+
+        rooms[roomIdx].pendingAgentSuggestions[sugIdx].status = .rejected
+
+        let name = rooms[roomIdx].pendingAgentSuggestions[sugIdx].name
+        let msg = ChatMessage(
+            role: .system,
+            content: "'\(name)' 에이전트 생성 제안이 건너뛰어졌습니다."
+        )
+        appendMessage(msg, to: roomID)
+        scheduleSave()
+    }
+
+    /// 프리셋 문자열 → CapabilityPreset 변환
+    private func resolvePreset(_ str: String?) -> CapabilityPreset {
+        guard let str else { return .developer }
+        return CapabilityPreset(rawValue: str) ?? .developer
     }
 
     // MARK: - 방에 에이전트 추가
@@ -491,57 +571,7 @@ class RoomManager: ObservableObject {
                 appendMessage(warnMsg, to: roomID)
             }
 
-            // 빌드 루프 실행 (buildCommand가 있을 때만)
-            if let buildCmd = rooms.first(where: { $0.id == roomID })?.buildCommand,
-               let projPath = rooms.first(where: { $0.id == roomID })?.projectPath {
-                let buildSuccess = await runBuildLoop(
-                    roomID: roomID,
-                    buildCommand: buildCmd,
-                    projectPath: projPath,
-                    fileWriteTracker: tracker
-                )
-                if !buildSuccess {
-                    // 빌드 실패 → 방 실패 처리
-                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                        rooms[i].transitionTo(.failed)
-                        rooms[i].completedAt = Date()
-                    }
-                    let failMsg = ChatMessage(
-                        role: .system,
-                        content: "빌드 반복 실패로 작업을 중단합니다.",
-                        messageType: .error
-                    )
-                    appendMessage(failMsg, to: roomID)
-                    syncAgentStatuses()
-                    scheduleSave()
-                    return
-                }
-
-                // QA 루프 실행 (빌드 성공 + testCommand가 있을 때만)
-                if let testCmd = rooms.first(where: { $0.id == roomID })?.testCommand {
-                    let qaSuccess = await runQALoop(
-                        roomID: roomID,
-                        testCommand: testCmd,
-                        projectPath: projPath,
-                        fileWriteTracker: tracker
-                    )
-                    if !qaSuccess {
-                        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                            rooms[i].transitionTo(.failed)
-                            rooms[i].completedAt = Date()
-                        }
-                        let failMsg = ChatMessage(
-                            role: .system,
-                            content: "테스트 반복 실패로 작업을 중단합니다.",
-                            messageType: .error
-                        )
-                        appendMessage(failMsg, to: roomID)
-                        syncAgentStatuses()
-                        scheduleSave()
-                        return
-                    }
-                }
-            }
+            // 빌드/QA 루프는 에이전트 주도로 실행 (계획 단계에서 에이전트가 직접 shell_exec으로 처리)
         }
 
         // 완료

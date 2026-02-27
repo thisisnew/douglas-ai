@@ -139,7 +139,7 @@ enum CapabilityPreset: String, Codable, CaseIterable, Identifiable {
         case .none:       return []
         case .researcher: return ["web_search", "web_fetch"]
         case .developer:  return ["file_read", "file_write", "shell_exec"]
-        case .analyst:    return ["file_read", "shell_exec", "web_fetch", "jira_create_subtask", "jira_update_status", "jira_add_comment"]
+        case .analyst:    return ["file_read", "shell_exec", "web_fetch", "invite_agent", "list_agents", "suggest_agent_creation", "jira_create_subtask", "jira_update_status", "jira_add_comment"]
         case .fullAccess: return ToolRegistry.allToolIDs
         case .custom:     return []
         }
@@ -236,6 +236,19 @@ enum ToolRegistry {
             parameters: [
                 .init(name: "issue_key", type: .string, description: "Issue key (e.g. PROJ-123)", required: true, enumValues: nil),
                 .init(name: "comment", type: .string, description: "Comment text to add", required: true, enumValues: nil)
+            ]
+        ),
+        AgentTool(
+            id: "suggest_agent_creation",
+            name: "에이전트 생성 제안",
+            description: "Suggest creating a new agent for the current room. The user must approve the suggestion before the agent is created. Use this when the team is missing a role needed for the task.",
+            parameters: [
+                .init(name: "name", type: .string, description: "Suggested agent name", required: true, enumValues: nil),
+                .init(name: "persona", type: .string, description: "Persona/system prompt for the new agent", required: true, enumValues: nil),
+                .init(name: "recommended_preset", type: .string, description: "Capability preset (없음/리서처/개발자/분석가/전체 권한)", required: false, enumValues: ["없음", "리서처", "개발자", "분석가", "전체 권한"]),
+                .init(name: "recommended_provider", type: .string, description: "Preferred AI provider name", required: false, enumValues: nil),
+                .init(name: "recommended_model", type: .string, description: "Preferred model ID", required: false, enumValues: nil),
+                .init(name: "reason", type: .string, description: "Reason why this agent is needed", required: false, enumValues: nil)
             ]
         )
     ]

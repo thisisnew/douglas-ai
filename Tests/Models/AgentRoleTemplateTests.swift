@@ -70,9 +70,9 @@ struct AgentRoleTemplateTests {
 
     // MARK: - AgentRoleTemplateRegistry
 
-    @Test("Registry - 빌트인 템플릿 6개")
+    @Test("Registry - 빌트인 템플릿 9개")
     func registryBuiltInCount() {
-        #expect(AgentRoleTemplateRegistry.builtIn.count == 6)
+        #expect(AgentRoleTemplateRegistry.builtIn.count == 9)
     }
 
     @Test("Registry - 모든 빌트인 ID가 고유")
@@ -100,6 +100,9 @@ struct AgentRoleTemplateTests {
         let devTemplates = AgentRoleTemplateRegistry.templates(in: .development)
         #expect(devTemplates.count == 2) // backend_dev, frontend_dev
         #expect(devTemplates.allSatisfy { $0.category == .development })
+
+        let qaTemplates = AgentRoleTemplateRegistry.templates(in: .quality)
+        #expect(qaTemplates.count == 4) // qa_test_automation, qa_exploratory, qa_security, qa_code_review
     }
 
     @Test("Registry - 모든 빌트인에 basePersona가 비어있지 않음")
@@ -118,11 +121,11 @@ struct AgentRoleTemplateTests {
 
     @Test("Registry - 특정 템플릿 프리셋 매핑 검증")
     func registryPresetMapping() {
-        let jira = AgentRoleTemplateRegistry.template(for: "jira_analyst")
-        #expect(jira?.defaultPreset == .analyst)
+        let analyst = AgentRoleTemplateRegistry.template(for: "jira_analyst")
+        #expect(analyst?.defaultPreset == .analyst)
 
         let qa = AgentRoleTemplateRegistry.template(for: "qa_engineer")
-        #expect(qa?.defaultPreset == .analyst)
+        #expect(qa?.defaultPreset == .developer) // qa_test_automation의 프리셋
 
         let devops = AgentRoleTemplateRegistry.template(for: "devops_engineer")
         #expect(devops?.defaultPreset == .fullAccess)
@@ -185,6 +188,57 @@ struct AgentRoleTemplateTests {
         let decoded = try JSONDecoder().decode(Agent.self, from: data)
         #expect(decoded.roleTemplateID == nil)
         #expect(decoded.name == "테스트")
+    }
+
+    // MARK: - Codable round-trip
+
+    // MARK: - Phase D: 요구사항 분석가 + QA 세분화
+
+    @Test("Registry - requirements_analyst 존재")
+    func registryRequirementsAnalyst() {
+        let template = AgentRoleTemplateRegistry.template(for: "requirements_analyst")
+        #expect(template != nil)
+        #expect(template?.name == "요구사항 분석가")
+        #expect(template?.category == .analysis)
+        #expect(template?.defaultPreset == .analyst)
+        #expect(template?.basePersona.contains("invite_agent") == true)
+        #expect(template?.basePersona.contains("suggest_agent_creation") == true)
+    }
+
+    @Test("Registry - jira_analyst 레거시 별칭 → requirements_analyst")
+    func registryJiraAnalystLegacy() {
+        let template = AgentRoleTemplateRegistry.template(for: "jira_analyst")
+        #expect(template?.id == "requirements_analyst")
+    }
+
+    @Test("Registry - qa_engineer 레거시 별칭 → qa_test_automation")
+    func registryQaEngineerLegacy() {
+        let template = AgentRoleTemplateRegistry.template(for: "qa_engineer")
+        #expect(template?.id == "qa_test_automation")
+    }
+
+    @Test("Registry - QA 4개 템플릿 존재")
+    func registryQAFourTemplates() {
+        let ids = ["qa_test_automation", "qa_exploratory", "qa_security", "qa_code_review"]
+        for id in ids {
+            let tmpl = AgentRoleTemplateRegistry.template(for: id)
+            #expect(tmpl != nil, "QA template \(id) missing")
+            #expect(tmpl?.category == .quality)
+        }
+    }
+
+    @Test("Registry - qa_test_automation은 developer 프리셋")
+    func qaTestAutomationPreset() {
+        let tmpl = AgentRoleTemplateRegistry.template(for: "qa_test_automation")
+        #expect(tmpl?.defaultPreset == .developer)
+    }
+
+    @Test("Registry - qa_exploratory/security/code_review는 analyst 프리셋")
+    func qaAnalystPresets() {
+        for id in ["qa_exploratory", "qa_security", "qa_code_review"] {
+            let tmpl = AgentRoleTemplateRegistry.template(for: id)
+            #expect(tmpl?.defaultPreset == .analyst, "\(id) should be analyst preset")
+        }
     }
 
     // MARK: - Codable round-trip

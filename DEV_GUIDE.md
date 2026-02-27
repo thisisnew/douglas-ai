@@ -53,6 +53,20 @@ DOUGLAS/
 - 새 템플릿 추가: `AgentRoleTemplateRegistry.builtIn` 배열에 `AgentRoleTemplate` 추가
 - 프로바이더별 힌트: `providerHints["openAI"]`, `providerHints["anthropic"]`, `providerHints["google"]`
 - `resolvedPersona(for:)`: basePersona + 프로바이더 힌트 조합
+- 레거시 별칭: `template(for:)`에서 `"jira_analyst"` → `requirementsAnalyst`, `"qa_engineer"` → `qaTestAutomation` 매핑
+- 빌트인 9종: requirements_analyst, backend_dev, frontend_dev, qa_test_automation, qa_exploratory, qa_security, qa_code_review, tech_writer, devops_engineer
+
+### 에이전트 생성 제안 관례
+- 분석가가 `suggest_agent_creation` 도구로 에이전트 생성 제안
+- `RoomAgentSuggestion`이 `Room.pendingAgentSuggestions`에 추가됨
+- 사용자가 `AgentSuggestionCard`에서 승인/거부
+- 승인 시 `RoomManager.approveAgentSuggestion()` → Agent 생성 + 방 초대
+- `Room.needsUserAttention`: 승인 대기 or pending suggestion → 방 목록에 "확인 필요" 뱃지
+
+### 마스터 라우팅 관례
+- 분석가 에이전트 존재 시: 복잡한 작업 → 분석가 우선 위임 (분석가가 팀 빌딩 담당)
+- 분석가 부재 시: `suggest_agent`로 분석가 생성 제안
+- 단순 작업: 해당 에이전트에 직접 delegate
 
 ### 토론 산출물 관례
 - 산출물 블록 형식: `` ```artifact:<type> title="제목"\n내용\n``` ``
@@ -74,6 +88,9 @@ DOUGLAS/
 - `ToolExecutor.smartSend()`: 도구 미사용 에이전트나 미지원 프로바이더는 자동으로 기존 `sendMessage()` 폴백
 - 도구 루프 최대 반복: 10회 (`ToolExecutor.maxIterations`)
 - ClaudeCodeProvider는 `supportsToolCalling = false` (CLI가 자체 도구 보유)
+- `ToolExecutionContext`에 `suggestAgentCreation` 콜백 — `suggest_agent_creation` 도구 실행 시 방에 제안 추가
+- analyst 프리셋: file_read, shell_exec, web_fetch + invite_agent, list_agents, suggest_agent_creation + Jira 3종
+- 빌드/QA 루프는 시스템이 하드코딩하지 않음 — 에이전트가 계획에서 직접 shell_exec으로 처리
 
 ---
 
@@ -124,7 +141,7 @@ Files changed:
 ## 테스트 규칙
 
 ### 명령어
-- `swift test` — 전체 테스트 실행 (790개)
+- `swift test` — 전체 테스트 실행 (807개)
 - `swift test --enable-code-coverage` — 커버리지 포함 실행
 - `xcrun llvm-cov report ...` — 커버리지 리포트 조회
 

@@ -174,10 +174,10 @@ struct AgentToolTests {
 
     // MARK: - ToolRegistry
 
-    @Test("ToolRegistry 모든 도구 존재 (Jira 도구 3개 포함)")
+    @Test("ToolRegistry 모든 도구 존재 (suggest_agent_creation 포함)")
     func registryAllTools() {
-        #expect(ToolRegistry.allTools.count == 10)
-        #expect(ToolRegistry.allToolIDs.count == 10)
+        #expect(ToolRegistry.allTools.count == 11)
+        #expect(ToolRegistry.allToolIDs.count == 11)
     }
 
     @Test("ToolRegistry invite_agent 등록 확인")
@@ -323,16 +323,30 @@ struct AgentToolTests {
         #expect(ids.contains("jira_add_comment"))
     }
 
-    @Test("analyst 프리셋에 Jira 쓰기 도구 포함")
-    func analystPresetIncludesJiraTools() {
+    @Test("analyst 프리셋에 Jira 쓰기 도구 + 팀빌딩 도구 포함")
+    func analystPresetIncludesJiraAndTeamTools() {
         let analystTools = CapabilityPreset.analyst.includedToolIDs
         #expect(analystTools.contains("jira_create_subtask"))
         #expect(analystTools.contains("jira_update_status"))
         #expect(analystTools.contains("jira_add_comment"))
+        // 팀 빌딩 도구 (Phase D)
+        #expect(analystTools.contains("invite_agent"))
+        #expect(analystTools.contains("list_agents"))
+        #expect(analystTools.contains("suggest_agent_creation"))
         // 기존 도구도 유지
         #expect(analystTools.contains("file_read"))
         #expect(analystTools.contains("shell_exec"))
         #expect(analystTools.contains("web_fetch"))
+    }
+
+    @Test("suggest_agent_creation 도구 등록 확인")
+    func registrySuggestAgentCreation() {
+        let tool = ToolRegistry.allTools.first { $0.id == "suggest_agent_creation" }
+        #expect(tool != nil)
+        #expect(tool?.parameters.first { $0.name == "name" }?.required == true)
+        #expect(tool?.parameters.first { $0.name == "persona" }?.required == true)
+        #expect(tool?.parameters.first { $0.name == "recommended_preset" }?.required == false)
+        #expect(tool?.parameters.first { $0.name == "reason" }?.required == false)
     }
 
     @Test("jira_create_subtask 파라미터 정의")

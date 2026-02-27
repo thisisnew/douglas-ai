@@ -93,6 +93,52 @@ extension RoomStep: ExpressibleByStringLiteral {
     }
 }
 
+// MARK: - 에이전트 생성 제안
+
+/// 에이전트 생성 제안 (분석가가 필요한 에이전트를 제안 → 사용자 승인)
+struct RoomAgentSuggestion: Identifiable, Codable, Equatable {
+    let id: UUID
+    let name: String
+    let persona: String
+    let recommendedPreset: String?
+    let recommendedProvider: String?
+    let recommendedModel: String?
+    let reason: String
+    let suggestedBy: String       // 제안한 에이전트 이름
+    let createdAt: Date
+    var status: SuggestionStatus
+
+    enum SuggestionStatus: String, Codable {
+        case pending
+        case approved
+        case rejected
+    }
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        persona: String,
+        recommendedPreset: String? = nil,
+        recommendedProvider: String? = nil,
+        recommendedModel: String? = nil,
+        reason: String = "",
+        suggestedBy: String = "",
+        createdAt: Date = Date(),
+        status: SuggestionStatus = .pending
+    ) {
+        self.id = id
+        self.name = name
+        self.persona = persona
+        self.recommendedPreset = recommendedPreset
+        self.recommendedProvider = recommendedProvider
+        self.recommendedModel = recommendedModel
+        self.reason = reason
+        self.suggestedBy = suggestedBy
+        self.createdAt = createdAt
+        self.status = status
+    }
+}
+
 // MARK: - 작업 계획
 
 struct RoomPlan: Codable {
@@ -201,6 +247,8 @@ struct Room: Identifiable, Codable {
     var qaRetryCount: Int
     var maxQARetries: Int
     var lastQAResult: QAResult?
+    // 에이전트 생성 제안
+    var pendingAgentSuggestions: [RoomAgentSuggestion]
     // 작업일지
     var workLog: WorkLog?
 
@@ -215,6 +263,12 @@ struct Room: Identifiable, Codable {
     /// 활성 방 여부 (planning, inProgress, awaitingApproval)
     var isActive: Bool {
         status == .planning || status == .inProgress || status == .awaitingApproval
+    }
+
+    /// 사용자 확인이 필요한 상태 (승인 대기 또는 에이전트 생성 제안 대기)
+    var needsUserAttention: Bool {
+        status == .awaitingApproval ||
+        pendingAgentSuggestions.contains { $0.status == .pending }
     }
 
     /// 토론 진행률 텍스트 (합의 기반)
@@ -295,6 +349,7 @@ struct Room: Identifiable, Codable {
         self.maxBuildRetries = 3
         self.lastBuildResult = nil
         self.pendingApprovalStepIndex = nil
+        self.pendingAgentSuggestions = []
         self.testCommand = testCommand
         self.qaLoopStatus = nil
         self.qaRetryCount = 0
@@ -330,6 +385,7 @@ struct Room: Identifiable, Codable {
         maxBuildRetries = try container.decodeIfPresent(Int.self, forKey: .maxBuildRetries) ?? 3
         lastBuildResult = try container.decodeIfPresent(BuildResult.self, forKey: .lastBuildResult)
         pendingApprovalStepIndex = try container.decodeIfPresent(Int.self, forKey: .pendingApprovalStepIndex)
+        pendingAgentSuggestions = try container.decodeIfPresent([RoomAgentSuggestion].self, forKey: .pendingAgentSuggestions) ?? []
         testCommand = try container.decodeIfPresent(String.self, forKey: .testCommand)
         qaLoopStatus = try container.decodeIfPresent(QALoopStatus.self, forKey: .qaLoopStatus)
         qaRetryCount = try container.decodeIfPresent(Int.self, forKey: .qaRetryCount) ?? 0

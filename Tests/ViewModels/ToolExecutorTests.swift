@@ -1214,4 +1214,120 @@ struct ToolExecutorTests {
         let toolResult = lastMessages.first { $0.role == "tool" }
         #expect(toolResult?.content?.contains("comment") == true)
     }
+
+    // MARK: - suggest_agent_creation (Phase D)
+
+    @Test("suggest_agent_creation: 방 밖 에러")
+    func suggestAgentCreationNoRoom() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([ToolCall(id: "s1", toolName: "suggest_agent_creation", arguments: [
+                "name": .string("Dev"), "persona": .string("개발자")
+            ])])),
+            .success(.text("done"))
+        ]
+
+        let agent = makeAgent(preset: .analyst)
+        let result = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "create agent")],
+            context: .empty
+        )
+        // 방 밖이므로 에러 → 다음 루프에서 텍스트 반환
+        #expect(result == "done")
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolMsg = lastMessages.first { $0.role == "tool" }
+        #expect(toolMsg?.content?.contains("방 안에서만") == true)
+    }
+
+    @Test("suggest_agent_creation: name 누락 에러")
+    func suggestAgentCreationMissingName() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([ToolCall(id: "s1", toolName: "suggest_agent_creation", arguments: [
+                "persona": .string("개발자")
+            ])])),
+            .success(.text("done"))
+        ]
+
+        let agent = makeAgent(preset: .analyst)
+        let context = ToolExecutionContext(
+            roomID: UUID(), agentsByName: [:], agentListString: "",
+            inviteAgent: { _ in false }
+        )
+        let result = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "create")],
+            context: context
+        )
+        #expect(result == "done")
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolMsg = lastMessages.first { $0.role == "tool" }
+        #expect(toolMsg?.content?.contains("name") == true)
+    }
+
+    @Test("suggest_agent_creation: 이미 존재하는 이름 에러")
+    func suggestAgentCreationDuplicateName() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([ToolCall(id: "s1", toolName: "suggest_agent_creation", arguments: [
+                "name": .string("기존에이전트"), "persona": .string("역할")
+            ])])),
+            .success(.text("done"))
+        ]
+
+        let agent = makeAgent(preset: .analyst)
+        let context = ToolExecutionContext(
+            roomID: UUID(),
+            agentsByName: ["기존에이전트": UUID()],
+            agentListString: "- 기존에이전트",
+            inviteAgent: { _ in false }
+        )
+        let result = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "create")],
+            context: context
+        )
+        #expect(result == "done")
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolMsg = lastMessages.first { $0.role == "tool" }
+        #expect(toolMsg?.content?.contains("이미 존재") == true)
+    }
+
+    @Test("suggest_agent_creation: 정상 실행 성공")
+    func suggestAgentCreationSuccess() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([ToolCall(id: "s1", toolName: "suggest_agent_creation", arguments: [
+                "name": .string("QA"), "persona": .string("QA 전문가"),
+                "recommended_preset": .string("개발자"), "reason": .string("테스트 필요")
+            ])])),
+            .success(.text("done"))
+        ]
+
+        var receivedSuggestion: RoomAgentSuggestion?
+        let agent = makeAgent(preset: .analyst)
+        let context = ToolExecutionContext(
+            roomID: UUID(),
+            agentsByName: [:],
+            agentListString: "",
+            inviteAgent: { _ in false },
+            suggestAgentCreation: { suggestion in
+                receivedSuggestion = suggestion
+                return true
+            },
+            currentAgentName: "분석가"
+        )
+        let result = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "need QA")],
+            context: context
+        )
+        #expect(result == "done")
+        #expect(receivedSuggestion?.name == "QA")
+        #expect(receivedSuggestion?.persona == "QA 전문가")
+        #expect(receivedSuggestion?.recommendedPreset == "개발자")
+        #expect(receivedSuggestion?.reason == "테스트 필요")
+        #expect(receivedSuggestion?.suggestedBy == "분석가")
+    }
 }

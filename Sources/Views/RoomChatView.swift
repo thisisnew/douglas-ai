@@ -34,14 +34,9 @@ struct RoomChatView: View {
                     ArtifactListBar(artifacts: room.artifacts)
                 }
 
-                // 빌드 상태 카드 (빌드 루프 활성 시)
-                if let buildStatus = room.buildLoopStatus, buildStatus != .idle {
-                    BuildStatusCard(room: room)
-                }
-
-                // QA 상태 카드 (QA 루프 활성 시)
-                if let qaStatus = room.qaLoopStatus, qaStatus != .idle {
-                    QAStatusCard(room: room)
+                // 에이전트 생성 제안 카드
+                ForEach(room.pendingAgentSuggestions.filter { $0.status == .pending }) { suggestion in
+                    AgentSuggestionCard(suggestion: suggestion, roomID: room.id)
                 }
 
                 // 승인 대기 카드 (승인 게이트 활성 시)
@@ -683,6 +678,74 @@ struct ApprovalCard: View {
         }
         .padding(10)
         .background(Color.yellow.opacity(0.08))
+        .cornerRadius(10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+    }
+}
+
+// MARK: - 에이전트 생성 제안 카드
+
+struct AgentSuggestionCard: View {
+    let suggestion: RoomAgentSuggestion
+    let roomID: UUID
+    @EnvironmentObject var roomManager: RoomManager
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "person.badge.plus")
+                    .font(.caption)
+                    .foregroundColor(.orange)
+                Text("에이전트 생성 제안")
+                    .font(.caption2.bold())
+                    .foregroundColor(.orange)
+                Spacer()
+                Text(suggestion.suggestedBy)
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+            }
+
+            Text(suggestion.name)
+                .font(.caption.bold())
+                .foregroundColor(.primary)
+
+            Text(suggestion.persona.prefix(120) + (suggestion.persona.count > 120 ? "..." : ""))
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .lineLimit(3)
+
+            if !suggestion.reason.isEmpty {
+                Text("사유: \(suggestion.reason)")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+            }
+
+            HStack {
+                Spacer()
+                Button("건너뛰기") {
+                    roomManager.rejectAgentSuggestion(suggestionID: suggestion.id, in: roomID)
+                }
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(6)
+
+                Button("추가") {
+                    roomManager.approveAgentSuggestion(suggestionID: suggestion.id, in: roomID)
+                }
+                .font(.caption2.bold())
+                .foregroundColor(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Color.orange)
+                .cornerRadius(6)
+            }
+        }
+        .padding(10)
+        .background(Color.orange.opacity(0.06))
         .cornerRadius(10)
         .padding(.horizontal, 12)
         .padding(.vertical, 4)

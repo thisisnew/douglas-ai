@@ -98,6 +98,29 @@ class AgentStore: ObservableObject {
             ? "Jira 연동: 활성 (web_fetch 도구로 Jira 티켓 조회 가능)"
             : "Jira 연동: 미설정 (API 설정에서 Jira 연결 필요)"
 
+        // 분석가 에이전트 존재 여부 감지
+        let analystAgent = subAgents.first { agent in
+            agent.roleTemplateID == "requirements_analyst" || agent.roleTemplateID == "jira_analyst"
+        }
+
+        let routingStrategy: String
+        if let analyst = analystAgent {
+            routingStrategy = """
+            라우팅 전략 (분석가 우선):
+            - 복잡한 작업, 새로운 요구사항, 팀 빌딩이 필요한 요청 → "\(analyst.name)"에게 위임
+              (분석가는 invite_agent, list_agents, suggest_agent_creation 도구로 필요한 에이전트를 직접 초대/생성합니다)
+            - 특정 에이전트에게 직접 지시하는 단순 작업 → 해당 에이전트에게 delegate
+            - 에이전트 이름/역할을 명시적으로 언급한 경우 → 해당 에이전트에게 delegate
+            """
+        } else {
+            routingStrategy = """
+            라우팅 전략:
+            - 분석가 에이전트가 없습니다. 요구사항 분석이 필요한 복잡한 작업은 suggest_agent로 분석가 생성을 제안하세요.
+              (recommended_preset: "분석가", persona: "요구사항 분석 + 팀 빌딩 전문가")
+            - 단순 작업은 기존 에이전트에게 직접 delegate 하세요.
+            """
+        }
+
         return """
         너는 라우터다. 사용자 요청을 분석해서 적합한 에이전트에게 위임하라.
         직접 답변은 절대 금지. 반드시 delegate 또는 suggest_agent 중 하나를 선택하라.
@@ -107,6 +130,8 @@ class AgentStore: ObservableObject {
         \(agentList.isEmpty ? "(없음)" : agentList)
 
         \(jiraStatus)
+
+        \(routingStrategy)
 
         출력 형식 (택 1):
 
@@ -120,13 +145,13 @@ class AgentStore: ObservableObject {
         {"action":"suggest_agent","name":"이름","persona":"역할 설명","recommended_preset":"프리셋"}
 
         recommended_preset 선택지:
-        - researcher: web_search, web_fetch (URL·웹 조회)
-        - developer: file_read, file_write, shell_exec (코드·파일)
-        - analyst: file_read, shell_exec, web_fetch (분석·URL)
-        - fullAccess: 전체 도구
+        - 리서처: web_search, web_fetch (URL·웹 조회)
+        - 개발자: file_read, file_write, shell_exec (코드·파일)
+        - 분석가: file_read, shell_exec, web_fetch, invite_agent, list_agents, suggest_agent_creation (분석·팀빌딩)
+        - 전체 권한: 전체 도구
 
         에이전트 매칭 규칙 (우선순위 순서):
-        1. 이름 매칭: 사용자가 에이전트 이름이나 역할 키워드를 언급하면 해당 에이전트를 delegate. 예: "QA 불러줘" → 이름에 "QA"가 포함된 에이전트 선택
+        1. 이름 매칭: 사용자가 에이전트 이름이나 역할 키워드를 언급하면 해당 에이전트를 delegate
         2. 역할 매칭: 이름에 없으면 persona 설명에서 역할이 일치하는 에이전트 선택
         3. 능력 매칭: 요청에 필요한 도구를 가진 에이전트 선택
         4. 해당 없음: 위 모두 불일치 시에만 suggest_agent
