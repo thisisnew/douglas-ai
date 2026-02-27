@@ -290,7 +290,11 @@ struct AddProviderSheet: View {
     }
 
     private func saveJira() {
-        var config = JiraConfig(domain: jiraDomain, email: jiraEmail)
+        let cleanDomain = jiraDomain
+            .replacingOccurrences(of: "https://", with: "")
+            .replacingOccurrences(of: "http://", with: "")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        var config = JiraConfig(domain: cleanDomain, email: jiraEmail.trimmingCharacters(in: .whitespaces))
         config.apiToken = jiraToken
         JiraConfig.shared = config
         jiraTestResult = "저장 완료"
@@ -300,9 +304,15 @@ struct AddProviderSheet: View {
         isTestingJira = true
         jiraTestResult = nil
 
+        // 도메인 정규화: https://, http://, 후행 슬래시 제거
+        let cleanDomain = jiraDomain
+            .replacingOccurrences(of: "https://", with: "")
+            .replacingOccurrences(of: "http://", with: "")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+
         let credentials = "\(jiraEmail):\(jiraToken)"
         let auth = "Basic \(Data(credentials.utf8).base64EncodedString())"
-        let urlString = "https://\(jiraDomain)/rest/api/3/myself"
+        let urlString = "https://\(cleanDomain)/rest/api/3/myself"
 
         guard let url = URL(string: urlString) else {
             jiraTestResult = "잘못된 도메인"
