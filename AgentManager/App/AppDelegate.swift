@@ -29,7 +29,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
 
     let agentStore = AgentStore()
     let providerManager = ProviderManager()
-    let devAgentManager = DevAgentManager()
     let chatVM = ChatViewModel()
     let roomManager = RoomManager()
     private var commandBarManager: CommandBarManager?
@@ -52,7 +51,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         roomManager.loadRooms()
 
         // ChatViewModel에 RoomManager 포함하여 설정
-        chatVM.configure(agentStore: agentStore, providerManager: providerManager, devAgentManager: devAgentManager, roomManager: roomManager)
+        chatVM.configure(agentStore: agentStore, providerManager: providerManager, roomManager: roomManager)
         chatVM.loadMessages()
 
         // 기존 사용자 감지: 이미 프로바이더가 설정되어 있으면 온보딩 스킵
@@ -102,7 +101,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             agentStore: agentStore,
             providerManager: providerManager,
             chatVM: chatVM,
-            devAgentManager: devAgentManager,
             openChatWindow: { _ in }
         )
         commandBarManager?.registerHotkey()
@@ -177,7 +175,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             .environmentObject(agentStore)
             .environmentObject(providerManager)
             .environmentObject(chatVM)
-            .environmentObject(devAgentManager)
             .environmentObject(roomManager)
 
         let hostingView = ClickThroughHostingView(rootView: sidebarView)

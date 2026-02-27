@@ -44,7 +44,6 @@ class ChatViewModel: ObservableObject {
 
     private(set) var agentStore: AgentStore?
     private(set) var providerManager: ProviderManager?
-    private(set) var devAgentManager: DevAgentManager?
     private(set) var roomManager: RoomManager?
 
     private let maxRetryAttempts = 2
@@ -52,10 +51,9 @@ class ChatViewModel: ObservableObject {
     init() {}
 
     /// AppDelegate에서 한 번만 호출 — 의존성 설정 + 알림 권한 요청
-    func configure(agentStore: AgentStore, providerManager: ProviderManager, devAgentManager: DevAgentManager, roomManager: RoomManager? = nil) {
+    func configure(agentStore: AgentStore, providerManager: ProviderManager, roomManager: RoomManager? = nil) {
         self.agentStore = agentStore
         self.providerManager = providerManager
-        self.devAgentManager = devAgentManager
         self.roomManager = roomManager
         requestNotificationPermissionIfNeeded()
     }
@@ -93,7 +91,7 @@ class ChatViewModel: ObservableObject {
 
     // MARK: - 메시지 전송 (진입점)
 
-    func sendMessage(_ text: String, agentID: UUID? = nil) {
+    func sendMessage(_ text: String, agentID: UUID? = nil, attachments: [ImageAttachment]? = nil) {
         guard let agentStore = agentStore,
               let providerManager = providerManager else { return }
 
@@ -102,12 +100,12 @@ class ChatViewModel: ObservableObject {
         guard let agent = agentStore.agents.first(where: { $0.id == targetID }) else { return }
 
         // 마스터는 각 질문이 독립적 → 이전 작업 취소하지 않음
-        // 서브에이전트/DevAgent는 기존 작업 취소
+        // 서브에이전트는 기존 작업 취소
         if !agent.isMaster {
             activeTasks[agent.id]?.cancel()
         }
 
-        let userMessage = ChatMessage(role: .user, content: text)
+        let userMessage = ChatMessage(role: .user, content: text, attachments: attachments)
         appendMessage(userMessage, for: agent.id)
 
         loadingAgentIDs.insert(agent.id)
@@ -116,8 +114,6 @@ class ChatViewModel: ObservableObject {
         let task = Task {
             if agent.isMaster {
                 await handleMasterMessage(text, agent: agent, agentStore: agentStore, providerManager: providerManager)
-            } else if agent.isDevAgent {
-                await handleDevAgentMessage(text, agent: agent, providerManager: providerManager)
             } else {
                 await handleAgentMessage(text, agent: agent, providerManager: providerManager)
             }
@@ -222,13 +218,13 @@ class ChatViewModel: ObservableObject {
                 throw AIProviderError.apiError("프로바이더 '\(agent.providerName)'을(를) 찾을 수 없습니다.")
             }
 
-            let history = buildHistory(for: agent.id)
+            let history = buildConversationHistory(for: agent.id)
             let agentID = agent.id
             let response = try await ToolExecutor.smartSend(
                 provider: provider,
                 agent: agent,
                 systemPrompt: agent.persona,
-                messages: history,
+                conversationMessages: history,
                 onToolActivity: { [weak self] activity in
                     Task { @MainActor in
                         let toolMsg = ChatMessage(role: .assistant, content: activity, agentName: agent.name, messageType: .toolActivity)
@@ -257,150 +253,6 @@ class ChatViewModel: ObservableObject {
         }
     }
 
-    // MARK: - DevAgent 메시지 처리
-
-    private func handleDevAgentMessage(
-        _ text: String,
-        agent: Agent,
-        providerManager: ProviderManager
-    ) async {
-        agentStore?.updateStatus(agentID: agent.id, status: .working)
-
-        let isExecutionMode = agent.providerName == "Claude Code"
-
-        do {
-            guard let provider = providerManager.provider(named: agent.providerName) else {
-                throw AIProviderError.apiError("프로바이더 '\(agent.providerName)'을(를) 찾을 수 없습니다.")
-            }
-
-            // DEV_GUIDE.md 내용을 시스템 프롬프트에 주입
-            let devGuideContent = loadDevGuideContent()
-            let modeInstruction = isExecutionMode
-                ? "현재 실행 모드입니다. 코드를 직접 수정할 수 있습니다."
-                : "현재 자문 모드입니다. 구체적인 코드 변경 제안과 설명을 제공하세요. 직접 파일을 수정할 수 없습니다."
-
-            let systemPrompt = """
-            \(agent.persona)
-
-            [DEV_GUIDE 참조]
-            \(devGuideContent)
-
-            [모드]
-            \(modeInstruction)
-            """
-
-            let history = buildHistory(for: agent.id)
-            let agentID = agent.id
-            let response = try await ToolExecutor.smartSend(
-                provider: provider,
-                agent: agent,
-                systemPrompt: systemPrompt,
-                messages: history,
-                onToolActivity: { [weak self] activity in
-                    Task { @MainActor in
-                        let toolMsg = ChatMessage(role: .assistant, content: activity, agentName: agent.name, messageType: .toolActivity)
-                        self?.appendMessage(toolMsg, for: agentID)
-                    }
-                }
-            )
-
-            let reply = ChatMessage(role: .assistant, content: response, agentName: agent.name, messageType: .devAction)
-            appendMessage(reply, for: agent.id)
-
-            // 실행 모드에서 빌드 검증 + 커밋
-            if isExecutionMode, let devMgr = devAgentManager {
-                await performBuildAndCommit(devMgr: devMgr, agentID: agent.id, requestText: text)
-            }
-
-            agentStore?.updateStatus(agentID: agent.id, status: .idle)
-            sendNotification(agentName: agent.name, message: "작업 완료")
-
-        } catch {
-            agentStore?.updateStatus(agentID: agent.id, status: .error, errorMessage: error.localizedDescription)
-            showToastMessage("워즈니악 오류: \(error.localizedDescription)")
-
-            let errorReply = ChatMessage(
-                role: .assistant,
-                content: "오류가 발생했습니다: \(error.localizedDescription)",
-                agentName: agent.name,
-                messageType: .error
-            )
-            appendMessage(errorReply, for: agent.id)
-        }
-    }
-
-    /// 빌드 검증 후 성공 시 커밋, 실패 시 롤백
-    private func performBuildAndCommit(devMgr: DevAgentManager, agentID: UUID, requestText: String) async {
-        // 변경된 파일 확인
-        let changedFiles = (try? await devMgr.getChangedFiles()) ?? []
-        if changedFiles.isEmpty {
-            let noChangeMsg = ChatMessage(
-                role: .assistant,
-                content: "변경된 파일이 없습니다.",
-                agentName: "워즈니악",
-                messageType: .buildResult
-            )
-            appendMessage(noChangeMsg, for: agentID)
-            return
-        }
-
-        // 빌드 검증
-        let buildingMsg = ChatMessage(
-            role: .assistant,
-            content: "빌드 검증 중... (`swift build -c release`)",
-            agentName: "워즈니악",
-            messageType: .buildResult
-        )
-        appendMessage(buildingMsg, for: agentID)
-
-        do {
-            let (success, output) = try await devMgr.runBuildVerification()
-            if success {
-                // 커밋
-                let commitMsg = "[Woz] feat: \(requestText.prefix(50))"
-                try await devMgr.commitChange(
-                    message: commitMsg,
-                    description: String(requestText.prefix(200)),
-                    filesChanged: changedFiles,
-                    requestText: requestText
-                )
-
-                let successMsg = ChatMessage(
-                    role: .assistant,
-                    content: "빌드 성공! 변경사항이 커밋되었습니다.\n변경 파일: \(changedFiles.joined(separator: ", "))",
-                    agentName: "워즈니악",
-                    messageType: .buildResult
-                )
-                appendMessage(successMsg, for: agentID)
-            } else {
-                // 빌드 실패 → 롤백
-                try? await devMgr.discardUncommittedChanges()
-
-                let failMsg = ChatMessage(
-                    role: .assistant,
-                    content: "빌드 실패! 변경사항을 원래대로 되돌렸습니다.\n\n오류:\n\(output.prefix(500))",
-                    agentName: "워즈니악",
-                    messageType: .error
-                )
-                appendMessage(failMsg, for: agentID)
-            }
-        } catch {
-            let errorMsg = ChatMessage(
-                role: .assistant,
-                content: "빌드/커밋 과정에서 오류: \(error.localizedDescription)",
-                agentName: "워즈니악",
-                messageType: .error
-            )
-            appendMessage(errorMsg, for: agentID)
-        }
-    }
-
-    /// DEV_GUIDE.md 파일 내용 로드
-    private func loadDevGuideContent() -> String {
-        let path = (devAgentManager?.projectPath ?? "/Users/douglas.kim/AgentManager") + "/DEV_GUIDE.md"
-        return (try? String(contentsOfFile: path, encoding: .utf8)) ?? "(DEV_GUIDE.md를 찾을 수 없습니다)"
-    }
-
     // MARK: - 위임 → 방 생성
 
     private func handleDelegation(
@@ -411,7 +263,6 @@ class ChatViewModel: ObservableObject {
         agentStore: AgentStore,
         providerManager: ProviderManager
     ) async {
-        // DevAgent 이름도 해석할 수 있도록 전체 에이전트에서 검색
         let resolvedAgents = agentNames.compactMap { name in
             agentStore.agents.first(where: { $0.name == name })
         }
@@ -961,6 +812,29 @@ class ChatViewModel: ObservableObject {
                 case .system:    role = "system"
                 }
                 return (role: role, content: msg.content)
+            }
+    }
+
+    /// 이미지 첨부를 포함한 ConversationMessage 히스토리 빌드
+    func buildConversationHistory(for agentID: UUID) -> [ConversationMessage] {
+        let msgs = messagesByAgent[agentID] ?? []
+        return msgs
+            .filter { [.text, .summary].contains($0.messageType) }
+            .suffix(20)
+            .map { msg in
+                let role: String
+                switch msg.role {
+                case .user:      role = "user"
+                case .assistant: role = "assistant"
+                case .system:    role = "system"
+                }
+                return ConversationMessage(
+                    role: role,
+                    content: msg.content,
+                    toolCalls: nil,
+                    toolCallID: nil,
+                    attachments: msg.attachments
+                )
             }
     }
 

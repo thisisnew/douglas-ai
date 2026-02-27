@@ -76,26 +76,8 @@ struct ChatMessageTests {
         #expect(MessageType.chainProgress.rawValue == "chainProgress")
         #expect(MessageType.suggestion.rawValue == "suggestion")
         #expect(MessageType.error.rawValue == "error")
-        #expect(MessageType.devAction.rawValue == "devAction")
-        #expect(MessageType.buildResult.rawValue == "buildResult")
         #expect(MessageType.discussionRound.rawValue == "discussionRound")
-    }
-
-    @Test("Codable - devAction 타입 라운드트립")
-    func codableDevAction() throws {
-        let original = ChatMessage(role: .assistant, content: "build ok", agentName: "워즈니악", messageType: .devAction)
-        let data = try JSONEncoder().encode(original)
-        let decoded = try JSONDecoder().decode(ChatMessage.self, from: data)
-        #expect(decoded.messageType == .devAction)
-        #expect(decoded.agentName == "워즈니악")
-    }
-
-    @Test("Codable - buildResult 타입 라운드트립")
-    func codableBuildResult() throws {
-        let original = ChatMessage(role: .assistant, content: "success", messageType: .buildResult)
-        let data = try JSONEncoder().encode(original)
-        let decoded = try JSONDecoder().decode(ChatMessage.self, from: data)
-        #expect(decoded.messageType == .buildResult)
+        #expect(MessageType.toolActivity.rawValue == "toolActivity")
     }
 
     @Test("빈 content")
@@ -118,5 +100,43 @@ struct ChatMessageTests {
         let a = ChatMessage(role: .user, content: "a")
         let b = ChatMessage(role: .user, content: "b")
         #expect(a.id != b.id)
+    }
+
+    // MARK: - 이미지 첨부
+
+    @Test("attachments - 기본값 nil")
+    func attachmentsDefault() {
+        let msg = ChatMessage(role: .user, content: "hello")
+        #expect(msg.attachments == nil)
+    }
+
+    @Test("attachments - Codable 라운드트립")
+    func attachmentsCodableRoundTrip() throws {
+        let data = Data("test image".utf8)
+        let att = try ImageAttachment.save(data: data, mimeType: "image/png")
+        defer { att.delete() }
+
+        let msg = ChatMessage(role: .user, content: "look at this", attachments: [att])
+        let encoded = try JSONEncoder().encode(msg)
+        let decoded = try JSONDecoder().decode(ChatMessage.self, from: encoded)
+        #expect(decoded.attachments?.count == 1)
+        #expect(decoded.attachments?.first?.mimeType == "image/png")
+        #expect(decoded.attachments?.first?.id == att.id)
+    }
+
+    @Test("attachments - 레거시 JSON 역호환 (attachments 필드 없음)")
+    func attachmentsLegacyCompat() throws {
+        let json: [String: Any] = [
+            "id": UUID().uuidString,
+            "role": "user",
+            "content": "old message",
+            "timestamp": ISO8601DateFormatter().string(from: Date()),
+            "messageType": "text"
+        ]
+        let data = try JSONSerialization.data(withJSONObject: json)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let msg = try decoder.decode(ChatMessage.self, from: data)
+        #expect(msg.attachments == nil)
     }
 }

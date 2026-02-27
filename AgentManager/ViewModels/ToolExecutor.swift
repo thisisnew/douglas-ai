@@ -10,6 +10,7 @@ enum ToolExecutor {
         agent: Agent,
         systemPrompt: String,
         messages: [(role: String, content: String)],
+        context: ToolExecutionContext = .empty,
         onToolActivity: ((String) -> Void)? = nil
     ) async throws -> String {
         let toolIDs = agent.resolvedToolIDs
@@ -24,8 +25,12 @@ enum ToolExecutor {
         }
 
         // 단순 메시지를 ConversationMessage로 변환
-        let convMessages = messages.map { msg in
-            ConversationMessage(role: msg.role, content: msg.content, toolCalls: nil, toolCallID: nil)
+        let convMessages = messages.map { msg -> ConversationMessage in
+            switch msg.role {
+            case "assistant": return .assistant(msg.content)
+            case "system":    return .system(msg.content)
+            default:          return .user(msg.content)
+            }
         }
         let tools = ToolRegistry.tools(for: toolIDs)
 
@@ -35,6 +40,47 @@ enum ToolExecutor {
             systemPrompt: systemPrompt,
             initialMessages: convMessages,
             tools: tools,
+            context: context,
+            onToolActivity: onToolActivity
+        )
+    }
+
+    /// ConversationMessage 배열을 직접 받는 smartSend (이미지 첨부 지원)
+    static func smartSend(
+        provider: AIProvider,
+        agent: Agent,
+        systemPrompt: String,
+        conversationMessages: [ConversationMessage],
+        context: ToolExecutionContext = .empty,
+        onToolActivity: ((String) -> Void)? = nil
+    ) async throws -> String {
+        let toolIDs = agent.resolvedToolIDs
+
+        // 이미지가 있으면 sendMessageWithTools 경로 사용 (Vision 지원)
+        let hasAttachments = conversationMessages.contains { $0.attachments != nil && !($0.attachments?.isEmpty ?? true) }
+
+        guard hasAttachments || (!toolIDs.isEmpty && provider.supportsToolCalling) else {
+            // 이미지도 도구도 없으면 기존 sendMessage
+            let simple = conversationMessages.compactMap { msg -> (role: String, content: String)? in
+                guard let content = msg.content else { return nil }
+                return (role: msg.role, content: content)
+            }
+            return try await provider.sendMessage(
+                model: agent.modelName,
+                systemPrompt: systemPrompt,
+                messages: simple
+            )
+        }
+
+        let tools = ToolRegistry.tools(for: toolIDs)
+
+        return try await executeWithTools(
+            provider: provider,
+            model: agent.modelName,
+            systemPrompt: systemPrompt,
+            initialMessages: conversationMessages,
+            tools: tools,
+            context: context,
             onToolActivity: onToolActivity
         )
     }
@@ -46,6 +92,7 @@ enum ToolExecutor {
         systemPrompt: String,
         initialMessages: [ConversationMessage],
         tools: [AgentTool],
+        context: ToolExecutionContext = .empty,
         onToolActivity: ((String) -> Void)? = nil
     ) async throws -> String {
         var messages = initialMessages
@@ -66,7 +113,7 @@ enum ToolExecutor {
                 messages.append(.assistantToolCalls(calls, text: nil))
                 for call in calls {
                     onToolActivity?("도구 호출: \(call.toolName)")
-                    let result = await executeSingleTool(call)
+                    let result = await executeSingleTool(call, context: context)
                     onToolActivity?("도구 결과: \(call.toolName) → \(result.isError ? "오류" : "성공")")
                     messages.append(.toolResult(callID: result.callID, content: result.content, isError: result.isError))
                 }
@@ -75,7 +122,7 @@ enum ToolExecutor {
                 messages.append(.assistantToolCalls(calls, text: text))
                 for call in calls {
                     onToolActivity?("도구 호출: \(call.toolName)")
-                    let result = await executeSingleTool(call)
+                    let result = await executeSingleTool(call, context: context)
                     onToolActivity?("도구 결과: \(call.toolName) → \(result.isError ? "오류" : "성공")")
                     messages.append(.toolResult(callID: result.callID, content: result.content, isError: result.isError))
                 }
@@ -117,7 +164,7 @@ enum ToolExecutor {
 
     // MARK: - 개별 도구 실행
 
-    private static func executeSingleTool(_ call: ToolCall) async -> ToolResult {
+    private static func executeSingleTool(_ call: ToolCall, context: ToolExecutionContext = .empty) async -> ToolResult {
         switch call.toolName {
         case "file_read":
             return await executeFileRead(call)
@@ -127,9 +174,53 @@ enum ToolExecutor {
             return await executeShellExec(call)
         case "web_search":
             return ToolResult(callID: call.id, content: "웹 검색 기능은 아직 구현되지 않았습니다.", isError: true)
+        case "invite_agent":
+            return await executeInviteAgent(call, context: context)
+        case "list_agents":
+            return await executeListAgents(call, context: context)
         default:
             return ToolResult(callID: call.id, content: "알 수 없는 도구: \(call.toolName)", isError: true)
         }
+    }
+
+    // MARK: - invite_agent
+
+    private static func executeInviteAgent(_ call: ToolCall, context: ToolExecutionContext) async -> ToolResult {
+        guard context.roomID != nil else {
+            return ToolResult(callID: call.id, content: "이 도구는 방 안에서만 사용할 수 있습니다.", isError: true)
+        }
+        guard let agentName = call.arguments["agent_name"]?.stringValue else {
+            return ToolResult(callID: call.id, content: "agent_name 파라미터가 필요합니다.", isError: true)
+        }
+        guard let agentID = context.agentsByName[agentName] else {
+            let available = context.agentsByName.keys.sorted().joined(separator: ", ")
+            return ToolResult(
+                callID: call.id,
+                content: "'\(agentName)' 에이전트를 찾을 수 없습니다. 사용 가능한 에이전트: \(available.isEmpty ? "(없음)" : available)",
+                isError: true
+            )
+        }
+
+        let success = await context.inviteAgent(agentID)
+        if success {
+            let reason = call.arguments["reason"]?.stringValue ?? ""
+            return ToolResult(
+                callID: call.id,
+                content: "'\(agentName)' 에이전트를 방에 초대했습니다.\(reason.isEmpty ? "" : " 사유: \(reason)")",
+                isError: false
+            )
+        } else {
+            return ToolResult(callID: call.id, content: "에이전트 초대에 실패했습니다.", isError: true)
+        }
+    }
+
+    // MARK: - list_agents
+
+    private static func executeListAgents(_ call: ToolCall, context: ToolExecutionContext) async -> ToolResult {
+        if context.agentListString.isEmpty {
+            return ToolResult(callID: call.id, content: "사용 가능한 에이전트가 없습니다.", isError: false)
+        }
+        return ToolResult(callID: call.id, content: "사용 가능한 에이전트:\n\(context.agentListString)", isError: false)
     }
 
     // MARK: - file_read

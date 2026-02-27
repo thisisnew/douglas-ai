@@ -139,38 +139,4 @@ struct ProviderDetectorTests {
         #expect(provider.needsAPIKey == false)
     }
 
-    // MARK: - DevAgentError
-
-    @Test("DevAgentError.gitError - 에러 메시지")
-    func devAgentErrorGit() {
-        let error = DevAgentError.gitError("merge conflict")
-        #expect(error.localizedDescription.contains("Git"))
-        #expect(error.localizedDescription.contains("merge conflict"))
-    }
-
-    @Test("DevAgentError.buildFailed - 에러 메시지")
-    func devAgentErrorBuild() {
-        let error = DevAgentError.buildFailed("type mismatch")
-        #expect(error.localizedDescription.contains("빌드 실패"))
-        #expect(error.localizedDescription.contains("type mismatch"))
-    }
-
-    @Test("DevAgentError.notExecutionMode - 에러 메시지")
-    func devAgentErrorNotExecution() {
-        let error = DevAgentError.notExecutionMode
-        #expect(error.localizedDescription.contains("실행 모드"))
-    }
-
-    @Test("DevAgentError - LocalizedError 준수")
-    func devAgentErrorConformsToLocalizedError() {
-        let errors: [DevAgentError] = [
-            .gitError("test"),
-            .buildFailed("test"),
-            .notExecutionMode
-        ]
-        for error in errors {
-            #expect(error.errorDescription != nil)
-            #expect(!error.errorDescription!.isEmpty)
-        }
-    }
 }

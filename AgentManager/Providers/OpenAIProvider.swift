@@ -93,6 +93,10 @@ class OpenAIProvider: AIProvider {
             } else if msg.role == "tool", let callID = msg.toolCallID {
                 // 도구 실행 결과
                 allMessages.append(ToolFormatConverter.openAIToolResultMessage(callID: callID, content: msg.content ?? ""))
+            } else if let attachments = msg.attachments, !attachments.isEmpty {
+                // 이미지 첨부 메시지 → content array
+                let parts = ToolFormatConverter.openAIContentArray(text: msg.content, attachments: attachments)
+                allMessages.append(["role": msg.role, "content": parts] as [String: Any])
             } else if let content = msg.content {
                 allMessages.append(["role": msg.role, "content": content])
             }

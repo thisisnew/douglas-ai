@@ -1,6 +1,6 @@
 # AgentManager 개발 가이드 (DEV_GUIDE)
 
-이 문서는 워즈니악(유지보수 담당자)이 참조하는 개발 규칙서입니다. 모델에 관계없이 이 규칙을 따릅니다.
+이 문서는 AgentManager의 개발 규칙서입니다.
 
 ---
 
@@ -15,8 +15,8 @@ AgentManager/
 ├── CLAUDE.md                      # Claude Code 세션 규칙
 └── AgentManager/
     ├── App/                       # 앱 진입점, AppDelegate
-    ├── Models/                    # 데이터 모델 (Agent, ChatMessage, AgentTool, ProviderConfig, ChangeRecord)
-    ├── ViewModels/                # 비즈니스 로직 (AgentStore, ChatViewModel, ToolExecutor, ProviderManager, DevAgentManager)
+    ├── Models/                    # 데이터 모델 (Agent, ChatMessage, AgentTool, ImageAttachment, ProviderConfig, ToolExecutionContext, DependencyChecker)
+    ├── ViewModels/                # 비즈니스 로직 (AgentStore, ChatViewModel, ToolExecutor, ProviderManager, RoomManager)
     ├── Providers/                 # AI 프로바이더 (AIProvider 프로토콜, ToolFormatConverter, Claude/OpenAI/Google/Anthropic)
     └── Views/                     # SwiftUI 뷰
 ```
@@ -39,7 +39,7 @@ AgentManager/
 - API 키: `KeychainHelper`
 - 이미지: `~/Library/Application Support/AgentManager/avatars/`
 - 채팅 기록: `~/Library/Application Support/AgentManager/chats/`
-- 변경 이력: `~/Library/Application Support/AgentManager/changes.json`
+- 이미지 첨부: `~/Library/Application Support/AgentManager/attachments/`
 
 ### UI 텍스트
 - 한국어 (앱 내 모든 사용자 대면 텍스트)
@@ -65,12 +65,11 @@ AgentManager/
 2. **Git 커밋**: 아래 형식으로 커밋
 3. **ARCHITECTURE.md 업데이트**: 구조 변경 시 해당 섹션 수정
 4. **이 문서 업데이트**: 규칙/관례 변경 시 반영
-5. **변경 이력 기록**: ChangeRecord에 추가
 
 ## 커밋 메시지 형식
 
 ```
-[Woz] <type>: <한줄 설명>
+[AM] <type>: <한줄 설명>
 
 <상세 내용 (선택)>
 

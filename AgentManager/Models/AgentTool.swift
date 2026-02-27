@@ -97,26 +97,27 @@ struct ConversationMessage {
     let content: String?
     let toolCalls: [ToolCall]?
     let toolCallID: String?     // role == "tool"일 때 참조하는 ToolCall.id
+    let attachments: [ImageAttachment]?
 
-    static func user(_ content: String) -> ConversationMessage {
-        ConversationMessage(role: "user", content: content, toolCalls: nil, toolCallID: nil)
+    static func user(_ content: String, attachments: [ImageAttachment]? = nil) -> ConversationMessage {
+        ConversationMessage(role: "user", content: content, toolCalls: nil, toolCallID: nil, attachments: attachments)
     }
 
     static func assistant(_ content: String) -> ConversationMessage {
-        ConversationMessage(role: "assistant", content: content, toolCalls: nil, toolCallID: nil)
+        ConversationMessage(role: "assistant", content: content, toolCalls: nil, toolCallID: nil, attachments: nil)
     }
 
     static func system(_ content: String) -> ConversationMessage {
-        ConversationMessage(role: "system", content: content, toolCalls: nil, toolCallID: nil)
+        ConversationMessage(role: "system", content: content, toolCalls: nil, toolCallID: nil, attachments: nil)
     }
 
     static func assistantToolCalls(_ calls: [ToolCall], text: String? = nil) -> ConversationMessage {
-        ConversationMessage(role: "assistant", content: text, toolCalls: calls, toolCallID: nil)
+        ConversationMessage(role: "assistant", content: text, toolCalls: calls, toolCallID: nil, attachments: nil)
     }
 
     static func toolResult(callID: String, content: String, isError: Bool = false) -> ConversationMessage {
         let prefix = isError ? "[오류] " : ""
-        return ConversationMessage(role: "tool", content: prefix + content, toolCalls: nil, toolCallID: callID)
+        return ConversationMessage(role: "tool", content: prefix + content, toolCalls: nil, toolCallID: callID, attachments: nil)
     }
 }
 
@@ -183,6 +184,21 @@ enum ToolRegistry {
             parameters: [
                 .init(name: "query", type: .string, description: "Search query string", required: true, enumValues: nil)
             ]
+        ),
+        AgentTool(
+            id: "invite_agent",
+            name: "에이전트 초대",
+            description: "Invite another agent into the current room to collaborate. The invited agent will join and can participate in the conversation.",
+            parameters: [
+                .init(name: "agent_name", type: .string, description: "Name of the agent to invite", required: true, enumValues: nil),
+                .init(name: "reason", type: .string, description: "Reason for inviting this agent", required: false, enumValues: nil)
+            ]
+        ),
+        AgentTool(
+            id: "list_agents",
+            name: "에이전트 목록",
+            description: "List all available agents that can be invited to the current room.",
+            parameters: []
         )
     ]
 

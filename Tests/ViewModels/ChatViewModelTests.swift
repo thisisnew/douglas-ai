@@ -154,12 +154,10 @@ struct ChatViewModelTests {
         let defaults = makeTestDefaults()
         let store = AgentStore(defaults: defaults)
         let providerManager = ProviderManager(defaults: defaults)
-        let devMgr = DevAgentManager(projectPath: "/tmp/test")
 
-        vm.configure(agentStore: store, providerManager: providerManager, devAgentManager: devMgr)
+        vm.configure(agentStore: store, providerManager: providerManager)
         #expect(vm.agentStore != nil)
         #expect(vm.providerManager != nil)
-        #expect(vm.devAgentManager != nil)
     }
 
     @Test("clearMessages")
@@ -171,24 +169,6 @@ struct ChatViewModelTests {
         #expect(vm.messages(for: agentID).count == 2)
         vm.clearMessages(for: agentID)
         #expect(vm.messages(for: agentID).isEmpty)
-    }
-
-    @Test("buildHistory - devAction/buildResult 필터링")
-    func buildHistoryFiltersDevTypes() {
-        let vm = ChatViewModel()
-        let agentID = UUID()
-        vm.appendMessagePublic(makeTestMessage(content: "text msg", messageType: .text), for: agentID)
-        vm.appendMessagePublic(makeTestMessage(content: "dev action", messageType: .devAction), for: agentID)
-        vm.appendMessagePublic(makeTestMessage(content: "build result", messageType: .buildResult), for: agentID)
-        vm.appendMessagePublic(makeTestMessage(content: "summary msg", messageType: .summary), for: agentID)
-
-        let history = vm.buildHistory(for: agentID)
-        #expect(history.count == 2) // text + summary만
-        let contents = history.map { $0.content }
-        #expect(contents.contains("text msg"))
-        #expect(contents.contains("summary msg"))
-        #expect(!contents.contains("dev action"))
-        #expect(!contents.contains("build result"))
     }
 
     @Test("buildHistory - 빈 에이전트")

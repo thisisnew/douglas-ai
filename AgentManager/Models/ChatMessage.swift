@@ -13,8 +13,6 @@ enum MessageType: String, Codable {
     case chainProgress
     case suggestion
     case error
-    case devAction
-    case buildResult
     case discussionRound
     case toolActivity
 }
@@ -26,6 +24,7 @@ struct ChatMessage: Identifiable, Codable {
     let agentName: String?
     let timestamp: Date
     var messageType: MessageType
+    let attachments: [ImageAttachment]?
 
     init(
         id: UUID = UUID(),
@@ -33,7 +32,8 @@ struct ChatMessage: Identifiable, Codable {
         content: String,
         agentName: String? = nil,
         timestamp: Date = Date(),
-        messageType: MessageType = .text
+        messageType: MessageType = .text,
+        attachments: [ImageAttachment]? = nil
     ) {
         self.id = id
         self.role = role
@@ -41,6 +41,7 @@ struct ChatMessage: Identifiable, Codable {
         self.agentName = agentName
         self.timestamp = timestamp
         self.messageType = messageType
+        self.attachments = attachments
     }
 
     // 기존 저장 데이터 호환
@@ -52,5 +53,6 @@ struct ChatMessage: Identifiable, Codable {
         agentName = try container.decodeIfPresent(String.self, forKey: .agentName)
         timestamp = try container.decode(Date.self, forKey: .timestamp)
         messageType = try container.decodeIfPresent(MessageType.self, forKey: .messageType) ?? .text
+        attachments = try container.decodeIfPresent([ImageAttachment].self, forKey: .attachments)
     }
 }

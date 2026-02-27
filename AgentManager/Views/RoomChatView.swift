@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - 방 채팅 뷰
 
@@ -7,6 +8,7 @@ struct RoomChatView: View {
     @EnvironmentObject var roomManager: RoomManager
     @EnvironmentObject var agentStore: AgentStore
     @State private var inputText = ""
+    @State private var pendingAttachments: [ImageAttachment] = []
     @State private var showDeleteConfirm = false
     @FocusState private var isInputFocused: Bool
 
@@ -120,32 +122,132 @@ struct RoomChatView: View {
 
     // MARK: - 입력 영역
 
-    private func inputArea(_ room: Room) -> some View {
-        HStack(spacing: 8) {
-            TextField("메시지를 입력하세요...", text: $inputText, axis: .vertical)
-                .textFieldStyle(.plain)
-                .lineLimit(1...3)
-                .focused($isInputFocused)
-                .onSubmit { sendMessage() }
+    private var canSend: Bool {
+        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty
+    }
 
-            Button(action: sendMessage) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.title2)
-                    .foregroundColor(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .gray : .accentColor)
+    private func inputArea(_ room: Room) -> some View {
+        VStack(spacing: 4) {
+            // 첨부 이미지 미리보기
+            if !pendingAttachments.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(pendingAttachments) { att in
+                            roomAttachmentThumbnail(att)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.top, 4)
+                }
             }
-            .buttonStyle(.plain)
-            .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .keyboardShortcut(.return, modifiers: .command)
+
+            HStack(spacing: 8) {
+                // 이미지 첨부 버튼
+                Button(action: pickImage) {
+                    Image(systemName: "photo.badge.plus")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("이미지 첨부")
+
+                TextField("메시지를 입력하세요...", text: $inputText, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...3)
+                    .focused($isInputFocused)
+                    .onSubmit { sendMessage() }
+
+                Button(action: sendMessage) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.title2)
+                        .foregroundColor(canSend ? .accentColor : .gray)
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSend)
+                .keyboardShortcut(.return, modifiers: .command)
+            }
         }
         .padding(10)
         .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
+        .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
+            handleImageDrop(providers)
+            return true
+        }
     }
 
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty || !pendingAttachments.isEmpty else { return }
+        let attachments = pendingAttachments.isEmpty ? nil : pendingAttachments
         inputText = ""
-        Task { await roomManager.sendUserMessage(text, to: roomID) }
+        pendingAttachments = []
+        Task { await roomManager.sendUserMessage(text.isEmpty ? "[이미지]" : text, to: roomID, attachments: attachments) }
+    }
+
+    // MARK: - 이미지 첨부
+
+    private func pickImage() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.jpeg, .png, .gif, .webP]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.message = "첨부할 이미지를 선택하세요"
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls {
+            addImageFromURL(url)
+        }
+    }
+
+    private func addImageFromURL(_ url: URL) {
+        guard let data = try? Data(contentsOf: url) else { return }
+        guard let mime = ImageAttachment.mimeType(for: data) else { return }
+        guard let attachment = try? ImageAttachment.save(data: data, mimeType: mime) else { return }
+        pendingAttachments.append(attachment)
+    }
+
+    private func handleImageDrop(_ providers: [NSItemProvider]) {
+        for provider in providers {
+            if provider.hasItemConformingToTypeIdentifier("public.image") {
+                provider.loadDataRepresentation(forTypeIdentifier: "public.image") { data, _ in
+                    guard let data = data,
+                          let mime = ImageAttachment.mimeType(for: data),
+                          let attachment = try? ImageAttachment.save(data: data, mimeType: mime) else { return }
+                    DispatchQueue.main.async {
+                        pendingAttachments.append(attachment)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func roomAttachmentThumbnail(_ attachment: ImageAttachment) -> some View {
+        ZStack(alignment: .topTrailing) {
+            if let data = try? attachment.loadData(), let nsImage = NSImage(data: data) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 48, height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            } else {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.gray.opacity(0.2))
+                    .frame(width: 48, height: 48)
+                    .overlay(Image(systemName: "photo").foregroundColor(.secondary))
+            }
+
+            Button {
+                attachment.delete()
+                pendingAttachments.removeAll { $0.id == attachment.id }
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(.white)
+                    .background(Circle().fill(Color.black.opacity(0.5)))
+            }
+            .buttonStyle(.plain)
+            .offset(x: 4, y: -4)
+        }
     }
 
     // MARK: - 상태 라벨

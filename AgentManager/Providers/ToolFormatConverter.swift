@@ -152,6 +152,62 @@ enum ToolFormatConverter {
         ]
     }
 
+    // MARK: - Vision (이미지) 메시지 빌드
+
+    /// Anthropic 형식: user 메시지에 이미지 content block 포함
+    static func anthropicContentBlocks(text: String?, attachments: [ImageAttachment]) -> [[String: Any]] {
+        var blocks: [[String: Any]] = []
+        for attachment in attachments {
+            guard let base64 = try? attachment.loadBase64() else { continue }
+            blocks.append([
+                "type": "image",
+                "source": [
+                    "type": "base64",
+                    "media_type": attachment.mimeType,
+                    "data": base64
+                ] as [String: Any]
+            ])
+        }
+        if let text = text, !text.isEmpty {
+            blocks.append(["type": "text", "text": text])
+        }
+        return blocks
+    }
+
+    /// OpenAI 형식: user 메시지에 이미지 content array 포함
+    static func openAIContentArray(text: String?, attachments: [ImageAttachment]) -> [[String: Any]] {
+        var parts: [[String: Any]] = []
+        for attachment in attachments {
+            guard let base64 = try? attachment.loadBase64() else { continue }
+            parts.append([
+                "type": "image_url",
+                "image_url": ["url": "data:\(attachment.mimeType);base64,\(base64)"]
+            ])
+        }
+        if let text = text, !text.isEmpty {
+            parts.append(["type": "text", "text": text])
+        }
+        return parts
+    }
+
+    /// Google 형식: user 메시지에 inlineData parts 포함
+    static func googleParts(text: String?, attachments: [ImageAttachment]) -> [[String: Any]] {
+        var parts: [[String: Any]] = []
+        for attachment in attachments {
+            guard let base64 = try? attachment.loadBase64() else { continue }
+            parts.append([
+                "inlineData": [
+                    "mimeType": attachment.mimeType,
+                    "data": base64
+                ] as [String: Any]
+            ])
+        }
+        if let text = text, !text.isEmpty {
+            parts.append(["text": text])
+        }
+        return parts
+    }
+
     // MARK: - 공통 헬퍼
 
     /// ToolParameter 배열을 JSON Schema로 변환

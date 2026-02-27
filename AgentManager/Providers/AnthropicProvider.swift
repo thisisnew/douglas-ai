@@ -97,6 +97,10 @@ class AnthropicProvider: AIProvider {
                     callID: callID, content: content, isError: isError
                 )
                 apiMessages.append(["role": "user", "content": [resultBlock]])
+            } else if let attachments = msg.attachments, !attachments.isEmpty {
+                // 이미지 첨부 메시지 → content blocks
+                let blocks = ToolFormatConverter.anthropicContentBlocks(text: msg.content, attachments: attachments)
+                apiMessages.append(["role": msg.role, "content": blocks])
             } else if let content = msg.content {
                 apiMessages.append(["role": msg.role, "content": content])
             }

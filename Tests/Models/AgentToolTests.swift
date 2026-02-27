@@ -176,8 +176,23 @@ struct AgentToolTests {
 
     @Test("ToolRegistry 모든 도구 존재")
     func registryAllTools() {
-        #expect(ToolRegistry.allTools.count == 4)
-        #expect(ToolRegistry.allToolIDs.count == 4)
+        #expect(ToolRegistry.allTools.count == 6)
+        #expect(ToolRegistry.allToolIDs.count == 6)
+    }
+
+    @Test("ToolRegistry invite_agent 등록 확인")
+    func registryInviteAgent() {
+        let tool = ToolRegistry.allTools.first { $0.id == "invite_agent" }
+        #expect(tool != nil)
+        #expect(tool?.parameters.first { $0.name == "agent_name" }?.required == true)
+        #expect(tool?.parameters.first { $0.name == "reason" }?.required == false)
+    }
+
+    @Test("ToolRegistry list_agents 등록 확인")
+    func registryListAgents() {
+        let tool = ToolRegistry.allTools.first { $0.id == "list_agents" }
+        #expect(tool != nil)
+        #expect(tool?.parameters.isEmpty == true)
     }
 
     @Test("ToolRegistry 필터링")
@@ -276,7 +291,7 @@ struct AgentToolTests {
     @Test("Agent 하위 호환 디코딩 (도구 필드 없는 JSON)")
     func agentBackwardCompat() throws {
         let json = """
-        {"id":"11111111-1111-1111-1111-111111111111","name":"old","persona":"old agent","providerName":"Test","modelName":"model","status":"idle","isMaster":false,"isDevAgent":false,"hasImage":false}
+        {"id":"11111111-1111-1111-1111-111111111111","name":"old","persona":"old agent","providerName":"Test","modelName":"model","status":"idle","isMaster":false,"hasImage":false}
         """
         let data = json.data(using: .utf8)!
         let agent = try JSONDecoder().decode(Agent.self, from: data)

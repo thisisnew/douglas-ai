@@ -26,19 +26,16 @@ struct AgentAvatarView: View {
 
     private var defaultIconName: String {
         if agent.isMaster { return "brain.head.profile" }
-        if agent.isDevAgent { return "wrench.and.screwdriver" }
         return "person.crop.circle"
     }
 
     private var defaultIconColor: Color {
         if agent.isMaster { return .purple }
-        if agent.isDevAgent { return .green }
         return .blue
     }
 
     private var defaultBackgroundColor: Color {
         if agent.isMaster { return .purple }
-        if agent.isDevAgent { return .green }
         return .blue
     }
 }

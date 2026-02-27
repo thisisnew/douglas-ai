@@ -14,14 +14,6 @@ struct AgentStoreTests {
         #expect(store.masterAgent?.isMaster == true)
     }
 
-    @Test("init - DevAgent 자동 생성")
-    func initCreatesDevAgent() {
-        let defaults = makeTestDefaults()
-        let store = AgentStore(defaults: defaults)
-        #expect(store.devAgent != nil)
-        #expect(store.devAgent?.isDevAgent == true)
-    }
-
     @Test("init - 모든 상태 idle로 초기화")
     func initResetsStatus() {
         let defaults = makeTestDefaults()
@@ -43,7 +35,7 @@ struct AgentStoreTests {
         #expect(store.masterAgent?.isMaster == true)
     }
 
-    @Test("subAgents 속성 - 마스터/DevAgent 제외")
+    @Test("subAgents 속성 - 마스터 제외")
     func subAgentsProperty() {
         let defaults = makeTestDefaults()
         let store = AgentStore(defaults: defaults)
@@ -51,7 +43,6 @@ struct AgentStoreTests {
         store.addAgent(sub)
         #expect(store.subAgents.contains(where: { $0.name == "Sub1" }))
         #expect(!store.subAgents.contains(where: { $0.isMaster }))
-        #expect(!store.subAgents.contains(where: { $0.isDevAgent }))
     }
 
     @Test("selectedAgent - 기본은 마스터")
@@ -106,19 +97,6 @@ struct AgentStoreTests {
         store.removeAgent(master)
         #expect(store.agents.count == countBefore)
         #expect(store.masterAgent != nil)
-    }
-
-    @Test("removeAgent - DevAgent 삭제 불가")
-    func removeDevAgentProtected() {
-        let defaults = makeTestDefaults()
-        let store = AgentStore(defaults: defaults)
-        guard let dev = store.devAgent else {
-            Issue.record("DevAgent not found")
-            return
-        }
-        let countBefore = store.agents.count
-        store.removeAgent(dev)
-        #expect(store.agents.count == countBefore)
     }
 
     @Test("removeAgent - 선택된 에이전트 삭제 시 마스터로 리셋")
@@ -179,7 +157,6 @@ struct AgentStoreTests {
     func masterSystemPromptNoSubAgents() {
         let defaults = makeTestDefaults()
         let store = AgentStore(defaults: defaults)
-        // 마스터와 DevAgent만 남기고 subAgents 비어있을 때
         let prompt = store.masterSystemPrompt()
         #expect(prompt.contains("delegate"))
         #expect(prompt.contains("respond"))
@@ -196,33 +173,11 @@ struct AgentStoreTests {
         #expect(prompt.contains("suggest_agent"))
     }
 
-    @Test("masterSystemPrompt - DevAgent 포함")
-    func masterSystemPromptContainsDevAgent() {
-        let defaults = makeTestDefaults()
-        let store = AgentStore(defaults: defaults)
-        let prompt = store.masterSystemPrompt()
-        // DevAgent(워즈니악)가 위임 대상으로 포함되어야 함
-        #expect(prompt.contains("유지보수 담당자"))
-        #expect(prompt.contains("개발 관련 요청"))
-    }
-
     @Test("minimizedAgentIDs - 초기 빈 상태")
     func minimizedAgentIDsEmpty() {
         let defaults = makeTestDefaults()
         let store = AgentStore(defaults: defaults)
         #expect(store.minimizedAgentIDs.isEmpty)
-    }
-
-    @Test("DevAgent 위치 - 마스터 바로 뒤")
-    func devAgentPositionAfterMaster() {
-        let defaults = makeTestDefaults()
-        let store = AgentStore(defaults: defaults)
-        guard let masterIdx = store.agents.firstIndex(where: { $0.isMaster }),
-              let devIdx = store.agents.firstIndex(where: { $0.isDevAgent }) else {
-            Issue.record("Master or DevAgent not found")
-            return
-        }
-        #expect(devIdx == masterIdx + 1)
     }
 
     @Test("updateStatus - 존재하지 않는 에이전트")
@@ -246,15 +201,13 @@ struct AgentStoreTests {
 
     // MARK: - updateMasterProvider
 
-    @Test("updateMasterProvider - 마스터 + DevAgent 프로바이더 변경")
+    @Test("updateMasterProvider - 마스터 프로바이더 변경")
     func updateMasterProvider() {
         let defaults = makeTestDefaults()
         let store = AgentStore(defaults: defaults)
         store.updateMasterProvider(providerName: "OpenAI", modelName: "gpt-4o")
         #expect(store.masterAgent?.providerName == "OpenAI")
         #expect(store.masterAgent?.modelName == "gpt-4o")
-        #expect(store.devAgent?.providerName == "OpenAI")
-        #expect(store.devAgent?.modelName == "gpt-4o")
     }
 
     @Test("updateMasterProvider - 영속화 확인")
@@ -305,5 +258,21 @@ struct AgentStoreTests {
         // selectedAgentID는 설정되지만 agents에 없으므로 selectedAgent는 nil이 아니라 마스터
         // 실제로 selectAgent는 단순히 ID를 설정하므로 agents에서 못 찾으면 fallback
         #expect(store.selectedAgentID == fake.id)
+    }
+
+    // MARK: - 워즈니악 마이그레이션
+
+    @Test("init - 기존 워즈니악 에이전트 자동 제거")
+    func initRemovesWozniak() {
+        let defaults = makeTestDefaults()
+        // 워즈니악이 포함된 에이전트 목록을 저장
+        let master = Agent.createMaster()
+        let wozniak = Agent(name: "워즈니악 (유지보수 담당자)", persona: "test", providerName: "P", modelName: "M")
+        let data = try! JSONEncoder().encode([master, wozniak])
+        defaults.set(data, forKey: "savedAgents")
+
+        let store = AgentStore(defaults: defaults)
+        #expect(!store.agents.contains(where: { $0.name.contains("워즈니악") }))
+        #expect(store.masterAgent != nil)
     }
 }

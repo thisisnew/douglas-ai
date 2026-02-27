@@ -14,7 +14,6 @@ func makeTestAgent(
     providerName: String = "TestProvider",
     modelName: String = "test-model",
     isMaster: Bool = false,
-    isDevAgent: Bool = false,
     status: AgentStatus = .idle
 ) -> Agent {
     Agent(
@@ -23,8 +22,7 @@ func makeTestAgent(
         providerName: providerName,
         modelName: modelName,
         status: status,
-        isMaster: isMaster,
-        isDevAgent: isDevAgent
+        isMaster: isMaster
     )
 }
 

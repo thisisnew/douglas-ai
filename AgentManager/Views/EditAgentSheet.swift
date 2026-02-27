@@ -59,7 +59,7 @@ struct EditAgentSheet: View {
                     // 이름
                     VStack(alignment: .leading, spacing: 6) {
                         sectionLabel("이름")
-                        if agent.isMaster || agent.isDevAgent {
+                        if agent.isMaster {
                             Text(name)
                                 .font(.body)
                                 .foregroundColor(.secondary)

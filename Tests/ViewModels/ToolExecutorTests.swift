@@ -408,6 +408,210 @@ struct ToolExecutorTests {
         #expect(toolResultMsg?.content?.contains("알 수 없는 도구") == true)
     }
 
+    // MARK: - invite_agent / list_agents
+
+    @Test("invite_agent — roomID 없으면 오류")
+    func inviteAgentNoRoom() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "invite_agent", arguments: ["agent_name": .string("helper")])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("handled"))
+        ]
+
+        let agent = makeAgent(preset: .fullAccess)
+        // context 없이 (기본 .empty → roomID nil)
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "invite")]
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResultMsg = lastMessages.first { $0.role == "tool" }
+        #expect(toolResultMsg?.content?.contains("방 안에서만") == true)
+    }
+
+    @Test("invite_agent — 에이전트명 미매칭 오류")
+    func inviteAgentNotFound() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "invite_agent", arguments: ["agent_name": .string("nonexistent")])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("handled"))
+        ]
+
+        let context = ToolExecutionContext(
+            roomID: UUID(),
+            agentsByName: ["helper": UUID()],
+            agentListString: "- helper",
+            inviteAgent: { _ in true }
+        )
+
+        let agent = makeAgent(preset: .fullAccess)
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "invite")],
+            context: context
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResultMsg = lastMessages.first { $0.role == "tool" }
+        #expect(toolResultMsg?.content?.contains("찾을 수 없습니다") == true)
+        #expect(toolResultMsg?.content?.contains("helper") == true)
+    }
+
+    @Test("invite_agent — agent_name 파라미터 없음")
+    func inviteAgentMissingName() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "invite_agent", arguments: [:])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("handled"))
+        ]
+
+        let context = ToolExecutionContext(
+            roomID: UUID(),
+            agentsByName: [:],
+            agentListString: "",
+            inviteAgent: { _ in true }
+        )
+
+        let agent = makeAgent(preset: .fullAccess)
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "invite")],
+            context: context
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResultMsg = lastMessages.first { $0.role == "tool" }
+        #expect(toolResultMsg?.content?.contains("agent_name") == true)
+    }
+
+    @Test("invite_agent — 성공 시 inviteAgent 클로저 호출")
+    func inviteAgentSuccess() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "invite_agent", arguments: [
+            "agent_name": .string("helper"),
+            "reason": .string("도움 필요")
+        ])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("done"))
+        ]
+
+        let helperID = UUID()
+        var invitedID: UUID?
+        let context = ToolExecutionContext(
+            roomID: UUID(),
+            agentsByName: ["helper": helperID],
+            agentListString: "- helper",
+            inviteAgent: { id in
+                invitedID = id
+                return true
+            }
+        )
+
+        let agent = makeAgent(preset: .fullAccess)
+        let result = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "invite helper")],
+            context: context
+        )
+        #expect(result == "done")
+        #expect(invitedID == helperID)
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResultMsg = lastMessages.first { $0.role == "tool" }
+        #expect(toolResultMsg?.content?.contains("초대했습니다") == true)
+        #expect(toolResultMsg?.content?.contains("도움 필요") == true)
+    }
+
+    @Test("invite_agent — 초대 실패")
+    func inviteAgentFailure() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "invite_agent", arguments: ["agent_name": .string("helper")])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("handled"))
+        ]
+
+        let context = ToolExecutionContext(
+            roomID: UUID(),
+            agentsByName: ["helper": UUID()],
+            agentListString: "- helper",
+            inviteAgent: { _ in false }
+        )
+
+        let agent = makeAgent(preset: .fullAccess)
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "invite")],
+            context: context
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResultMsg = lastMessages.first { $0.role == "tool" }
+        #expect(toolResultMsg?.content?.contains("실패") == true)
+    }
+
+    @Test("list_agents — 에이전트 목록 반환")
+    func listAgentsWithAgents() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "list_agents", arguments: [:])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("done"))
+        ]
+
+        let context = ToolExecutionContext(
+            roomID: UUID(),
+            agentsByName: ["agent1": UUID(), "agent2": UUID()],
+            agentListString: "- agent1 [OpenAI/gpt-4o]\n- agent2 [Anthropic/claude]",
+            inviteAgent: { _ in true }
+        )
+
+        let agent = makeAgent(preset: .fullAccess)
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "list")],
+            context: context
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResultMsg = lastMessages.first { $0.role == "tool" }
+        #expect(toolResultMsg?.content?.contains("agent1") == true)
+        #expect(toolResultMsg?.content?.contains("agent2") == true)
+    }
+
+    @Test("list_agents — 빈 목록")
+    func listAgentsEmpty() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "list_agents", arguments: [:])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("done"))
+        ]
+
+        let context = ToolExecutionContext(
+            roomID: UUID(),
+            agentsByName: [:],
+            agentListString: "",
+            inviteAgent: { _ in true }
+        )
+
+        let agent = makeAgent(preset: .fullAccess)
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "list")],
+            context: context
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResultMsg = lastMessages.first { $0.role == "tool" }
+        #expect(toolResultMsg?.content?.contains("없습니다") == true)
+    }
+
     // MARK: - maxIterations 상수
 
     @Test("maxIterations는 10")

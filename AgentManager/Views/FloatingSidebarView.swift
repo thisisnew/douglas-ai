@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 /// 유틸리티 윈도우 관리: 참조를 유지해 메모리 누수 방지
 @MainActor
@@ -18,7 +19,6 @@ final class UtilityWindowManager {
         agentStore: AgentStore,
         providerManager: ProviderManager,
         chatVM: ChatViewModel,
-        devAgentManager: DevAgentManager? = nil,
         roomManager: RoomManager? = nil,
         @ViewBuilder content: () -> Content
     ) {
@@ -43,9 +43,6 @@ final class UtilityWindowManager {
             .environmentObject(agentStore)
             .environmentObject(providerManager)
             .environmentObject(chatVM))
-        if let devMgr = devAgentManager {
-            rootView = AnyView(rootView.environmentObject(devMgr))
-        }
         if let roomMgr = roomManager {
             rootView = AnyView(rootView.environmentObject(roomMgr))
         }
@@ -95,8 +92,6 @@ struct SlashCommand: Identifiable {
     let takesArgument: Bool
 
     static let all: [SlashCommand] = [
-        .init(id: "woz", label: "/woz", description: "워즈니악에게 요청",
-              icon: "wrench.and.screwdriver", iconColor: .blue, takesArgument: true),
         .init(id: "clear", label: "/clear", description: "채팅 내역 초기화",
               icon: "trash", iconColor: .red, takesArgument: false),
     ]
@@ -154,10 +149,10 @@ struct FloatingSidebarView: View {
     @EnvironmentObject var agentStore: AgentStore
     @EnvironmentObject var providerManager: ProviderManager
     @EnvironmentObject var chatVM: ChatViewModel
-    @EnvironmentObject var devAgentManager: DevAgentManager
     @EnvironmentObject var roomManager: RoomManager
 
     @State private var inputText = ""
+    @State private var pendingAttachments: [ImageAttachment] = []
     @State private var showSlashMenu = false
     @State private var filteredCommands: [SlashCommand] = SlashCommand.all
     @StateObject private var slashMenu = SlashMenuState()
@@ -325,33 +320,6 @@ struct FloatingSidebarView: View {
             .buttonStyle(.plain)
             .help("작업일지")
 
-            // DevAgent (앱 유지보수)
-            Button(action: {
-                if let dev = agentStore.devAgent {
-                    openInfoWindow(for: dev)
-                }
-            }) {
-                Image(systemName: "wrench.and.screwdriver")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-            }
-            .buttonStyle(.plain)
-            .help("앱 유지보수 (워즈니악)")
-            .contextMenu {
-                Button {
-                    openHistoryWindow()
-                } label: {
-                    Label("변경 이력", systemImage: "clock.arrow.circlepath")
-                }
-                if let dev = agentStore.devAgent {
-                    Button {
-                        openEditWindow(for: dev)
-                    } label: {
-                        Label("편집", systemImage: "pencil")
-                    }
-                }
-            }
-
             Button(action: { openProviderWindow() }) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 13))
@@ -414,20 +382,12 @@ struct FloatingSidebarView: View {
                             } label: {
                                 Label("정보", systemImage: "info.circle")
                             }
-                            if !agent.isMaster && !agent.isDevAgent {
+                            if !agent.isMaster {
                                 Divider()
                                 Button(role: .destructive) {
                                     agentStore.removeAgent(agent)
                                 } label: {
                                     Label("삭제", systemImage: "trash")
-                                }
-                            }
-                            if agent.isDevAgent {
-                                Divider()
-                                Button {
-                                    openHistoryWindow()
-                                } label: {
-                                    Label("변경 이력", systemImage: "clock.arrow.circlepath")
                                 }
                             }
                         }
@@ -610,40 +570,62 @@ struct FloatingSidebarView: View {
                 }
 
                 // 입력 영역
-                HStack(spacing: 8) {
-                    TextField("Tell Don't Ask", text: $inputText, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .lineLimit(1...5)
-                        .focused($isInputFocused)
-                        .onSubmit { sendToMaster() }
-                        .onChange(of: inputText) { _, newValue in
-                            let matched = SlashCommand.filtered(by: newValue)
-                            let shouldShow = newValue.hasPrefix("/") && !matched.isEmpty
-                                             && !newValue.hasPrefix("/woz ")
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                filteredCommands = matched
-                                showSlashMenu = shouldShow
+                VStack(spacing: 4) {
+                    // 첨부 이미지 미리보기
+                    if !pendingAttachments.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(pendingAttachments) { att in
+                                    attachmentThumbnail(att)
+                                }
                             }
-                            if shouldShow {
-                                slashMenu.startMonitoring(
-                                    commandCount: matched.count,
-                                    onSelect: { idx in executeSlashCommand(matched[idx]) },
-                                    onDismiss: { inputText = ""; showSlashMenu = false }
-                                )
-                            } else {
-                                slashMenu.stopMonitoring()
-                            }
+                            .padding(.horizontal, 12)
+                            .padding(.top, 6)
                         }
-
-                    Button(action: sendToMaster) {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.title2)
-                            .foregroundColor(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .gray : .accentColor)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                              || chatVM.loadingAgentIDs.contains(agentID))
-                    .keyboardShortcut(.return, modifiers: .command)
+
+                    HStack(spacing: 8) {
+                        // 이미지 첨부 버튼
+                        Button(action: pickImage) {
+                            Image(systemName: "photo.badge.plus")
+                                .font(.system(size: 14))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("이미지 첨부 (JPG, PNG, GIF, WebP)")
+
+                        TextField("Tell Don't Ask", text: $inputText, axis: .vertical)
+                            .textFieldStyle(.plain)
+                            .lineLimit(1...5)
+                            .focused($isInputFocused)
+                            .onSubmit { sendToMaster() }
+                            .onChange(of: inputText) { _, newValue in
+                                let matched = SlashCommand.filtered(by: newValue)
+                                let shouldShow = newValue.hasPrefix("/") && !matched.isEmpty
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    filteredCommands = matched
+                                    showSlashMenu = shouldShow
+                                }
+                                if shouldShow {
+                                    slashMenu.startMonitoring(
+                                        commandCount: matched.count,
+                                        onSelect: { idx in executeSlashCommand(matched[idx]) },
+                                        onDismiss: { inputText = ""; showSlashMenu = false }
+                                    )
+                                } else {
+                                    slashMenu.stopMonitoring()
+                                }
+                            }
+
+                        Button(action: sendToMaster) {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .font(.title2)
+                                .foregroundColor(canSend ? .accentColor : .gray)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!canSend || chatVM.loadingAgentIDs.contains(agentID))
+                        .keyboardShortcut(.return, modifiers: .command)
+                    }
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
@@ -651,6 +633,10 @@ struct FloatingSidebarView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
+                .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
+                    handleImageDrop(providers)
+                    return true
+                }
             }
             .coordinateSpace(name: "chatArea")
         }
@@ -714,71 +700,105 @@ struct FloatingSidebarView: View {
             showSlashMenu = false
             slashMenu.stopMonitoring()
 
-        case "woz":
-            let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-            if text.lowercased().hasPrefix("/woz "), text.count > 5 {
-                let msg = String(text.dropFirst(5)).trimmingCharacters(in: .whitespaces)
-                if !msg.isEmpty {
-                    sendToWozniak(msg)
-                    inputText = ""
-                    showSlashMenu = false
-                    slashMenu.stopMonitoring()
-                }
-            } else {
-                inputText = "/woz "
-                showSlashMenu = false
-                slashMenu.stopMonitoring()
-            }
-
         default:
             break
         }
     }
 
-    private func sendToWozniak(_ message: String) {
-        guard let devAgent = agentStore.devAgent else { return }
-        if let id = masterID {
-            let delegation = ChatMessage(
-                role: .assistant,
-                content: "워즈니악에게 전달: \"\(message)\""
-            )
-            chatVM.appendMessagePublic(delegation, for: id)
-        }
-        chatVM.sendMessage(message, agentID: devAgent.id)
-    }
-
     // MARK: - 전송
+
+    /// 전송 가능 여부 (텍스트 또는 첨부 이미지가 있으면 true)
+    private var canSend: Bool {
+        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty
+    }
 
     private func sendToMaster() {
         guard let id = masterID else { return }
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty || !pendingAttachments.isEmpty else { return }
 
         // /clear 처리
         if text.lowercased() == "/clear" {
             chatVM.clearMessages(for: id)
             inputText = ""
+            pendingAttachments = []
             showSlashMenu = false
             slashMenu.stopMonitoring()
             return
         }
 
-        // /woz 메시지 처리
-        if text.lowercased().hasPrefix("/woz ") {
-            let msg = String(text.dropFirst(5)).trimmingCharacters(in: .whitespaces)
-            if !msg.isEmpty {
-                sendToWozniak(msg)
-                inputText = ""
-                showSlashMenu = false
-                slashMenu.stopMonitoring()
-                return
-            }
-        }
-
+        let attachments = pendingAttachments.isEmpty ? nil : pendingAttachments
         inputText = ""
+        pendingAttachments = []
         showSlashMenu = false
         slashMenu.stopMonitoring()
-        chatVM.sendMessage(text, agentID: id)
+        chatVM.sendMessage(text.isEmpty ? "[이미지]" : text, agentID: id, attachments: attachments)
+    }
+
+    // MARK: - 이미지 첨부
+
+    private func pickImage() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.jpeg, .png, .gif, .webP]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.message = "첨부할 이미지를 선택하세요"
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls {
+            addImageFromURL(url)
+        }
+    }
+
+    private func addImageFromURL(_ url: URL) {
+        guard let data = try? Data(contentsOf: url) else { return }
+        guard let mime = ImageAttachment.mimeType(for: data) else { return }
+        guard let attachment = try? ImageAttachment.save(data: data, mimeType: mime) else { return }
+        pendingAttachments.append(attachment)
+    }
+
+    private func handleImageDrop(_ providers: [NSItemProvider]) {
+        for provider in providers {
+            if provider.hasItemConformingToTypeIdentifier("public.image") {
+                provider.loadDataRepresentation(forTypeIdentifier: "public.image") { data, _ in
+                    guard let data = data,
+                          let mime = ImageAttachment.mimeType(for: data),
+                          let attachment = try? ImageAttachment.save(data: data, mimeType: mime) else { return }
+                    DispatchQueue.main.async {
+                        pendingAttachments.append(attachment)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func attachmentThumbnail(_ attachment: ImageAttachment) -> some View {
+        ZStack(alignment: .topTrailing) {
+            if let data = try? attachment.loadData(), let nsImage = NSImage(data: data) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 48, height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            } else {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.gray.opacity(0.2))
+                    .frame(width: 48, height: 48)
+                    .overlay(Image(systemName: "photo").foregroundColor(.secondary))
+            }
+
+            Button {
+                attachment.delete()
+                pendingAttachments.removeAll { $0.id == attachment.id }
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(.white)
+                    .background(Circle().fill(Color.black.opacity(0.5)))
+            }
+            .buttonStyle(.plain)
+            .offset(x: 4, y: -4)
+        }
     }
 
     // MARK: - 윈도우 열기 헬퍼
@@ -794,13 +814,6 @@ struct FloatingSidebarView: View {
         UtilityWindowManager.shared.open(title: "API 설정", width: 480, height: 520,
                           agentStore: agentStore, providerManager: providerManager, chatVM: chatVM) {
             AddProviderSheet()
-        }
-    }
-
-    private func openHistoryWindow() {
-        UtilityWindowManager.shared.open(title: "변경 이력", width: 600, height: 500,
-                          agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, devAgentManager: devAgentManager) {
-            ChangeHistoryView()
         }
     }
 

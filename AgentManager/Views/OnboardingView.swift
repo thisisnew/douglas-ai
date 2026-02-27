@@ -91,6 +91,9 @@ struct OnboardingView: View {
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
 
+                // 의존성 체크리스트
+                dependencyChecklist
+
                 // 상태별 UI
                 claudeStateContent
             }
@@ -103,6 +106,67 @@ struct OnboardingView: View {
                 .padding(.horizontal, 24)
                 .padding(.vertical, 16)
         }
+    }
+
+    // MARK: - 의존성 체크리스트
+
+    private var dependencyChecklist: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Text("환경 확인")
+                    .font(.caption.weight(.medium))
+                    .foregroundColor(.secondary)
+                if viewModel.dependencyChecker.isChecking {
+                    ProgressView()
+                        .scaleEffect(0.5)
+                        .frame(width: 12, height: 12)
+                }
+            }
+
+            ForEach(viewModel.dependencyChecker.dependencies) { dep in
+                HStack(spacing: 8) {
+                    Image(systemName: dep.isFound ? "checkmark.circle.fill" : "xmark.circle")
+                        .font(.system(size: 13))
+                        .foregroundColor(dep.isFound ? .green : (dep.isRequired ? .red : .orange))
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 4) {
+                            Text(dep.name)
+                                .font(.caption)
+                            if !dep.isRequired {
+                                Text("(선택)")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        if dep.isFound, let path = dep.foundPath {
+                            Text(path)
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+
+                    Spacer()
+
+                    if !dep.isFound {
+                        if let url = dep.downloadURL, let link = URL(string: url) {
+                            Link("다운로드", destination: link)
+                                .font(.caption2)
+                                .foregroundColor(.accentColor)
+                        } else if let hint = dep.installHint {
+                            Text(hint)
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundColor(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(Color.black.opacity(0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     @ViewBuilder

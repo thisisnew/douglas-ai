@@ -14,6 +14,9 @@ class OnboardingViewModel: ObservableObject {
     /// Claude Code 설치/검증
     let claudeInstaller = ClaudeCodeInstaller()
 
+    /// 의존성 체커
+    let dependencyChecker = DependencyChecker()
+
     /// Claude Code 설정이 완료되었는지 (설치됨 or 사용자가 건너뜀)
     @Published var claudeSetupDone = false
     /// Claude Code 설정을 건너뛰었는지
@@ -43,7 +46,9 @@ class OnboardingViewModel: ObservableObject {
 
     func startClaudeSetup() async {
         currentStep = .claudeSetup
-        await claudeInstaller.detect()
+        async let detectClaude: () = claudeInstaller.detect()
+        async let checkDeps: () = dependencyChecker.checkAll()
+        _ = await (detectClaude, checkDeps)
     }
 
     /// Claude Code 설치 요청
@@ -193,7 +198,7 @@ class OnboardingViewModel: ObservableObject {
             apiKeys: apiKeys
         )
 
-        // 2. 마스터/DevAgent 프로바이더 업데이트
+        // 2. 마스터 프로바이더 업데이트
         if let masterType = masterProviderType,
            let config = providerManager.configs.first(where: { $0.type == masterType }) {
             let defaultModel = defaultModelName(for: masterType)

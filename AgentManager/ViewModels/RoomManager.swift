@@ -88,13 +88,14 @@ class RoomManager: ObservableObject {
     }
 
     /// 사용자가 방에 메시지 보내기
-    func sendUserMessage(_ text: String, to roomID: UUID) async {
-        let userMsg = ChatMessage(role: .user, content: text)
+    func sendUserMessage(_ text: String, to roomID: UUID, attachments: [ImageAttachment]? = nil) async {
+        let userMsg = ChatMessage(role: .user, content: text, attachments: attachments)
         appendMessage(userMsg, to: roomID)
 
         guard let room = rooms.first(where: { $0.id == roomID }) else { return }
 
         // 방의 에이전트들에게 추가 지시
+        let context = makeToolContext(roomID: roomID)
         for agentID in room.assignedAgentIDs {
             guard let agent = agentStore?.agents.first(where: { $0.id == agentID }),
                   let provider = providerManager?.provider(named: agent.providerName) else { continue }
@@ -105,7 +106,8 @@ class RoomManager: ObservableObject {
                     provider: provider,
                     agent: agent,
                     systemPrompt: agent.persona,
-                    messages: history
+                    conversationMessages: history,
+                    context: context
                 )
                 let reply = ChatMessage(role: .assistant, content: response, agentName: agent.name)
                 appendMessage(reply, to: roomID)
@@ -119,6 +121,26 @@ class RoomManager: ObservableObject {
                 appendMessage(errorMsg, to: roomID)
             }
         }
+    }
+
+    // MARK: - 도구 실행 컨텍스트
+
+    private func makeToolContext(roomID: UUID) -> ToolExecutionContext {
+        guard let store = agentStore else { return .empty }
+        let subAgents = store.subAgents
+        return ToolExecutionContext(
+            roomID: roomID,
+            agentsByName: Dictionary(uniqueKeysWithValues: subAgents.map { ($0.name, $0.id) }),
+            agentListString: subAgents
+                .map { "- \($0.name) [\($0.providerName)/\($0.modelName)]" }
+                .joined(separator: "\n"),
+            inviteAgent: { @Sendable [weak self] agentID in
+                await MainActor.run { [weak self] in
+                    self?.addAgent(agentID, to: roomID)
+                    return true
+                }
+            }
+        )
     }
 
     // MARK: - 방에 에이전트 추가
@@ -371,11 +393,14 @@ class RoomManager: ObservableObject {
             agentStore?.updateStatus(agentID: agentID, status: .working)
             speakingAgentIDByRoom[roomID] = agentID
 
+            let context = makeToolContext(roomID: roomID)
+            let messagesWithStep = history + [ConversationMessage.user(stepPrompt)]
             let response = try await ToolExecutor.smartSend(
                 provider: provider,
                 agent: agent,
                 systemPrompt: agent.persona,
-                messages: history + [("user", stepPrompt)]
+                conversationMessages: messagesWithStep,
+                context: context
             )
 
             if speakingAgentIDByRoom[roomID] == agentID {
@@ -776,7 +801,8 @@ class RoomManager: ObservableObject {
 
     // MARK: - 대화 히스토리
 
-    private func buildRoomHistory(roomID: UUID) -> [(role: String, content: String)] {
+    /// 간단한 (role, content) 튜플 히스토리 (토론/요약 등 내부 호출용)
+    private func buildSimpleHistory(roomID: UUID) -> [(role: String, content: String)] {
         guard let room = rooms.first(where: { $0.id == roomID }) else { return [] }
         return room.messages
             .filter { $0.messageType == .text }
@@ -789,6 +815,29 @@ class RoomManager: ObservableObject {
                 case .system:    role = "user"
                 }
                 return (role: role, content: msg.content)
+            }
+    }
+
+    /// ConversationMessage 히스토리 (이미지 첨부 포함, smartSend용)
+    private func buildRoomHistory(roomID: UUID) -> [ConversationMessage] {
+        guard let room = rooms.first(where: { $0.id == roomID }) else { return [] }
+        return room.messages
+            .filter { $0.messageType == .text }
+            .suffix(20)
+            .map { msg in
+                let role: String
+                switch msg.role {
+                case .user:      role = "user"
+                case .assistant: role = "assistant"
+                case .system:    role = "user"
+                }
+                return ConversationMessage(
+                    role: role,
+                    content: msg.content,
+                    toolCalls: nil,
+                    toolCallID: nil,
+                    attachments: msg.attachments
+                )
             }
     }
 

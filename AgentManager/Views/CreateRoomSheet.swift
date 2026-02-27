@@ -10,12 +10,9 @@ struct CreateRoomSheet: View {
     @State private var task = ""
     @State private var selectedAgentIDs: Set<UUID> = []
 
-    /// DevAgent + 서브에이전트 (마스터 제외)
+    /// 서브에이전트 (마스터 제외)
     private var availableAgents: [Agent] {
-        var list: [Agent] = []
-        if let dev = agentStore.devAgent { list.append(dev) }
-        list += agentStore.subAgents
-        return list
+        agentStore.subAgents
     }
 
     var body: some View {

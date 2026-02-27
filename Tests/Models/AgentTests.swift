@@ -11,7 +11,6 @@ struct AgentTests {
         #expect(agent.name == "TestAgent")
         #expect(agent.status == .idle)
         #expect(agent.isMaster == false)
-        #expect(agent.isDevAgent == false)
         #expect(agent.errorMessage == nil)
         #expect(agent.hasImage == false)
     }
@@ -25,7 +24,6 @@ struct AgentTests {
             modelName: "gpt-4o",
             status: .working,
             isMaster: true,
-            isDevAgent: false,
             errorMessage: "err"
         )
         #expect(agent.name == "Custom")
@@ -49,24 +47,6 @@ struct AgentTests {
         #expect(master.providerName == "OpenAI")
         #expect(master.modelName == "gpt-4o")
         #expect(master.isMaster == true)
-    }
-
-    @Test("createDevAgent 팩토리")
-    func createDevAgent() {
-        let dev = Agent.createDevAgent()
-        #expect(dev.isDevAgent == true)
-        #expect(dev.name == "워즈니악 (유지보수 담당자)")
-        #expect(dev.isMaster == false)
-        #expect(dev.providerName == "Claude Code")
-        #expect(dev.modelName == "claude-sonnet-4-6")
-    }
-
-    @Test("createDevAgent 팩토리 - 커스텀 모델")
-    func createDevAgentCustom() {
-        let dev = Agent.createDevAgent(providerName: "OpenAI", modelName: "gpt-4o")
-        #expect(dev.providerName == "OpenAI")
-        #expect(dev.modelName == "gpt-4o")
-        #expect(dev.isDevAgent == true)
     }
 
     @Test("Equatable - 같은 값")
@@ -141,43 +121,11 @@ struct AgentTests {
         #expect(agent.status == .idle)
     }
 
-    @Test("Decodable - isDevAgent 없는 레거시 JSON")
-    func decodeLegacyWithoutIsDevAgent() throws {
-        let json: [String: Any] = [
-            "id": UUID().uuidString,
-            "name": "Legacy",
-            "persona": "p",
-            "providerName": "P",
-            "modelName": "M",
-            "isMaster": false,
-            "hasImage": false
-        ]
-        let data = try JSONSerialization.data(withJSONObject: json)
-        let agent = try JSONDecoder().decode(Agent.self, from: data)
-        #expect(agent.isDevAgent == false)
-    }
-
     @Test("AgentStatus 열거형 rawValue")
     func agentStatusRawValues() {
         #expect(AgentStatus.idle.rawValue == "idle")
         #expect(AgentStatus.working.rawValue == "working")
         #expect(AgentStatus.busy.rawValue == "busy")
         #expect(AgentStatus.error.rawValue == "error")
-    }
-
-    @Test("Codable - isDevAgent 포함 라운드트립")
-    func codableDevAgentRoundTrip() throws {
-        let original = makeTestAgent(name: "Dev", isDevAgent: true)
-        let data = try JSONEncoder().encode(original)
-        let decoded = try JSONDecoder().decode(Agent.self, from: data)
-        #expect(decoded.isDevAgent == true)
-    }
-
-    @Test("Equatable - 같은 ID면 isDevAgent 달라도 같은 에이전트")
-    func equalSameIDDifferentDevAgent() {
-        let id = UUID()
-        let a = Agent(id: id, name: "A", persona: "p", providerName: "P", modelName: "M", isDevAgent: false)
-        let b = Agent(id: id, name: "A", persona: "p", providerName: "P", modelName: "M", isDevAgent: true)
-        #expect(a == b) // ID 기반 동등성
     }
 }

@@ -88,6 +88,21 @@ struct MessageBubble: View {
                         }
                     }
 
+                    // 첨부 이미지
+                    if let attachments = message.attachments, !attachments.isEmpty {
+                        HStack(spacing: 4) {
+                            ForEach(attachments) { att in
+                                if let data = try? att.loadData(), let nsImage = NSImage(data: data) {
+                                    Image(nsImage: nsImage)
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fit)
+                                        .frame(maxWidth: 180, maxHeight: 120)
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                }
+                            }
+                        }
+                    }
+
                     Text(message.content)
                         .font(.system(size: 13))
                         .padding(.horizontal, 12)
@@ -132,8 +147,6 @@ struct MessageBubble: View {
         case .chainProgress: return Color.blue.opacity(0.1)
         case .delegation:    return Color.orange.opacity(0.1)
         case .suggestion:    return Color.orange.opacity(0.1)
-        case .devAction:     return Color.green.opacity(0.1)
-        case .buildResult:   return Color.teal.opacity(0.1)
         case .toolActivity:  return Color.gray.opacity(0.08)
         default:             return Color.black.opacity(0.05)
         }
@@ -150,8 +163,6 @@ struct MessageBubble: View {
         case .chainProgress: return "link"
         case .suggestion:    return "sparkles"
         case .error:         return "exclamationmark.triangle"
-        case .devAction:     return "hammer.fill"
-        case .buildResult:   return "checkmark.circle"
         case .toolActivity:  return "wrench.and.screwdriver"
         default:             return nil
         }
@@ -164,8 +175,6 @@ struct MessageBubble: View {
         case .chainProgress: return .blue
         case .error:         return .red
         case .suggestion:    return .orange
-        case .devAction:     return .green
-        case .buildResult:   return .teal
         case .toolActivity:  return .gray
         default:             return .secondary
         }

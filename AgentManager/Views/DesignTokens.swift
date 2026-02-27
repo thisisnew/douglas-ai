@@ -129,8 +129,6 @@ enum DesignTokens {
             case .chainProgress:   return .blue
             case .delegation:      return .orange
             case .suggestion:      return .orange
-            case .devAction:       return .green
-            case .buildResult:     return .teal
             case .text:            return .gray
             case .discussionRound: return .gray
             case .toolActivity:    return .gray
@@ -144,8 +142,6 @@ enum DesignTokens {
             case .chainProgress: return .blue
             case .delegation:    return .orange
             case .suggestion:    return .orange
-            case .devAction:     return .green
-            case .buildResult:   return .teal
             default:             return .secondary
             }
         }
@@ -157,8 +153,6 @@ enum DesignTokens {
             case .chainProgress: return "link"
             case .suggestion:    return "sparkles"
             case .error:         return "exclamationmark.triangle"
-            case .devAction:     return "hammer.fill"
-            case .buildResult:   return "checkmark.circle"
             default:             return nil
             }
         }

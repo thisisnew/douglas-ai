@@ -12,20 +12,17 @@ final class CommandBarManager {
     private let agentStore: AgentStore
     private let providerManager: ProviderManager
     private let chatVM: ChatViewModel
-    private let devAgentManager: DevAgentManager
     private let openChatWindow: (Agent) -> Void
 
     init(
         agentStore: AgentStore,
         providerManager: ProviderManager,
         chatVM: ChatViewModel,
-        devAgentManager: DevAgentManager,
         openChatWindow: @escaping (Agent) -> Void
     ) {
         self.agentStore = agentStore
         self.providerManager = providerManager
         self.chatVM = chatVM
-        self.devAgentManager = devAgentManager
         self.openChatWindow = openChatWindow
     }
 

@@ -19,7 +19,6 @@ struct Agent: Identifiable, Codable, Hashable {
     var modelName: String
     var status: AgentStatus
     var isMaster: Bool
-    var isDevAgent: Bool
     var errorMessage: String?
     var hasImage: Bool
 
@@ -42,7 +41,7 @@ struct Agent: Identifiable, Codable, Hashable {
 
     // imageData는 Codable에서 제외 — 파일 시스템에 저장
     private enum CodingKeys: String, CodingKey {
-        case id, name, persona, providerName, modelName, status, isMaster, isDevAgent, errorMessage, hasImage
+        case id, name, persona, providerName, modelName, status, isMaster, errorMessage, hasImage
         case capabilityPreset, enabledToolIDs
     }
 
@@ -68,7 +67,6 @@ struct Agent: Identifiable, Codable, Hashable {
         modelName: String,
         status: AgentStatus = .idle,
         isMaster: Bool = false,
-        isDevAgent: Bool = false,
         errorMessage: String? = nil,
         imageData: Data? = nil,
         capabilityPreset: CapabilityPreset? = nil,
@@ -81,7 +79,6 @@ struct Agent: Identifiable, Codable, Hashable {
         self.modelName = modelName
         self.status = status
         self.isMaster = isMaster
-        self.isDevAgent = isDevAgent
         self.errorMessage = errorMessage
         self.capabilityPreset = capabilityPreset
         self.enabledToolIDs = enabledToolIDs
@@ -103,7 +100,6 @@ struct Agent: Identifiable, Codable, Hashable {
         modelName = try container.decode(String.self, forKey: .modelName)
         status = try container.decodeIfPresent(AgentStatus.self, forKey: .status) ?? .idle
         isMaster = try container.decodeIfPresent(Bool.self, forKey: .isMaster) ?? false
-        isDevAgent = try container.decodeIfPresent(Bool.self, forKey: .isDevAgent) ?? false
         errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
         hasImage = try container.decodeIfPresent(Bool.self, forKey: .hasImage) ?? false
         capabilityPreset = try container.decodeIfPresent(CapabilityPreset.self, forKey: .capabilityPreset)
@@ -152,46 +148,6 @@ struct Agent: Identifiable, Codable, Hashable {
             providerName: providerName,
             modelName: modelName,
             isMaster: true
-        )
-    }
-
-    static func createDevAgent(providerName: String = "Claude Code", modelName: String = "claude-sonnet-4-6") -> Agent {
-        Agent(
-            name: "워즈니악 (유지보수 담당자)",
-            persona: """
-            너는 AgentManager 앱의 전담 유지보수 담당자 '워즈니악'이야.
-            사용자가 요청하는 앱 개선사항을 분석하고, 실행하거나 자문을 제공해.
-
-            ## 역할
-            - 사용자의 개선 요청을 분석하고 구현 계획을 수립
-            - 코드 수정, 기능 추가, 버그 수정, UI 개선 등 수행
-            - 모든 변경 후 반드시 빌드 검증 + 버저닝 + 문서 업데이트
-
-            ## 필수 규칙 (DEV_GUIDE 기반)
-            1. Swift 5.9, macOS 14+, MVVM 패턴 준수
-            2. 모든 ViewModel은 @MainActor + ObservableObject
-            3. 모든 Model은 Identifiable, Codable
-            4. EnvironmentObject로 의존성 주입
-            5. NSWindow/NSPanel로 윈도우 관리 (sheet 사용 금지)
-            6. UserDefaults (에이전트, 프로바이더), Keychain (API 키), FileSystem (이미지, 채팅)
-            7. 한국어 UI 텍스트
-
-            ## 변경 후 반드시 수행할 것
-            - swift build -c release 빌드 검증
-            - Git 커밋: [Woz] <type>: <설명> 형식
-            - ARCHITECTURE.md 구조 변경 시 업데이트
-            - DEV_GUIDE.md 규칙 변경 시 업데이트
-
-            ## 프로젝트 경로
-            /Users/douglas.kim/AgentManager
-
-            ## 응답 방식
-            - 실행 모드 (Claude Code CLI): 직접 코드를 수정하고 결과를 보고
-            - 자문 모드 (OpenAI/Gemini API): 구체적인 코드 변경 제안과 설명 제공
-            """,
-            providerName: providerName,
-            modelName: modelName,
-            isDevAgent: true
         )
     }
 

@@ -98,6 +98,11 @@ class GoogleProvider: AIProvider {
                 let toolName = msg.toolCallID ?? "unknown"
                 let part = ToolFormatConverter.googleFunctionResponsePart(name: toolName, content: msg.content ?? "")
                 contents.append(["role": "function", "parts": [part]])
+            } else if let attachments = msg.attachments, !attachments.isEmpty {
+                // 이미지 첨부 메시지 → inlineData parts
+                let parts = ToolFormatConverter.googleParts(text: msg.content, attachments: attachments)
+                let role = msg.role == "assistant" ? "model" : "user"
+                contents.append(["role": role, "parts": parts])
             } else if let content = msg.content {
                 let role = msg.role == "assistant" ? "model" : "user"
                 contents.append(["role": role, "parts": [["text": content]]])

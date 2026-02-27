@@ -12,7 +12,7 @@
 - DEV_GUIDE.md: 개발 규칙/관례 변경 시 업데이트
 
 ## Git
-- 커밋 형식: `[Woz] <type>: <설명>`
+- 커밋 형식: `[AM] <type>: <설명>`
 - type: feat, fix, refactor, style, docs
 - force push 금지
 - 빌드 통과 후에만 커밋

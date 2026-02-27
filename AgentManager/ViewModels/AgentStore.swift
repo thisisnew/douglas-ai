@@ -13,12 +13,8 @@ class AgentStore: ObservableObject {
         agents.first { $0.isMaster }
     }
 
-    var devAgent: Agent? {
-        agents.first { $0.isDevAgent }
-    }
-
     var subAgents: [Agent] {
-        agents.filter { !$0.isMaster && !$0.isDevAgent }
+        agents.filter { !$0.isMaster }
     }
 
     var selectedAgent: Agent? {
@@ -34,12 +30,8 @@ class AgentStore: ObservableObject {
             agents.insert(master, at: 0)
             selectedAgentID = master.id
         }
-        if !agents.contains(where: { $0.isDevAgent }) {
-            let dev = Agent.createDevAgent()
-            // 마스터 바로 뒤에 삽입
-            let insertIndex = agents.firstIndex(where: { $0.isMaster }).map { $0 + 1 } ?? agents.count
-            agents.insert(dev, at: insertIndex)
-        }
+        // 마이그레이션: 기존 워즈니악 에이전트 자동 제거
+        agents.removeAll { $0.name.contains("워즈니악") }
         // 앱 시작 시 모든 에이전트 상태 초기화 (이전 실행의 잔여 상태 제거)
         for i in agents.indices {
             agents[i].status = .idle
@@ -57,7 +49,7 @@ class AgentStore: ObservableObject {
     }
 
     func removeAgent(_ agent: Agent) {
-        guard !agent.isMaster && !agent.isDevAgent else { return } // 마스터/DevAgent는 삭제 불가
+        guard !agent.isMaster else { return } // 마스터는 삭제 불가
         agents.removeAll { $0.id == agent.id }
         if selectedAgentID == agent.id {
             selectedAgentID = masterAgent?.id
@@ -90,21 +82,13 @@ class AgentStore: ObservableObject {
             agents[idx].providerName = providerName
             agents[idx].modelName = modelName
         }
-        if let idx = agents.firstIndex(where: { $0.isDevAgent }) {
-            agents[idx].providerName = providerName
-            agents[idx].modelName = modelName
-        }
         saveAgents()
     }
 
     /// 마스터의 시스템 프롬프트에 현재 에이전트 목록 + 응답 형식을 주입
     func masterSystemPrompt() -> String {
         guard let master = masterAgent else { return "" }
-        var allAgentLines: [String] = []
-        if let dev = devAgent {
-            allAgentLines.append("- \(dev.name) [유지보수 담당자]: 앱 개선, 코드 수정, 버그 수정 요청을 처리합니다. 개발 관련 요청은 이 에이전트에게 위임하세요.")
-        }
-        allAgentLines += subAgents.map { agent in
+        let allAgentLines = subAgents.map { agent in
             "- \(agent.name) [\(agent.providerName)/\(agent.modelName)]: \(agent.persona.prefix(200))"
         }
         let agentList = allAgentLines.joined(separator: "\n")
