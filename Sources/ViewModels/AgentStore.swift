@@ -85,12 +85,10 @@ class AgentStore: ObservableObject {
         saveAgents()
     }
 
-    /// 마스터의 시스템 프롬프트에 현재 에이전트 목록 + 도구 정보 + 응답 형식을 주입
+    /// 마스터의 시스템 프롬프트에 현재 에이전트 목록 + 응답 형식을 주입
     func masterSystemPrompt() -> String {
         let agentLines = subAgents.map { agent in
-            let tools = agent.resolvedToolIDs
-            let toolStr = tools.isEmpty ? "도구 없음" : tools.joined(separator: ", ")
-            return "- \"\(agent.name)\" [도구: \(toolStr)]: \(agent.persona)"
+            "- \"\(agent.name)\": \(agent.persona)"
         }
         let agentList = agentLines.joined(separator: "\n")
 
@@ -116,7 +114,7 @@ class AgentStore: ObservableObject {
             routingStrategy = """
             라우팅 전략:
             - 분석가 에이전트가 없습니다. 요구사항 분석이 필요한 복잡한 작업은 suggest_agent로 분석가 생성을 제안하세요.
-              (recommended_preset: "분석가", persona: "요구사항 분석 + 팀 빌딩 전문가")
+              (persona: "요구사항 분석 + 팀 빌딩 전문가")
             - 단순 작업은 기존 에이전트에게 직접 delegate 하세요.
             """
         }
@@ -125,6 +123,8 @@ class AgentStore: ObservableObject {
         너는 라우터다. 사용자 요청을 분석해서 적합한 에이전트에게 위임하라.
         직접 답변은 절대 금지. 반드시 delegate 또는 suggest_agent 중 하나를 선택하라.
         JSON만 출력.
+
+        모든 에이전트는 전체 도구(파일, 셸, 웹, Jira, 팀빌딩)에 접근 가능합니다.
 
         에이전트 목록:
         \(agentList.isEmpty ? "(없음)" : agentList)
@@ -142,23 +142,16 @@ class AgentStore: ObservableObject {
         {"action":"chain","steps":[{"agent":"에이전트 이름(정확히)","task":"지시"}]}
 
         3) 적합한 에이전트가 없을 때 — 새 에이전트 제안:
-        {"action":"suggest_agent","name":"이름","persona":"역할 설명","recommended_preset":"프리셋"}
-
-        recommended_preset 선택지:
-        - 리서처: web_search, web_fetch (URL·웹 조회)
-        - 개발자: file_read, file_write, shell_exec (코드·파일)
-        - 분석가: file_read, shell_exec, web_fetch, invite_agent, list_agents, suggest_agent_creation (분석·팀빌딩)
-        - 전체 권한: 전체 도구
+        {"action":"suggest_agent","name":"이름","persona":"역할 설명"}
 
         에이전트 매칭 규칙 (우선순위 순서):
         1. 이름 매칭: 사용자가 에이전트 이름이나 역할 키워드를 언급하면 해당 에이전트를 delegate
         2. 역할 매칭: 이름에 없으면 persona 설명에서 역할이 일치하는 에이전트 선택
-        3. 능력 매칭: 요청에 필요한 도구를 가진 에이전트 선택
-        4. 해당 없음: 위 모두 불일치 시에만 suggest_agent
+        3. 해당 없음: 위 모두 불일치 시에만 suggest_agent
 
         기타 규칙:
         - agents 배열에 넣는 이름은 에이전트 목록에 있는 이름을 정확히 사용
-        - URL이 포함된 요청은 web_fetch 도구가 있는 에이전트에게 위임
+        - URL이 포함된 요청은 web_fetch 가능한 에이전트에게 위임
         - Jira URL인데 Jira 연동이 미설정이면 task에 "Jira 연동이 필요합니다. API 설정에서 Jira를 연결해주세요." 안내 포함
         - 여러 명 필요하면 agents에 복수 지정
         - JSON만 출력. 부가 설명 금지.

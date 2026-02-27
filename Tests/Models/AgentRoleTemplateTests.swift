@@ -15,7 +15,7 @@ struct AgentRoleTemplateTests {
             icon: "star",
             category: .development,
             basePersona: "기본 역할",
-            defaultPreset: .developer,
+
             providerHints: ["Anthropic": "Claude 전용 지시"]
         )
         let result = template.resolvedPersona(for: "Anthropic")
@@ -31,7 +31,7 @@ struct AgentRoleTemplateTests {
             icon: "star",
             category: .development,
             basePersona: "기본 역할",
-            defaultPreset: .developer,
+
             providerHints: ["Anthropic": "Claude 전용"]
         )
         let result = template.resolvedPersona(for: "Google")
@@ -46,7 +46,7 @@ struct AgentRoleTemplateTests {
             icon: "star",
             category: .development,
             basePersona: "기본 역할",
-            defaultPreset: .developer,
+
             providerHints: ["Anthropic": ""]
         )
         let result = template.resolvedPersona(for: "Anthropic")
@@ -86,7 +86,6 @@ struct AgentRoleTemplateTests {
         let template = AgentRoleTemplateRegistry.template(for: "backend_dev")
         #expect(template != nil)
         #expect(template?.name == "백엔드 개발자")
-        #expect(template?.defaultPreset == .developer)
     }
 
     @Test("Registry - template(for:) 존재하지 않는 ID")
@@ -119,19 +118,19 @@ struct AgentRoleTemplateTests {
         }
     }
 
-    @Test("Registry - 특정 템플릿 프리셋 매핑 검증")
-    func registryPresetMapping() {
+    @Test("Registry - 레거시 별칭 매핑 검증")
+    func registryLegacyAliasMapping() {
         let analyst = AgentRoleTemplateRegistry.template(for: "jira_analyst")
-        #expect(analyst?.defaultPreset == .analyst)
+        #expect(analyst?.id == "requirements_analyst")
 
         let qa = AgentRoleTemplateRegistry.template(for: "qa_engineer")
-        #expect(qa?.defaultPreset == .developer) // qa_test_automation의 프리셋
+        #expect(qa?.id == "qa_test_automation")
 
         let devops = AgentRoleTemplateRegistry.template(for: "devops_engineer")
-        #expect(devops?.defaultPreset == .fullAccess)
+        #expect(devops != nil)
 
         let writer = AgentRoleTemplateRegistry.template(for: "tech_writer")
-        #expect(writer?.defaultPreset == .researcher)
+        #expect(writer != nil)
     }
 
     @Test("Registry - 프로바이더 힌트가 주요 프로바이더에 존재")
@@ -200,7 +199,6 @@ struct AgentRoleTemplateTests {
         #expect(template != nil)
         #expect(template?.name == "요구사항 분석가")
         #expect(template?.category == .analysis)
-        #expect(template?.defaultPreset == .analyst)
         #expect(template?.basePersona.contains("invite_agent") == true)
         #expect(template?.basePersona.contains("suggest_agent_creation") == true)
     }
@@ -227,17 +225,11 @@ struct AgentRoleTemplateTests {
         }
     }
 
-    @Test("Registry - qa_test_automation은 developer 프리셋")
-    func qaTestAutomationPreset() {
-        let tmpl = AgentRoleTemplateRegistry.template(for: "qa_test_automation")
-        #expect(tmpl?.defaultPreset == .developer)
-    }
-
-    @Test("Registry - qa_exploratory/security/code_review는 analyst 프리셋")
-    func qaAnalystPresets() {
-        for id in ["qa_exploratory", "qa_security", "qa_code_review"] {
+    @Test("Registry - QA 템플릿 카테고리 확인")
+    func qaTemplateCategories() {
+        for id in ["qa_test_automation", "qa_exploratory", "qa_security", "qa_code_review"] {
             let tmpl = AgentRoleTemplateRegistry.template(for: id)
-            #expect(tmpl?.defaultPreset == .analyst, "\(id) should be analyst preset")
+            #expect(tmpl?.category == .quality, "\(id) should be quality category")
         }
     }
 
@@ -251,7 +243,6 @@ struct AgentRoleTemplateTests {
             icon: "star",
             category: .quality,
             basePersona: "테스트 역할",
-            defaultPreset: .analyst,
             providerHints: ["Anthropic": "힌트A", "OpenAI": "힌트B"]
         )
         let data = try JSONEncoder().encode(template)
@@ -259,7 +250,6 @@ struct AgentRoleTemplateTests {
         #expect(decoded.id == "test_tmpl")
         #expect(decoded.name == "테스트 템플릿")
         #expect(decoded.category == .quality)
-        #expect(decoded.defaultPreset == .analyst)
         #expect(decoded.providerHints["Anthropic"] == "힌트A")
     }
 }

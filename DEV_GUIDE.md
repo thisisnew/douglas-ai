@@ -84,12 +84,11 @@ DOUGLAS/
 ### Tool Use (도구) 관례
 - 새 도구 추가: `ToolRegistry.allTools`에 `AgentTool` 추가 + `ToolExecutor.executeSingleTool()`에 case 추가
 - 도구 정의는 `AgentTool`로 프로바이더 무관하게 정의, 프로바이더별 형식 변환은 `ToolFormatConverter` 담당
-- 에이전트별 도구 설정: `Agent.capabilityPreset` + `Agent.enabledToolIDs`로 결정
+- 모든 에이전트는 전체 도구 보유 (`Agent.resolvedToolIDs == ToolRegistry.allToolIDs`)
 - `ToolExecutor.smartSend()`: 도구 미사용 에이전트나 미지원 프로바이더는 자동으로 기존 `sendMessage()` 폴백
 - 도구 루프 최대 반복: 10회 (`ToolExecutor.maxIterations`)
 - ClaudeCodeProvider는 `supportsToolCalling = false` (CLI가 자체 도구 보유)
 - `ToolExecutionContext`에 `suggestAgentCreation` 콜백 — `suggest_agent_creation` 도구 실행 시 방에 제안 추가
-- analyst 프리셋: file_read, shell_exec, web_fetch + invite_agent, list_agents, suggest_agent_creation + Jira 3종
 - 빌드/QA 루프는 시스템이 하드코딩하지 않음 — 에이전트가 계획에서 직접 shell_exec으로 처리
 
 ---
@@ -141,7 +140,7 @@ Files changed:
 ## 테스트 규칙
 
 ### 명령어
-- `swift test` — 전체 테스트 실행 (807개)
+- `swift test` — 전체 테스트 실행 (789개)
 - `swift test --enable-code-coverage` — 커버리지 포함 실행
 - `xcrun llvm-cov report ...` — 커버리지 리포트 조회
 

@@ -7,17 +7,12 @@ struct ToolExecutorTests {
 
     // MARK: - 도우미
 
-    private func makeAgent(
-        preset: CapabilityPreset? = nil,
-        enabledToolIDs: [String]? = nil
-    ) -> Agent {
+    private func makeAgent() -> Agent {
         Agent(
             name: "test-agent",
             persona: "test",
             providerName: "MockProvider",
-            modelName: "mock-model",
-            capabilityPreset: preset,
-            enabledToolIDs: enabledToolIDs
+            modelName: "mock-model"
         )
     }
 
@@ -29,11 +24,11 @@ struct ToolExecutorTests {
 
     // MARK: - smartSend 분기
 
-    @Test("smartSend — 도구 없는 에이전트는 기존 sendMessage 사용")
+    @Test("smartSend — 프로바이더 도구 미지원이면 sendMessage 폴백")
     func smartSendNoTools() async throws {
-        let provider = makeMockProvider(supportsTools: true)
+        let provider = makeMockProvider(supportsTools: false)
         provider.sendMessageResult = .success("plain response")
-        let agent = makeAgent(preset: nil)
+        let agent = makeAgent()
 
         let result = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
@@ -48,7 +43,7 @@ struct ToolExecutorTests {
     func smartSendProviderNoToolSupport() async throws {
         let provider = makeMockProvider(supportsTools: false)
         provider.sendMessageResult = .success("fallback response")
-        let agent = makeAgent(preset: .developer)
+        let agent = makeAgent()
 
         let result = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
@@ -63,7 +58,7 @@ struct ToolExecutorTests {
     func smartSendWithTools() async throws {
         let provider = makeMockProvider(supportsTools: true)
         provider.sendMessageWithToolsResults = [.success(.text("tool response"))]
-        let agent = makeAgent(preset: .developer)
+        let agent = makeAgent()
 
         let result = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
@@ -221,7 +216,7 @@ struct ToolExecutorTests {
         ]
 
         // smartSend로 실행하면 실제 파일 읽기가 동작하는지 확인
-        let agent = makeAgent(preset: .developer)
+        let agent = makeAgent()
         let result = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "read it")]
@@ -244,7 +239,7 @@ struct ToolExecutorTests {
             .success(.text("handled"))
         ]
 
-        let agent = makeAgent(preset: .developer)
+        let agent = makeAgent()
         let result = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "read")]
@@ -266,7 +261,7 @@ struct ToolExecutorTests {
             .success(.text("handled"))
         ]
 
-        let agent = makeAgent(preset: .developer)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "read")]
@@ -293,7 +288,7 @@ struct ToolExecutorTests {
             .success(.text("write done"))
         ]
 
-        let agent = makeAgent(preset: .developer)
+        let agent = makeAgent()
         let result = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "write")]
@@ -314,7 +309,7 @@ struct ToolExecutorTests {
             .success(.text("handled"))
         ]
 
-        let agent = makeAgent(preset: .developer)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "write")]
@@ -334,7 +329,7 @@ struct ToolExecutorTests {
             .success(.text("exec done"))
         ]
 
-        let agent = makeAgent(preset: .developer)
+        let agent = makeAgent()
         let result = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "run")]
@@ -356,7 +351,7 @@ struct ToolExecutorTests {
             .success(.text("handled"))
         ]
 
-        let agent = makeAgent(preset: .developer)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "run")]
@@ -376,7 +371,7 @@ struct ToolExecutorTests {
             .success(.text("handled"))
         ]
 
-        let agent = makeAgent(preset: .developer)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "run")]
@@ -397,7 +392,7 @@ struct ToolExecutorTests {
             .success(.text("handled"))
         ]
 
-        let agent = makeAgent(preset: .fullAccess)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "go")]
@@ -419,7 +414,7 @@ struct ToolExecutorTests {
             .success(.text("handled"))
         ]
 
-        let agent = makeAgent(preset: .fullAccess)
+        let agent = makeAgent()
         // context 없이 (기본 .empty → roomID nil)
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
@@ -447,7 +442,7 @@ struct ToolExecutorTests {
             inviteAgent: { _ in true }
         )
 
-        let agent = makeAgent(preset: .fullAccess)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "invite")],
@@ -476,7 +471,7 @@ struct ToolExecutorTests {
             inviteAgent: { _ in true }
         )
 
-        let agent = makeAgent(preset: .fullAccess)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "invite")],
@@ -512,7 +507,7 @@ struct ToolExecutorTests {
             }
         )
 
-        let agent = makeAgent(preset: .fullAccess)
+        let agent = makeAgent()
         let result = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "invite helper")],
@@ -543,7 +538,7 @@ struct ToolExecutorTests {
             inviteAgent: { _ in false }
         )
 
-        let agent = makeAgent(preset: .fullAccess)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "invite")],
@@ -571,7 +566,7 @@ struct ToolExecutorTests {
             inviteAgent: { _ in true }
         )
 
-        let agent = makeAgent(preset: .fullAccess)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "list")],
@@ -600,7 +595,7 @@ struct ToolExecutorTests {
             inviteAgent: { _ in true }
         )
 
-        let agent = makeAgent(preset: .fullAccess)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "list")],
@@ -625,7 +620,7 @@ struct ToolExecutorTests {
     func smartSendMessageConversion() async throws {
         let provider = makeMockProvider(supportsTools: true)
         provider.sendMessageWithToolsResults = [.success(.text("ok"))]
-        let agent = makeAgent(preset: .developer)
+        let agent = makeAgent()
 
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
@@ -643,11 +638,11 @@ struct ToolExecutorTests {
         #expect(args?.messages[2].role == "user")
     }
 
-    @Test("smartSend — 도구 프리셋에 맞는 도구만 전달")
-    func smartSendToolFiltering() async throws {
+    @Test("smartSend — 모든 에이전트에 전체 도구 전달")
+    func smartSendAllTools() async throws {
         let provider = makeMockProvider(supportsTools: true)
         provider.sendMessageWithToolsResults = [.success(.text("ok"))]
-        let agent = makeAgent(preset: .researcher) // web_search + web_fetch
+        let agent = makeAgent()
 
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
@@ -655,9 +650,7 @@ struct ToolExecutorTests {
         )
 
         let tools = provider.lastSendMessageWithToolsArgs?.tools ?? []
-        #expect(tools.count == 2)
-        #expect(tools.contains(where: { $0.id == "web_search" }))
-        #expect(tools.contains(where: { $0.id == "web_fetch" }))
+        #expect(tools.count == ToolRegistry.allTools.count)
     }
 
     // MARK: - 경로 검증 테스트
@@ -713,7 +706,7 @@ struct ToolExecutorTests {
             .success(.text("handled"))
         ]
 
-        let agent = makeAgent(preset: .developer)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "read")]
@@ -736,7 +729,7 @@ struct ToolExecutorTests {
             .success(.text("handled"))
         ]
 
-        let agent = makeAgent(preset: .developer)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "write")]
@@ -753,7 +746,7 @@ struct ToolExecutorTests {
     func smartSendConvMessageFallback() async throws {
         let provider = makeMockProvider(supportsTools: false)
         provider.sendMessageResult = .success("simple response")
-        let agent = makeAgent(preset: nil) // 도구 없음
+        let agent = makeAgent() // 도구 없음
 
         let messages = [ConversationMessage.user("hello"), ConversationMessage.assistant("hi")]
         let result = try await ToolExecutor.smartSend(
@@ -770,7 +763,7 @@ struct ToolExecutorTests {
     func smartSendConvMessageWithImage() async throws {
         let provider = makeMockProvider(supportsTools: false) // 도구 미지원이어도 이미지가 있으면 WithTools 경로
         provider.sendMessageWithToolsResults = [.success(.text("image analyzed"))]
-        let agent = makeAgent(preset: nil) // 도구 없음
+        let agent = makeAgent() // 도구 없음
 
         let attachment = try ImageAttachment.save(data: Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]), mimeType: "image/png")
         defer { attachment.delete() }
@@ -788,7 +781,7 @@ struct ToolExecutorTests {
     func smartSendConvMessageWithTools() async throws {
         let provider = makeMockProvider(supportsTools: true)
         provider.sendMessageWithToolsResults = [.success(.text("tool result"))]
-        let agent = makeAgent(preset: .developer)
+        let agent = makeAgent()
 
         let messages = [ConversationMessage.user("read file")]
         let result = try await ToolExecutor.smartSend(
@@ -812,7 +805,7 @@ struct ToolExecutorTests {
             .success(.text("handled"))
         ]
 
-        let agent = makeAgent(preset: .researcher)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "fetch")]
@@ -832,7 +825,7 @@ struct ToolExecutorTests {
             .success(.text("handled"))
         ]
 
-        let agent = makeAgent(preset: .researcher)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "fetch")]
@@ -860,7 +853,7 @@ struct ToolExecutorTests {
             .success(.text("read done"))
         ]
 
-        let agent = makeAgent(preset: .developer)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "read big file")]
@@ -890,7 +883,7 @@ struct ToolExecutorTests {
             .success(.text("write done"))
         ]
 
-        let agent = makeAgent(preset: .developer)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "write")]
@@ -915,7 +908,7 @@ struct ToolExecutorTests {
             .success(.text("done"))
         ]
 
-        let agent = makeAgent(preset: .developer)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "pwd")]
@@ -941,7 +934,7 @@ struct ToolExecutorTests {
             .success(.text("done"))
         ]
 
-        let agent = makeAgent(preset: .developer)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "big output")]
@@ -958,7 +951,7 @@ struct ToolExecutorTests {
     func smartSendSystemRoleConversion() async throws {
         let provider = makeMockProvider(supportsTools: true)
         provider.sendMessageWithToolsResults = [.success(.text("ok"))]
-        let agent = makeAgent(preset: .developer)
+        let agent = makeAgent()
 
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
@@ -990,7 +983,7 @@ struct ToolExecutorTests {
     func smartSendConvMessageNilContent() async throws {
         let provider = makeMockProvider(supportsTools: false)
         provider.sendMessageResult = .success("ok")
-        let agent = makeAgent(preset: nil)
+        let agent = makeAgent()
 
         let msg1 = ConversationMessage.user("hello")
         let msg2 = ConversationMessage.assistant("response")
@@ -1069,7 +1062,7 @@ struct ToolExecutorTests {
             .success(.text("handled"))
         ]
 
-        let agent = makeAgent(preset: .analyst)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "create subtask")]
@@ -1092,7 +1085,7 @@ struct ToolExecutorTests {
             .success(.text("handled"))
         ]
 
-        let agent = makeAgent(preset: .analyst)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "create")]
@@ -1114,7 +1107,7 @@ struct ToolExecutorTests {
             .success(.text("handled"))
         ]
 
-        let agent = makeAgent(preset: .analyst)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "create")]
@@ -1137,7 +1130,7 @@ struct ToolExecutorTests {
             .success(.text("handled"))
         ]
 
-        let agent = makeAgent(preset: .analyst)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "update status")]
@@ -1159,7 +1152,7 @@ struct ToolExecutorTests {
             .success(.text("handled"))
         ]
 
-        let agent = makeAgent(preset: .analyst)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "update")]
@@ -1182,7 +1175,7 @@ struct ToolExecutorTests {
             .success(.text("handled"))
         ]
 
-        let agent = makeAgent(preset: .analyst)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "add comment")]
@@ -1204,7 +1197,7 @@ struct ToolExecutorTests {
             .success(.text("handled"))
         ]
 
-        let agent = makeAgent(preset: .analyst)
+        let agent = makeAgent()
         _ = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "comment")]
@@ -1227,7 +1220,7 @@ struct ToolExecutorTests {
             .success(.text("done"))
         ]
 
-        let agent = makeAgent(preset: .analyst)
+        let agent = makeAgent()
         let result = try await ToolExecutor.smartSend(
             provider: provider, agent: agent,
             systemPrompt: "s", messages: [("user", "create agent")],
@@ -1250,7 +1243,7 @@ struct ToolExecutorTests {
             .success(.text("done"))
         ]
 
-        let agent = makeAgent(preset: .analyst)
+        let agent = makeAgent()
         let context = ToolExecutionContext(
             roomID: UUID(), agentsByName: [:], agentListString: "",
             inviteAgent: { _ in false }
@@ -1276,7 +1269,7 @@ struct ToolExecutorTests {
             .success(.text("done"))
         ]
 
-        let agent = makeAgent(preset: .analyst)
+        let agent = makeAgent()
         let context = ToolExecutionContext(
             roomID: UUID(),
             agentsByName: ["기존에이전트": UUID()],
@@ -1306,7 +1299,7 @@ struct ToolExecutorTests {
         ]
 
         var receivedSuggestion: RoomAgentSuggestion?
-        let agent = makeAgent(preset: .analyst)
+        let agent = makeAgent()
         let context = ToolExecutionContext(
             roomID: UUID(),
             agentsByName: [:],

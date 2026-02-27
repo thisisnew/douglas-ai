@@ -121,31 +121,6 @@ struct ConversationMessage {
     }
 }
 
-// MARK: - 능력 프리셋
-
-/// 용도별 도구 프리셋
-enum CapabilityPreset: String, Codable, CaseIterable, Identifiable {
-    case none       = "없음"
-    case researcher = "리서처"
-    case developer  = "개발자"
-    case analyst    = "분석가"
-    case fullAccess = "전체 권한"
-    case custom     = "사용자 정의"
-
-    var id: String { rawValue }
-
-    var includedToolIDs: [String] {
-        switch self {
-        case .none:       return []
-        case .researcher: return ["web_search", "web_fetch"]
-        case .developer:  return ["file_read", "file_write", "shell_exec"]
-        case .analyst:    return ["file_read", "shell_exec", "web_fetch", "invite_agent", "list_agents", "suggest_agent_creation", "jira_create_subtask", "jira_update_status", "jira_add_comment"]
-        case .fullAccess: return ToolRegistry.allToolIDs
-        case .custom:     return []
-        }
-    }
-}
-
 // MARK: - 도구 레지스트리
 
 /// 내장 도구 카탈로그
@@ -245,7 +220,6 @@ enum ToolRegistry {
             parameters: [
                 .init(name: "name", type: .string, description: "Suggested agent name", required: true, enumValues: nil),
                 .init(name: "persona", type: .string, description: "Persona/system prompt for the new agent", required: true, enumValues: nil),
-                .init(name: "recommended_preset", type: .string, description: "Capability preset (없음/리서처/개발자/분석가/전체 권한)", required: false, enumValues: ["없음", "리서처", "개발자", "분석가", "전체 권한"]),
                 .init(name: "recommended_provider", type: .string, description: "Preferred AI provider name", required: false, enumValues: nil),
                 .init(name: "recommended_model", type: .string, description: "Preferred model ID", required: false, enumValues: nil),
                 .init(name: "reason", type: .string, description: "Reason why this agent is needed", required: false, enumValues: nil)

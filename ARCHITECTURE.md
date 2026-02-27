@@ -37,7 +37,7 @@ DOUGLAS/
 │   │   ├── Agent.swift              # 에이전트 모델 (이름, 페르소나, 이미지, isMaster, 도구 설정, roleTemplateID)
 │   │   ├── AgentRoleTemplate.swift  # 역할 템플릿 (프로바이더별 힌트, 카테고리)
 │   │   ├── AgentRoleTemplateRegistry.swift # 빌트인 9개 템플릿 (requirements_analyst, backend_dev, QA 4종 등)
-│   │   ├── AgentTool.swift          # 도구 시스템 (AgentTool, ToolCall, ToolResult, CapabilityPreset, ToolRegistry, ConversationMessage)
+│   │   ├── AgentTool.swift          # 도구 시스템 (AgentTool, ToolCall, ToolResult, ToolRegistry, ConversationMessage)
 │   │   ├── ArtifactParser.swift     # 토론 산출물 파서 (artifact 블록 추출/제거)
 │   │   ├── ChatMessage.swift        # 메시지 모델 (MessageType 포함: toolActivity, buildStatus, qaStatus, approvalRequest 등, ImageAttachment 첨부)
 │   │   ├── DiscussionArtifact.swift # 토론 산출물 모델 (ArtifactType, 버전 관리)
@@ -172,7 +172,6 @@ DOUGLAS/
 **masterSystemPrompt()**: 마스터 에이전트의 동적 시스템 프롬프트 생성
 - 현재 등록된 서브 에이전트 목록 (이름, 도구 목록, 페르소나 요약) 포함
 - 3가지 JSON 응답 형식 명시: delegate, chain, suggest_agent (직접 응답 금지)
-- suggest_agent에 `recommended_preset` 포함 (에이전트 생성 시 도구 자동 설정)
 - Jira 연동 상태 (JiraConfig.shared.isConfigured) 표시
 - 에이전트 목록이 비어있으면 "(없음)" 표시
 
@@ -183,7 +182,7 @@ DOUGLAS/
 **MasterAction enum**:
 ```
 delegate  → 병렬 위임 (여러 에이전트 동시 실행)
-suggest   → 새 에이전트 생성 제안 (preset 포함)
+suggest   → 새 에이전트 생성 제안
 chain     → 순차 워크플로우 (A→B→C)
 unknown   → JSON 파싱 실패 시 원문 표시
 ```
@@ -195,7 +194,7 @@ unknown   → JSON 파싱 실패 시 원문 표시
 |---|------|--------|------|
 | 1 | 자동 라우팅 | `handleDelegation()` | 마스터가 JSON으로 위임 에이전트 지정, `withTaskGroup`으로 병렬 실행 |
 | 2 | 결과 취합 | `generateSummary()` | 2개 이상 에이전트 응답 시 마스터가 종합 요약 생성 |
-| 3 | 에이전트 제안 | `handleAgentSuggestion()` | 적합한 에이전트 없을 때 새 에이전트 생성 제안 (SuggestionCard, preset 포함) |
+| 3 | 에이전트 제안 | `handleAgentSuggestion()` | 적합한 에이전트 없을 때 새 에이전트 생성 제안 (SuggestionCard) |
 | 4 | 오류 재시도 | `executeDelegation()` | 실패 시 최대 2회 재시도 (2초 간격), 실패 시 마스터 폴백 응답 |
 | 5 | 워크플로우 체이닝 | `handleChain()` | 순차 실행, 이전 단계 출력을 다음 단계 입력에 주입 |
 
@@ -307,10 +306,8 @@ struct Agent: Identifiable, Codable, Hashable {
     var isMaster: Bool            // 마스터 에이전트 여부
     var errorMessage: String?     // 마지막 오류 메시지
     var hasImage: Bool            // 아바타 이미지 유무 (파일시스템 저장)
-    var capabilityPreset: CapabilityPreset?  // 도구 프리셋 (nil = 도구 없음)
-    var enabledToolIDs: [String]?            // preset == .custom일 때 사용
-    var resolvedToolIDs: [String] { ... }    // 최종 활성 도구 ID 목록 (computed)
-    var hasToolsEnabled: Bool { ... }        // 도구 사용 가능 여부 (computed)
+    var resolvedToolIDs: [String] { ... }    // 항상 ToolRegistry.allToolIDs (모든 에이전트 전체 도구)
+    var hasToolsEnabled: Bool { ... }        // 항상 true
 }
 ```
 
@@ -318,7 +315,6 @@ struct Agent: Identifiable, Codable, Hashable {
 - Hashable: id만 사용
 - `createMaster()`: 기본 마스터 에이전트 팩토리 (Claude Code + 위임 페르소나)
 - 이미지: `~/Library/Application Support/DOUGLAS/avatars/{id}.png`에 저장 (static save/load/delete)
-- 하위 호환: `capabilityPreset`, `enabledToolIDs`는 `decodeIfPresent`로 디코딩
 
 ### ChatMessage (`Models/ChatMessage.swift`)
 
@@ -366,7 +362,6 @@ struct AgentRoleTemplate: Identifiable, Codable {
     let icon: String                        // SF Symbol
     let category: TemplateCategory          // 분석/개발/품질/운영
     let basePersona: String                 // 기본 시스템 프롬프트
-    let defaultPreset: CapabilityPreset     // 추천 도구 프리셋
     let providerHints: [String: String]     // 프로바이더별 추가 지시
 
     func resolvedPersona(for providerType: String) -> String  // 프로바이더별 최적화 프롬프트
@@ -374,7 +369,7 @@ struct AgentRoleTemplate: Identifiable, Codable {
 ```
 
 - `AgentRoleTemplateRegistry`: 빌트인 9개 템플릿 (requirements_analyst, backend_dev, frontend_dev, qa_test_automation, qa_exploratory, qa_security, qa_code_review, tech_writer, devops_engineer)
-- 에이전트 생성 시 템플릿 선택 → persona/capabilityPreset/name 자동 설정
+- 에이전트 생성 시 템플릿 선택 → persona/name 자동 설정
 - `Agent.roleTemplateID`: 적용된 템플릿 ID (nil = 사용자 정의)
 
 ### DiscussionArtifact (`Models/DiscussionArtifact.swift`)
@@ -613,9 +608,8 @@ MessageType에 따른 시각 차별화:
 
 마스터가 `suggest_agent` 응답 시 채팅 내에 표시되는 인라인 카드:
 - 제안된 에이전트의 이름, 역할, 프로바이더/모델 표시
-- "생성" 버튼: 즉시 에이전트 추가 (recommended_preset → capabilityPreset 자동 설정)
+- "생성" 버튼: 즉시 에이전트 추가 (전체 도구 자동 부여)
 - "무시" 버튼: 제안 닫기
-- `resolvePreset()`: 문자열 프리셋명 → `CapabilityPreset` 변환 (researcher, developer, analyst, fullAccess)
 
 ### AddProviderSheet (`Views/AddProviderSheet.swift`)
 
@@ -739,21 +733,11 @@ MessageType에 따른 시각 차별화:
 | `ToolArgumentValue` | 타입 안전 인자값 enum (string/integer/boolean/array) |
 | `AIResponseContent` | 응답 enum (.text / .toolCalls / .mixed) |
 | `ConversationMessage` | 도구 메시지 포함 가능한 리치 메시지 타입 |
-| `CapabilityPreset` | 용도별 도구 프리셋 (6종) |
 | `ToolRegistry` | 내장 도구 카탈로그 |
 
-### CapabilityPreset (도구 프리셋)
-
-| 프리셋 | 포함 도구 |
-|--------|----------|
-| `.none` | (없음) |
-| `.researcher` | web_search, web_fetch |
-| `.developer` | file_read, file_write, shell_exec |
-| `.analyst` | file_read, shell_exec, web_fetch, jira_create_subtask, jira_update_status, jira_add_comment |
-| `.fullAccess` | 전체 10종 |
-| `.custom` | enabledToolIDs로 직접 선택 |
-
 ### 내장 도구 (ToolRegistry)
+
+모든 에이전트는 전체 11종 도구에 접근 가능 (프리셋 제한 없음).
 
 | ID | 이름 | 설명 |
 |----|------|------|
@@ -840,7 +824,7 @@ executeWithTools() 루프 (최대 10회):
 
 | 항목 | 내용 | 상태 |
 |------|------|------|
-| A-1 | Agent Role Template 시스템 (역할 프리셋 + 모델별 어댑터) | ✅ |
+| A-1 | Agent Role Template 시스템 (역할 템플릿 + 모델별 어댑터) | ✅ |
 | A-2 | 토론 산출물 구조화 (artifact 블록 자동 추출, 버전 관리) | ✅ |
 | A-3 | 컨텍스트 요약/압축 전달 메커니즘 (RoomBriefing) | ✅ |
 
@@ -856,7 +840,7 @@ executeWithTools() 루프 (최대 10회):
 
 | 항목 | 내용 | 상태 |
 |------|------|------|
-| C-1 | **Jira 깊은 연동**: `jira_create_subtask`(서브태스크 생성), `jira_update_status`(상태 전이), `jira_add_comment`(ADF 코멘트) 3개 쓰기 도구 추가. analyst 프리셋에 포함. `makeJiraRequest()` 공통 인증 헬퍼. | ✅ |
+| C-1 | **Jira 깊은 연동**: `jira_create_subtask`(서브태스크 생성), `jira_update_status`(상태 전이), `jira_add_comment`(ADF 코멘트) 3개 쓰기 도구 추가. 모든 에이전트에 포함. `makeJiraRequest()` 공통 인증 헬퍼. | ✅ |
 | C-2 | **Human-in-the-loop 승인 게이트**: `RoomStep` 구조체 (plain String + object 혼합 Codable). `RoomStatus.awaitingApproval` 추가. `CheckedContinuation`으로 비동기 일시 정지. ApprovalCard UI. | ✅ |
 | C-3 | **QA 자동 검증**: `QAResult`/`QALoopStatus` 모델. `BuildLoopRunner.runTests()` + `qaFixPrompt()`. `RoomManager.runQALoop()` — 빌드 성공 후 테스트 자동 실행, 실패 시 QA 에이전트가 수정 루프. 테스트 명령 자동 감지. | ✅ |
 
@@ -879,7 +863,7 @@ executeWithTools() 루프 (최대 10회):
 2. **스트리밍 응답**: `sendMessage()`를 `AsyncSequence` 반환으로 변경하면 토큰 단위 출력 가능
 3. **마스터 프롬프트 커스터마이징**: EditAgentSheet에서 마스터 페르소나 수정 시 위임 전략도 변경됨
 4. **에이전트 간 직접 통신**: 현재는 마스터를 통해서만 위임. `invite_agent` 도구로 방 내 에이전트 초대 가능
-5. **새 도구 추가**: `ToolRegistry`에 `AgentTool` 추가 + `ToolExecutor.executeSingleTool()`에 case 추가 + `CapabilityPreset` 필요 시 업데이트
+5. **새 도구 추가**: `ToolRegistry`에 `AgentTool` 추가 + `ToolExecutor.executeSingleTool()`에 case 추가
 6. **MCP (Model Context Protocol)**: 현재 내장 도구 방식. 외부 MCP 서버 연동으로 확장 가능
 7. **web_search 도구 구현**: 현재 placeholder. 실제 검색 API 연동 필요
 
@@ -893,12 +877,12 @@ executeWithTools() 루프 (최대 10회):
 | ChatViewModel.swift | ~890 | 핵심 오케스트레이션 + 이미지 첨부 지원 |
 | RoomChatView.swift | ~460 | 방별 채팅 인터페이스 + 이미지 첨부 |
 | ToolExecutor.swift | ~400 | 도구 호출 루프 + smartSend 2종 + web_fetch + invite_agent/list_agents |
-| EditAgentSheet.swift | ~315 | 에이전트 편집 (도구 프리셋 포함) |
+| EditAgentSheet.swift | ~240 | 에이전트 편집 |
 | AppDelegate.swift | ~320 | 윈도우/패널 관리 |
 | ToolFormatConverter.swift | ~290 | 프로바이더별 도구/이미지 형식 변환 |
-| AgentTool.swift | ~260 | 도구 시스템 타입 (ToolRegistry 11종 도구) |
+| AgentTool.swift | ~230 | 도구 시스템 타입 (ToolRegistry 11종 도구) |
 | ChatView.swift | ~200 | 채팅 UI + 메시지 버블 (이미지 썸네일) |
-| Agent.swift | ~180 | 에이전트 모델 (isMaster, 이미지, 도구 설정) |
+| Agent.swift | ~160 | 에이전트 모델 (isMaster, 이미지, 전체 도구) |
 | AddAgentSheet.swift | ~154 | 에이전트 등록 |
 | AgentStore.swift | ~140 | 에이전트 상태 관리 + 마스터 생명주기 |
 | ChatContentView.swift | ~130 | 공유 채팅 UI 컴포넌트 |
@@ -928,7 +912,7 @@ executeWithTools() 루프 (최대 10회):
 ### 개요
 
 - **프레임워크**: Swift Testing (`@Test`, `#expect`)
-- **테스트 수**: 807개 (28 파일 + 3 헬퍼/모킹)
+- **테스트 수**: 789개 (28 파일 + 3 헬퍼/모킹)
 - **명령어**: `swift test`
 - **커버리지**: 87% (테스트 가능 코드 기준, Views/App 제외)
 - **모킹**: MockAIProvider, MockURLProtocol, ProcessRunner.handler, 격리 UserDefaults
@@ -938,9 +922,9 @@ executeWithTools() 루프 (최대 10회):
 ```
 Tests/
 ├── Models/
-│   ├── AgentTests.swift              # 28 tests — 초기화, 팩토리, Codable, 레거시 디코딩, imageData I/O, resolvedToolIDs
+│   ├── AgentTests.swift              # 22 tests — 초기화, 팩토리, Codable, 레거시 디코딩, imageData I/O, resolvedToolIDs (항상 전체 도구)
 │   ├── AgentRoleTemplateTests.swift  # 19 tests — 템플릿 초기화, 레지스트리, resolvedPersona, Codable
-│   ├── AgentToolTests.swift          # 39 tests — AgentTool/ToolCall/ToolResult Codable, CapabilityPreset, ToolRegistry (10종 도구), ConversationMessage, Jira 도구
+│   ├── AgentToolTests.swift          # 32 tests — AgentTool/ToolCall/ToolResult Codable, ToolRegistry (11종 도구), ConversationMessage, Jira 도구
 │   ├── ArtifactParserTests.swift     # 15 tests — 산출물 추출, 다중 산출물, 타입별 파싱, 블록 제거
 │   ├── ChatMessageTests.swift        # 12 tests — 모든 MessageType, Codable 라운드트립, 이미지 첨부 호환
 │   ├── ClaudeCodeInstallerTests.swift # 32 tests — detect/install (ProcessRunner mock), 경로 탐색, 상태 전이
@@ -990,4 +974,4 @@ Tests/
 | Models | 397 | Agent, AgentRoleTemplate, AgentTool, ArtifactParser, ChatMessage, ClaudeCodeInstaller, DependencyChecker, DiscussionArtifact, ImageAttachment, JiraConfig, KeychainHelper, ProviderConfig, ProviderDetector, Room, RoomBriefing, RoomStep, ToolExecutionContext, BuildResult (QA 포함) |
 | ViewModels | 302 | ChatViewModel (통합+파싱+상태), AgentStore, ProviderManager, RoomManager, OnboardingViewModel, ToolExecutor (Jira 도구 포함), BuildLoopRunner (QA 포함) |
 | Providers | 91 | OpenAI, Anthropic, Google, Ollama, LM Studio, Custom, ClaudeCode, ToolFormatConverter (도구 + 이미지) |
-| **합계** | **807** | 테스트 가능 코드 87% 라인 커버리지 (View/App 레이어는 UI 특성상 제외) |
+| **합계** | **789** | 테스트 가능 코드 87% 라인 커버리지 (View/App 레이어는 UI 특성상 제외) |

@@ -15,8 +15,6 @@ struct EditAgentSheet: View {
     @State private var imageData: Data?
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
-    @State private var capabilityPreset: CapabilityPreset
-    @State private var enabledToolIDs: Set<String>
     @State private var roleTemplateID: String?
 
     init(agent: Agent) {
@@ -26,8 +24,6 @@ struct EditAgentSheet: View {
         _selectedProvider = State(initialValue: agent.providerName)
         _selectedModel = State(initialValue: agent.modelName)
         _imageData = State(initialValue: agent.imageData)
-        _capabilityPreset = State(initialValue: agent.capabilityPreset ?? .none)
-        _enabledToolIDs = State(initialValue: Set(agent.enabledToolIDs ?? []))
         _roleTemplateID = State(initialValue: agent.roleTemplateID)
     }
 
@@ -99,7 +95,6 @@ struct EditAgentSheet: View {
                                         } else {
                                             persona = template.basePersona
                                         }
-                                        capabilityPreset = template.defaultPreset
                                     }
                                     .font(.caption)
                                 }
@@ -182,65 +177,6 @@ struct EditAgentSheet: View {
                         }
                     }
 
-                    // 도구 설정
-                    if !agent.isMaster {
-                        VStack(alignment: .leading, spacing: 6) {
-                            sectionLabel("도구")
-
-                            VStack(spacing: 0) {
-                                settingsRow("프리셋") {
-                                    Picker("", selection: $capabilityPreset) {
-                                        ForEach(CapabilityPreset.allCases) { preset in
-                                            Text(preset.rawValue).tag(preset)
-                                        }
-                                    }
-                                    .labelsHidden()
-                                    .pickerStyle(.menu)
-                                    .fixedSize()
-                                }
-
-                                if capabilityPreset == .custom {
-                                    Divider().padding(.leading, 14)
-                                    ForEach(ToolRegistry.allTools) { tool in
-                                        HStack {
-                                            Toggle(isOn: Binding(
-                                                get: { enabledToolIDs.contains(tool.id) },
-                                                set: { on in
-                                                    if on { enabledToolIDs.insert(tool.id) }
-                                                    else { enabledToolIDs.remove(tool.id) }
-                                                }
-                                            )) {
-                                                VStack(alignment: .leading, spacing: 2) {
-                                                    Text(tool.name).font(.body)
-                                                    Text(tool.description)
-                                                        .font(.caption)
-                                                        .foregroundColor(.secondary)
-                                                        .lineLimit(1)
-                                                }
-                                            }
-                                            .toggleStyle(.checkbox)
-                                        }
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 4)
-                                    }
-                                }
-                            }
-                            .background(Color.primary.opacity(0.04))
-                            .cornerRadius(8)
-
-                            if capabilityPreset != .none {
-                                let activeTools = capabilityPreset == .custom
-                                    ? Array(enabledToolIDs)
-                                    : capabilityPreset.includedToolIDs
-                                let names = ToolRegistry.tools(for: activeTools).map { $0.name }
-                                if !names.isEmpty {
-                                    Text("활성: \(names.joined(separator: ", "))")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                        }
-                    }
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 16)
@@ -345,8 +281,6 @@ struct EditAgentSheet: View {
         updated.modelName = selectedModel
         updated.imageData = imageData
         updated.roleTemplateID = roleTemplateID
-        updated.capabilityPreset = capabilityPreset
-        updated.enabledToolIDs = capabilityPreset == .custom ? Array(enabledToolIDs) : nil
         agentStore.updateAgent(updated)
         dismiss()
     }

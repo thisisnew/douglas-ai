@@ -13,8 +13,6 @@ struct AddAgentSheet: View {
     @State private var isLoadingModels = false
     @State private var errorMessage: String?
     @State private var imageData: Data?
-    @State private var capabilityPreset: CapabilityPreset = .none
-    @State private var enabledToolIDs: Set<String> = []
     @State private var selectedTemplateID: String? = nil
 
     var body: some View {
@@ -147,51 +145,6 @@ struct AddAgentSheet: View {
                         }
                     }
 
-                    // 도구 설정
-                    VStack(alignment: .leading, spacing: 6) {
-                        sectionLabel("도구")
-
-                        VStack(spacing: 0) {
-                            settingsRow("프리셋") {
-                                Picker("", selection: $capabilityPreset) {
-                                    ForEach(CapabilityPreset.allCases) { preset in
-                                        Text(preset.rawValue).tag(preset)
-                                    }
-                                }
-                                .labelsHidden()
-                                .pickerStyle(.menu)
-                                .fixedSize()
-                            }
-
-                            if capabilityPreset == .custom {
-                                Divider().padding(.leading, 14)
-                                ForEach(ToolRegistry.allTools) { tool in
-                                    HStack {
-                                        Toggle(isOn: Binding(
-                                            get: { enabledToolIDs.contains(tool.id) },
-                                            set: { on in
-                                                if on { enabledToolIDs.insert(tool.id) }
-                                                else { enabledToolIDs.remove(tool.id) }
-                                            }
-                                        )) {
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(tool.name).font(.body)
-                                                Text(tool.description)
-                                                    .font(.caption)
-                                                    .foregroundColor(.secondary)
-                                                    .lineLimit(1)
-                                            }
-                                        }
-                                        .toggleStyle(.checkbox)
-                                    }
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 4)
-                                }
-                            }
-                        }
-                        .background(Color.primary.opacity(0.04))
-                        .cornerRadius(8)
-                    }
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 16)
@@ -215,36 +168,26 @@ struct AddAgentSheet: View {
     // MARK: - Components
 
     private var templatePicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                // 사용자 정의 옵션
-                templateChip(
-                    icon: "person.fill",
-                    label: "사용자 정의",
-                    isSelected: selectedTemplateID == nil
-                ) {
-                    selectedTemplateID = nil
-                }
+        FlowLayout(spacing: 6) {
+            templateChip(
+                icon: "person.fill",
+                label: "사용자 정의",
+                isSelected: selectedTemplateID == nil
+            ) {
+                selectedTemplateID = nil
+            }
 
-                ForEach(TemplateCategory.allCases, id: \.self) { category in
-                    let templates = AgentRoleTemplateRegistry.templates(in: category)
-                    if !templates.isEmpty {
-                        Divider().frame(height: 20)
-                        ForEach(templates) { tmpl in
-                            templateChip(
-                                icon: tmpl.icon,
-                                label: tmpl.name,
-                                isSelected: selectedTemplateID == tmpl.id
-                            ) {
-                                applyTemplate(tmpl)
-                            }
-                        }
-                    }
+            ForEach(AgentRoleTemplateRegistry.builtIn) { tmpl in
+                templateChip(
+                    icon: tmpl.icon,
+                    label: tmpl.name,
+                    isSelected: selectedTemplateID == tmpl.id
+                ) {
+                    applyTemplate(tmpl)
                 }
             }
-            .padding(.horizontal, 2)
-            .padding(.vertical, 4)
         }
+        .padding(.vertical, 4)
     }
 
     private func templateChip(icon: String, label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
@@ -271,9 +214,7 @@ struct AddAgentSheet: View {
     private func applyTemplate(_ template: AgentRoleTemplate) {
         selectedTemplateID = template.id
         if name.isEmpty { name = template.name }
-        capabilityPreset = template.defaultPreset
 
-        // 프로바이더 선택 상태에 맞게 persona 생성
         if let config = providerManager.configs.first(where: { $0.name == selectedProvider }) {
             persona = template.resolvedPersona(for: config.type.rawValue)
         } else {
@@ -398,9 +339,7 @@ struct AddAgentSheet: View {
             providerName: selectedProvider,
             modelName: selectedModel,
             imageData: imageData,
-            roleTemplateID: selectedTemplateID,
-            capabilityPreset: capabilityPreset == .none ? nil : capabilityPreset,
-            enabledToolIDs: capabilityPreset == .custom ? Array(enabledToolIDs) : nil
+            roleTemplateID: selectedTemplateID
         )
         agentStore.addAgent(agent)
         dismiss()

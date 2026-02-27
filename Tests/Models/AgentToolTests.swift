@@ -126,52 +126,6 @@ struct AgentToolTests {
         #expect(decoded.isError == true)
     }
 
-    // MARK: - CapabilityPreset
-
-    @Test("CapabilityPreset allCases 존재")
-    func presetAllCases() {
-        #expect(CapabilityPreset.allCases.count == 6)
-    }
-
-    @Test("CapabilityPreset.none은 빈 도구 목록")
-    func presetNone() {
-        #expect(CapabilityPreset.none.includedToolIDs.isEmpty)
-    }
-
-    @Test("CapabilityPreset.developer는 파일+셸 도구")
-    func presetDeveloper() {
-        let ids = CapabilityPreset.developer.includedToolIDs
-        #expect(ids.contains("file_read"))
-        #expect(ids.contains("file_write"))
-        #expect(ids.contains("shell_exec"))
-        #expect(!ids.contains("web_search"))
-    }
-
-    @Test("CapabilityPreset.researcher는 웹 검색 + 웹 페이지 가져오기")
-    func presetResearcher() {
-        let ids = CapabilityPreset.researcher.includedToolIDs
-        #expect(ids == ["web_search", "web_fetch"])
-    }
-
-    @Test("CapabilityPreset.fullAccess는 전체 도구")
-    func presetFullAccess() {
-        let ids = CapabilityPreset.fullAccess.includedToolIDs
-        #expect(ids == ToolRegistry.allToolIDs)
-    }
-
-    @Test("CapabilityPreset.custom은 빈 도구 (enabledToolIDs로 결정)")
-    func presetCustom() {
-        #expect(CapabilityPreset.custom.includedToolIDs.isEmpty)
-    }
-
-    @Test("CapabilityPreset Codable")
-    func presetCodable() throws {
-        let preset = CapabilityPreset.developer
-        let data = try JSONEncoder().encode(preset)
-        let decoded = try JSONDecoder().decode(CapabilityPreset.self, from: data)
-        #expect(decoded == .developer)
-    }
-
     // MARK: - ToolRegistry
 
     @Test("ToolRegistry 모든 도구 존재 (suggest_agent_creation 포함)")
@@ -263,57 +217,35 @@ struct AgentToolTests {
         #expect(msg.content?.contains("[오류]") == true)
     }
 
-    // MARK: - Agent Tool 필드 테스트
+    // MARK: - Agent 도구 접근 테스트
 
-    @Test("Agent resolvedToolIDs - 프리셋 없으면 빈 배열")
-    func agentNoPreset() {
+    @Test("Agent resolvedToolIDs — 항상 전체 도구")
+    func agentAlwaysHasAllTools() {
         let agent = Agent(name: "test", persona: "test", providerName: "Test", modelName: "test-model")
-        #expect(agent.resolvedToolIDs.isEmpty)
-        #expect(agent.hasToolsEnabled == false)
-    }
-
-    @Test("Agent resolvedToolIDs - developer 프리셋")
-    func agentDeveloperPreset() {
-        let agent = Agent(name: "dev", persona: "dev", providerName: "Test", modelName: "test", capabilityPreset: .developer)
-        #expect(agent.resolvedToolIDs.contains("file_read"))
+        #expect(agent.resolvedToolIDs == ToolRegistry.allToolIDs)
         #expect(agent.hasToolsEnabled == true)
     }
 
-    @Test("Agent resolvedToolIDs - custom 프리셋 + enabledToolIDs")
-    func agentCustomPreset() {
-        let agent = Agent(
-            name: "custom", persona: "custom", providerName: "Test", modelName: "test",
-            capabilityPreset: .custom, enabledToolIDs: ["shell_exec"]
-        )
-        #expect(agent.resolvedToolIDs == ["shell_exec"])
-    }
-
-    @Test("Agent 하위 호환 디코딩 (도구 필드 없는 JSON)")
+    @Test("Agent 하위 호환 디코딩 (레거시 JSON)")
     func agentBackwardCompat() throws {
         let json = """
         {"id":"11111111-1111-1111-1111-111111111111","name":"old","persona":"old agent","providerName":"Test","modelName":"model","status":"idle","isMaster":false,"hasImage":false}
         """
         let data = json.data(using: .utf8)!
         let agent = try JSONDecoder().decode(Agent.self, from: data)
-        #expect(agent.capabilityPreset == nil)
-        #expect(agent.enabledToolIDs == nil)
-        #expect(agent.resolvedToolIDs.isEmpty)
+        #expect(agent.resolvedToolIDs == ToolRegistry.allToolIDs)
     }
 
-    @Test("Agent 도구 필드 Codable 라운드트립")
-    func agentToolFieldsCodable() throws {
-        let agent = Agent(
-            name: "tooled", persona: "agent with tools", providerName: "OpenAI", modelName: "gpt-4o",
-            capabilityPreset: .developer, enabledToolIDs: nil
-        )
+    @Test("Agent Codable 라운드트립")
+    func agentCodable() throws {
+        let agent = Agent(name: "tooled", persona: "agent with tools", providerName: "OpenAI", modelName: "gpt-4o")
         let data = try JSONEncoder().encode(agent)
         let decoded = try JSONDecoder().decode(Agent.self, from: data)
-        #expect(decoded.capabilityPreset == .developer)
-        #expect(decoded.enabledToolIDs == nil)
-        #expect(decoded.resolvedToolIDs == CapabilityPreset.developer.includedToolIDs)
+        #expect(decoded.name == "tooled")
+        #expect(decoded.resolvedToolIDs == ToolRegistry.allToolIDs)
     }
 
-    // MARK: - Jira 도구 (Phase C-1)
+    // MARK: - Jira 도구
 
     @Test("Jira 도구 ID 목록에 포함")
     func jiraToolsInRegistry() {
@@ -323,29 +255,12 @@ struct AgentToolTests {
         #expect(ids.contains("jira_add_comment"))
     }
 
-    @Test("analyst 프리셋에 Jira 쓰기 도구 + 팀빌딩 도구 포함")
-    func analystPresetIncludesJiraAndTeamTools() {
-        let analystTools = CapabilityPreset.analyst.includedToolIDs
-        #expect(analystTools.contains("jira_create_subtask"))
-        #expect(analystTools.contains("jira_update_status"))
-        #expect(analystTools.contains("jira_add_comment"))
-        // 팀 빌딩 도구 (Phase D)
-        #expect(analystTools.contains("invite_agent"))
-        #expect(analystTools.contains("list_agents"))
-        #expect(analystTools.contains("suggest_agent_creation"))
-        // 기존 도구도 유지
-        #expect(analystTools.contains("file_read"))
-        #expect(analystTools.contains("shell_exec"))
-        #expect(analystTools.contains("web_fetch"))
-    }
-
     @Test("suggest_agent_creation 도구 등록 확인")
     func registrySuggestAgentCreation() {
         let tool = ToolRegistry.allTools.first { $0.id == "suggest_agent_creation" }
         #expect(tool != nil)
         #expect(tool?.parameters.first { $0.name == "name" }?.required == true)
         #expect(tool?.parameters.first { $0.name == "persona" }?.required == true)
-        #expect(tool?.parameters.first { $0.name == "recommended_preset" }?.required == false)
         #expect(tool?.parameters.first { $0.name == "reason" }?.required == false)
     }
 

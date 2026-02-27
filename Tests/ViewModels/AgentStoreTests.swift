@@ -171,7 +171,6 @@ struct AgentStoreTests {
         #expect(prompt.contains("delegate"))
         #expect(prompt.contains("chain"))
         #expect(prompt.contains("suggest_agent"))
-        #expect(prompt.contains("recommended_preset"))
     }
 
     @Test("minimizedAgentIDs - 초기 빈 상태")

@@ -182,6 +182,7 @@ enum DesignTokens {
     }
 
     // MARK: - 사이드바 전용 토큰
+    // FlowLayout은 아래 파일 하단에 정의
 
     enum Sidebar {
         /// 외곽 모서리 반경
@@ -202,5 +203,62 @@ enum DesignTokens {
         static let separatorHeight: CGFloat = 0.5
         /// 섹션 구분선 좌우 인셋
         static let separatorInset: CGFloat = 16
+    }
+}
+
+// MARK: - FlowLayout (자동 줄바꿈 레이아웃)
+
+/// 자식 뷰를 수평으로 배치하되, 폭이 넘으면 자동으로 다음 줄로 내린다.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = computeRows(proposal: proposal, subviews: subviews)
+        var height: CGFloat = 0
+        var maxWidth: CGFloat = 0
+        for (i, row) in rows.enumerated() {
+            let rowHeight = row.map { $0.height }.max() ?? 0
+            height += rowHeight
+            if i > 0 { height += spacing }
+            let rowWidth = row.map { $0.width }.reduce(0, +) + CGFloat(max(row.count - 1, 0)) * spacing
+            maxWidth = max(maxWidth, rowWidth)
+        }
+        return CGSize(width: proposal.width ?? maxWidth, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rows = computeRows(proposal: ProposedViewSize(width: bounds.width, height: proposal.height), subviews: subviews)
+        var y = bounds.minY
+        var subviewIndex = 0
+        for (i, row) in rows.enumerated() {
+            let rowHeight = row.map { $0.height }.max() ?? 0
+            if i > 0 { y += spacing }
+            var x = bounds.minX
+            for size in row {
+                guard subviewIndex < subviews.count else { break }
+                subviews[subviewIndex].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+                subviewIndex += 1
+            }
+            y += rowHeight
+        }
+    }
+
+    private func computeRows(proposal: ProposedViewSize, subviews: Subviews) -> [[CGSize]] {
+        let maxWidth = proposal.width ?? .infinity
+        var rows: [[CGSize]] = [[]]
+        var currentRowWidth: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if !rows[rows.count - 1].isEmpty && currentRowWidth + spacing + size.width > maxWidth {
+                rows.append([size])
+                currentRowWidth = size.width
+            } else {
+                if !rows[rows.count - 1].isEmpty { currentRowWidth += spacing }
+                rows[rows.count - 1].append(size)
+                currentRowWidth += size.width
+            }
+        }
+        return rows
     }
 }

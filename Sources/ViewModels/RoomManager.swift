@@ -210,7 +210,6 @@ class RoomManager: ObservableObject {
         rooms[roomIdx].pendingAgentSuggestions[sugIdx] = suggestion
 
         // 에이전트 생성
-        let preset = resolvePreset(suggestion.recommendedPreset)
         let providerName = suggestion.recommendedProvider ?? "Anthropic"
         let modelName = suggestion.recommendedModel ?? "claude-sonnet-4-20250514"
 
@@ -218,8 +217,7 @@ class RoomManager: ObservableObject {
             name: suggestion.name,
             persona: suggestion.persona,
             providerName: providerName,
-            modelName: modelName,
-            capabilityPreset: preset
+            modelName: modelName
         )
         agentStore?.addAgent(newAgent)
         addAgent(newAgent.id, to: roomID)
@@ -246,12 +244,6 @@ class RoomManager: ObservableObject {
         )
         appendMessage(msg, to: roomID)
         scheduleSave()
-    }
-
-    /// 프리셋 문자열 → CapabilityPreset 변환
-    private func resolvePreset(_ str: String?) -> CapabilityPreset {
-        guard let str else { return .developer }
-        return CapabilityPreset(rawValue: str) ?? .developer
     }
 
     // MARK: - 방에 에이전트 추가

@@ -65,7 +65,7 @@ enum AgentRoleTemplateRegistry {
         - list_agents로 팀을 확인하고 필요한 에이전트를 초대합니다
         - 에이전트가 없으면 suggest_agent_creation으로 생성을 제안합니다
         """,
-        defaultPreset: .analyst,
+
         providerHints: [
             "Anthropic": "분석 결과를 구조화된 섹션으로 정리하세요. 각 섹션에 명확한 제목을 사용하고, 핵심 항목을 불릿으로 나열하세요.",
             "OpenAI": "분석 결과를 JSON 호환 구조로 정리하세요. 체크리스트 형식을 활용하고, 각 항목에 우선순위를 표기하세요.",
@@ -94,7 +94,7 @@ enum AgentRoleTemplateRegistry {
         - API 계약(인터페이스)을 먼저 정의하고 구현합니다
         - 테스트 가능한 구조로 설계합니다
         """,
-        defaultPreset: .developer,
+
         providerHints: [
             "Anthropic": "코드 작성 시 한 함수씩 구현하세요. 타입을 명시하고, 가능한 모든 에러 케이스를 처리하세요. 구현 전 설계를 먼저 정리하세요.",
             "OpenAI": "함수 단위로 구현하고 각 함수에 대한 테스트를 함께 작성하세요. 코드 블록을 언어 태그와 함께 명확히 구분하세요.",
@@ -123,7 +123,7 @@ enum AgentRoleTemplateRegistry {
         - 사용자 인터랙션에 대한 피드백을 항상 제공합니다
         - 로딩, 에러, 빈 상태를 모두 처리합니다
         """,
-        defaultPreset: .developer,
+
         providerHints: [
             "Anthropic": "컴포넌트를 분리하여 구현하세요. 각 컴포넌트의 props/state를 명확히 정의하고, 접근성 속성을 포함하세요.",
             "OpenAI": "UI 구현 시 컴포넌트 트리를 먼저 설계하세요. 반응형 브레이크포인트를 고려하고, 인터랙션 패턴을 명시하세요.",
@@ -158,7 +158,7 @@ enum AgentRoleTemplateRegistry {
         - 테스트는 독립적이고 반복 실행 가능해야 합니다
         - 테스트 실행 결과를 명확히 보고합니다
         """,
-        defaultPreset: .developer,
+
         providerHints: [
             "Anthropic": "테스트 코드를 함수 단위로 작성하세요. 각 테스트의 의도를 주석으로 명시하고, Arrange-Act-Assert 패턴을 따르세요.",
             "OpenAI": "테스트를 카테고리별로 분류하여 작성하세요. 각 테스트에 명확한 이름을 붙이고, 실행 결과를 표로 정리하세요.",
@@ -193,7 +193,7 @@ enum AgentRoleTemplateRegistry {
         - 발견된 이슈는 재현 가능한 형태로 기록합니다
         - 심각도(Critical/Major/Minor)를 명확히 분류합니다
         """,
-        defaultPreset: .analyst,
+
         providerHints: [
             "Anthropic": "코드를 섹션별로 분석하세요. 각 발견 사항을 심각도와 함께 구조화하고, 재현 단계를 상세히 기술하세요.",
             "OpenAI": "탐색 세션을 체계적으로 기록하세요. 검사 영역, 발견 사항, 위험 평가를 표로 정리하세요.",
@@ -228,7 +228,7 @@ enum AgentRoleTemplateRegistry {
         - 암호화 적용 여부를 점검합니다
         - 에러 메시지의 정보 노출을 확인합니다
         """,
-        defaultPreset: .analyst,
+
         providerHints: [
             "Anthropic": "취약점을 CWE 분류와 함께 보고하세요. 각 항목에 위험도, 영향 범위, 수정 방법을 포함하세요.",
             "OpenAI": "보안 체크리스트를 체계적으로 수행하세요. 각 항목의 통과/실패를 표로 정리하고, 실패 항목에 수정 코드를 제시하세요.",
@@ -263,7 +263,7 @@ enum AgentRoleTemplateRegistry {
         - 긍정적 피드백도 함께 제공합니다
         - 수정 제안에는 반드시 이유를 설명합니다
         """,
-        defaultPreset: .analyst,
+
         providerHints: [
             "Anthropic": "리뷰를 파일별로 정리하세요. 각 코멘트에 라인 번호와 심각도를 표기하고, 수정 제안 코드를 포함하세요.",
             "OpenAI": "리뷰 결과를 카테고리별(버그/설계/스타일/성능)로 분류하세요. 각 항목에 우선순위를 매기세요.",
@@ -291,7 +291,7 @@ enum AgentRoleTemplateRegistry {
         - 마크다운 형식을 활용하여 구조화합니다
         - 최신 상태를 유지할 수 있는 형식으로 작성합니다
         """,
-        defaultPreset: .researcher,
+
         providerHints: [
             "Anthropic": "문서를 명확한 섹션으로 구조화하세요. 코드 예제에 언어 태그를 사용하고, 각 섹션의 목적을 첫 문장에 명시하세요.",
             "OpenAI": "간결한 기술 문서 스타일로 작성하세요. 핵심 정보를 표와 코드 블록으로 정리하고, 불필요한 설명을 줄이세요.",
@@ -320,7 +320,7 @@ enum AgentRoleTemplateRegistry {
         - 파괴적 명령 실행 전 사용자에게 확인을 요청합니다
         - 환경별 설정을 분리합니다
         """,
-        defaultPreset: .fullAccess,
+
         providerHints: [
             "Anthropic": "커맨드 실행 전 현재 상태를 확인하세요. 각 단계의 예상 결과를 먼저 설명하고, 롤백 방법을 함께 제시하세요.",
             "OpenAI": "단계별로 실행하세요. 각 커맨드의 목적을 주석으로 달고, 실패 시 대응 방법을 포함하세요.",

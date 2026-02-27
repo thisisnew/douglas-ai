@@ -25,27 +25,17 @@ struct Agent: Identifiable, Codable, Hashable {
     // 역할 템플릿 (nil = 사용자 정의)
     var roleTemplateID: String?
 
-    // Tool Use 설정
-    var capabilityPreset: CapabilityPreset?
-    var enabledToolIDs: [String]?
-
-    /// 이 에이전트에서 활성화된 도구 ID 목록
+    /// 모든 에이전트는 전체 도구에 접근 가능
     var resolvedToolIDs: [String] {
-        let preset = capabilityPreset ?? .none
-        if preset == .custom {
-            return enabledToolIDs ?? []
-        }
-        return preset.includedToolIDs
+        ToolRegistry.allToolIDs
     }
 
-    var hasToolsEnabled: Bool {
-        !resolvedToolIDs.isEmpty
-    }
+    var hasToolsEnabled: Bool { true }
 
     // imageData는 Codable에서 제외 — 파일 시스템에 저장
     private enum CodingKeys: String, CodingKey {
         case id, name, persona, providerName, modelName, status, isMaster, errorMessage, hasImage
-        case roleTemplateID, capabilityPreset, enabledToolIDs
+        case roleTemplateID
     }
 
     // 이미지를 파일 시스템에 저장/로드
@@ -72,9 +62,7 @@ struct Agent: Identifiable, Codable, Hashable {
         isMaster: Bool = false,
         errorMessage: String? = nil,
         imageData: Data? = nil,
-        roleTemplateID: String? = nil,
-        capabilityPreset: CapabilityPreset? = nil,
-        enabledToolIDs: [String]? = nil
+        roleTemplateID: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -85,10 +73,7 @@ struct Agent: Identifiable, Codable, Hashable {
         self.isMaster = isMaster
         self.errorMessage = errorMessage
         self.roleTemplateID = roleTemplateID
-        self.capabilityPreset = capabilityPreset
-        self.enabledToolIDs = enabledToolIDs
         self.hasImage = false
-        // init 후 이미지 저장
         if let imageData {
             Self.saveImage(imageData, for: id)
             self.hasImage = true
@@ -108,8 +93,6 @@ struct Agent: Identifiable, Codable, Hashable {
         errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
         hasImage = try container.decodeIfPresent(Bool.self, forKey: .hasImage) ?? false
         roleTemplateID = try container.decodeIfPresent(String.self, forKey: .roleTemplateID)
-        capabilityPreset = try container.decodeIfPresent(CapabilityPreset.self, forKey: .capabilityPreset)
-        enabledToolIDs = try container.decodeIfPresent([String].self, forKey: .enabledToolIDs)
 
         // 레거시 마이그레이션: UserDefaults에 imageData가 있으면 파일로 이동
         struct LegacyKey: CodingKey {
