@@ -294,8 +294,9 @@ struct AddProviderSheet: View {
             .replacingOccurrences(of: "https://", with: "")
             .replacingOccurrences(of: "http://", with: "")
             .trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
-        var config = JiraConfig(domain: cleanDomain, email: jiraEmail.trimmingCharacters(in: .whitespaces))
-        config.apiToken = jiraToken
+        let cleanToken = jiraToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        var config = JiraConfig(domain: cleanDomain, email: jiraEmail.trimmingCharacters(in: .whitespacesAndNewlines))
+        config.apiToken = cleanToken
         JiraConfig.shared = config
         jiraTestResult = "저장 완료"
     }
@@ -308,9 +309,13 @@ struct AddProviderSheet: View {
         let cleanDomain = jiraDomain
             .replacingOccurrences(of: "https://", with: "")
             .replacingOccurrences(of: "http://", with: "")
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
 
-        let credentials = "\(jiraEmail):\(jiraToken)"
+        let cleanEmail = jiraEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanToken = jiraToken.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let credentials = "\(cleanEmail):\(cleanToken)"
         let auth = "Basic \(Data(credentials.utf8).base64EncodedString())"
         let urlString = "https://\(cleanDomain)/rest/api/3/myself"
 

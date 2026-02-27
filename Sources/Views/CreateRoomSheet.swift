@@ -213,8 +213,10 @@ struct CreateRoomSheet: View {
 
             Spacer()
 
-            if agent.status == .working || agent.status == .busy {
+            if agent.status == .working {
                 statusBadge("작업중", color: .orange)
+            } else if agent.status == .busy {
+                statusBadge("바쁨", color: .red)
             }
 
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")

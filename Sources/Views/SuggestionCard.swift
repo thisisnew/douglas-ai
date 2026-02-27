@@ -53,11 +53,21 @@ struct SuggestionCard: View {
             ? (agentStore.masterAgent?.modelName ?? "claude-sonnet-4-6")
             : suggestion.recommendedModel
 
+        // roleTemplateID가 있으면 템플릿의 persona를 사용
+        let finalPersona: String
+        if let templateID = suggestion.roleTemplateID,
+           let template = AgentRoleTemplateRegistry.template(for: templateID) {
+            finalPersona = template.resolvedPersona(for: providerName)
+        } else {
+            finalPersona = suggestion.persona
+        }
+
         let agent = Agent(
             name: suggestion.name,
-            persona: suggestion.persona,
+            persona: finalPersona,
             providerName: providerName,
-            modelName: modelName
+            modelName: modelName,
+            roleTemplateID: suggestion.roleTemplateID
         )
         agentStore.addAgent(agent)
 

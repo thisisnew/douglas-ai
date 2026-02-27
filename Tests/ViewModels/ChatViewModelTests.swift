@@ -310,6 +310,7 @@ struct AgentSuggestionTests {
             recommendedProvider: "OpenAI",
             recommendedModel: "gpt-4o",
             recommendedPreset: "developer",
+            roleTemplateID: nil,
             masterAgentID: masterID,
             originalTask: "코드 작성해줘"
         )
@@ -326,12 +327,12 @@ struct AgentSuggestionTests {
     func identifiable() {
         let a = AgentSuggestion(
             name: "A", persona: "p", recommendedProvider: "P",
-            recommendedModel: "M", recommendedPreset: nil,
+            recommendedModel: "M", recommendedPreset: nil, roleTemplateID: nil,
             masterAgentID: UUID(), originalTask: "t"
         )
         let b = AgentSuggestion(
             name: "A", persona: "p", recommendedProvider: "P",
-            recommendedModel: "M", recommendedPreset: nil,
+            recommendedModel: "M", recommendedPreset: nil, roleTemplateID: nil,
             masterAgentID: UUID(), originalTask: "t"
         )
         #expect(a.id != b.id)
@@ -341,7 +342,7 @@ struct AgentSuggestionTests {
     func presetNil() {
         let suggestion = AgentSuggestion(
             name: "A", persona: "p", recommendedProvider: "P",
-            recommendedModel: "M", recommendedPreset: nil,
+            recommendedModel: "M", recommendedPreset: nil, roleTemplateID: nil,
             masterAgentID: UUID(), originalTask: "t"
         )
         #expect(suggestion.recommendedPreset == nil)
@@ -389,9 +390,9 @@ struct MasterActionTests {
     @Test("suggestAgent - 연관값 접근")
     func suggestAgentValues() {
         let action = MasterAction.suggestAgent(
-            name: "리서처", persona: "연구", provider: "Google", model: "gemini", preset: "researcher"
+            name: "리서처", persona: "연구", provider: "Google", model: "gemini", preset: "researcher", roleTemplateID: String?.none
         )
-        if case .suggestAgent(let name, let persona, let provider, let model, let preset) = action {
+        if case .suggestAgent(let name, let persona, let provider, let model, let preset, _) = action {
             #expect(name == "리서처")
             #expect(persona == "연구")
             #expect(provider == "Google")

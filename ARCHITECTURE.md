@@ -302,7 +302,7 @@ struct Agent: Identifiable, Codable, Hashable {
     var persona: String           // 시스템 프롬프트 (역할/성격)
     var providerName: String      // "Claude Code", "OpenAI", "Google"
     var modelName: String         // "claude-sonnet-4-6", "gpt-4o" 등
-    var status: AgentStatus       // idle / working / error
+    var status: AgentStatus       // idle / working / busy / error (상태 레퍼런스 참조)
     var isMaster: Bool            // 마스터 에이전트 여부
     var errorMessage: String?     // 마지막 오류 메시지
     var hasImage: Bool            // 아바타 이미지 유무 (파일시스템 저장)
@@ -493,6 +493,50 @@ struct ProviderConfig: Identifiable, Codable {
 
 ---
 
+## 상태 레퍼런스
+
+### AgentStatus (`Models/Agent.swift`)
+
+에이전트의 현재 활동 상태. `RoomManager.syncAgentStatuses()`가 활성 방 참여 수에 따라 자동 갱신.
+
+| 상태 | 표시 텍스트 | 색상 | 조건 |
+|------|-----------|------|------|
+| `idle` | 대기 | 회색 | 활성 방 0개 |
+| `working` | 작업중 | 주황 | 활성 방 1~2개 |
+| `busy` | 바쁨 | 빨강 | 활성 방 3개 이상 |
+| `error` | 오류 | 빨강 | 에이전트 실행 중 오류 발생 (수동 해제 전까지 유지) |
+
+- 상태 변경은 런타임 전용 (디스크 저장 안 함)
+- 앱 시작 시 모든 에이전트 `.idle`로 초기화
+- `.error` 상태는 `syncAgentStatuses()`에서 덮어쓰지 않음
+
+### RoomStatus (`Models/Room.swift`)
+
+방의 워크플로우 상태. 허용된 전이만 가능 (`canTransition(to:)` 검증).
+
+| 상태 | 표시 텍스트 | 색상 | 설명 |
+|------|-----------|------|------|
+| `planning` | 계획 중 | 보라 | 토론 + 계획 수립 단계 |
+| `inProgress` | 진행중 | 주황 | 계획에 따라 작업 실행 중 |
+| `awaitingApproval` | 승인 대기 | 노랑 | Human-in-the-loop 승인 게이트 |
+| `completed` | 완료 | 초록 | 모든 단계 완료 |
+| `failed` | 실패 | 빨강 | 오류 또는 승인 거부로 중단 |
+
+상태 전이:
+```
+planning → inProgress → completed
+    │          │
+    │          ├→ awaitingApproval → inProgress (승인)
+    │          │                   → failed (거부)
+    │          └→ failed
+    ├→ completed
+    └→ failed
+```
+
+`isActive` = `planning` | `inProgress` | `awaitingApproval` (에이전트 상태 계산에 사용)
+
+---
+
 ## 뷰 레이어
 
 ### FloatingSidebarView (`Views/FloatingSidebarView.swift`)
@@ -522,8 +566,8 @@ struct ProviderConfig: Identifiable, Codable {
 
 **에이전트 로스터** (가로 스크롤):
 - 서브 에이전트를 원형 아바타 + 이름 + 상태 표시등으로 표시
-- 상태 표시등 색상: 대기(회색) / 작업중(주황) / 오류(빨강)
-- 작업중인 에이전트는 주황색 테두리로 시각적 강조
+- 상태 표시등 색상: 대기(회색) / 작업중(주황) / 바쁨(빨강) / 오류(빨강)
+- 작업중/바쁨 에이전트는 테두리로 시각적 강조 (주황/빨강)
 - 에이전트 클릭 → 별도 채팅 윈도우 열기 (직접 대화)
 - 우클릭 컨텍스트 메뉴: 편집/정보/삭제
 - 20개 이상 에이전트도 가로 스크롤로 수용

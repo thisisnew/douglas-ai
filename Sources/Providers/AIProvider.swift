@@ -19,6 +19,13 @@ protocol AIProvider {
 
     /// 이 프로바이더가 네이티브 도구 호출을 지원하는지
     var supportsToolCalling: Bool { get }
+
+    /// 라우터 전용: 내장 도구 없이 메시지 전송 (Claude Code CLI에서 URL 직접 접근 방지)
+    func sendRouterMessage(
+        model: String,
+        systemPrompt: String,
+        messages: [(role: String, content: String)]
+    ) async throws -> String
 }
 
 enum AIProviderError: LocalizedError {
@@ -45,6 +52,15 @@ enum AIProviderError: LocalizedError {
 /// 기본 구현: 도구 미지원 프로바이더용 폴백
 extension AIProvider {
     var supportsToolCalling: Bool { false }
+
+    func sendRouterMessage(
+        model: String,
+        systemPrompt: String,
+        messages: [(role: String, content: String)]
+    ) async throws -> String {
+        // 기본: sendMessage와 동일 (OpenAI/Google/Anthropic은 도구 문제 없음)
+        try await sendMessage(model: model, systemPrompt: systemPrompt, messages: messages)
+    }
 
     func sendMessageWithTools(
         model: String,

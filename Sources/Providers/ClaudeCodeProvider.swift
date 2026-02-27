@@ -61,31 +61,46 @@ class ClaudeCodeProvider: AIProvider {
         systemPrompt: String,
         messages: [(role: String, content: String)]
     ) async throws -> String {
-        let claudePath = config.baseURL
-
-        let lastUserMessage = messages.last(where: { $0.role == "user" })?.content ?? ""
-
-        var fullPrompt = ""
-        if !systemPrompt.isEmpty {
-            fullPrompt += "[시스템 지시]\n\(systemPrompt)\n\n"
-        }
-
-        let history = messages.dropLast()
-        if !history.isEmpty {
-            fullPrompt += "[이전 대화]\n"
-            for msg in history.suffix(10) {
-                let label = msg.role == "user" ? "사용자" : "어시스턴트"
-                fullPrompt += "\(label): \(msg.content)\n"
-            }
-            fullPrompt += "\n"
-        }
-
-        fullPrompt += lastUserMessage
-
-        return try await runClaude(path: claudePath, prompt: fullPrompt, model: model)
+        let userPrompt = buildUserPrompt(from: messages)
+        return try await runClaude(
+            path: config.baseURL, prompt: userPrompt, model: model,
+            systemPrompt: systemPrompt, disableTools: false
+        )
     }
 
-    private func runClaude(path: String, prompt: String, model: String) async throws -> String {
+    /// 라우터 전용: CLI 내장 도구 비활성화 (URL 직접 접근 방지)
+    func sendRouterMessage(
+        model: String,
+        systemPrompt: String,
+        messages: [(role: String, content: String)]
+    ) async throws -> String {
+        let userPrompt = buildUserPrompt(from: messages)
+        return try await runClaude(
+            path: config.baseURL, prompt: userPrompt, model: model,
+            systemPrompt: systemPrompt, disableTools: true
+        )
+    }
+
+    private func buildUserPrompt(from messages: [(role: String, content: String)]) -> String {
+        let lastUserMessage = messages.last(where: { $0.role == "user" })?.content ?? ""
+        var userPrompt = ""
+        let history = messages.dropLast()
+        if !history.isEmpty {
+            userPrompt += "[이전 대화]\n"
+            for msg in history.suffix(10) {
+                let label = msg.role == "user" ? "사용자" : "어시스턴트"
+                userPrompt += "\(label): \(msg.content)\n"
+            }
+            userPrompt += "\n"
+        }
+        userPrompt += lastUserMessage
+        return userPrompt
+    }
+
+    private func runClaude(
+        path: String, prompt: String, model: String,
+        systemPrompt: String = "", disableTools: Bool = false
+    ) async throws -> String {
         // claude CLI는 Node.js 스크립트 → 같은 디렉토리의 node를 직접 사용
         let executable: String
         var args: [String]
@@ -95,6 +110,16 @@ class ClaudeCodeProvider: AIProvider {
         } else {
             executable = path
             args = ["-p", prompt, "--model", model]
+        }
+
+        // 시스템 프롬프트가 있으면 --system-prompt로 분리 전달
+        if !systemPrompt.isEmpty {
+            args += ["--system-prompt", systemPrompt]
+        }
+
+        // 라우터 모드: 내장 도구 비활성화 (URL 직접 접근/파일 조작 방지)
+        if disableTools {
+            args += ["--tools", ""]
         }
 
         // 환경변수 상속

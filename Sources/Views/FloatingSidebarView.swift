@@ -970,7 +970,7 @@ struct AgentInfoSheet: View {
         switch agent.status {
         case .idle:    return "대기"
         case .working: return "작업중"
-        case .busy:    return "작업중"
+        case .busy:    return "바쁨"
         case .error:   return "오류"
         }
     }

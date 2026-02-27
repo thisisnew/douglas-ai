@@ -1358,8 +1358,8 @@ class RoomManager: ObservableObject {
             let newStatus: AgentStatus
             switch activeCount {
             case 0: newStatus = .idle
-            case 1: newStatus = .working
-            default: newStatus = .busy
+            case 1...2: newStatus = .working
+            default: newStatus = .busy   // 3개+ 방 참여 시 바쁨
             }
 
             if agent.status != .error {

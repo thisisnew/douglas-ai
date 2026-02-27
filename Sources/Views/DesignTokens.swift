@@ -91,7 +91,7 @@ enum DesignTokens {
             switch status {
             case .idle:    return .gray
             case .working: return .orange
-            case .busy:    return .orange   // working과 동일
+            case .busy:    return .red
             case .error:   return .red
             }
         }

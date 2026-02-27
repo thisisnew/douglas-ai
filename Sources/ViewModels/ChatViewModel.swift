@@ -5,7 +5,7 @@ import UserNotifications
 
 enum MasterAction {
     case delegate(agents: [String], task: String, contextFrom: [String]?)
-    case suggestAgent(name: String, persona: String, provider: String, model: String, preset: String?)
+    case suggestAgent(name: String, persona: String, provider: String, model: String, preset: String?, roleTemplateID: String?)
     case chain(steps: [ChainStep])
     case unknown(rawResponse: String)
 
@@ -24,6 +24,7 @@ struct AgentSuggestion: Identifiable {
     let recommendedProvider: String
     let recommendedModel: String
     let recommendedPreset: String?
+    let roleTemplateID: String?
     let masterAgentID: UUID
     let originalTask: String
 }
@@ -159,7 +160,7 @@ class ChatViewModel: ObservableObject {
             // 마스터는 히스토리 없이 현재 메시지만 전송 (매 질문이 독립적)
             let messages: [(role: String, content: String)] = [("user", text)]
 
-            let response = try await provider.sendMessage(
+            let response = try await provider.sendRouterMessage(
                 model: agent.modelName,
                 systemPrompt: systemPrompt,
                 messages: messages
@@ -174,10 +175,10 @@ class ChatViewModel: ObservableObject {
                     masterAgent: agent, agentStore: agentStore, providerManager: providerManager
                 )
 
-            case .suggestAgent(let name, let persona, let prov, let model, let preset):
+            case .suggestAgent(let name, let persona, let prov, let model, let preset, let roleTemplateID):
                 await handleAgentSuggestion(
                     name: name, persona: persona, provider: prov, model: model,
-                    preset: preset, masterAgent: agent, originalTask: text
+                    preset: preset, roleTemplateID: roleTemplateID, masterAgent: agent, originalTask: text
                 )
 
             case .chain(let steps):
@@ -274,6 +275,9 @@ class ChatViewModel: ObservableObject {
         agentStore: AgentStore,
         providerManager: ProviderManager
     ) async {
+        // Jira URL이 포함된 경우 미리 조회하여 task에 포함
+        let task = await enrichTaskWithJira(task)
+
         let resolvedAgents = agentNames.compactMap { name in
             resolveAgent(name: name, in: agentStore)
         }
@@ -475,9 +479,13 @@ class ChatViewModel: ObservableObject {
         provider: String,
         model: String,
         preset: String?,
+        roleTemplateID: String?,
         masterAgent: Agent,
         originalTask: String
     ) async {
+        // Jira URL이 포함된 경우 미리 조회하여 task에 포함
+        let enrichedTask = await enrichTaskWithJira(originalTask)
+
         let suggestionMsg = ChatMessage(
             role: .assistant,
             content: "적합한 에이전트가 없습니다. 새 에이전트를 제안합니다:\n\n이름: \(name)\n역할: \(persona)",
@@ -492,8 +500,9 @@ class ChatViewModel: ObservableObject {
             recommendedProvider: provider,
             recommendedModel: model,
             recommendedPreset: preset,
+            roleTemplateID: roleTemplateID,
             masterAgentID: masterAgent.id,
-            originalTask: originalTask
+            originalTask: enrichedTask
         )
     }
 
@@ -711,7 +720,8 @@ class ChatViewModel: ObservableObject {
             let provider = json["recommended_provider"] as? String ?? ""
             let model = json["recommended_model"] as? String ?? ""
             let preset = json["recommended_preset"] as? String
-            return .suggestAgent(name: name, persona: persona, provider: provider, model: model, preset: preset)
+            let roleTemplateID = json["roleTemplateID"] as? String
+            return .suggestAgent(name: name, persona: persona, provider: provider, model: model, preset: preset, roleTemplateID: roleTemplateID)
 
         case "chain":
             guard let stepsArray = json["steps"] as? [[String: String]] else {
@@ -936,5 +946,95 @@ class ChatViewModel: ObservableObject {
             trigger: nil
         )
         UNUserNotificationCenter.current().add(request)
+    }
+
+    // MARK: - Jira URL 사전 조회
+
+    /// task 텍스트에서 Jira URL을 감지하고, 인증된 API로 티켓 내용을 조회하여 task에 포함
+    private func enrichTaskWithJira(_ task: String) async -> String {
+        let jiraConfig = JiraConfig.shared
+        guard jiraConfig.isConfigured, jiraConfig.isJiraURL(task) else {
+            return task
+        }
+
+        // URL 추출 (https://domain/browse/PROJ-123 패턴)
+        guard let urlRange = task.range(of: "https://[^\\s]+", options: .regularExpression),
+              let url = URL(string: String(task[urlRange])) else {
+            return task
+        }
+
+        let apiURLString = jiraConfig.apiURL(from: url.absoluteString)
+        guard let apiURL = URL(string: apiURLString),
+              let auth = jiraConfig.authHeader() else {
+            return task
+        }
+
+        var request = URLRequest(url: apiURL)
+        request.setValue(auth, forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 15
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(status) else { return task }
+
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return task
+            }
+
+            // 핵심 필드 추출
+            let fields = json["fields"] as? [String: Any] ?? [:]
+            let summary = fields["summary"] as? String ?? ""
+            let description = extractDescription(from: fields["description"])
+            let status_ = (fields["status"] as? [String: Any])?["name"] as? String ?? ""
+            let priority = (fields["priority"] as? [String: Any])?["name"] as? String ?? ""
+            let issueType = (fields["issuetype"] as? [String: Any])?["name"] as? String ?? ""
+            let labels = (fields["labels"] as? [String]) ?? []
+            let key = json["key"] as? String ?? ""
+
+            // 댓글 추출
+            let commentBody = fields["comment"] as? [String: Any]
+            let comments = (commentBody?["comments"] as? [[String: Any]])?.suffix(5) ?? []
+            let commentTexts = comments.compactMap { comment -> String? in
+                let author = (comment["author"] as? [String: Any])?["displayName"] as? String ?? "?"
+                let body = extractDescription(from: comment["body"])
+                guard !body.isEmpty else { return nil }
+                return "  - \(author): \(body.prefix(200))"
+            }
+
+            var enriched = task
+            enriched += "\n\n--- Jira 티켓 내용 [\(key)] ---"
+            enriched += "\n제목: \(summary)"
+            enriched += "\n유형: \(issueType) | 상태: \(status_) | 우선순위: \(priority)"
+            if !labels.isEmpty {
+                enriched += "\n레이블: \(labels.joined(separator: ", "))"
+            }
+            if !description.isEmpty {
+                enriched += "\n\n설명:\n\(String(description.prefix(2000)))"
+            }
+            if !commentTexts.isEmpty {
+                enriched += "\n\n최근 댓글:\n\(commentTexts.joined(separator: "\n"))"
+            }
+            enriched += "\n--- 끝 ---"
+
+            return enriched
+        } catch {
+            return task
+        }
+    }
+
+    /// Jira ADF(Atlassian Document Format) 또는 일반 텍스트에서 설명 추출
+    private func extractDescription(from value: Any?) -> String {
+        if let text = value as? String { return text }
+        guard let adf = value as? [String: Any],
+              let content = adf["content"] as? [[String: Any]] else { return "" }
+
+        return content.compactMap { node -> String? in
+            guard let innerContent = node["content"] as? [[String: Any]] else { return nil }
+            return innerContent.compactMap { inner -> String? in
+                inner["text"] as? String
+            }.joined()
+        }.joined(separator: "\n")
     }
 }

@@ -124,7 +124,7 @@ struct ChatViewModelParsingTests {
         {"action": "suggest_agent", "name": "Coder", "persona": "writes code", "recommended_provider": "OpenAI", "recommended_model": "gpt-4o", "recommended_preset": "developer"}
         """
         let result = vm.parseMasterResponse(input)
-        if case .suggestAgent(let name, let persona, let provider, let model, let preset) = result {
+        if case .suggestAgent(let name, let persona, let provider, let model, let preset, _) = result {
             #expect(name == "Coder")
             #expect(persona == "writes code")
             #expect(provider == "OpenAI")
