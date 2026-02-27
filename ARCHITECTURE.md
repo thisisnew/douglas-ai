@@ -817,6 +817,34 @@ executeWithTools() 루프 (최대 10회):
 
 ---
 
+## 개발 로드맵
+
+### Phase A — 기반 ✅ 완료
+
+| 항목 | 내용 | 상태 |
+|------|------|------|
+| A-1 | Agent Role Template 시스템 (역할 프리셋 + 모델별 어댑터) | ✅ |
+| A-2 | 토론 산출물 구조화 (artifact 블록 자동 추출, 버전 관리) | ✅ |
+| A-3 | 컨텍스트 요약/압축 전달 메커니즘 (RoomBriefing) | ✅ |
+
+### Phase B — 개발 루프
+
+| 항목 | 내용 | 핵심 변경 |
+|------|------|----------|
+| B-1 | **프로젝트 디렉토리 연동** (`ProjectContext`) | 방 생성 시 프로젝트 경로 지정 → 에이전트가 해당 디렉토리 내에서만 파일 읽기/쓰기/셸 실행. `Room.projectPath: String?` 추가. 도구 실행 시 작업 디렉토리 자동 설정. |
+| B-2 | **빌드→에러→수정 자율 루프** | `shell_exec`로 빌드 실행 → 에러 파싱 → 에이전트가 자동 수정 → 재빌드. 최대 N회 반복 후 사용자에게 보고. `BuildLoopExecutor` 신규. |
+| B-3 | **에이전트 간 병렬 실행 최적화** | 현재 `withTaskGroup` 기반 병렬 실행을 개선: 에이전트별 독립 파일 영역 할당, 충돌 감지, 결과 머지 전략. |
+
+### Phase C — 통합
+
+| 항목 | 내용 | 핵심 변경 |
+|------|------|----------|
+| C-1 | **Jira 깊은 연동** | 티켓 URL 조회(현재) → 서브태스크 자동 생성, 상태 업데이트(`In Progress`→`Done`), 코멘트 자동 작성. `jira_create_subtask`, `jira_update_status` 도구 추가. |
+| C-2 | **Human-in-the-loop 승인 게이트** | 실행 단계 중 특정 step에서 사용자 승인 대기. `RoomPlan.steps`에 `requiresApproval: Bool` 플래그. UI에 승인/거부 버튼. |
+| C-3 | **QA 자동 검증 프레임워크** | 에이전트 작업 결과를 QA 에이전트가 자동 검증. 테스트 실행, 코드 리뷰, 보안 체크 등. 검증 실패 시 자동 재작업 루프. |
+
+---
+
 ## 확장 포인트
 
 1. **새 프로바이더 추가**: `AIProvider` 프로토콜 구현 + `ProviderType` enum 케이스 추가 + `ProviderManager.createProvider()` 분기 추가
