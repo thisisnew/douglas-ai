@@ -55,7 +55,7 @@ final class UtilityWindowManager {
             queue: .main
         ) { [weak self] notification in
             guard let closedWindow = notification.object as? NSWindow else { return }
-            DispatchQueue.main.async { self?.cleanup(closedWindow) }
+            Task { @MainActor [weak self] in self?.cleanup(closedWindow) }
         }
         observers[window] = observer
         windows.append(window)

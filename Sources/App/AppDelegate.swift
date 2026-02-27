@@ -96,7 +96,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupNotifications() {
         NotificationCenter.default.addObserver(forName: .sidebarHideRequested, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.hideSidebar()
             }
         }
@@ -141,12 +141,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func registerSidebarHotkey() {
         sidebarGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if Self.isSidebarHotkey(event) {
-                DispatchQueue.main.async { self?.toggleSidebar() }
+                Task { @MainActor [weak self] in self?.toggleSidebar() }
             }
         }
         sidebarHotkeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if Self.isSidebarHotkey(event) {
-                DispatchQueue.main.async { self?.toggleSidebar() }
+                Task { @MainActor [weak self] in self?.toggleSidebar() }
                 return nil
             }
             return event
