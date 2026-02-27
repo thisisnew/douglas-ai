@@ -34,9 +34,13 @@ DOUGLAS/
 │   │   ├── CommandBarPanel.swift    # Spotlight 스타일 커맨드 바 NSPanel
 │   │   └── CommandBarManager.swift  # 글로벌 핫키(⌘⇧A) 등록, 커맨드 바 생명주기
 │   ├── Models/
-│   │   ├── Agent.swift              # 에이전트 모델 (이름, 페르소나, 이미지, isMaster, 도구 설정)
+│   │   ├── Agent.swift              # 에이전트 모델 (이름, 페르소나, 이미지, isMaster, 도구 설정, roleTemplateID)
+│   │   ├── AgentRoleTemplate.swift  # 역할 템플릿 (프로바이더별 힌트, 카테고리)
+│   │   ├── AgentRoleTemplateRegistry.swift # 빌트인 6개 템플릿 (jira_analyst, backend_dev 등)
 │   │   ├── AgentTool.swift          # 도구 시스템 (AgentTool, ToolCall, ToolResult, CapabilityPreset, ToolRegistry, ConversationMessage)
+│   │   ├── ArtifactParser.swift     # 토론 산출물 파서 (artifact 블록 추출/제거)
 │   │   ├── ChatMessage.swift        # 메시지 모델 (MessageType 포함: toolActivity 등, ImageAttachment 첨부)
+│   │   ├── DiscussionArtifact.swift # 토론 산출물 모델 (ArtifactType, 버전 관리)
 │   │   ├── ImageAttachment.swift    # 이미지 첨부 모델 (디스크 저장, base64 로드, MIME 판별)
 │   │   ├── ToolExecutionContext.swift # 도구 실행 컨텍스트 (방/에이전트 정보 스냅샷)
 │   │   ├── DependencyChecker.swift  # 의존성 체크 (Node.js, Git, Homebrew)
@@ -45,7 +49,7 @@ DOUGLAS/
 │   │   ├── ProviderDetector.swift   # 시스템 AI 프로바이더 자동 감지
 │   │   ├── ClaudeCodeInstaller.swift # Claude Code CLI 설치/검증 유틸리티
 │   │   ├── ProcessRunner.swift      # 테스트 가능한 프로세스 실행기 (DI seam)
-│   │   ├── Room.swift               # 프로젝트 방 모델 (상태 전이, 타이머, 토론 모드)
+│   │   ├── Room.swift               # 프로젝트 방 모델 (상태 전이, 타이머, 토론 모드, RoomBriefing)
 │   │   └── KeychainHelper.swift     # 파일 기반 API 키 저장 (Keychain 레거시 마이그레이션)
 │   ├── ViewModels/
 │   │   ├── AgentStore.swift         # 에이전트 CRUD, 마스터 생명주기
@@ -349,6 +353,74 @@ struct ImageAttachment: Codable, Identifiable {
 - `mimeType(for:)`: 매직바이트로 MIME 타입 판별 (JPEG/PNG/GIF/WebP)
 - 크기 제한: 이미지당 최대 20MB
 - `ImageAttachmentError`: `.fileTooLarge`, `.unsupportedFormat`
+
+### AgentRoleTemplate (`Models/AgentRoleTemplate.swift`)
+
+```swift
+struct AgentRoleTemplate: Identifiable, Codable {
+    let id: String                          // "jira_analyst", "backend_dev" 등
+    let name: String                        // "Jira 분석가"
+    let icon: String                        // SF Symbol
+    let category: TemplateCategory          // 분석/개발/품질/운영
+    let basePersona: String                 // 기본 시스템 프롬프트
+    let defaultPreset: CapabilityPreset     // 추천 도구 프리셋
+    let providerHints: [String: String]     // 프로바이더별 추가 지시
+
+    func resolvedPersona(for providerType: String) -> String  // 프로바이더별 최적화 프롬프트
+}
+```
+
+- `AgentRoleTemplateRegistry`: 빌트인 6개 템플릿 (jira_analyst, backend_dev, frontend_dev, qa_engineer, tech_writer, devops_engineer)
+- 에이전트 생성 시 템플릿 선택 → persona/capabilityPreset/name 자동 설정
+- `Agent.roleTemplateID`: 적용된 템플릿 ID (nil = 사용자 정의)
+
+### DiscussionArtifact (`Models/DiscussionArtifact.swift`)
+
+```swift
+struct DiscussionArtifact: Identifiable, Codable {
+    let id: UUID
+    let type: ArtifactType      // api_spec, test_plan, task_breakdown, architecture_decision, generic
+    let title: String
+    let content: String
+    let producedBy: String      // 에이전트 이름
+    let createdAt: Date
+    var version: Int             // 같은 산출물 업데이트 시 증가
+}
+```
+
+- 토론 중 에이전트가 ```` ```artifact:<type> title="제목" ```` 형식으로 작성
+- `ArtifactParser`가 자동 추출 → `Room.artifacts`에 저장
+- 실행 단계에서 `[참고 산출물]`로 컨텍스트 주입
+
+### RoomBriefing (`Models/Room.swift`)
+
+```swift
+struct RoomBriefing: Codable {
+    let summary: String                         // 작업 요약 (2-3문장)
+    let keyDecisions: [String]                  // 핵심 결정사항
+    let agentResponsibilities: [String: String] // 에이전트명 → 담당 역할
+    let openIssues: [String]                    // 미결 사항
+
+    func asContextString() -> String            // 실행 단계용 포맷
+}
+```
+
+- 토론 종료 후 `generateBriefing()`이 LLM에게 JSON 형식 브리핑 요청
+- 계획 수립: 전체 토론 히스토리(40msg) 대신 브리핑 + 산출물만 전달
+- 실행 단계: 브리핑 + 최근 5개 메시지만 전달 → 토큰 대폭 절약
+- `Room.briefing`: nil이면 기존 히스토리 폴백
+
+### ArtifactParser (`Models/ArtifactParser.swift`)
+
+```swift
+enum ArtifactParser {
+    static func extractArtifacts(from content: String, producedBy: String) -> [DiscussionArtifact]
+    static func stripArtifactBlocks(from content: String) -> String
+}
+```
+
+- 정규식으로 ```` ```artifact:<type> title="..." ```` 블록 파싱
+- `stripArtifactBlocks`: 채팅 표시 시 산출물 블록 제거 (별도 UI에 표시)
 
 ### ToolExecutionContext (`Models/ToolExecutionContext.swift`)
 
@@ -734,6 +806,13 @@ executeWithTools() 루프 (최대 10회):
 
 **방 워크플로우** (`startRoomWorkflow`): 에이전트 2명 이상일 때만 토론 실행. 1명이면 토론 스킵 → 바로 계획 수립 → 실행.
 
+**컨텍스트 압축**: 토론 종료 후 `generateBriefing()`이 전체 히스토리를 JSON 브리핑으로 압축.
+- 계획 수립: 브리핑 + 산출물만 전달 (40msg → ~500토큰)
+- 실행 단계: 브리핑 + 최근 5개 메시지 (`buildRoomHistory(limit: 5)`)
+- 브리핑 없으면 기존 히스토리 폴백
+
+**토론 산출물**: `executeDiscussionTurn()`에서 응답 파싱 → `ArtifactParser.extractArtifacts()` → `Room.artifacts` 저장. 같은 type+title이면 버전 증가.
+
 마스터 라우팅, 요약 생성, 토론 턴 등 텍스트 전용 호출은 기존 `sendMessage()` 유지.
 
 ---
@@ -793,7 +872,7 @@ executeWithTools() 루프 (최대 10회):
 ### 개요
 
 - **프레임워크**: Swift Testing (`@Test`, `#expect`)
-- **테스트 수**: 663개 (24 파일 + 3 헬퍼/모킹)
+- **테스트 수**: 709개 (27 파일 + 3 헬퍼/모킹)
 - **명령어**: `swift test`
 - **커버리지**: 87% (테스트 가능 코드 기준, Views/App 제외)
 - **모킹**: MockAIProvider, MockURLProtocol, ProcessRunner.handler, 격리 UserDefaults
@@ -804,7 +883,9 @@ executeWithTools() 루프 (최대 10회):
 Tests/
 ├── Models/
 │   ├── AgentTests.swift              # 28 tests — 초기화, 팩토리, Codable, 레거시 디코딩, imageData I/O, resolvedToolIDs
+│   ├── AgentRoleTemplateTests.swift  # 19 tests — 템플릿 초기화, 레지스트리, resolvedPersona, Codable
 │   ├── AgentToolTests.swift          # 34 tests — AgentTool/ToolCall/ToolResult Codable, CapabilityPreset, ToolRegistry (7종 도구), ConversationMessage
+│   ├── ArtifactParserTests.swift     # 15 tests — 산출물 추출, 다중 산출물, 타입별 파싱, 블록 제거
 │   ├── ChatMessageTests.swift        # 12 tests — 모든 MessageType, Codable 라운드트립, 이미지 첨부 호환
 │   ├── ClaudeCodeInstallerTests.swift # 32 tests — detect/install (ProcessRunner mock), 경로 탐색, 상태 전이
 │   ├── DependencyCheckerTests.swift  # 15 tests — allRequiredFound, checkAll, shellWhichAll (ProcessRunner mock)
@@ -814,6 +895,7 @@ Tests/
 │   ├── ProviderConfigTests.swift     # 23 tests — AuthMethod, Keychain 분리, 레거시 호환, isConnected, apiKey 라운드트립
 │   ├── ProviderDetectorTests.swift   # 23 tests — DetectedProvider 모델, maskedKey, needsAPIKey, detectAll
 │   ├── RoomTests.swift              # 54 tests — 상태 전이, 타이머, 토론 모드, 레거시 디코딩, RoomPlan/WorkLog Codable
+│   ├── RoomBriefingTests.swift      # 12 tests — RoomBriefing Codable, asContextString, Room 역호환
 │   └── ToolExecutionContextTests.swift # 6 tests — 생성, empty, agentListString
 ├── ViewModels/
 │   ├── AgentStoreTests.swift         # 25 tests — CRUD, 마스터 보호, updateMasterProvider
@@ -848,7 +930,7 @@ Tests/
 
 | 계층 | 테스트 수 | 주요 커버리지 |
 |------|----------|-------------|
-| Models | 303 | Agent, AgentTool, ChatMessage, ClaudeCodeInstaller, DependencyChecker, ImageAttachment, JiraConfig, KeychainHelper, ProviderConfig, ProviderDetector, Room, ToolExecutionContext |
+| Models | 349 | Agent, AgentRoleTemplate, AgentTool, ArtifactParser, ChatMessage, ClaudeCodeInstaller, DependencyChecker, DiscussionArtifact, ImageAttachment, JiraConfig, KeychainHelper, ProviderConfig, ProviderDetector, Room, RoomBriefing, ToolExecutionContext |
 | ViewModels | 269 | ChatViewModel (통합+파싱+상태), AgentStore, ProviderManager, RoomManager, OnboardingViewModel, ToolExecutor |
 | Providers | 91 | OpenAI, Anthropic, Google, Ollama, LM Studio, Custom, ClaudeCode, ToolFormatConverter (도구 + 이미지) |
-| **합계** | **663** | 테스트 가능 코드 87% 라인 커버리지 (View/App 레이어는 UI 특성상 제외) |
+| **합계** | **709** | 테스트 가능 코드 87% 라인 커버리지 (View/App 레이어는 UI 특성상 제외) |

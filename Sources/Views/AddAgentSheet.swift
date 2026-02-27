@@ -15,6 +15,7 @@ struct AddAgentSheet: View {
     @State private var imageData: Data?
     @State private var capabilityPreset: CapabilityPreset = .none
     @State private var enabledToolIDs: Set<String> = []
+    @State private var selectedTemplateID: String? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -50,6 +51,12 @@ struct AddAgentSheet: View {
                     // 아바타 히어로
                     avatarPicker
                         .padding(.top, 8)
+
+                    // 역할 템플릿
+                    VStack(alignment: .leading, spacing: 6) {
+                        sectionLabel("역할 템플릿")
+                        templatePicker
+                    }
 
                     // 이름
                     VStack(alignment: .leading, spacing: 6) {
@@ -195,10 +202,84 @@ struct AddAgentSheet: View {
             selectedModel = ""
             availableModels = []
             if !newValue.isEmpty { loadModels(for: newValue) }
+
+            // 템플릿 선택 시 프로바이더 변경에 맞춰 persona 재생성
+            if let templateID = selectedTemplateID,
+               let template = AgentRoleTemplateRegistry.template(for: templateID),
+               let config = providerManager.configs.first(where: { $0.name == newValue }) {
+                persona = template.resolvedPersona(for: config.type.rawValue)
+            }
         }
     }
 
     // MARK: - Components
+
+    private var templatePicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                // 사용자 정의 옵션
+                templateChip(
+                    icon: "person.fill",
+                    label: "사용자 정의",
+                    isSelected: selectedTemplateID == nil
+                ) {
+                    selectedTemplateID = nil
+                }
+
+                ForEach(TemplateCategory.allCases, id: \.self) { category in
+                    let templates = AgentRoleTemplateRegistry.templates(in: category)
+                    if !templates.isEmpty {
+                        Divider().frame(height: 20)
+                        ForEach(templates) { tmpl in
+                            templateChip(
+                                icon: tmpl.icon,
+                                label: tmpl.name,
+                                isSelected: selectedTemplateID == tmpl.id
+                            ) {
+                                applyTemplate(tmpl)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 2)
+            .padding(.vertical, 4)
+        }
+    }
+
+    private func templateChip(icon: String, label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.caption2)
+                Text(label)
+                    .font(.caption)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(isSelected ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.04))
+            .foregroundColor(isSelected ? .accentColor : .primary)
+            .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isSelected ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func applyTemplate(_ template: AgentRoleTemplate) {
+        selectedTemplateID = template.id
+        if name.isEmpty { name = template.name }
+        capabilityPreset = template.defaultPreset
+
+        // 프로바이더 선택 상태에 맞게 persona 생성
+        if let config = providerManager.configs.first(where: { $0.name == selectedProvider }) {
+            persona = template.resolvedPersona(for: config.type.rawValue)
+        } else {
+            persona = template.basePersona
+        }
+    }
 
     private var avatarPicker: some View {
         Button {
@@ -317,6 +398,7 @@ struct AddAgentSheet: View {
             providerName: selectedProvider,
             modelName: selectedModel,
             imageData: imageData,
+            roleTemplateID: selectedTemplateID,
             capabilityPreset: capabilityPreset == .none ? nil : capabilityPreset,
             enabledToolIDs: capabilityPreset == .custom ? Array(enabledToolIDs) : nil
         )

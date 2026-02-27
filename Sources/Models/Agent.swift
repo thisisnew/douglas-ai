@@ -22,6 +22,9 @@ struct Agent: Identifiable, Codable, Hashable {
     var errorMessage: String?
     var hasImage: Bool
 
+    // 역할 템플릿 (nil = 사용자 정의)
+    var roleTemplateID: String?
+
     // Tool Use 설정
     var capabilityPreset: CapabilityPreset?
     var enabledToolIDs: [String]?
@@ -42,7 +45,7 @@ struct Agent: Identifiable, Codable, Hashable {
     // imageData는 Codable에서 제외 — 파일 시스템에 저장
     private enum CodingKeys: String, CodingKey {
         case id, name, persona, providerName, modelName, status, isMaster, errorMessage, hasImage
-        case capabilityPreset, enabledToolIDs
+        case roleTemplateID, capabilityPreset, enabledToolIDs
     }
 
     // 이미지를 파일 시스템에 저장/로드
@@ -69,6 +72,7 @@ struct Agent: Identifiable, Codable, Hashable {
         isMaster: Bool = false,
         errorMessage: String? = nil,
         imageData: Data? = nil,
+        roleTemplateID: String? = nil,
         capabilityPreset: CapabilityPreset? = nil,
         enabledToolIDs: [String]? = nil
     ) {
@@ -80,6 +84,7 @@ struct Agent: Identifiable, Codable, Hashable {
         self.status = status
         self.isMaster = isMaster
         self.errorMessage = errorMessage
+        self.roleTemplateID = roleTemplateID
         self.capabilityPreset = capabilityPreset
         self.enabledToolIDs = enabledToolIDs
         self.hasImage = false
@@ -102,6 +107,7 @@ struct Agent: Identifiable, Codable, Hashable {
         isMaster = try container.decodeIfPresent(Bool.self, forKey: .isMaster) ?? false
         errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
         hasImage = try container.decodeIfPresent(Bool.self, forKey: .hasImage) ?? false
+        roleTemplateID = try container.decodeIfPresent(String.self, forKey: .roleTemplateID)
         capabilityPreset = try container.decodeIfPresent(CapabilityPreset.self, forKey: .capabilityPreset)
         enabledToolIDs = try container.decodeIfPresent([String].self, forKey: .enabledToolIDs)
 

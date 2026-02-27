@@ -757,9 +757,9 @@ struct RoomManagerTests {
         #expect(updated?.status == .completed)
     }
 
-    // MARK: - generateDiscussionSummary 오류
+    // MARK: - generateBriefing 오류
 
-    @Test("토론 요약 생성 실패 → 에러 메시지")
+    @Test("토론 브리핑 생성 실패 → 에러 메시지")
     func discussionSummaryError() async {
         let (manager, store, providerManager) = makeConfiguredManager()
         let a1 = makeTestAgent(name: "토론A", providerName: "MockProvider")
@@ -792,7 +792,7 @@ struct RoomManagerTests {
         await manager.startRoomWorkflow(roomID: room.id, task: "토론")
 
         let msgs = manager.rooms.first(where: { $0.id == room.id })?.messages ?? []
-        #expect(msgs.contains(where: { $0.messageType == .error && $0.content.contains("요약 생성 실패") }))
+        #expect(msgs.contains(where: { $0.messageType == .error && $0.content.contains("브리핑 생성 실패") }))
     }
 
     // MARK: - completedRooms 정렬

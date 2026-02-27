@@ -81,6 +81,31 @@ struct WorkLog: Codable, Identifiable {
     }
 }
 
+// MARK: - 토론 브리핑 (컨텍스트 압축)
+
+struct RoomBriefing: Codable {
+    let summary: String                         // 작업 요약 (2-3문장)
+    let keyDecisions: [String]                  // 핵심 결정사항
+    let agentResponsibilities: [String: String] // 에이전트명 → 담당 역할
+    let openIssues: [String]                    // 미결 사항
+
+    /// 실행 단계에서 사용할 컨텍스트 문자열
+    func asContextString() -> String {
+        var parts: [String] = []
+        parts.append("[요약] \(summary)")
+        if !keyDecisions.isEmpty {
+            parts.append("[결정사항]\n" + keyDecisions.map { "- \($0)" }.joined(separator: "\n"))
+        }
+        if !agentResponsibilities.isEmpty {
+            parts.append("[역할 분담]\n" + agentResponsibilities.map { "- \($0.key): \($0.value)" }.joined(separator: "\n"))
+        }
+        if !openIssues.isEmpty {
+            parts.append("[미결 사항]\n" + openIssues.map { "- \($0)" }.joined(separator: "\n"))
+        }
+        return parts.joined(separator: "\n")
+    }
+}
+
 // MARK: - 방
 
 struct Room: Identifiable, Codable {
@@ -100,6 +125,10 @@ struct Room: Identifiable, Codable {
     // 토론 관련
     var maxDiscussionRounds: Int
     var currentRound: Int
+    // 토론 산출물
+    var artifacts: [DiscussionArtifact]
+    // 토론 브리핑 (컨텍스트 압축)
+    var briefing: RoomBriefing?
     // 작업일지
     var workLog: WorkLog?
 
@@ -180,6 +209,8 @@ struct Room: Identifiable, Codable {
         self.currentStepIndex = 0
         self.maxDiscussionRounds = max(1, maxDiscussionRounds)
         self.currentRound = 0
+        self.artifacts = []
+        self.briefing = nil
         self.workLog = nil
     }
 
@@ -201,6 +232,8 @@ struct Room: Identifiable, Codable {
         currentStepIndex = try container.decodeIfPresent(Int.self, forKey: .currentStepIndex) ?? 0
         maxDiscussionRounds = max(1, try container.decodeIfPresent(Int.self, forKey: .maxDiscussionRounds) ?? 3)
         currentRound = try container.decodeIfPresent(Int.self, forKey: .currentRound) ?? 0
+        artifacts = try container.decodeIfPresent([DiscussionArtifact].self, forKey: .artifacts) ?? []
+        briefing = try container.decodeIfPresent(RoomBriefing.self, forKey: .briefing)
         workLog = try container.decodeIfPresent(WorkLog.self, forKey: .workLog)
     }
 }

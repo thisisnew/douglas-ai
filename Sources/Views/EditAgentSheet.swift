@@ -17,6 +17,7 @@ struct EditAgentSheet: View {
     @State private var isLoadingModels = false
     @State private var capabilityPreset: CapabilityPreset
     @State private var enabledToolIDs: Set<String>
+    @State private var roleTemplateID: String?
 
     init(agent: Agent) {
         self.agent = agent
@@ -27,6 +28,7 @@ struct EditAgentSheet: View {
         _imageData = State(initialValue: agent.imageData)
         _capabilityPreset = State(initialValue: agent.capabilityPreset ?? .none)
         _enabledToolIDs = State(initialValue: Set(agent.enabledToolIDs ?? []))
+        _roleTemplateID = State(initialValue: agent.roleTemplateID)
     }
 
     var body: some View {
@@ -74,6 +76,41 @@ struct EditAgentSheet: View {
                                 .padding(10)
                                 .background(Color.primary.opacity(0.04))
                                 .cornerRadius(8)
+                        }
+                    }
+
+                    // 역할 템플릿
+                    if !agent.isMaster {
+                        VStack(alignment: .leading, spacing: 6) {
+                            sectionLabel("역할 템플릿")
+                            if let templateID = roleTemplateID,
+                               let template = AgentRoleTemplateRegistry.template(for: templateID) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: template.icon)
+                                        .font(.caption)
+                                        .foregroundColor(.accentColor)
+                                    Text(template.name)
+                                        .font(.caption)
+                                        .foregroundColor(.accentColor)
+                                    Spacer()
+                                    Button("다시 적용") {
+                                        if let config = providerManager.configs.first(where: { $0.name == selectedProvider }) {
+                                            persona = template.resolvedPersona(for: config.type.rawValue)
+                                        } else {
+                                            persona = template.basePersona
+                                        }
+                                        capabilityPreset = template.defaultPreset
+                                    }
+                                    .font(.caption)
+                                }
+                                .padding(8)
+                                .background(Color.accentColor.opacity(0.06))
+                                .cornerRadius(8)
+                            } else {
+                                Text("사용자 정의")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
                         }
                     }
 
@@ -307,6 +344,7 @@ struct EditAgentSheet: View {
         updated.providerName = selectedProvider
         updated.modelName = selectedModel
         updated.imageData = imageData
+        updated.roleTemplateID = roleTemplateID
         updated.capabilityPreset = capabilityPreset
         updated.enabledToolIDs = capabilityPreset == .custom ? Array(enabledToolIDs) : nil
         agentStore.updateAgent(updated)

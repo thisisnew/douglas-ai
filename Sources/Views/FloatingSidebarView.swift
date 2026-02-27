@@ -214,23 +214,8 @@ struct FloatingSidebarView: View {
 
                 separator
 
-                // ── 방 목록 헤더 + 리스트 (높이 조절 가능) ──
+                // ── 방 목록 (높이 조절 가능) ──
                 VStack(spacing: 0) {
-                    // 방 목록 헤더: 우측 + 버튼
-                    HStack {
-                        Spacer()
-                        Button(action: { openCreateRoomWindow() }) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .help("새 방 만들기")
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
-
                     RoomListView(
                         onCreateRoom: { openCreateRoomWindow() },
                         onRoomTap: { roomID in openRoomChatWindow(roomID: roomID) }

@@ -49,6 +49,24 @@ DOUGLAS/
 - 새 필드 추가 시 반드시 `decodeIfPresent` + 기본값 사용
 - `CodingKeys`에 명시적으로 나열
 
+### 역할 템플릿 관례
+- 새 템플릿 추가: `AgentRoleTemplateRegistry.builtIn` 배열에 `AgentRoleTemplate` 추가
+- 프로바이더별 힌트: `providerHints["openAI"]`, `providerHints["anthropic"]`, `providerHints["google"]`
+- `resolvedPersona(for:)`: basePersona + 프로바이더 힌트 조합
+
+### 토론 산출물 관례
+- 산출물 블록 형식: `` ```artifact:<type> title="제목"\n내용\n``` ``
+- type 종류: `api_spec`, `test_plan`, `task_breakdown`, `architecture_decision`, `generic`
+- `ArtifactParser.extractArtifacts(from:producedBy:)`: 메시지에서 산출물 자동 추출
+- `ArtifactParser.stripArtifactBlocks(from:)`: 채팅 표시용 블록 제거
+- 같은 type+title의 산출물이 이미 있으면 version 자동 증가
+
+### 컨텍스트 압축 관례
+- 토론 종료 → `generateBriefing()` → JSON 브리핑 → `Room.briefing`
+- 계획 수립: 브리핑 + 산출물만 전달 (전체 히스토리 대신)
+- 실행 단계: `buildRoomHistory(limit: 5)` — 브리핑 + 최근 5개 메시지만
+- 브리핑 없으면 기존 히스토리 폴백 (역호환)
+
 ### Tool Use (도구) 관례
 - 새 도구 추가: `ToolRegistry.allTools`에 `AgentTool` 추가 + `ToolExecutor.executeSingleTool()`에 case 추가
 - 도구 정의는 `AgentTool`로 프로바이더 무관하게 정의, 프로바이더별 형식 변환은 `ToolFormatConverter` 담당
@@ -106,7 +124,7 @@ Files changed:
 ## 테스트 규칙
 
 ### 명령어
-- `swift test` — 전체 테스트 실행 (663개)
+- `swift test` — 전체 테스트 실행 (709개)
 - `swift test --enable-code-coverage` — 커버리지 포함 실행
 - `xcrun llvm-cov report ...` — 커버리지 리포트 조회
 

@@ -68,11 +68,12 @@ struct RoomListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 상태 필터 바 + 편집 버튼
-            HStack(spacing: 0) {
+            // 상태 필터 바 + 액션 버튼
+            HStack(spacing: 6) {
                 filterBar
                 Spacer(minLength: 4)
-                editButton
+                selectModeButton
+                createRoomButton
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
@@ -140,24 +141,44 @@ struct RoomListView: View {
         }
     }
 
-    // MARK: - 편집 버튼
+    // MARK: - 선택 모드 버튼
 
-    private var editButton: some View {
+    private var selectModeButton: some View {
         Button {
             withAnimation {
                 isEditMode.toggle()
                 if !isEditMode { selectedIDs.removeAll() }
             }
         } label: {
-            Text(isEditMode ? "완료" : "편집")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(isEditMode ? .accentColor : .secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+            Image(systemName: isEditMode ? "xmark.circle.fill" : "checklist")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(isEditMode ? .accentColor : .secondary.opacity(0.6))
+                .frame(width: 26, height: 26)
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(isEditMode ? Color.accentColor.opacity(0.12) : Color.clear)
                 )
+        }
+        .buttonStyle(.plain)
+        .help(isEditMode ? "선택 해제" : "선택")
+    }
+
+    // MARK: - 방 만들기 버튼
+
+    private var createRoomButton: some View {
+        Button(action: onCreateRoom) {
+            HStack(spacing: 3) {
+                Image(systemName: "plus")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("새 방")
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                Capsule().fill(Color.accentColor)
+            )
         }
         .buttonStyle(.plain)
     }

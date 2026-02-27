@@ -29,6 +29,11 @@ struct RoomChatView: View {
                     DiscussionProgressBar(room: room)
                 }
 
+                // 산출물 바 (산출물이 있을 때)
+                if !room.artifacts.isEmpty {
+                    ArtifactListBar(artifacts: room.artifacts)
+                }
+
                 // 계획 카드 (계획 수립 후)
                 if let plan = room.plan {
                     PlanCard(plan: plan, currentStep: room.currentStepIndex, status: room.status)
@@ -458,5 +463,83 @@ struct DiscussionProgressBar: View {
     private var speakingAgentName: String? {
         guard let agentID = roomManager.speakingAgentIDByRoom[room.id] else { return nil }
         return agentStore.agents.first(where: { $0.id == agentID })?.name
+    }
+}
+
+// MARK: - 산출물 목록 바
+
+struct ArtifactListBar: View {
+    let artifacts: [DiscussionArtifact]
+    @State private var isExpanded = true
+    @State private var expandedArtifactID: UUID?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // 헤더 (접이식)
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+            } label: {
+                HStack {
+                    Image(systemName: "doc.on.doc.fill")
+                        .font(.caption2)
+                        .foregroundColor(.indigo)
+                    Text("산출물 (\(artifacts.count))")
+                        .font(.caption2.bold())
+                        .foregroundColor(.indigo)
+                    Spacer()
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 8))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                ForEach(artifacts) { artifact in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            if expandedArtifactID == artifact.id {
+                                expandedArtifactID = nil
+                            } else {
+                                expandedArtifactID = artifact.id
+                            }
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 4) {
+                                Image(systemName: artifact.type.icon)
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.indigo)
+                                Text(artifact.title)
+                                    .font(.caption2.bold())
+                                    .foregroundColor(.primary)
+                                    .lineLimit(1)
+                                Text("v\(artifact.version)")
+                                    .font(.system(size: 8, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                                Text(artifact.producedBy)
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.secondary)
+                            }
+
+                            if expandedArtifactID == artifact.id {
+                                Text(artifact.content)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .padding(.top, 2)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(8)
+        .background(Color.indigo.opacity(0.05))
+        .cornerRadius(10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
     }
 }

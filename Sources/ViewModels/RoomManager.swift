@@ -181,8 +181,8 @@ class RoomManager: ObservableObject {
             guard !Task.isCancelled,
                   rooms.first(where: { $0.id == roomID })?.status == .planning else { return }
 
-            // 토론 요약 생성
-            await generateDiscussionSummary(roomID: roomID, topic: task)
+            // 토론 브리핑 생성 (컨텍스트 압축)
+            await generateBriefing(roomID: roomID, topic: task)
             guard !Task.isCancelled else { return }
         }
 
@@ -238,6 +238,25 @@ class RoomManager: ObservableObject {
             return nil
         }
 
+        // 브리핑 + 산출물 기반 컨텍스트 구성 (압축)
+        let briefingContext: String
+        if let briefing = room.briefing {
+            briefingContext = briefing.asContextString()
+        } else {
+            // 폴백: 기존 토론 히스토리에서 요약 생성
+            let history = buildDiscussionHistory(roomID: roomID, currentAgentName: agent.name)
+            briefingContext = history.map { "[\($0.role)] \($0.content)" }.suffix(10).joined(separator: "\n")
+        }
+
+        let artifactContext: String
+        if !room.artifacts.isEmpty {
+            artifactContext = "\n\n[참고 산출물]\n" + room.artifacts.map {
+                "[\($0.type.displayName)] \($0.title) (v\($0.version)):\n\($0.content)"
+            }.joined(separator: "\n---\n")
+        } else {
+            artifactContext = ""
+        }
+
         let planSystemPrompt = """
         \(agent.persona)
 
@@ -253,9 +272,9 @@ class RoomManager: ObservableObject {
         - 반드시 유효한 JSON으로만 응답하세요
         """
 
-        // 토론 히스토리를 포함하여 계획 수립
-        let history = buildDiscussionHistory(roomID: roomID, currentAgentName: agent.name)
-        let planMessages = history + [("user", "위 토론을 바탕으로 실행 계획을 JSON으로 작성해주세요. 작업: \(task)")]
+        let planMessages: [(role: String, content: String)] = [
+            ("user", "브리핑:\n\(briefingContext)\(artifactContext)\n\n실행 계획을 JSON으로 작성해주세요. 작업: \(task)")
+        ]
 
         do {
             let response = try await provider.sendMessage(
@@ -386,10 +405,28 @@ class RoomManager: ObservableObject {
         guard let agent = agentStore?.agents.first(where: { $0.id == agentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return }
 
-        let history = buildRoomHistory(roomID: roomID)
+        let room = rooms.first(where: { $0.id == roomID })
+
+        // 브리핑 기반 컨텍스트 (압축) + 최근 메시지만
+        var history: [ConversationMessage] = []
+        if let briefing = room?.briefing {
+            history.append(ConversationMessage.user("작업 브리핑:\n\(briefing.asContextString())"))
+        }
+        history.append(contentsOf: buildRoomHistory(roomID: roomID, limit: 5))
+
+        // 산출물 컨텍스트 구성
+        let artifactContext: String
+        if let room = room, !room.artifacts.isEmpty {
+            artifactContext = "\n\n[참고 산출물]\n" + room.artifacts.map {
+                "[\($0.type.displayName)] \($0.title) (v\($0.version)):\n\($0.content)"
+            }.joined(separator: "\n---\n")
+        } else {
+            artifactContext = ""
+        }
 
         let stepPrompt = """
         [작업 \(stepIndex + 1)/\(totalSteps)] \(step)
+        \(artifactContext)
 
         이 단계의 결과만 간결하게 보고하세요. 과정 설명 불필요. 핵심 결과 + 다음 단계에 필요한 사항만.
         """
@@ -535,6 +572,13 @@ class RoomManager: ObservableObject {
         [계속] — 추가 논의가 필요하다고 판단할 때
 
         태그는 반드시 발언 마지막 줄에 단독으로 적어주세요.
+
+        산출물 작성: 구체적 합의 내용(API 스펙, 테스트 계획 등)이 있으면 발언에 포함하세요:
+        ```artifact:<type> title="제목"
+        내용
+        ```
+        type: api_spec, test_plan, task_breakdown, architecture_decision, generic
+        산출물은 자동 보관되어 실행 단계에서 참조됩니다.
         """
 
         do {
@@ -556,7 +600,24 @@ class RoomManager: ObservableObject {
                 .replacingOccurrences(of: "[계속]", with: "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
 
-            let reply = ChatMessage(role: .assistant, content: cleanResponse, agentName: agent.name)
+            // 산출물 파싱 → Room에 저장
+            let newArtifacts = ArtifactParser.extractArtifacts(from: cleanResponse, producedBy: agent.name)
+            if !newArtifacts.isEmpty, let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                for artifact in newArtifacts {
+                    if let existingIdx = rooms[i].artifacts.firstIndex(where: {
+                        $0.type == artifact.type && $0.title == artifact.title
+                    }) {
+                        var updated = artifact
+                        updated.version = rooms[i].artifacts[existingIdx].version + 1
+                        rooms[i].artifacts[existingIdx] = updated
+                    } else {
+                        rooms[i].artifacts.append(artifact)
+                    }
+                }
+            }
+            let displayResponse = ArtifactParser.stripArtifactBlocks(from: cleanResponse)
+
+            let reply = ChatMessage(role: .assistant, content: displayResponse.isEmpty ? cleanResponse : displayResponse, agentName: agent.name)
             appendMessage(reply, to: roomID)
 
             return agreed
@@ -573,45 +634,101 @@ class RoomManager: ObservableObject {
         }
     }
 
-    /// 토론 요약 생성
-    private func generateDiscussionSummary(roomID: UUID, topic: String) async {
+    /// 토론 브리핑 생성 (컨텍스트 압축)
+    private func generateBriefing(roomID: UUID, topic: String) async {
         guard let room = rooms.first(where: { $0.id == roomID }),
               let firstAgentID = room.assignedAgentIDs.first,
               let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return }
 
-        let summaryMsg = ChatMessage(role: .system, content: "토론 내용을 정리하는 중...")
+        let summaryMsg = ChatMessage(role: .system, content: "토론 브리핑을 생성하는 중...")
         appendMessage(summaryMsg, to: roomID)
 
         let history = buildDiscussionHistory(roomID: roomID, currentAgentName: nil)
 
-        let summaryPrompt = """
-        회의록을 작성하세요. 형식:
+        // 산출물 목록도 포함
+        let artifactList = room.artifacts.isEmpty ? "" :
+            "\n\n산출물 목록:\n" + room.artifacts.map { "- [\($0.type.displayName)] \($0.title)" }.joined(separator: "\n")
 
-        **결론**: 팀이 합의한 방향 (1-2문장)
-        **핵심 의견**: 주요 발언 요약 (각 1줄)
-        **미결 사항**: 추가 논의 필요한 부분 (있으면)
+        let briefingPrompt = """
+        토론 내용을 분석하여 실행팀을 위한 브리핑 문서를 JSON으로 작성하세요.\(artifactList)
 
-        3-5줄 이내로 간결하게.
+        반드시 아래 형식의 JSON으로만 응답하세요:
+        {"summary": "작업 요약 2-3문장", "key_decisions": ["결정1", "결정2"], "agent_responsibilities": {"에이전트명": "담당역할"}, "open_issues": ["미결사항"]}
+
+        규칙:
+        - summary: 팀이 합의한 방향과 핵심 목표 (2-3문장)
+        - key_decisions: 토론에서 확정된 결정사항 (3-5개)
+        - agent_responsibilities: 각 참여자의 담당 역할 (토론에서 드러난 전문성 기반)
+        - open_issues: 추가 논의가 필요한 미결 사항 (없으면 빈 배열)
+        - 반드시 유효한 JSON으로만 응답하세요
         """
 
         do {
             let response = try await provider.sendMessage(
                 model: agent.modelName,
-                systemPrompt: summaryPrompt,
+                systemPrompt: briefingPrompt,
                 messages: history
             )
 
-            let reply = ChatMessage(role: .assistant, content: response, agentName: "토론 정리", messageType: .summary)
-            appendMessage(reply, to: roomID)
+            // JSON 파싱 → RoomBriefing
+            if let briefing = parseBriefing(from: response) {
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].briefing = briefing
+                }
+                let reply = ChatMessage(
+                    role: .assistant,
+                    content: briefing.asContextString(),
+                    agentName: "토론 정리",
+                    messageType: .summary
+                )
+                appendMessage(reply, to: roomID)
+            } else {
+                // JSON 파싱 실패 → 폴백 브리핑
+                let fallback = RoomBriefing(
+                    summary: response.prefix(500).description,
+                    keyDecisions: [],
+                    agentResponsibilities: [:],
+                    openIssues: []
+                )
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].briefing = fallback
+                }
+                let reply = ChatMessage(
+                    role: .assistant,
+                    content: response,
+                    agentName: "토론 정리",
+                    messageType: .summary
+                )
+                appendMessage(reply, to: roomID)
+            }
         } catch {
             let errorMsg = ChatMessage(
                 role: .system,
-                content: "요약 생성 실패: \(error.localizedDescription)",
+                content: "브리핑 생성 실패: \(error.localizedDescription)",
                 messageType: .error
             )
             appendMessage(errorMsg, to: roomID)
         }
+    }
+
+    /// 브리핑 JSON 파싱
+    private func parseBriefing(from response: String) -> RoomBriefing? {
+        let jsonString = extractJSON(from: response)
+        guard let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let summary = json["summary"] as? String else {
+            return nil
+        }
+        let keyDecisions = json["key_decisions"] as? [String] ?? []
+        let responsibilities = json["agent_responsibilities"] as? [String: String] ?? [:]
+        let openIssues = json["open_issues"] as? [String] ?? []
+        return RoomBriefing(
+            summary: summary,
+            keyDecisions: keyDecisions,
+            agentResponsibilities: responsibilities,
+            openIssues: openIssues
+        )
     }
 
     /// 토론용 히스토리 빌드 (에이전트 이름을 명시하여 누가 말했는지 구분)
@@ -839,11 +956,11 @@ class RoomManager: ObservableObject {
     }
 
     /// ConversationMessage 히스토리 (이미지 첨부 포함, smartSend용)
-    private func buildRoomHistory(roomID: UUID) -> [ConversationMessage] {
+    private func buildRoomHistory(roomID: UUID, limit: Int = 20) -> [ConversationMessage] {
         guard let room = rooms.first(where: { $0.id == roomID }) else { return [] }
         return room.messages
             .filter { $0.messageType == .text }
-            .suffix(20)
+            .suffix(limit)
             .map { msg in
                 let role: String
                 switch msg.role {
