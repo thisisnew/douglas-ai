@@ -146,7 +146,7 @@ class ChatViewModel: ObservableObject {
         // 진행 상태 표시
         let analyzingMsg = ChatMessage(
             role: .assistant,
-            content: "요청을 분석하고 적합한 에이전트를 선택 중...",
+            content: "분석가에게 전달하는 중...",
             agentName: "마스터",
             messageType: .toolActivity
         )
