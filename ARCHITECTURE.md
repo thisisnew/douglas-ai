@@ -31,8 +31,7 @@ DOUGLAS/
 │   ├── App/
 │   │   ├── DOUGLASApp.swift         # @main 진입점
 │   │   ├── AppDelegate.swift        # 사이드바 패널(400pt), 채팅 윈도우, 마우스 트래킹
-│   │   ├── CommandBarPanel.swift    # Spotlight 스타일 커맨드 바 NSPanel
-│   │   └── CommandBarManager.swift  # 글로벌 핫키(⌘⇧A) 등록, 커맨드 바 생명주기
+│   │   └── UtilityWindowManager.swift # 유틸리티 윈도우 관리
 │   ├── Models/
 │   │   ├── Agent.swift              # 에이전트 모델 (이름, 페르소나, 이미지, isMaster, 도구 설정, roleTemplateID)
 │   │   ├── AgentRoleTemplate.swift  # 역할 템플릿 (프로바이더별 힌트, 카테고리)
@@ -72,7 +71,6 @@ DOUGLAS/
 │   │   └── CustomProvider.swift     # (비활성) 커스텀 URL
 │   └── Views/
 │       ├── FloatingSidebarView.swift # 팀 로스터 + 마스터 채팅 사이드바 UI
-│       ├── CommandBarView.swift     # Spotlight 스타일 커맨드 바 SwiftUI 뷰
 │       ├── SidebarQuickInputView.swift # (예비) 사이드바 퀵 인풋 컴포넌트
 │       ├── ChatView.swift           # 채팅 뷰 (메시지 버블)
 │       ├── ChatContentView.swift    # 공유 채팅 UI (메시지 목록, 입력창, 취소 버튼)
@@ -133,7 +131,7 @@ DOUGLAS/
 ### 1. AppDelegate (`App/AppDelegate.swift`)
 
 앱의 중심 컨트롤러. 사이드바 패널과 채팅 윈도우의 생명주기를 관리한다.
-4개의 핵심 객체를 생성/관리: `agentStore`, `providerManager`, `chatVM`, `commandBarManager`, `roomManager`
+4개의 핵심 객체를 생성/관리: `agentStore`, `providerManager`, `chatVM`, `roomManager`
 
 **플로팅 사이드바 (400pt)**:
 - `ClickThroughPanel` (NSPanel 서브클래스): 화면 오른쪽 끝에 고정
@@ -154,10 +152,6 @@ DOUGLAS/
 - `isReleasedWhenClosed = false`로 AppKit/Swift ARC 메모리 충돌 방지
 - `NotificationCenter`로 창 닫힘/최소화/복원 감지
 - 채팅 창 열릴 때 `NSApp.setActivationPolicy(.regular)`, 모두 닫히면 `.accessory`
-
-**커맨드 바 연동**:
-- `CommandBarManager` 초기화 및 글로벌 핫키 등록
-- `toggleCommandBar()` 메서드로 MenuBarExtra와 연결
 
 ### 2. AgentStore (`ViewModels/AgentStore.swift`)
 
@@ -714,53 +708,11 @@ MessageType에 따른 시각 차별화:
 
 ---
 
-## 글로벌 커맨드 바
-
-### 개요
-
-**Spotlight 스타일** 커맨드 바. 어디서든 `⌘⇧A`(Cmd+Shift+A)로 호출하여 마스터 에이전트에게 빠르게 질문할 수 있다.
-사이드바를 열지 않아도 핫키 한번으로 마스터에게 접근 가능.
-
-### 구성 파일
-
-| 파일 | 역할 |
-|------|------|
-| `CommandBarPanel.swift` | NSPanel 서브클래스. `canBecomeKey` + `onResignKey` 콜백 |
-| `CommandBarView.swift` | SwiftUI 뷰. TextEditor(100pt+) + 응답 영역 + 전체 대화 열기 |
-| `CommandBarManager.swift` | 핫키 등록, 패널 생명주기, show/dismiss 애니메이션 |
-
-### 핫키 등록
-
-`NSEvent.addGlobalMonitorForEvents(matching: .keyDown)` + `addLocalMonitorForEvents`
-— 글로벌(앱 비활성 시) + 로컬(앱 활성 시) 듀얼 모니터 패턴 (마우스 트래킹과 동일)
-— keyCode `0x00` (A키) + `.command, .shift` 조합
-
-### UX 흐름
-
-```
-⌘⇧A → 커맨드 바 화면 중앙 상단에 표시
-→ TextEditor에 타이핑 (넓은 입력 영역, 4-5줄)
-→ ⌘⏎ 전송 → 마스터가 처리 → 응답 인라인 표시
-→ ESC 또는 외부 클릭으로 닫기
-→ "전체 대화 열기" → 마스터 채팅 윈도우 확장
-```
-
-### 패널 설정
-
-- 크기: 600×360pt, 화면 상단 1/3 지점 중앙
-- styleMask: `[.nonactivatingPanel, .titled, .fullSizeContentView]`
-- level `.floating`, `hidesOnDeactivate = false`
-- 외부 클릭 시 자동 닫기 (`onResignKey` → `dismiss()`)
-- show/dismiss: NSAnimationContext 0.15s 페이드 애니메이션
-
----
-
 ## 빠른 접근 방법 요약
 
 | 방법 | 단축키/동작 | 대상 | 용도 |
 |------|------------|------|------|
 | **사이드바** | 마우스 오른쪽 끝 8px | 마스터 | 기본 채팅 인터페이스 |
-| **커맨드 바** | `⌘⇧A` | 마스터 | 빠른 질문, 어디서든 접근 |
 | **로스터 클릭** | 에이전트 아바타 탭 | 개별 에이전트 | 직접 대화 (별도 윈도우) |
 | **메뉴바** | `⌘⇧E` | 사이드바 토글 | 수동 사이드바 표시/숨기기 |
 
