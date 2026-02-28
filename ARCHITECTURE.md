@@ -34,7 +34,7 @@ DOUGLAS/
 │   │   └── UtilityWindowManager.swift # 유틸리티 윈도우 관리
 │   ├── Models/
 │   │   ├── Agent.swift              # 에이전트 모델 (이름, 페르소나, 이미지, isMaster, workingRules, referenceProjectPaths)
-│   │   ├── WorkingRules.swift       # 작업 규칙 (WorkingRulesSource — inline/filePath)
+│   │   ├── WorkingRules.swift       # 작업 규칙 (WorkingRulesSource — 인라인+파일 동시 지원)
 │   │   ├── AgentTool.swift          # 도구 시스템 (AgentTool, ToolCall, ToolResult, ToolRegistry, ConversationMessage)
 │   │   ├── ArtifactParser.swift     # 토론 산출물 파서 (artifact 블록 추출/제거)
 │   │   ├── ChatMessage.swift        # 메시지 모델 (MessageType 포함: toolActivity, buildStatus, qaStatus, approvalRequest 등, ImageAttachment 첨부)
@@ -335,23 +335,25 @@ struct ImageAttachment: Codable, Identifiable {
 - 크기 제한: 이미지당 최대 20MB
 - `ImageAttachmentError`: `.fileTooLarge`, `.unsupportedFormat`
 
-### WorkingRulesSource (`Models/WorkingRules.swift`)
+### WorkingRulesSource (`Models/WorkingRules.swift`) — struct
 
 ```swift
-enum WorkingRulesSource: Codable, Equatable {
-    case inline(String)      // 직접 입력한 텍스트 규칙
-    case filePath(String)    // 파일 경로 참조 (예: .cursorrules)
+struct WorkingRulesSource: Codable, Equatable {
+    var inlineText: String     // 직접 입력한 텍스트 규칙
+    var filePaths: [String]    // 파일 경로 참조 (여러 건, 예: .cursorrules)
 
-    func resolve() -> String   // 실행 시점에 텍스트 반환
+    func resolve() -> String   // 인라인 + 파일 내용 합산 반환
     var displaySummary: String // UI 요약
     var isEmpty: Bool
 }
 ```
 
 - 에이전트 생성 시 **필수 입력** (마스터 제외)
+- **인라인 텍스트 + 파일 참조 동시 사용 가능** (양분 아님, 합산)
 - persona = 역할 정체성, workingRules = 구체적 작업 지시사항으로 분리
 - `Agent.resolvedSystemPrompt`: persona + rules를 결합한 최종 시스템 프롬프트
-- filePath는 실행 시점에 파일을 읽어 항상 최신 규칙 반영
+- 파일은 실행 시점에 읽어 항상 최신 규칙 반영
+- 레거시 enum 포맷(`inline(String)`, `filePath(String)`) 자동 마이그레이션
 
 ### DiscussionArtifact (`Models/DiscussionArtifact.swift`)
 
@@ -894,10 +896,10 @@ executeWithTools() 루프 (최대 10회):
 
 | 항목 | 내용 | 상태 |
 |------|------|------|
-| H-1 | **WorkingRulesSource 모델**: `inline(String)` / `filePath(String)` enum. `resolve()`로 실행 시점에 텍스트 반환. | ✅ |
+| H-1 | **WorkingRulesSource 모델**: 인라인 텍스트 + 파일 참조(여러 건) 동시 지원 struct. `resolve()`로 합산 반환. 레거시 enum 자동 마이그레이션. | ✅ |
 | H-2 | **Agent.workingRules 필드**: 마스터는 nil, 서브 에이전트는 필수 입력. `resolvedSystemPrompt`로 persona + rules 결합. | ✅ |
 | H-3 | **역할 템플릿 제거**: `AgentRoleTemplate`, `AgentRoleTemplateRegistry`, `TemplateCategory` 삭제. AgentAvatarView/AgentMatcher에서 템플릿 참조 제거. | ✅ |
-| H-4 | **AddAgentSheet/EditAgentSheet UI**: 템플릿 선택 → 작업 규칙 편집기 (직접 입력/파일 참조 Segmented Picker). 규칙 비어있으면 저장 불가. | ✅ |
+| H-4 | **AddAgentSheet/EditAgentSheet UI**: 인라인 + 파일 참조 동시 표시 (Segmented Picker 제거). 규칙 비어있으면 저장 불가. 에이전트 로스터 드래그 앤 드롭 재정렬. | ✅ |
 | H-5 | **시스템 프롬프트 주입 변경**: RoomManager/ChatViewModel 6+ 위치에서 `agent.persona` → `agent.resolvedSystemPrompt`. | ✅ |
 | H-6 | **트리아지 자동 생성 → 제안**: 매칭 실패 시 에이전트 자동 생성 대신 `RoomAgentSuggestion` 생성. AgentSuggestionCard 승인 시 AddAgentSheet 열기. | ✅ |
 

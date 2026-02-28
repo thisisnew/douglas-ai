@@ -64,7 +64,7 @@ struct AgentMatcherTests {
         let agent = makeAgent(
             name: "개발자",
             persona: "코드 작성 전문",
-            workingRules: .inline("React 컴포넌트는 함수형으로 작성. TypeScript 필수.")
+            workingRules: WorkingRulesSource(inlineText: "React 컴포넌트는 함수형으로 작성. TypeScript 필수.")
         )
         let requirements = [
             RoleRequirement(roleName: "React")

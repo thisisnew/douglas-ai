@@ -1,10 +1,5 @@
 import SwiftUI
 
-enum RulesInputMode: String {
-    case inline
-    case filePath
-}
-
 struct AddAgentSheet: View {
     @EnvironmentObject var agentStore: AgentStore
     @EnvironmentObject var providerManager: ProviderManager
@@ -20,10 +15,9 @@ struct AddAgentSheet: View {
     @State private var imageData: Data?
     @State private var referenceProjectPaths: [String] = []
 
-    // 작업 규칙
-    @State private var rulesMode: RulesInputMode = .inline
+    // 작업 규칙 (인라인 + 파일 동시 사용 가능)
     @State private var inlineRules: String = ""
-    @State private var rulesFilePath: String = ""
+    @State private var rulesFilePaths: [String] = []
 
     // 사전 입력 (AgentSuggestionCard에서 호출 시)
     var prefillName: String?
@@ -180,97 +174,98 @@ struct AddAgentSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             sectionLabel("작업 규칙", required: true)
 
-            Picker("입력 방식", selection: $rulesMode) {
-                Text("직접 입력").tag(RulesInputMode.inline)
-                Text("파일 참조").tag(RulesInputMode.filePath)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-
-            switch rulesMode {
-            case .inline:
-                TextEditor(text: $inlineRules)
-                    .font(.body)
-                    .scrollContentBackground(.hidden)
-                    .frame(minHeight: 80)
-                    .padding(8)
-                    .background(DesignTokens.Colors.inputBackground)
-                    .continuousRadius(DesignTokens.Radius.lg)
-                    .overlay(
-                        Group {
-                            if inlineRules.isEmpty {
-                                Text("""
-                                예) \
-                                - 산출물: 마크다운 체크리스트, 초안 수준
-                                - 코드 작성 시 feature/ 브랜치 사용
-                                - 한국어로 작성, 존댓말 금지
-                                - 변경 사항마다 테스트 포함 필수
-                                """)
-                                    .font(.body)
-                                    .foregroundColor(.secondary.opacity(0.5))
-                                    .padding(.leading, 12)
-                                    .padding(.top, 16)
-                                    .allowsHitTesting(false)
-                            }
-                        },
-                        alignment: .topLeading
-                    )
-
-            case .filePath:
-                VStack(spacing: 8) {
-                    if !rulesFilePath.isEmpty {
-                        HStack(spacing: 8) {
-                            Image(systemName: "doc.text")
-                                .foregroundColor(.secondary)
-                                .font(.caption)
-                            Text((rulesFilePath as NSString).lastPathComponent)
-                                .font(.callout)
-                                .lineLimit(1)
-                            Spacer()
-                            Text(rulesFilePath)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Button {
-                                rulesFilePath = ""
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.secondary)
-                                    .font(.caption)
-                            }
-                            .buttonStyle(.plain)
+            // 직접 입력
+            TextEditor(text: $inlineRules)
+                .font(.body)
+                .scrollContentBackground(.hidden)
+                .frame(minHeight: 80)
+                .padding(8)
+                .background(DesignTokens.Colors.inputBackground)
+                .continuousRadius(DesignTokens.Radius.lg)
+                .overlay(
+                    Group {
+                        if inlineRules.isEmpty {
+                            Text("""
+                            예) \
+                            - 산출물: 마크다운 체크리스트, 초안 수준
+                            - 코드 작성 시 feature/ 브랜치 사용
+                            - 한국어로 작성, 존댓말 금지
+                            - 변경 사항마다 테스트 포함 필수
+                            """)
+                                .font(.body)
+                                .foregroundColor(.secondary.opacity(0.5))
+                                .padding(.leading, 12)
+                                .padding(.top, 16)
+                                .allowsHitTesting(false)
                         }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .background(DesignTokens.Colors.inputBackground)
-                        .continuousRadius(DesignTokens.Radius.lg)
-                    }
+                    },
+                    alignment: .topLeading
+                )
 
-                    Button {
-                        pickRulesFile()
-                    } label: {
-                        HStack {
-                            Image(systemName: "doc.badge.plus")
-                            Text(rulesFilePath.isEmpty ? "파일 선택" : "파일 변경")
-                        }
-                        .font(.callout)
-                        .frame(maxWidth: .infinity)
-                        .padding(8)
-                        .background(DesignTokens.Colors.inputBackground)
-                        .continuousRadius(DesignTokens.Radius.lg)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
+            // 파일 참조
+            rulesFileList
 
             if !hasValidRules {
-                Label("작업 규칙을 입력해야 에이전트를 추가할 수 있습니다.",
+                Label("작업 규칙을 입력하거나 파일을 추가해야 에이전트를 추가할 수 있습니다.",
                       systemImage: "info.circle")
                     .font(.caption)
                     .foregroundColor(.orange)
             }
         }
+    }
+
+    @ViewBuilder
+    private var rulesFileList: some View {
+        if !rulesFilePaths.isEmpty {
+            VStack(spacing: 0) {
+                ForEach(Array(rulesFilePaths.enumerated()), id: \.offset) { index, path in
+                    HStack(spacing: 8) {
+                        Image(systemName: "doc.text")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                        Text((path as NSString).lastPathComponent)
+                            .font(.callout)
+                            .lineLimit(1)
+                        Spacer()
+                        Text(path)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Button {
+                            rulesFilePaths.remove(at: index)
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    if index < rulesFilePaths.count - 1 {
+                        Divider().padding(.leading, 30)
+                    }
+                }
+            }
+            .background(DesignTokens.Colors.inputBackground)
+            .continuousRadius(DesignTokens.Radius.lg)
+        }
+
+        Button {
+            pickRulesFiles()
+        } label: {
+            HStack {
+                Image(systemName: "doc.badge.plus")
+                Text(rulesFilePaths.isEmpty ? "규칙 파일 추가" : "파일 추가")
+            }
+            .font(.callout)
+            .frame(maxWidth: .infinity)
+            .padding(8)
+            .background(DesignTokens.Colors.inputBackground)
+            .continuousRadius(DesignTokens.Radius.lg)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Components
@@ -395,14 +390,15 @@ struct AddAgentSheet: View {
         referenceProjectPaths.append(contentsOf: newPaths)
     }
 
-    private func pickRulesFile() {
+    private func pickRulesFiles() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
-        panel.allowsMultipleSelection = false
-        panel.message = "작업 규칙 파일을 선택하세요"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        rulesFilePath = url.path
+        panel.allowsMultipleSelection = true
+        panel.message = "작업 규칙 파일을 선택하세요 (여러 개 가능)"
+        guard panel.runModal() == .OK else { return }
+        let newPaths = panel.urls.map(\.path).filter { !rulesFilePaths.contains($0) }
+        rulesFilePaths.append(contentsOf: newPaths)
     }
 
     // MARK: - Logic
@@ -412,10 +408,7 @@ struct AddAgentSheet: View {
     }
 
     private var hasValidRules: Bool {
-        switch rulesMode {
-        case .inline: return !inlineRules.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        case .filePath: return !rulesFilePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
+        !inlineRules.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !rulesFilePaths.isEmpty
     }
 
     private var isDuplicateName: Bool {
@@ -448,9 +441,7 @@ struct AddAgentSheet: View {
     }
 
     private func addAgent() {
-        let rules: WorkingRulesSource = rulesMode == .inline
-            ? .inline(inlineRules)
-            : .filePath(rulesFilePath)
+        let rules = WorkingRulesSource(inlineText: inlineRules, filePaths: rulesFilePaths)
 
         let agent = Agent(
             name: name,

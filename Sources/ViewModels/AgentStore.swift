@@ -57,6 +57,20 @@ class AgentStore: ObservableObject {
         saveAgents()
     }
 
+    /// 서브 에이전트 순서 변경 (드래그 앤 드롭)
+    func moveSubAgent(fromID: UUID, toID: UUID) {
+        // 마스터 제외한 서브 에이전트만 재배치
+        guard fromID != toID else { return }
+        guard let fromIdx = agents.firstIndex(where: { $0.id == fromID }),
+              let toIdx = agents.firstIndex(where: { $0.id == toID }) else { return }
+        guard !agents[fromIdx].isMaster, !agents[toIdx].isMaster else { return }
+
+        let agent = agents.remove(at: fromIdx)
+        let insertIdx = agents.firstIndex(where: { $0.id == toID }) ?? agents.endIndex
+        agents.insert(agent, at: insertIdx)
+        saveAgents()
+    }
+
     func updateStatus(agentID: UUID, status: AgentStatus, errorMessage: String? = nil) {
         if let idx = agents.firstIndex(where: { $0.id == agentID }) {
             agents[idx].status = status

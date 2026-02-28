@@ -166,6 +166,8 @@ struct FloatingSidebarView: View {
     /// 윈도우 드래그 시작 시 마우스-윈도우 간 오프셋
     @State private var windowDragOffset: CGFloat = 0
     @State private var isDraggingWindow = false
+    /// 드래그 앤 드롭 재정렬
+    @State private var draggingAgentID: UUID?
 
     private var masterAgent: Agent? { agentStore.masterAgent }
     private var masterID: UUID? { masterAgent?.id }
@@ -376,6 +378,19 @@ struct FloatingSidebarView: View {
                 ForEach(allRosterAgents) { agent in
                     rosterItem(agent)
                         .padding(.top, 6)  // 뱃지 잘림 방지
+                        .opacity(draggingAgentID == agent.id ? 0.4 : 1.0)
+                        .scaleEffect(draggingAgentID == agent.id ? 0.9 : 1.0)
+                        .onDrag {
+                            draggingAgentID = agent.id
+                            return NSItemProvider(object: agent.id.uuidString as NSString)
+                        }
+                        .onDrop(of: [.text], delegate: AgentReorderDropDelegate(
+                            targetID: agent.id,
+                            draggingID: $draggingAgentID,
+                            onReorder: { from, to in
+                                agentStore.moveSubAgent(fromID: from, toID: to)
+                            }
+                        ))
                         .onTapGesture { openInfoWindow(for: agent) }
                         .contextMenu {
                             Button {
@@ -400,6 +415,7 @@ struct FloatingSidebarView: View {
                 }
             }
             .padding(.horizontal, DesignTokens.Spacing.lg)
+            .animation(.easeInOut(duration: 0.2), value: allRosterAgents.map(\.id))
         }
             } // else
         } // Group
@@ -982,14 +998,14 @@ struct AgentInfoSheet: View {
                         .textSelection(.enabled)
                 }
 
-                if let rules = agent.workingRules {
+                if let rules = agent.workingRules, !rules.isEmpty {
                     Section("작업 규칙") {
-                        switch rules {
-                        case .inline(let text):
-                            Text(text)
+                        if !rules.inlineText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text(rules.inlineText)
                                 .font(.body)
                                 .textSelection(.enabled)
-                        case .filePath(let path):
+                        }
+                        ForEach(rules.filePaths, id: \.self) { path in
                             HStack {
                                 Image(systemName: "doc.text")
                                 Text((path as NSString).lastPathComponent)
@@ -1034,5 +1050,29 @@ struct AgentInfoSheet: View {
         case .busy:    return "바쁨"
         case .error:   return "오류"
         }
+    }
+}
+
+// MARK: - 에이전트 로스터 드래그 앤 드롭
+
+struct AgentReorderDropDelegate: DropDelegate {
+    let targetID: UUID
+    @Binding var draggingID: UUID?
+    let onReorder: (UUID, UUID) -> Void
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggingID = nil
+        return true
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard let from = draggingID, from != targetID else { return }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            onReorder(from, targetID)
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
     }
 }

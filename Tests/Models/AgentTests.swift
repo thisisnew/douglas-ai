@@ -250,9 +250,9 @@ struct AgentTests {
             persona: "개발자",
             providerName: "P",
             modelName: "M",
-            workingRules: .inline("브랜치 전략: feature/ 사용")
+            workingRules: WorkingRulesSource(inlineText: "브랜치 전략: feature/ 사용")
         )
-        #expect(agent.workingRules == .inline("브랜치 전략: feature/ 사용"))
+        #expect(agent.workingRules == WorkingRulesSource(inlineText: "브랜치 전략: feature/ 사용"))
     }
 
     @Test("workingRules — filePath 초기화")
@@ -262,9 +262,9 @@ struct AgentTests {
             persona: "개발자",
             providerName: "P",
             modelName: "M",
-            workingRules: .filePath("/path/to/.cursorrules")
+            workingRules: WorkingRulesSource(filePaths: ["/path/to/.cursorrules"])
         )
-        #expect(agent.workingRules == .filePath("/path/to/.cursorrules"))
+        #expect(agent.workingRules == WorkingRulesSource(filePaths: ["/path/to/.cursorrules"]))
     }
 
     @Test("workingRules — 기본값 nil")
@@ -286,7 +286,7 @@ struct AgentTests {
             persona: "개발자입니다.",
             providerName: "P",
             modelName: "M",
-            workingRules: .inline("탭 대신 스페이스 사용")
+            workingRules: WorkingRulesSource(inlineText: "탭 대신 스페이스 사용")
         )
         let prompt = agent.resolvedSystemPrompt
         #expect(prompt.contains("개발자입니다."))
@@ -301,7 +301,7 @@ struct AgentTests {
             persona: "개발자입니다.",
             providerName: "P",
             modelName: "M",
-            workingRules: .inline("  ")
+            workingRules: WorkingRulesSource(inlineText: "  ")
         )
         #expect(agent.resolvedSystemPrompt == "개발자입니다.")
     }
@@ -313,11 +313,11 @@ struct AgentTests {
             persona: "p",
             providerName: "P",
             modelName: "M",
-            workingRules: .inline("규칙 텍스트")
+            workingRules: WorkingRulesSource(inlineText: "규칙 텍스트")
         )
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(Agent.self, from: data)
-        #expect(decoded.workingRules == .inline("규칙 텍스트"))
+        #expect(decoded.workingRules == WorkingRulesSource(inlineText: "규칙 텍스트"))
     }
 
     @Test("Decodable — workingRules 없는 레거시 JSON 호환")
