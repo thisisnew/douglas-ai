@@ -326,7 +326,7 @@ class RoomManager: ObservableObject {
             return
         }
 
-        await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+        let _ = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
             self.suggestionContinuations[roomID] = cont
         }
     }
@@ -1667,7 +1667,8 @@ class RoomManager: ObservableObject {
                             roomID: roomID,
                             stepIndex: stepIndex,
                             totalSteps: plan.steps.count,
-                            fileWriteTracker: tracker
+                            fileWriteTracker: tracker,
+                            progressGroupID: progressMsg.id
                         )
                     }
                 }
@@ -1791,7 +1792,8 @@ class RoomManager: ObservableObject {
         roomID: UUID,
         stepIndex: Int,
         totalSteps: Int,
-        fileWriteTracker: FileWriteTracker? = nil
+        fileWriteTracker: FileWriteTracker? = nil,
+        progressGroupID: UUID? = nil
     ) async -> Bool {
         guard let agent = agentStore?.agents.first(where: { $0.id == agentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return false }
@@ -1858,7 +1860,19 @@ class RoomManager: ObservableObject {
                 agent: agent,
                 systemPrompt: agent.resolvedSystemPrompt,
                 conversationMessages: messagesWithStep,
-                context: context
+                context: context,
+                onToolActivity: { [weak self] activity in
+                    Task { @MainActor in
+                        let toolMsg = ChatMessage(
+                            role: .assistant,
+                            content: activity,
+                            agentName: agent.name,
+                            messageType: .toolActivity,
+                            activityGroupID: progressGroupID
+                        )
+                        self?.appendMessage(toolMsg, to: roomID)
+                    }
+                }
             )
 
             if speakingAgentIDByRoom[roomID] == agentID {

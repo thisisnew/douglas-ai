@@ -91,6 +91,7 @@ DOUGLAS/
 │       ├── AgentAvatarView.swift    # 원형 아바타 (마스터/서브 아이콘 분기)
 │       ├── DesignTokens.swift       # 디자인 시스템 (색상, 타이포, 간격, 모서리, 애니메이션, 윈도우 크기)
 │       ├── SharedComponents.swift   # 공유 UI 컴포넌트 (SheetNavHeader, CardContainer, SendButton 등)
+│       ├── ProgressActivityBubble.swift # 확장형 진행 버블 (활동 로그 인라인 표시)
 │       └── ToastView.swift          # 임시 알림 오버레이
 ```
 
@@ -309,12 +310,14 @@ struct ChatMessage: Identifiable, Codable {
     let timestamp: Date
     var messageType: MessageType // text / delegation / summary / chainProgress / suggestion / error / discussionRound / toolActivity
     let attachments: [ImageAttachment]?  // 이미지 첨부 (Vision API용)
+    let activityGroupID: UUID?   // 부모 .progress 메시지 ID (활동 그룹핑)
 }
 ```
 
-- `init(from decoder:)`: messageType, attachments가 없는 기존 데이터와 역호환 (`.text` 기본값, `nil`)
+- `init(from decoder:)`: messageType, attachments, activityGroupID가 없는 기존 데이터와 역호환 (`.text` 기본값, `nil`)
 - MessageType에 따라 채팅 버블의 색상, 아이콘, 테두리가 달라짐
 - `attachments`: 이미지 첨부 시 메시지 버블에 썸네일 표시
+- `activityGroupID`: `.toolActivity` 메시지가 부모 `.progress` 메시지에 소속됨을 표시. 메인 채팅에서는 숨기고, progress 버블 확장 시 인라인 표시
 
 ### ImageAttachment (`Models/ImageAttachment.swift`)
 
@@ -633,13 +636,20 @@ MessageType에 따른 시각 차별화:
 
 이미지 첨부가 있는 메시지: 텍스트 위에 이미지 썸네일 그리드 표시 (최대 180x120pt)
 
+### ProgressActivityBubble (`Views/ProgressActivityBubble.swift`)
+
+`.progress` 메시지를 확장형 버블로 렌더링:
+- **접힌 상태**: 기존 캡슐 스타일 + 활동 개수 뱃지 + 화살표 (클릭으로 토글)
+- **펼친 상태**: 소속된 `.toolActivity` 메시지들을 시간순으로 인라인 표시 (도구 호출/결과, 아이콘 구분, 타임스탬프)
+- `activityGroupID`로 부모-자식 관계 연결: `.toolActivity` 메시지의 `activityGroupID`가 `.progress` 메시지의 `id`와 일치
+- 메인 채팅에서는 `activityGroupID != nil`인 메시지를 필터링하여 숨김
+
 ### AgentAvatarView (`Views/AgentAvatarView.swift`)
 
 재사용 가능한 원형 아바타 컴포넌트:
 - hasImage 있으면 → 파일시스템에서 이미지 로드 → 원형 클립
-- 마스터 에이전트 → `brain.head.profile` (보라색)
-- 마스터 에이전트 → brain 아이콘 + 보라색, 일반 에이전트 → person 아이콘 + 파란색
-- 기타 에이전트 → `person.crop.circle` (파란색)
+- 마스터 에이전트 (imageData 없음) → 번들 `douglas_profile.png` 사용 → 뇌 아이콘은 최종 fallback
+- 일반 에이전트 → `person.crop.circle` (파란색)
 
 `pickAgentImage()` 유틸: NSOpenPanel → PNG/JPEG 선택 → 128x128 리사이즈 → 파일시스템 저장
 

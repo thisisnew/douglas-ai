@@ -32,6 +32,8 @@ struct ChatMessage: Identifiable, Codable {
     let timestamp: Date
     var messageType: MessageType
     let attachments: [ImageAttachment]?
+    /// 부모 .progress 메시지 ID — non-nil이면 해당 progress 버블에 소속된 활동 메시지
+    let activityGroupID: UUID?
 
     init(
         id: UUID = UUID(),
@@ -40,7 +42,8 @@ struct ChatMessage: Identifiable, Codable {
         agentName: String? = nil,
         timestamp: Date = Date(),
         messageType: MessageType = .text,
-        attachments: [ImageAttachment]? = nil
+        attachments: [ImageAttachment]? = nil,
+        activityGroupID: UUID? = nil
     ) {
         self.id = id
         self.role = role
@@ -49,6 +52,7 @@ struct ChatMessage: Identifiable, Codable {
         self.timestamp = timestamp
         self.messageType = messageType
         self.attachments = attachments
+        self.activityGroupID = activityGroupID
     }
 
     // 기존 저장 데이터 호환
@@ -61,5 +65,6 @@ struct ChatMessage: Identifiable, Codable {
         timestamp = try container.decode(Date.self, forKey: .timestamp)
         messageType = try container.decodeIfPresent(MessageType.self, forKey: .messageType) ?? .text
         attachments = try container.decodeIfPresent([ImageAttachment].self, forKey: .attachments)
+        activityGroupID = try container.decodeIfPresent(UUID.self, forKey: .activityGroupID)
     }
 }

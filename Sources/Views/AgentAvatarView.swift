@@ -12,6 +12,13 @@ struct AgentAvatarView: View {
                 .scaledToFill()
                 .frame(width: size, height: size)
                 .clipShape(Circle())
+        } else if agent.isMaster, let profileImage = masterProfileImage {
+            // 마스터: 번들 프로필 이미지를 기본 아바타로 사용
+            Image(nsImage: profileImage)
+                .resizable()
+                .scaledToFill()
+                .frame(width: size, height: size)
+                .clipShape(Circle())
         } else {
             Circle()
                 .fill(defaultBackgroundColor.opacity(0.12))
@@ -22,6 +29,25 @@ struct AgentAvatarView: View {
                         .foregroundColor(defaultIconColor)
                 )
         }
+    }
+
+    /// 번들에서 douglas_profile.png 로드 (마스터 기본 아바타용)
+    private var masterProfileImage: NSImage? {
+        if let url = Bundle.module.url(forResource: "douglas_profile", withExtension: "png"),
+           let img = NSImage(contentsOf: url) {
+            return img
+        }
+        if let resourceURL = Bundle.main.resourceURL?
+            .appendingPathComponent("DOUGLAS_DOUGLASLib.bundle")
+            .appendingPathComponent("douglas_profile.png"),
+           let img = NSImage(contentsOf: resourceURL) {
+            return img
+        }
+        if let url = Bundle.main.url(forResource: "douglas_profile", withExtension: "png"),
+           let img = NSImage(contentsOf: url) {
+            return img
+        }
+        return nil
     }
 
     private var defaultIconName: String {

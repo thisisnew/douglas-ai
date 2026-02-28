@@ -58,15 +58,24 @@ struct RoomChatView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 8) {
-                            ForEach(room.messages) { message in
-                                MessageBubble(message: message)
+                            ForEach(visibleMessages(room)) { message in
+                                if message.messageType == .progress {
+                                    ProgressActivityBubble(
+                                        message: message,
+                                        activities: activitiesForProgress(message.id, in: room),
+                                        isActive: isProgressActive(message, in: room)
+                                    )
                                     .id(message.id)
+                                } else {
+                                    MessageBubble(message: message)
+                                        .id(message.id)
+                                }
                             }
                         }
                         .padding(12)
                     }
                     .onChange(of: room.messages.count) { _, _ in
-                        if let last = room.messages.last {
+                        if let last = visibleMessages(room).last {
                             withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
                         }
                     }
@@ -80,6 +89,26 @@ struct RoomChatView: View {
                 }
             }
         }
+    }
+
+    // MARK: - 메시지 필터링 (활동 그룹 숨김)
+
+    /// 메인 채팅에 보이는 메시지: activityGroupID가 있는 메시지는 숨김 (progress 버블에서 표시)
+    private func visibleMessages(_ room: Room) -> [ChatMessage] {
+        room.messages.filter { $0.activityGroupID == nil }
+    }
+
+    /// 특정 progress 메시지에 소속된 활동 메시지들
+    private func activitiesForProgress(_ progressID: UUID, in room: Room) -> [ChatMessage] {
+        room.messages.filter { $0.activityGroupID == progressID }
+    }
+
+    /// progress 메시지가 현재 진행 중인지 (다음 progress가 아직 없으면 활성)
+    private func isProgressActive(_ message: ChatMessage, in room: Room) -> Bool {
+        guard room.isActive else { return false }
+        let progressMessages = room.messages.filter { $0.messageType == .progress }
+        guard let lastProgress = progressMessages.last else { return false }
+        return lastProgress.id == message.id
     }
 
     // MARK: - 방 헤더
