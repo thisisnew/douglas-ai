@@ -23,12 +23,6 @@ struct ChatContentView: View {
                                 .id(message.id)
                         }
 
-                        if let a = agent, a.isMaster,
-                           let suggestion = chatVM.pendingSuggestion,
-                           suggestion.masterAgentID == agentID {
-                            SuggestionCard(suggestion: suggestion)
-                        }
-
                         if chatVM.loadingAgentIDs.contains(agentID) {
                             HStack(spacing: 8) {
                                 ProgressView()

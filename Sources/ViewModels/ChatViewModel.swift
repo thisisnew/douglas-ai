@@ -1,34 +1,6 @@
 import Foundation
 import UserNotifications
 
-// MARK: - Master Action 타입
-
-enum MasterAction {
-    case delegate(agents: [String], task: String, contextFrom: [String]?)
-    case suggestAgent(name: String, persona: String, provider: String, model: String, preset: String?, roleTemplateID: String?)
-    case chain(steps: [ChainStep])
-    case unknown(rawResponse: String)
-
-    struct ChainStep {
-        let agent: String
-        let task: String
-    }
-}
-
-// MARK: - Agent Suggestion
-
-struct AgentSuggestion: Identifiable {
-    let id = UUID()
-    let name: String
-    let persona: String
-    let recommendedProvider: String
-    let recommendedModel: String
-    let recommendedPreset: String?
-    let roleTemplateID: String?
-    let masterAgentID: UUID
-    let originalTask: String
-}
-
 // MARK: - ChatViewModel
 
 @MainActor
@@ -37,7 +9,6 @@ class ChatViewModel: ObservableObject {
     @Published var loadingAgentIDs: Set<UUID> = []
     @Published var toastMessage: String?
     @Published var showToast = false
-    @Published var pendingSuggestion: AgentSuggestion?
 
     /// 하위 호환: 특정 에이전트가 로딩 중인지 확인
     func isLoading(for agentID: UUID?) -> Bool {
@@ -48,8 +19,6 @@ class ChatViewModel: ObservableObject {
     private(set) var agentStore: AgentStore?
     private(set) var providerManager: ProviderManager?
     private(set) var roomManager: RoomManager?
-
-    private let maxRetryAttempts = 2
 
     init() {}
 
@@ -66,7 +35,7 @@ class ChatViewModel: ObservableObject {
         return messagesByAgent[id] ?? []
     }
 
-    /// 외부에서 메시지 추가 (SuggestionCard 등)
+    /// 외부에서 메시지 추가
     func appendMessagePublic(_ message: ChatMessage, for agentID: UUID) {
         appendMessage(message, for: agentID)
     }
@@ -116,7 +85,7 @@ class ChatViewModel: ObservableObject {
 
         let task = Task {
             if agent.isMaster {
-                await handleMasterMessage(text, attachments: attachments, agent: agent, agentStore: agentStore, providerManager: providerManager)
+                await handleMasterMessage(text, attachments: attachments, agent: agent, agentStore: agentStore)
             } else {
                 await handleAgentMessage(text, agent: agent, providerManager: providerManager)
             }
@@ -132,90 +101,64 @@ class ChatViewModel: ObservableObject {
         activeTasks[agent.id] = task
     }
 
-    // MARK: - 마스터 메시지 처리
+    // MARK: - 마스터 메시지 처리 → 즉시 방 생성
 
     private func handleMasterMessage(
         _ text: String,
         attachments: [ImageAttachment]? = nil,
         agent: Agent,
-        agentStore: AgentStore,
-        providerManager: ProviderManager
+        agentStore: AgentStore
     ) async {
         agentStore.updateStatus(agentID: agent.id, status: .working)
 
-        // 진행 상태 표시
-        let analyzingMsg = ChatMessage(
+        let progressMsg = ChatMessage(
             role: .assistant,
-            content: "분석가에게 전달하는 중...",
+            content: "방을 생성하는 중...",
             agentName: "마스터",
             messageType: .toolActivity
         )
-        appendMessage(analyzingMsg, for: agent.id)
+        appendMessage(progressMsg, for: agent.id)
 
-        do {
-            guard let provider = providerManager.provider(named: agent.providerName) else {
-                throw AIProviderError.apiError("프로바이더 '\(agent.providerName)'을(를) 찾을 수 없습니다.")
-            }
+        // Jira URL 사전 조회
+        let task = await enrichTaskWithJira(text)
 
-            let systemPrompt = agentStore.masterSystemPrompt()
-            // 마스터는 히스토리 없이 현재 메시지만 전송 (매 질문이 독립적)
-            let messages: [(role: String, content: String)] = [("user", text)]
-
-            let response = try await provider.sendRouterMessage(
-                model: agent.modelName,
-                systemPrompt: systemPrompt,
-                messages: messages
-            )
-
-            let action = parseMasterResponse(response)
-
-            switch action {
-            case .delegate(let agents, let task, let contextFrom):
-                await handleDelegation(
-                    agentNames: agents, task: task, contextFrom: contextFrom,
-                    attachments: attachments,
-                    masterAgent: agent, agentStore: agentStore, providerManager: providerManager
-                )
-
-            case .suggestAgent(let name, let persona, let prov, let model, let preset, let roleTemplateID):
-                await handleAgentSuggestion(
-                    name: name, persona: persona, provider: prov, model: model,
-                    preset: preset, roleTemplateID: roleTemplateID, masterAgent: agent, originalTask: text
-                )
-
-            case .chain(let steps):
-                await handleChain(
-                    steps: steps, masterAgent: agent,
-                    agentStore: agentStore, providerManager: providerManager
-                )
-
-            case .unknown(let rawResponse):
-                // JSON 파싱 실패 시 원본 텍스트를 답변으로 표시 (에러가 아닌 일반 메시지)
-                let reply = ChatMessage(
-                    role: .assistant,
-                    content: rawResponse,
-                    agentName: "마스터"
-                )
-                appendMessage(reply, for: agent.id)
-            }
-
-            agentStore.updateStatus(agentID: agent.id, status: .idle)
-            sendNotification(agentName: "마스터", message: "작업 완료")
-
-        } catch {
-            agentStore.updateStatus(agentID: agent.id, status: .error, errorMessage: error.localizedDescription)
-            showToastMessage("마스터 오류: \(error.localizedDescription)")
-            sendErrorNotification(agentName: "마스터", error: error.localizedDescription)
-
+        guard let roomManager = roomManager else {
             let errorReply = ChatMessage(
                 role: .assistant,
-                content: "오류가 발생했습니다: \(error.localizedDescription)",
+                content: "방 관리자를 사용할 수 없습니다.",
                 agentName: "마스터",
                 messageType: .error
             )
             appendMessage(errorReply, for: agent.id)
-
+            agentStore.updateStatus(agentID: agent.id, status: .idle)
+            return
         }
+
+        // 마스터가 직접 방 생성 (LLM 라우팅 없음)
+        let delegationMsg = ChatMessage(
+            role: .assistant,
+            content: "작업을 시작합니다: \(task)",
+            agentName: "마스터",
+            messageType: .delegation
+        )
+        appendMessage(delegationMsg, for: agent.id)
+
+        let room = roomManager.createRoom(
+            title: task,
+            agentIDs: [agent.id],
+            createdBy: .master(agentID: agent.id)
+        )
+        roomManager.selectedRoomID = room.id
+        roomManager.pendingAutoOpenRoomID = room.id
+
+        // 사용자 메시지(이미지 포함)를 방에 추가
+        let userMsg = ChatMessage(role: .user, content: task, attachments: attachments)
+        roomManager.appendMessage(userMsg, to: room.id)
+
+        roomManager.launchWorkflow(roomID: room.id, task: task)
+
+        agentStore.updateStatus(agentID: agent.id, status: .idle)
+        sendNotification(agentName: "마스터", message: "작업 시작")
     }
 
     // MARK: - 서브 에이전트 직접 대화
@@ -265,569 +208,6 @@ class ChatViewModel: ObservableObject {
             )
             appendMessage(errorReply, for: agent.id)
         }
-    }
-
-    // MARK: - 위임 → 방 생성
-
-    private func handleDelegation(
-        agentNames: [String],
-        task: String,
-        contextFrom: [String]?,
-        attachments: [ImageAttachment]? = nil,
-        masterAgent: Agent,
-        agentStore: AgentStore,
-        providerManager: ProviderManager
-    ) async {
-        // Jira URL이 포함된 경우 미리 조회하여 task에 포함
-        let task = await enrichTaskWithJira(task)
-
-        var resolvedAgents = agentNames.compactMap { name in
-            resolveAgent(name: name, in: agentStore)
-        }
-
-        // 분석가 주도 위임 강제: 분석가가 포함되지 않으면 분석가로 대체
-        let analystTemplateIDs: Set<String> = ["requirements_analyst", "jira_analyst"]
-        let hasAnalyst = resolvedAgents.contains { agent in
-            agent.roleTemplateID.map { analystTemplateIDs.contains($0) } ?? false
-        }
-        if !hasAnalyst {
-            let analyst = ensureAnalystExists(masterAgent: masterAgent, agentStore: agentStore)
-            resolvedAgents = [analyst]
-        }
-
-        let agentIDs = resolvedAgents.map { $0.id }
-
-        // RoomManager가 있으면 방 생성, 없으면 레거시 방식
-        if let roomManager = roomManager {
-            let agentNamesStr = resolvedAgents.map { $0.name }.joined(separator: ", ")
-            let delegationMsg = ChatMessage(
-                role: .assistant,
-                content: "'\(agentNamesStr)' 에이전트로 방을 생성합니다: \(task)",
-                agentName: "마스터",
-                messageType: .delegation
-            )
-            appendMessage(delegationMsg, for: masterAgent.id)
-
-            let room = roomManager.createRoom(
-                title: task,
-                agentIDs: agentIDs,
-                createdBy: .master(agentID: masterAgent.id)
-            )
-            roomManager.selectedRoomID = room.id
-            roomManager.pendingAutoOpenRoomID = room.id
-
-            // 사용자 메시지(이미지 포함)를 방에 추가
-            let userMsg = ChatMessage(role: .user, content: task, attachments: attachments)
-            roomManager.appendMessage(userMsg, to: room.id)
-
-            roomManager.launchWorkflow(roomID: room.id, task: task)
-        } else {
-            // 레거시 폴백: 기존 방식으로 실행
-            await legacyDelegation(
-                resolvedAgents: resolvedAgents, task: task, contextFrom: contextFrom,
-                masterAgent: masterAgent, agentStore: agentStore, providerManager: providerManager
-            )
-        }
-    }
-
-    /// 레거시 위임 (RoomManager 없을 때 폴백)
-    private func legacyDelegation(
-        resolvedAgents: [Agent],
-        task: String,
-        contextFrom: [String]?,
-        masterAgent: Agent,
-        agentStore: AgentStore,
-        providerManager: ProviderManager
-    ) async {
-        let delegationMsg = ChatMessage(
-            role: .assistant,
-            content: "'\(resolvedAgents.map { $0.name }.joined(separator: ", "))'에게 작업을 위임합니다...",
-            agentName: "마스터",
-            messageType: .delegation
-        )
-        appendMessage(delegationMsg, for: masterAgent.id)
-
-        let contextMessages = buildContextMessages(from: contextFrom, agentStore: agentStore)
-        var results: [(agentName: String, response: String)] = []
-
-        await withTaskGroup(of: (String, String?).self) { group in
-            for subAgent in resolvedAgents {
-                group.addTask { [self] in
-                    let response = await self.executeDelegation(
-                        to: subAgent, task: task,
-                        contextMessages: contextMessages,
-                        providerManager: providerManager,
-                        agentStore: agentStore,
-                        masterID: masterAgent.id
-                    )
-                    return (subAgent.name, response)
-                }
-            }
-            for await (name, response) in group {
-                if let response { results.append((name, response)) }
-            }
-        }
-
-        if results.count > 1 {
-            await generateSummary(
-                results: results, masterAgent: masterAgent,
-                providerManager: providerManager, agentStore: agentStore
-            )
-        }
-    }
-
-    // MARK: - 단일 위임 실행 + 재시도 (Feature 4)
-
-    private func executeDelegation(
-        to agent: Agent,
-        task: String,
-        contextMessages: [(role: String, content: String)]?,
-        providerManager: ProviderManager,
-        agentStore: AgentStore,
-        masterID: UUID
-    ) async -> String? {
-        var messages: [(role: String, content: String)] = []
-        if let ctx = contextMessages {
-            messages.append(contentsOf: ctx)
-        }
-        messages.append(("user", task))
-
-        for attempt in 0...maxRetryAttempts {
-            agentStore.updateStatus(agentID: agent.id, status: .working)
-
-            do {
-                guard let provider = providerManager.provider(named: agent.providerName) else {
-                    throw AIProviderError.apiError("프로바이더를 찾을 수 없습니다.")
-                }
-
-                let response = try await ToolExecutor.smartSend(
-                    provider: provider,
-                    agent: agent,
-                    systemPrompt: agent.persona,
-                    messages: messages
-                )
-
-                let reply = ChatMessage(role: .assistant, content: response, agentName: agent.name)
-                appendMessage(reply, for: masterID)
-                appendMessage(reply, for: agent.id)
-                agentStore.updateStatus(agentID: agent.id, status: .idle)
-                sendNotification(agentName: agent.name, message: response)
-                return response
-
-            } catch {
-                if attempt < maxRetryAttempts {
-                    let retryMsg = ChatMessage(
-                        role: .assistant,
-                        content: "\(agent.name) 오류 발생, 재시도 중... (\(attempt + 1)/\(maxRetryAttempts))",
-                        agentName: "마스터",
-                        messageType: .error
-                    )
-                    appendMessage(retryMsg, for: masterID)
-                    try? await Task.sleep(for: .seconds(2))
-                } else {
-                    agentStore.updateStatus(agentID: agent.id, status: .error, errorMessage: error.localizedDescription)
-                    let errorMsg = ChatMessage(
-                        role: .assistant,
-                        content: "\(agent.name) 작업 실패: \(error.localizedDescription)",
-                        agentName: "마스터",
-                        messageType: .error
-                    )
-                    appendMessage(errorMsg, for: masterID)
-                    sendErrorNotification(agentName: agent.name, error: error.localizedDescription)
-                    return nil
-                }
-            }
-        }
-        return nil
-    }
-
-    // MARK: - 결과 취합/요약 (Feature 2)
-
-    private func generateSummary(
-        results: [(agentName: String, response: String)],
-        masterAgent: Agent,
-        providerManager: ProviderManager,
-        agentStore: AgentStore
-    ) async {
-        let summaryPrompt = results.map { "[\($0.agentName)의 응답]\n\($0.response)" }
-            .joined(separator: "\n\n---\n\n")
-
-        do {
-            guard let provider = providerManager.provider(named: masterAgent.providerName) else { return }
-            let summaryResponse = try await provider.sendMessage(
-                model: masterAgent.modelName,
-                systemPrompt: "당신은 여러 전문가의 응답을 종합하는 요약자입니다. 각 응답의 핵심을 정리하고, 공통점과 차이점을 분석해서 간결하게 요약하세요.",
-                messages: [("user", summaryPrompt)]
-            )
-            let summaryMsg = ChatMessage(
-                role: .assistant,
-                content: summaryResponse,
-                agentName: "마스터",
-                messageType: .summary
-            )
-            appendMessage(summaryMsg, for: masterAgent.id)
-        } catch {
-            let errorMsg = ChatMessage(
-                role: .assistant,
-                content: "요약 생성 실패: \(error.localizedDescription)",
-                agentName: "마스터",
-                messageType: .error
-            )
-            appendMessage(errorMsg, for: masterAgent.id)
-        }
-    }
-
-    // MARK: - 에이전트 생성 제안 (Feature 3)
-
-    private func handleAgentSuggestion(
-        name: String,
-        persona: String,
-        provider: String,
-        model: String,
-        preset: String?,
-        roleTemplateID: String?,
-        masterAgent: Agent,
-        originalTask: String
-    ) async {
-        // Jira URL이 포함된 경우 미리 조회하여 task에 포함
-        let enrichedTask = await enrichTaskWithJira(originalTask)
-
-        let suggestionMsg = ChatMessage(
-            role: .assistant,
-            content: "적합한 에이전트가 없습니다. 새 에이전트를 제안합니다:\n\n이름: \(name)\n역할: \(persona)",
-            agentName: "마스터",
-            messageType: .suggestion
-        )
-        appendMessage(suggestionMsg, for: masterAgent.id)
-
-        pendingSuggestion = AgentSuggestion(
-            name: name,
-            persona: persona,
-            recommendedProvider: provider,
-            recommendedModel: model,
-            recommendedPreset: preset,
-            roleTemplateID: roleTemplateID,
-            masterAgentID: masterAgent.id,
-            originalTask: enrichedTask
-        )
-    }
-
-    // MARK: - 워크플로우 체이닝 → 방 생성
-
-    private func handleChain(
-        steps: [MasterAction.ChainStep],
-        masterAgent: Agent,
-        agentStore: AgentStore,
-        providerManager: ProviderManager
-    ) async {
-        let stepNames = steps.map { $0.agent }.joined(separator: " → ")
-
-        // 체인의 모든 에이전트 해석
-        let allAgentNames = Array(Set(steps.map { $0.agent }))
-        let resolvedAgents = allAgentNames.compactMap { name in
-            resolveAgent(name: name, in: agentStore)
-        }
-        let agentIDs = resolvedAgents.map { $0.id }
-
-        if let roomManager = roomManager {
-            let chainMsg = ChatMessage(
-                role: .assistant,
-                content: "체인 실행을 위한 방을 생성합니다: \(stepNames)",
-                agentName: "마스터",
-                messageType: .chainProgress
-            )
-            appendMessage(chainMsg, for: masterAgent.id)
-
-            let taskDescription = steps.map { "\($0.agent): \($0.task)" }.joined(separator: "\n")
-            let room = roomManager.createRoom(
-                title: "체인: \(stepNames)",
-                agentIDs: agentIDs,
-                createdBy: .master(agentID: masterAgent.id)
-            )
-            roomManager.selectedRoomID = room.id
-
-            Task { await roomManager.startRoomWorkflow(roomID: room.id, task: taskDescription) }
-        } else {
-            // 레거시 폴백
-            await legacyChain(steps: steps, masterAgent: masterAgent, agentStore: agentStore, providerManager: providerManager)
-        }
-    }
-
-    /// 레거시 체인 실행 (RoomManager 없을 때)
-    private func legacyChain(
-        steps: [MasterAction.ChainStep],
-        masterAgent: Agent,
-        agentStore: AgentStore,
-        providerManager: ProviderManager
-    ) async {
-        let stepNames = steps.map { $0.agent }.joined(separator: " → ")
-        let announceMsg = ChatMessage(
-            role: .assistant,
-            content: "체인 실행: \(stepNames)",
-            agentName: "마스터",
-            messageType: .chainProgress
-        )
-        appendMessage(announceMsg, for: masterAgent.id)
-
-        var previousOutput: String? = nil
-
-        for (index, step) in steps.enumerated() {
-            guard let subAgent = resolveAgent(name: step.agent, in: agentStore) else {
-                let errorMsg = ChatMessage(
-                    role: .assistant,
-                    content: "체인 중단: '\(step.agent)' 에이전트를 찾을 수 없습니다.",
-                    agentName: "마스터",
-                    messageType: .error
-                )
-                appendMessage(errorMsg, for: masterAgent.id)
-                return
-            }
-
-            var fullTask = step.task
-            if let prev = previousOutput {
-                fullTask = "이전 단계 결과:\n\(prev)\n\n현재 작업:\n\(step.task)"
-            }
-
-            let stepMsg = ChatMessage(
-                role: .assistant,
-                content: "[\(index + 1)/\(steps.count)] \(subAgent.name)에게 작업 전달 중...",
-                agentName: "마스터",
-                messageType: .chainProgress
-            )
-            appendMessage(stepMsg, for: masterAgent.id)
-
-            let result = await executeDelegation(
-                to: subAgent, task: fullTask,
-                contextMessages: nil,
-                providerManager: providerManager,
-                agentStore: agentStore,
-                masterID: masterAgent.id
-            )
-
-            guard let output = result else {
-                let fallbackMsg = ChatMessage(
-                    role: .assistant,
-                    content: "체인이 \(subAgent.name) 단계에서 실패했습니다.",
-                    agentName: "마스터",
-                    messageType: .error
-                )
-                appendMessage(fallbackMsg, for: masterAgent.id)
-                if let prev = previousOutput {
-                    await masterFallbackResponse(
-                        context: prev, masterAgent: masterAgent,
-                        providerManager: providerManager, agentStore: agentStore
-                    )
-                }
-                return
-            }
-            previousOutput = output
-        }
-
-        if steps.count > 1, previousOutput != nil {
-            let completionMsg = ChatMessage(
-                role: .assistant,
-                content: "체인 완료. 최종 결과가 위에 표시되었습니다.",
-                agentName: "마스터",
-                messageType: .chainProgress
-            )
-            appendMessage(completionMsg, for: masterAgent.id)
-        }
-    }
-
-    // MARK: - 마스터 폴백 응답 (Feature 4)
-
-    private func masterFallbackResponse(
-        context: String,
-        masterAgent: Agent,
-        providerManager: ProviderManager,
-        agentStore: AgentStore
-    ) async {
-        let fallbackNote = ChatMessage(
-            role: .assistant,
-            content: "에이전트 위임 실패. 마스터가 직접 응답합니다.",
-            agentName: "마스터",
-            messageType: .delegation
-        )
-        appendMessage(fallbackNote, for: masterAgent.id)
-
-        do {
-            guard let provider = providerManager.provider(named: masterAgent.providerName) else { return }
-            let response = try await provider.sendMessage(
-                model: masterAgent.modelName,
-                systemPrompt: "이전 에이전트 위임이 실패했습니다. 가능한 범위에서 직접 답변해 주세요.",
-                messages: [("user", context)]
-            )
-            let reply = ChatMessage(role: .assistant, content: response, agentName: "마스터")
-            appendMessage(reply, for: masterAgent.id)
-        } catch {
-            let errorMsg = ChatMessage(
-                role: .assistant,
-                content: "마스터 직접 응답도 실패: \(error.localizedDescription)",
-                agentName: "마스터",
-                messageType: .error
-            )
-            appendMessage(errorMsg, for: masterAgent.id)
-        }
-    }
-
-    // MARK: - 컨텍스트 관리 (Feature 6)
-
-    private func buildContextFromAgent(_ agentID: UUID, maxMessages: Int = 10) -> String {
-        let msgs = messagesByAgent[agentID] ?? []
-        return msgs.suffix(maxMessages).map { msg in
-            let role = msg.role == .user ? "사용자" : (msg.agentName ?? "어시스턴트")
-            return "\(role): \(msg.content)"
-        }.joined(separator: "\n")
-    }
-
-    private func buildContextMessages(
-        from agentNames: [String]?,
-        agentStore: AgentStore
-    ) -> [(role: String, content: String)]? {
-        guard let names = agentNames, !names.isEmpty else { return nil }
-        var messages: [(String, String)] = []
-        for name in names {
-            if let agent = agentStore.agents.first(where: { $0.name == name }) {
-                let context = buildContextFromAgent(agent.id)
-                if !context.isEmpty {
-                    messages.append(("user", "[\(name)의 대화 컨텍스트]\n\(context)"))
-                    messages.append(("assistant", "이해했습니다. 해당 컨텍스트를 참고하겠습니다."))
-                }
-            }
-        }
-        return messages.isEmpty ? nil : messages
-    }
-
-    // MARK: - JSON 파싱
-
-    func parseMasterResponse(_ response: String) -> MasterAction {
-        let cleaned = extractJSON(from: response)
-
-        guard let data = cleaned.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let action = json["action"] as? String else {
-            return .unknown(rawResponse: response)
-        }
-
-        switch action {
-        case "delegate":
-            guard let agents = json["agents"] as? [String],
-                  let task = json["task"] as? String else {
-                return .unknown(rawResponse: response)
-            }
-            let contextFrom = json["context_from"] as? [String]
-            return .delegate(agents: agents, task: task, contextFrom: contextFrom)
-
-        case "suggest_agent":
-            guard let name = json["name"] as? String,
-                  let persona = json["persona"] as? String else {
-                return .unknown(rawResponse: response)
-            }
-            let provider = json["recommended_provider"] as? String ?? ""
-            let model = json["recommended_model"] as? String ?? ""
-            let preset = json["recommended_preset"] as? String
-            let roleTemplateID = json["roleTemplateID"] as? String
-            return .suggestAgent(name: name, persona: persona, provider: provider, model: model, preset: preset, roleTemplateID: roleTemplateID)
-
-        case "chain":
-            guard let stepsArray = json["steps"] as? [[String: String]] else {
-                return .unknown(rawResponse: response)
-            }
-            let steps = stepsArray.compactMap { dict -> MasterAction.ChainStep? in
-                guard let agent = dict["agent"], let task = dict["task"] else { return nil }
-                return MasterAction.ChainStep(agent: agent, task: task)
-            }
-            return steps.isEmpty ? .unknown(rawResponse: response) : .chain(steps: steps)
-
-        default:
-            return .unknown(rawResponse: response)
-        }
-    }
-
-    /// 마크다운 코드블록이나 텍스트에서 JSON 추출
-    func extractJSON(from text: String) -> String {
-        // ```json ... ``` 블록
-        if let startRange = text.range(of: "```json"),
-           let endRange = text.range(of: "```", range: startRange.upperBound..<text.endIndex) {
-            let jsonStr = String(text[startRange.upperBound..<endRange.lowerBound])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return jsonStr
-        }
-        // ``` ... ``` 블록
-        if let startRange = text.range(of: "```\n"),
-           let endRange = text.range(of: "\n```", range: startRange.upperBound..<text.endIndex) {
-            let jsonStr = String(text[startRange.upperBound..<endRange.lowerBound])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return jsonStr
-        }
-        // { ... } 찾기
-        if let start = text.firstIndex(of: "{"),
-           let end = text.lastIndex(of: "}") {
-            return String(text[start...end])
-        }
-        return text
-    }
-
-    // MARK: - 분석가 자동 생성
-
-    /// 분석가가 없으면 빌트인 템플릿으로 자동 생성
-    private func ensureAnalystExists(masterAgent: Agent, agentStore: AgentStore) -> Agent {
-        // 이미 존재하면 반환
-        let analystIDs: Set<String> = ["requirements_analyst", "jira_analyst"]
-        if let existing = agentStore.subAgents.first(where: {
-            $0.roleTemplateID.map { analystIDs.contains($0) } ?? false
-        }) {
-            return existing
-        }
-
-        // 빌트인 템플릿으로 생성
-        let template = AgentRoleTemplateRegistry.template(for: "requirements_analyst")!
-        let analyst = Agent(
-            name: template.name,
-            persona: template.resolvedPersona(for: masterAgent.providerName),
-            providerName: masterAgent.providerName,
-            modelName: masterAgent.modelName,
-            roleTemplateID: "requirements_analyst"
-        )
-        agentStore.addAgent(analyst)
-        return analyst
-    }
-
-    // MARK: - 에이전트 이름 해석 (퍼지 매칭)
-
-    /// 마스터가 반환한 이름으로 에이전트를 찾되, 정확 일치 → 대소문자 무시 → 포함 매칭 순으로 시도
-    private func resolveAgent(name: String, in agentStore: AgentStore) -> Agent? {
-        let candidates = agentStore.subAgents
-
-        // 1. 정확 일치
-        if let exact = candidates.first(where: { $0.name == name }) {
-            return exact
-        }
-
-        let lower = name.lowercased()
-
-        // 2. 대소문자 무시 일치
-        if let ci = candidates.first(where: { $0.name.lowercased() == lower }) {
-            return ci
-        }
-
-        // 3. 공백·특수문자 제거 후 일치 (예: "QA 전문가" vs "QA전문가")
-        let normalized = name.filter { $0.isLetter || $0.isNumber }.lowercased()
-        if !normalized.isEmpty,
-           let norm = candidates.first(where: {
-               $0.name.filter { $0.isLetter || $0.isNumber }.lowercased() == normalized
-           }) {
-            return norm
-        }
-
-        // 4. 에이전트 이름이 입력을 포함하거나 입력이 에이전트 이름을 포함
-        if let contains = candidates.first(where: {
-            $0.name.lowercased().contains(lower) || lower.contains($0.name.lowercased())
-        }) {
-            return contains
-        }
-
-        return nil
     }
 
     // MARK: - Helpers
@@ -893,8 +273,6 @@ class ChatViewModel: ObservableObject {
 
     func buildHistory(for agentID: UUID) -> [(role: String, content: String)] {
         let msgs = messagesByAgent[agentID] ?? []
-        // 내부 메시지(delegation, chainProgress, error, suggestion)를 제외하고
-        // 실제 대화 메시지(text, summary)만 API에 전송
         return msgs
             .filter { [.text, .summary].contains($0.messageType) }
             .suffix(20)

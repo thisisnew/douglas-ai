@@ -346,27 +346,25 @@ class RoomManager: ObservableObject {
 
     // MARK: - 방 워크플로우 (계획 → 실행)
 
-    /// 분석가 방일 때 기존 서브 에이전트를 자동 초대 (토론을 위해)
-    /// 방의 첫 번째 에이전트가 분석가 계열인지 확인
-    private func isAnalystLed(roomID: UUID) -> Bool {
+    /// 방의 첫 번째 에이전트가 마스터인지 확인 (마스터 주도 트리아지)
+    private func isMasterLed(roomID: UUID) -> Bool {
         guard let room = rooms.first(where: { $0.id == roomID }),
               let firstAgentID = room.assignedAgentIDs.first,
               let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }) else { return false }
-        let analystIDs: Set<String> = ["requirements_analyst", "jira_analyst"]
-        return agent.roleTemplateID.map { analystIDs.contains($0) } ?? false
+        return agent.isMaster
     }
 
     /// Triage 단계: 분석 → 전문가 초대
     private func executeTriagePhase(roomID: UUID, task: String) async {
         guard let room = rooms.first(where: { $0.id == roomID }),
-              let analystID = room.assignedAgentIDs.first,
-              let analyst = agentStore?.agents.first(where: { $0.id == analystID }),
-              let provider = providerManager?.provider(named: analyst.providerName) else { return }
+              let masterID = room.assignedAgentIDs.first,
+              let masterAgent = agentStore?.agents.first(where: { $0.id == masterID }),
+              let provider = providerManager?.provider(named: masterAgent.providerName) else { return }
 
         // ── Step 1: 분석 + 요약 (도구 없이, 이미지 포함) ──
         let analyzeMsg = ChatMessage(
             role: .system,
-            content: "분석가가 요청을 분석하는 중..."
+            content: "요청을 분석하는 중..."
         )
         appendMessage(analyzeMsg, to: roomID)
 
@@ -389,7 +387,7 @@ class RoomManager: ObservableObject {
         do {
             // sendMessageWithTools(tools: []) → 이미지 전달 O, 도구 사용 X
             let analysisResponse = try await provider.sendMessageWithTools(
-                model: analyst.modelName,
+                model: masterAgent.modelName,
                 systemPrompt: analyzePrompt,
                 messages: history,
                 tools: []
@@ -401,13 +399,13 @@ class RoomManager: ObservableObject {
             case .mixed(let t, _): analysisText = t
             }
 
-            let analysisReply = ChatMessage(role: .assistant, content: analysisText, agentName: analyst.name)
+            let analysisReply = ChatMessage(role: .assistant, content: analysisText, agentName: masterAgent.name)
             appendMessage(analysisReply, to: roomID)
         } catch {
             let errorMsg = ChatMessage(
                 role: .assistant,
                 content: "분석 오류: \(error.localizedDescription)",
-                agentName: analyst.name,
+                agentName: masterAgent.name,
                 messageType: .error
             )
             appendMessage(errorMsg, to: roomID)
@@ -454,9 +452,8 @@ class RoomManager: ObservableObject {
             appendMessage(updatedAnalysis, to: roomID)
         }
 
-        // ── Step 1.6: 포괄적 분석가 → 사용자 컨펌 (거부 시 재분석 루프) ──
-        let isGenericAnalyst = analyst.roleTemplateID == "requirements_analyst"
-        if isGenericAnalyst {
+        // ── Step 1.6: 마스터 주도 → 사용자 컨펌 (거부 시 재분석 루프) ──
+        if masterAgent.isMaster {
             var currentAnalysis = analysisText
             let maxRetries = 3
 
@@ -534,12 +531,12 @@ class RoomManager: ObservableObject {
                     appendMessage(retryMsg, to: roomID)
 
                     do {
-                        // 이미지 없이 텍스트만 전달 (분석가가 작업 수행 방지)
+                        // 이미지 없이 텍스트만 전달 (마스터가 작업 수행 방지)
                         let retryMessages = [
                             ConversationMessage.user("이전 분석:\n\(currentAnalysis)\n\n사용자 피드백:\n\(userFeedback)")
                         ]
                         let retryResponse = try await provider.sendMessageWithTools(
-                            model: analyst.modelName,
+                            model: masterAgent.modelName,
                             systemPrompt: retryPrompt,
                             messages: retryMessages,
                             tools: []
@@ -549,7 +546,7 @@ class RoomManager: ObservableObject {
                         case .toolCalls: currentAnalysis = "분석 완료"
                         case .mixed(let t, _): currentAnalysis = t
                         }
-                        let retryReply = ChatMessage(role: .assistant, content: currentAnalysis, agentName: analyst.name)
+                        let retryReply = ChatMessage(role: .assistant, content: currentAnalysis, agentName: masterAgent.name)
                         appendMessage(retryReply, to: roomID)
                     } catch {
                         // 재분석 실패 → 이전 분석 유지
@@ -574,7 +571,7 @@ class RoomManager: ObservableObject {
         }
 
         // ── Step 2: 전문가 초대 (프로그래밍적 — LLM 의존 없음) ──
-        let availableAgents = agentStore?.subAgents.filter { $0.id != analystID } ?? []
+        let availableAgents = agentStore?.subAgents.filter { !$0.isMaster } ?? []
         let roleName = Self.extractRoleName(from: analysisText) ?? Self.extractRoleFromTask(task)
 
         // 기존 에이전트 중 이름이 유사한 에이전트 매칭
@@ -588,8 +585,8 @@ class RoomManager: ObservableObject {
             let newAgent = Agent(
                 name: roleName,
                 persona: "당신은 \(roleName)입니다. 사용자의 요청을 전문적으로 수행하세요. 결과물을 직접 작성하여 제출하세요.",
-                providerName: analyst.providerName,
-                modelName: analyst.modelName
+                providerName: masterAgent.providerName,
+                modelName: masterAgent.modelName
             )
             agentStore?.addAgent(newAgent)
             addAgent(newAgent.id, to: roomID)
@@ -631,8 +628,8 @@ class RoomManager: ObservableObject {
         rooms[idx].status = .planning
         syncAgentStatuses()
 
-        // ── Phase 0: Triage (분석가 방이면 분석 + 팀 구성) ──
-        if isAnalystLed(roomID: roomID) {
+        // ── Phase 0: Triage (마스터 주도 방이면 분석 + 팀 구성) ──
+        if isMasterLed(roomID: roomID) {
             await executeTriagePhase(roomID: roomID, task: task)
             guard !Task.isCancelled,
                   rooms.first(where: { $0.id == roomID })?.status == .planning else { return }
@@ -746,13 +743,12 @@ class RoomManager: ObservableObject {
         await executeRoomWork(roomID: roomID, task: task)
     }
 
-    /// 실행 대상 에이전트 (분석가 제외)
+    /// 실행 대상 에이전트 (마스터 제외)
     private func executingAgentIDs(in roomID: UUID) -> [UUID] {
         guard let room = rooms.first(where: { $0.id == roomID }) else { return [] }
-        let analystTemplateIDs: Set<String> = ["requirements_analyst", "jira_analyst"]
         return room.assignedAgentIDs.filter { id in
             let agent = agentStore?.agents.first(where: { $0.id == id })
-            return !(agent?.roleTemplateID.map { analystTemplateIDs.contains($0) } ?? false)
+            return !(agent?.isMaster ?? false)
         }
     }
 
@@ -879,7 +875,7 @@ class RoomManager: ObservableObject {
         scheduleSave()
     }
 
-    /// Clarify 단계: 분석가가 ask_user로 결측치 질문 (최대 5회) → 미답 시 가정 선언
+    /// Clarify 단계: 마스터가 ask_user로 결측치 질문 (최대 5회) → 미답 시 가정 선언
     private func executeClarifyPhase(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }),
               let firstAgentID = rooms[idx].assignedAgentIDs.first,
@@ -958,7 +954,7 @@ class RoomManager: ObservableObject {
                 }
             }
 
-            // 분석가 응답을 방에 추가
+            // 마스터 응답을 방에 추가
             let strippedResponse = ArtifactParser.stripArtifactBlocks(from: response)
             if !strippedResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 let responseMsg = ChatMessage(role: .assistant, content: strippedResponse, agentName: agent.name)
@@ -1011,14 +1007,14 @@ class RoomManager: ObservableObject {
         }
     }
 
-    /// Assemble 단계: 분석가 역할 산출 → 시스템 매칭/초대 → 커버리지 게이트
+    /// Assemble 단계: 마스터 역할 산출 → 시스템 매칭/초대 → 커버리지 게이트
     private func executeAssemblePhase(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }),
               let firstAgentID = rooms[idx].assignedAgentIDs.first,
               let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return }
 
-        // 1) 분석가에게 역할 요구사항 산출 요청
+        // 1) 마스터에게 역할 요구사항 산출 요청
         var contextParts: [String] = []
         if let intakeData = rooms[idx].intakeData {
             contextParts.append(intakeData.asContextString())
@@ -1153,8 +1149,8 @@ class RoomManager: ObservableObject {
     private func executeLegacyPlanPhase(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
-        // 분석가 방이면 Triage 단계 실행
-        if isAnalystLed(roomID: roomID) {
+        // 마스터 주도 방이면 Triage 단계 실행
+        if isMasterLed(roomID: roomID) {
             await executeTriagePhase(roomID: roomID, task: task)
             guard !Task.isCancelled,
                   rooms.first(where: { $0.id == roomID })?.status == .planning else { return }
@@ -1348,11 +1344,10 @@ class RoomManager: ObservableObject {
         guard let room = rooms.first(where: { $0.id == roomID }) else {
             return nil
         }
-        // 전문가(분석가 제외)를 계획 생성자로 선택
-        let analystTemplateIDs: Set<String> = ["requirements_analyst", "jira_analyst"]
+        // 전문가(마스터 제외)를 계획 생성자로 선택
         let specialistID = room.assignedAgentIDs.first { id in
             guard let a = agentStore?.agents.first(where: { $0.id == id }) else { return false }
-            return !(a.roleTemplateID.map { analystTemplateIDs.contains($0) } ?? false)
+            return !(a.isMaster)
         } ?? room.assignedAgentIDs.first
         guard let firstAgentID = specialistID,
               let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
@@ -1392,12 +1387,11 @@ class RoomManager: ObservableObject {
             playbookContext = ""
         }
 
-        // 방 내 전문가 목록 (분석가 제외)
+        // 방 내 전문가 목록 (마스터 제외)
         let specialistNames: String
-        let planAnalystIDs: Set<String> = ["requirements_analyst", "jira_analyst"]
         let specialists = room.assignedAgentIDs.compactMap { id -> String? in
             guard let agent = agentStore?.agents.first(where: { $0.id == id }) else { return nil }
-            if let tid = agent.roleTemplateID, planAnalystIDs.contains(tid) { return nil }
+            if agent.isMaster { return nil }
             return agent.name
         }
         specialistNames = specialists.isEmpty ? "(없음)" : specialists.joined(separator: ", ")
@@ -1418,7 +1412,7 @@ class RoomManager: ObservableObject {
         - 여러 단계로 쪼개야 하는 경우는 "서로 다른 전문가가 순서대로" 작업할 때뿐입니다.
         - estimated_minutes는 현실적으로 추정하세요 (1~30분)
         - 각 step에 "agent" 필드로 담당 전문가를 지정하세요 (위 목록에서 정확한 이름 사용)
-        - 분석가(요구사항 분석가)는 실행 대상이 아닙니다. 분석가에게 step을 배정하지 마세요.
+        - 마스터(PM/오케스트레이터)는 실행 대상이 아닙니다. 마스터에게 step을 배정하지 마세요.
         - 배포, 데이터 삭제 등 위험한 단계는 "requires_approval": true 추가
         - 반드시 유효한 JSON으로만 응답하세요
         """
@@ -1615,7 +1609,7 @@ class RoomManager: ObservableObject {
             )
             appendMessage(progressMsg, to: roomID)
 
-            // 실행 대상: 분석가 제외, 전문가만
+            // 실행 대상: 마스터 제외, 전문가만
             let targetAgentIDs: [UUID]
             if let assignedID = step.assignedAgentID {
                 targetAgentIDs = [assignedID]
@@ -2215,18 +2209,17 @@ class RoomManager: ObservableObject {
             .filter { $0 != agent.name }
             .joined(separator: ", ") ?? ""
 
-        // 분석가 여부 판별
-        let analystTemplateIDs: Set<String> = ["requirements_analyst", "jira_analyst"]
-        let isAnalyst = agent.roleTemplateID.map { analystTemplateIDs.contains($0) } ?? false
+        // 마스터(오케스트레이터) 여부 판별
+        let isMasterAgent = agent.isMaster
 
         let discussionPrompt: String
-        if isAnalyst {
-            // 분석가: 요구사항 전달만, 직접 작업 금지
+        if isMasterAgent {
+            // 마스터: 요구사항 전달만, 직접 작업 금지
             discussionPrompt = """
-            당신은 요구사항 분석가입니다. 토론에서의 역할:
+            당신은 PM/오케스트레이터입니다. 토론에서의 역할:
             - 전문가에게 사용자의 요구사항을 간결하게 전달
             - 전문가의 질문에 답변
-            - 작업 방향이 맞는지 확인
+            - 작업 방향이 맞는지 확인하고, 전문가의 업무를 대신 수행하지 않습니다
 
             [절대 금지] 번역, 코딩, 문서 작성 등 실제 작업 수행
             [절대 금지] 전문가의 업무를 대신 수행

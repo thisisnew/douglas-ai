@@ -3,11 +3,11 @@
 ## 개요
 
 DOUGLAS는 **macOS 네이티브 AI 에이전트 관리 데스크톱 앱**이다.
-화면 오른쪽 끝에 떠 있는 플로팅 사이드바에서 여러 AI 에이전트를 관리하고, 마스터 에이전트가 사용자 요청을 분석하여 적합한 서브 에이전트에게 작업을 자동으로 위임한다.
+화면 오른쪽 끝에 떠 있는 플로팅 사이드바에서 여러 AI 에이전트를 관리하고, 마스터 에이전트(PM/오케스트레이터)가 사용자 요청으로 방을 즉시 생성하여 요구사항 분석 → 전문가 초대 → 토론 → 실행까지 자동으로 진행한다.
 
 **핵심 UX 컨셉 — "사장님 모드"**: 사용자는 에이전트를 직접 골라서 시키지 않는다.
-사이드바에 타이핑하면 마스터 에이전트가 알아서 적합한 팀원(서브 에이전트)에게 분배한다.
-사장님이 "야 거기 누구 이거 해" 하면 비서실장(마스터)이 알아서 처리하는 구조.
+사이드바에 타이핑하면 마스터(PM)가 즉시 방을 만들고, 요구사항을 확인한 뒤 적합한 전문가를 소환하여 작업을 진행한다.
+사장님이 "야 이거 해" 하면 비서실장(마스터)이 방을 만들고 팀을 꾸려서 처리하는 구조.
 
 - **플랫폼**: macOS 14+ (Sonoma)
 - **언어**: Swift 5.9
@@ -90,7 +90,6 @@ DOUGLAS/
 │       ├── RoomChatView.swift       # 방별 채팅 인터페이스
 │       ├── WorkLogView.swift        # 방 작업 로그 뷰
 │       ├── AgentAvatarView.swift    # 원형 아바타 (마스터/서브 아이콘 분기)
-│       ├── SuggestionCard.swift     # 에이전트 자동 생성 제안 카드
 │       ├── DesignTokens.swift       # 디자인 시스템 (색상, 타이포, 간격, 모서리, 애니메이션, 윈도우 크기)
 │       ├── SharedComponents.swift   # 공유 UI 컴포넌트 (SheetNavHeader, CardContainer, SendButton 등)
 │       └── ToastView.swift          # 임시 알림 오버레이
@@ -164,47 +163,29 @@ DOUGLAS/
 에이전트 목록의 CRUD와 상태 관리를 담당한다.
 
 - 앱 시작 시 마스터 에이전트 자동 생성 보장
-- 앱 시작 시 요구사항 분석가 자동 생성 보장 (`requirements_analyst` 템플릿)
 - 모든 에이전트 상태를 `.idle`로 초기화 (이전 세션 잔여 상태 제거)
 - 마스터 에이전트는 삭제 불가
 - 기존 워즈니악 에이전트 자동 마이그레이션 제거
 - `minimizedAgentIDs`: 도크에 최소화된 채팅 창 추적
 - `subAgents`: 마스터를 제외한 일반 에이전트 필터
 
-**masterSystemPrompt()**: 마스터 에이전트의 동적 시스템 프롬프트 생성
-- 현재 등록된 서브 에이전트 목록 (이름, 도구 목록, 페르소나 요약) 포함
-- 3가지 JSON 응답 형식 명시: delegate, chain, suggest_agent (직접 응답 금지)
-- Jira 연동 상태 (JiraConfig.shared.isConfigured) 표시
-- 에이전트 목록이 비어있으면 "(없음)" 표시
+**masterSystemPrompt()**: 마스터 에이전트의 PM/오케스트레이터 역할 프롬프트
+- 요구사항 분석, 전문가 식별, 팀 구성, 토론 조율
+- 직접 작업 수행 금지 원칙
+- 정보 부족 시 사용자에게 질문하라는 핵심 원칙
 
 ### 3. ChatViewModel (`ViewModels/ChatViewModel.swift`)
 
-앱의 핵심 오케스트레이션 엔진. 마스터 에이전트의 6가지 기능을 구현한다.
+사용자 메시지의 진입점. 마스터와 서브 에이전트의 메시지 처리를 분기한다.
 
-**MasterAction enum**:
-```
-delegate  → 병렬 위임 (여러 에이전트 동시 실행)
-suggest   → 새 에이전트 생성 제안
-chain     → 순차 워크플로우 (A→B→C)
-unknown   → JSON 파싱 실패 시 원문 표시
-```
-(respond 액션 제거됨 — 마스터는 직접 응답 금지, 반드시 delegate/suggest_agent/chain만 사용)
+**마스터 메시지 처리** (`handleMasterMessage`):
+- LLM 호출 없이 즉시 방 생성 → 마스터가 방의 첫 에이전트로 참여
+- Jira URL 사전 조회 (`enrichTaskWithJira`)
+- RoomManager를 통해 워크플로우 자동 시작
 
-**5대 핵심 기능**:
-
-| # | 기능 | 메서드 | 설명 |
-|---|------|--------|------|
-| 1 | 자동 라우팅 | `handleDelegation()` | 마스터가 JSON으로 위임 에이전트 지정, `withTaskGroup`으로 병렬 실행 |
-| 2 | 결과 취합 | `generateSummary()` | 2개 이상 에이전트 응답 시 마스터가 종합 요약 생성 |
-| 3 | 에이전트 제안 | `handleAgentSuggestion()` | 적합한 에이전트 없을 때 새 에이전트 생성 제안 (SuggestionCard) |
-| 4 | 오류 재시도 | `executeDelegation()` | 실패 시 최대 2회 재시도 (2초 간격), 실패 시 마스터 폴백 응답 |
-| 5 | 워크플로우 체이닝 | `handleChain()` | 순차 실행, 이전 단계 출력을 다음 단계 입력에 주입 |
-
-**JSON 파싱 (`parseMasterResponse`)**:
-- 마크다운 코드블록 (` ```json ... ``` `) 내부 JSON 추출
-- 일반 코드블록 (` ``` ... ``` `) 처리
-- `{ ... }` 패턴 매칭
-- 파싱 실패 시 `.unknown`으로 폴백 (원문 그대로 표시)
+**서브 에이전트 메시지 처리** (`handleAgentMessage`):
+- 프로바이더 API를 통한 직접 대화 (`ToolExecutor.smartSend`)
+- 도구 호출 지원 (도구 활동 실시간 표시)
 
 **이미지 첨부 지원**:
 - `sendMessage(attachments:)`: 이미지 첨부 메시지 전송
@@ -598,7 +579,6 @@ planning → awaitingApproval (토론 후 사용자 승인)
 **마스터 채팅 영역**:
 - `ScrollViewReader` + `LazyVStack` + `MessageBubble`로 메시지 표시
 - 웰컴 메시지: "무엇을 시킬까요?"
-- SuggestionCard 표시 (마스터의 에이전트 생성 제안)
 - 로딩 인디케이터 + 작업 취소 버튼
 
 **입력창**: `TextField(axis: .vertical)` + 전송 버튼 + 이미지 첨부 버튼, `Cmd+Return` 단축키, 항상 마스터에게 전송
@@ -627,7 +607,6 @@ planning → awaitingApproval (토론 후 사용자 승인)
 
 ChatContentView 구성:
 - 메시지 목록: `ScrollView` + `LazyVStack` + `MessageBubble`
-- SuggestionCard: 마스터 에이전트의 제안 카드
 - 에이전트별 로딩 인디케이터 (`loadingAgentIDs`) + 작업 취소 버튼
 - 입력창: TextField (1~5줄 동적) + 전송 버튼 (Cmd+Return)
 - 자동 스크롤: 새 메시지 시 하단으로 이동
@@ -671,13 +650,6 @@ MessageType에 따른 시각 차별화:
 - 이름: 마스터는 수정 불가 (LabeledContent)
 - 페르소나: TextEditor
 - 프로바이더/모델: Picker (동적 모델 목록 로딩)
-
-### SuggestionCard (`Views/SuggestionCard.swift`)
-
-마스터가 `suggest_agent` 응답 시 채팅 내에 표시되는 인라인 카드:
-- 제안된 에이전트의 이름, 역할, 프로바이더/모델 표시
-- "생성" 버튼: 즉시 에이전트 추가 (전체 도구 자동 부여)
-- "무시" 버튼: 제안 닫기
 
 ### AddProviderSheet (`Views/AddProviderSheet.swift`)
 
@@ -825,28 +797,27 @@ executeWithTools() 루프 (최대 10회):
 
 | 파일 | 변경 |
 |------|------|
-| `ChatViewModel.swift` | `handleAgentMessage`, `executeDelegation` → `ToolExecutor.smartSend()` (이미지 포함 시 conversationMessages 오버로드) |
+| `ChatViewModel.swift` | `handleAgentMessage` → `ToolExecutor.smartSend()` (이미지 포함 시 conversationMessages 오버로드) |
 | `RoomManager.swift` | `sendUserMessage`, `executeStep` → `ToolExecutor.smartSend()` + `ToolExecutionContext` 전달 (invite_agent/list_agents 지원) |
 
 **방 워크플로우** (`startRoomWorkflow`): `room.intent` 유무에 따라 분기.
 
-**공통 프로세스 (분석가 주도 위임)**:
+**공통 프로세스 (마스터 PM 주도)**:
 ```
-마스터 → 항상 분석가에게 delegate → 방 생성 (분석가 1명)
-  → Triage: 분석가가 분석 + invite_agent로 전문가 초대
-  → 토론 (필수): 분석가가 전문가에게 요구사항 전달
+사용자 입력 → 마스터가 즉시 방 생성 (LLM 호출 없음)
+  → Triage: 마스터가 분석 + 사용자 컨펌 + 전문가 초대/생성
+  → 토론: 마스터(오케스트레이터) + 전문가가 요구사항 협의
   → 계획 수립: 실행 순서 결정 (전문가 2명+ 시 사용자 확인)
-  → 실행: 전문가만 순차 실행 (분석가 제외)
+  → 실행: 전문가만 순차 실행 (마스터 제외)
   → 리뷰: 작업일지 생성
 ```
 
-- 마스터 라우터: 모든 요청을 분석가(`requirements_analyst`)에게 위임 (사용자가 에이전트를 명시 지정한 경우만 예외)
-- 분석가 자동 생성: 분석가가 없으면 빌트인 템플릿으로 자동 생성 (`ensureAnalystExists`)
-- **Triage 단계** (`executeTriagePhase`): 분석가가 분석 → 포괄적 분석가(`requirements_analyst`)이면 사용자 컨펌 대기 → 전문가 초대/생성. 전문가 미초대 시 워크플로우 종료.
-- **실행 시 분석가 제외** (`executingAgentIDs`): `roleTemplateID`가 분석가 계열이면 실행 대상에서 제외
+- 마스터 PM: 사용자 메시지 → 즉시 방 생성 (LLM 라우팅 없음). 방 안에서 트리아지 수행.
+- **Triage 단계** (`executeTriagePhase`): 마스터가 분석 → `isMaster`이면 사용자 컨펌 대기 → 전문가 초대/생성. 전문가 미초대 시 워크플로우 종료.
+- **실행 시 마스터 제외** (`executingAgentIDs`): `agent.isMaster`이면 실행 대상에서 제외
 - **단계별 에이전트 배정** (`RoomStep.assignedAgentID`): 계획 수립 시 각 단계에 담당 전문가 지정
 - **실행 순서 승인**: 전문가 2명+ 시 계획을 사용자에게 제시하여 승인 후 실행
-- **계획 수립**: 전문가가 생성 (분석가 제외). 계획 JSON은 사용자에게 숨김. 분석가에게 단계 배정 금지.
+- **계획 수립**: 전문가가 생성 (마스터 제외). 계획 JSON은 사용자에게 숨김. 마스터에게 단계 배정 금지.
 - **진행 메시지 간결화** (`shortenStepLabel`): 실행 단계 진행률을 `"~하는 중…"` 스타일로 축약 표시. `MessageType.progress`로 분류.
 - **에이전트 참조 프로젝트** (`Agent.referenceProjectPaths`): 에이전트별로 참조 프로젝트 디렉토리를 여러 건 등록. 방에 초대 시 `addAgent(_:to:)`에서 방의 `projectPaths`에 자동 병합.
 
@@ -855,7 +826,6 @@ executeWithTools() 루프 (최대 10회):
   - Intake → Clarify(ask_user) → Assemble(AgentMatcher) → Plan(플레이북 주입) → Execute → Review
 - **토론 후 승인**: 토론 완료 시 브리핑 생성 → `.awaitingApproval` → 사용자 승인 후 계획 수립
 - **CLI WebFetch 차단**: `ClaudeCodeProvider.sendMessage()`에서 `--disallowed-tools WebFetch` 적용 (바이브코딩 유지, URL 직접 접근만 차단)
-- **SuggestionCard 편집**: 에이전트 생성 전 이름/설명을 사용자가 편집 가능 (마스터가 초안 제공)
 
 **승인 게이트** (`executeRoomWork`): `step.requiresApproval == true`이면 `.awaitingApproval` 상태 전환 + `CheckedContinuation`으로 비동기 일시 정지. `approveStep(roomID:)` / `rejectStep(roomID:)` 호출 시 continuation resume. 거부 시 재분석 루프 (최대 3회).
 
@@ -878,7 +848,7 @@ executeWithTools() 루프 (최대 10회):
 
 **토론 산출물**: `executeDiscussionTurn()`에서 응답 파싱 → `ArtifactParser.extractArtifacts()` → `Room.artifacts` 저장. 같은 type+title이면 버전 증가.
 
-마스터 라우팅, 요약 생성, 토론 턴 등 텍스트 전용 호출은 기존 `sendMessage()` 유지.
+토론 턴 등 텍스트 전용 호출은 `sendMessage()` (tools: []) 유지.
 
 ---
 
@@ -908,28 +878,19 @@ executeWithTools() 루프 (최대 10회):
 | C-2 | **Human-in-the-loop 승인 게이트**: `RoomStep` 구조체 (plain String + object 혼합 Codable). `RoomStatus.awaitingApproval` 추가. `CheckedContinuation`으로 비동기 일시 정지. ApprovalCard UI. | ✅ |
 | C-3 | **QA 자동 검증**: `QAResult`/`QALoopStatus` 모델. `BuildLoopRunner.runTests()` + `qaFixPrompt()`. `RoomManager.runQALoop()` — 빌드 성공 후 테스트 자동 실행, 실패 시 QA 에이전트가 수정 루프. 테스트 명령 자동 감지. | ✅ |
 
-### Phase D — 분석가 중심 워크플로우 재구조화 ✅ 완료
+### Phase D — 분석가 중심 워크플로우 재구조화 → Phase G에서 대체됨
+
+> Phase D/F는 분석가를 중간 레이어로 사용했으나, Phase G에서 마스터가 직접 PM/오케스트레이터 역할을 수행하도록 대체됨.
+
+### Phase G — 마스터 = PM 오케스트레이터 ✅ 완료
 
 | 항목 | 내용 | 상태 |
 |------|------|------|
-| D-1 | **요구사항 분석가 리팩토링**: `jira_analyst` → `requirements_analyst`로 개명. 범용 요구사항 분석 + 팀 빌딩(invite_agent, suggest_agent_creation, list_agents) 중심 역할. 레거시 별칭 유지. | ✅ |
-| D-2 | **마스터 라우팅 변경**: 분석가 에이전트 존재 시 복잡한 작업을 분석가에게 우선 위임. 분석가 없으면 suggest_agent로 생성 제안. | ✅ |
-| D-3 | **에이전트 생성 제안**: `RoomAgentSuggestion` 모델 + `suggest_agent_creation` 도구 + `ToolExecutionContext.suggestAgentCreation` 콜백 + `RoomManager` 승인/거부 관리 + `AgentSuggestionCard` UI. | ✅ |
-| D-4 | **방 목록 "확인 필요" 플래그**: `Room.needsUserAttention` (승인 대기 or pending suggestion). 방 목록에 주황 캡슐 뱃지 표시. | ✅ |
-| D-5 | **하드코딩 빌드/QA 루프 제거**: `executeRoomWork()`에서 빌드/QA 자동 호출 블록 제거. 에이전트가 계획 단계에서 직접 shell_exec으로 처리. | ✅ |
-| D-6 | **QA 템플릿 세분화**: `qa_engineer` 1개 → `qa_test_automation`, `qa_exploratory`, `qa_security`, `qa_code_review` 4종. 레거시 별칭 유지. | ✅ |
-
-### Phase F — 분석가 주도 위임 (공통 프로세스) ✅ 완료
-
-| 항목 | 내용 | 상태 |
-|------|------|------|
-| F-1 | **마스터 라우터 단순화**: 모든 요청 → 분석가 delegate (사용자가 에이전트 명시 지정 시만 예외). `.chain` 제거. | ✅ |
-| F-2 | **분석가 자동 생성**: `ensureAnalystExists()` — 분석가 없으면 빌트인 `requirements_analyst` 템플릿으로 자동 생성. | ✅ |
-| F-3 | **Triage 단계**: `executeTriagePhase()` — 분석가가 `list_agents` + `invite_agent`로 팀 구성. `autoInviteForAnalyst` 제거. | ✅ |
-| F-4 | **실행 시 분석가 제외**: `executingAgentIDs()` — 분석가 계열을 실행 대상에서 제외. 토론까지만 참여. | ✅ |
-| F-5 | **단계별 에이전트 배정**: `RoomStep.assignedAgentID` 추가. 계획 수립 시 각 단계에 담당 전문가 지정. | ✅ |
-| F-6 | **실행 순서 승인**: 전문가 2명+ 시 계획을 사용자에게 제시하여 승인 후 실행. | ✅ |
-| F-7 | **전문가 미초대 시 워크플로우 종료**: Triage 후 전문가 0명이면 `.failed` 전환. | ✅ |
+| G-1 | **마스터 LLM 라우팅 제거**: `handleMasterMessage()`에서 LLM 호출 없이 즉시 방 생성. `MasterAction`, `parseMasterResponse`, `extractJSON`, `handleDelegation`, `handleChain`, `generateSummary`, `masterFallbackResponse` 등 ~500줄 삭제. | ✅ |
+| G-2 | **분석가 자동 생성 제거**: `ensureAnalystExists()`, `createDefaultAnalyst()` 삭제. 마스터가 직접 트리아지 수행. | ✅ |
+| G-3 | **RoomManager 마스터 기반**: `isAnalystLed()` → `isMasterLed()`, `executingAgentIDs()` 마스터 제외, 토론에서 마스터 PM 프롬프트 사용. | ✅ |
+| G-4 | **SuggestionCard 제거**: 사이드바 에이전트 제안 카드 삭제 (방 내 `AgentSuggestionCard`는 유지). | ✅ |
+| G-5 | **masterSystemPrompt 간소화**: PM/오케스트레이터 역할 프롬프트 (JSON 형식 불필요). | ✅ |
 
 ### Phase E — Intent 기반 7단계 워크플로우 ✅ 완료
 
@@ -939,8 +900,8 @@ executeWithTools() 루프 (최대 10회):
 | E-2 | **ProjectPlaybook**: 프로젝트별 워크플로우 설정 (`{projectPath}/.douglas/playbook.json`). UserRole→defaultIntent 매핑. 브랜치 전략, 테스트 정책, 배포 프로세스. 프리셋 3종 (startup/team/enterprise). Override 추적 + 영구 변경 제안. | ✅ |
 | E-3 | **ask_user 도구 + UserInput 게이트**: Clarify 단계에서만 사용 가능한 사용자 질문 도구. `CheckedContinuation` 기반 블로킹. `UserInputCard` UI. | ✅ |
 | E-4 | **Intake + Intent 단계**: 입력 파싱 (URL/Jira 감지), Jira API fetch → `IntakeData` 구조화 저장, 플레이북 로드. `room.intent` 유무로 레거시/새 워크플로우 분기. | ✅ |
-| E-5 | **Clarify 단계 + 가정 선언**: 분석가가 `ask_user`로 결측치 질문 (최대 5개). 미답 시 `artifact:assumptions`로 가정 선언 (위험도: 낮음/중간/높음). `WorkflowAssumption` 파싱. | ✅ |
-| E-6 | **시스템 주도 Assembly**: 분석가가 `artifact:role_requirements` 산출 → `AgentMatcher`가 자동 매칭 (templateID → persona 키워드). 매칭된 에이전트 자동 초대, 미매칭은 생성 제안. 필수 역할 50%+ 커버리지 게이트. | ✅ |
+| E-5 | **Clarify 단계 + 가정 선언**: 마스터가 `ask_user`로 결측치 질문 (최대 5개). 미답 시 `artifact:assumptions`로 가정 선언 (위험도: 낮음/중간/높음). `WorkflowAssumption` 파싱. | ✅ |
+| E-6 | **시스템 주도 Assembly**: 마스터가 `artifact:role_requirements` 산출 → `AgentMatcher`가 자동 매칭 (templateID → persona 키워드). 매칭된 에이전트 자동 초대, 미매칭은 생성 제안. 필수 역할 50%+ 커버리지 게이트. | ✅ |
 | E-7 | **Plan/Execute/Review + 플레이북 주입**: 계획 수립 프롬프트에 플레이북 컨텍스트 주입. Review 단계에서 플레이북 override 감지. 레거시 메서드 재사용으로 점진적 전환. | ✅ |
 
 **7단계 워크플로우 상태기계**:
@@ -948,7 +909,7 @@ executeWithTools() 루프 (최대 10회):
 ① Intake ── 입력 파싱 (Jira fetch, URL 감지, IntakeData 저장, 플레이북 로드)
 ② Intent ── 작업 목적 확인 (방 생성 시 설정, 플레이북 기본값)
 ③ Clarify ─ 결측치 질문 (ask_user 최대 5개) + 미답 시 가정 선언
-④ Assemble ─ 분석가 역할 산출 → 시스템 매칭/초대 (커버리지 게이트)
+④ Assemble ─ 마스터 역할 산출 → 시스템 매칭/초대 (커버리지 게이트)
 ⑤ Plan ──── 토론 + 브리핑 + 승인 + 계획 수립 (플레이북 주입)
 ⑥ Execute ── 단계별 병렬 실행
 ⑦ Review ─── 작업일지 + 플레이북 override 감지
@@ -1048,7 +1009,6 @@ executeWithTools() 루프 (최대 10회):
 | DependencyChecker.swift | ~100 | 의존성 체크 (온보딩) |
 | AIProvider.swift | ~80 | 프로바이더 프로토콜 + Tool Use 확장 |
 | AgentAvatarView.swift | ~72 | 아바타 컴포넌트 (2종 아이콘) |
-| SuggestionCard.swift | ~72 | 제안 카드 |
 | ChatMessage.swift | ~58 | 메시지 모델 (이미지 첨부 포함) |
 | OpenAIProvider.swift | ~140 | OpenAI API + Tool Use + Vision |
 | GoogleProvider.swift | ~130 | Gemini API + Tool Use + Vision |
@@ -1094,9 +1054,8 @@ Tests/
 │   └── ToolExecutionContextTests.swift # 6 tests — 생성, empty, agentListString
 ├── ViewModels/
 │   ├── AgentStoreTests.swift         # 25 tests — CRUD, 마스터 보호, updateMasterProvider
-│   ├── ChatViewModelTests.swift      # 36 tests — 상태 관리, 메시지 격리, 로딩, 히스토리 필터
-│   ├── ChatViewModelParsingTests.swift # 18 tests — JSON 추출, parseMasterResponse 전체 액션
-│   ├── ChatViewModelIntegrationTests.swift # 26 tests — 위임 재시도, 체이닝, 요약, 알림, 메시지 영속화
+│   ├── ChatViewModelTests.swift      # 상태 관리, 메시지 격리, 로딩, 히스토리 필터
+│   ├── ChatViewModelIntegrationTests.swift # 방 생성, 서브 에이전트 대화, 오류, 알림, 메시지 영속화
 │   ├── OnboardingViewModelTests.swift # 37 tests — Claude 셋업, 의존성 체크, 프로바이더 선택, 마스터 우선순위
 │   ├── ProviderManagerTests.swift    # 23 tests — 팩토리, configureFromOnboarding, 영속화, connectedConfigs, mock 오버라이드
 │   ├── RoomManagerTests.swift        # 54 tests — 방 생명주기, 에이전트 동기화, 워크플로우, 토론 과반, 계획 파싱

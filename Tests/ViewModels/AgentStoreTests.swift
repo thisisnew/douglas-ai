@@ -143,34 +143,28 @@ struct AgentStoreTests {
         #expect(!store.agents.contains(where: { $0.name == "Original" }))
     }
 
-    @Test("masterSystemPrompt - 서브 에이전트 포함")
-    func masterSystemPromptContainsSubAgents() {
+    @Test("masterSystemPrompt - PM/오케스트레이터 역할 포함")
+    func masterSystemPromptContainsPMRole() {
         let defaults = makeTestDefaults()
         let store = AgentStore(defaults: defaults)
-        let sub = makeTestAgent(name: "TestHelper", persona: "helps with testing")
-        store.addAgent(sub)
         let prompt = store.masterSystemPrompt()
-        #expect(prompt.contains("TestHelper"))
+        #expect(prompt.contains("PM") || prompt.contains("오케스트레이터"))
     }
 
-    @Test("masterSystemPrompt - 서브 에이전트 없을 때")
-    func masterSystemPromptNoSubAgents() {
+    @Test("masterSystemPrompt - 요구사항 분석 역할")
+    func masterSystemPromptContainsAnalysis() {
         let defaults = makeTestDefaults()
         let store = AgentStore(defaults: defaults)
         let prompt = store.masterSystemPrompt()
-        #expect(prompt.contains("delegate"))
-        #expect(prompt.contains("suggest_agent"))
-        #expect(!prompt.contains("\"respond\""))
+        #expect(prompt.contains("요구사항") || prompt.contains("분석"))
     }
 
-    @Test("masterSystemPrompt - JSON 형식 포함")
-    func masterSystemPromptContainsFormats() {
+    @Test("masterSystemPrompt - 직접 작업 금지 원칙")
+    func masterSystemPromptNoDirectWork() {
         let defaults = makeTestDefaults()
         let store = AgentStore(defaults: defaults)
         let prompt = store.masterSystemPrompt()
-        #expect(prompt.contains("delegate"))
-        #expect(prompt.contains("chain"))
-        #expect(prompt.contains("suggest_agent"))
+        #expect(prompt.contains("대신 수행하지") || prompt.contains("질문"))
     }
 
     @Test("minimizedAgentIDs - 초기 빈 상태")

@@ -527,12 +527,6 @@ struct FloatingSidebarView: View {
                                     .id(message.id)
                             }
 
-                            if let master = masterAgent,
-                               let suggestion = chatVM.pendingSuggestion,
-                               suggestion.masterAgentID == master.id {
-                                SuggestionCard(suggestion: suggestion)
-                            }
-
                             if chatVM.loadingAgentIDs.contains(agentID) {
                                 HStack(spacing: 8) {
                                     ProgressView()
