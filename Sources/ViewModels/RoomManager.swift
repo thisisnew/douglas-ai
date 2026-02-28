@@ -19,6 +19,8 @@ class RoomManager: ObservableObject {
     private var approvalContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
     /// 사용자 입력 대기 중인 continuation (방 ID → continuation)
     private var userInputContinuations: [UUID: CheckedContinuation<String, Never>] = [:]
+    /// 에이전트 생성 제안 승인 대기 continuation (방 ID → continuation)
+    private var suggestionContinuations: [UUID: CheckedContinuation<Void, Never>] = [:]
 
     // MARK: - 계산 프로퍼티
 
@@ -278,6 +280,7 @@ class RoomManager: ObservableObject {
         )
         appendMessage(msg, to: roomID)
         scheduleSave()
+        resumeSuggestionContinuationIfResolved(roomID: roomID)
     }
 
     /// 에이전트 생성 제안 거부
@@ -294,6 +297,16 @@ class RoomManager: ObservableObject {
         )
         appendMessage(msg, to: roomID)
         scheduleSave()
+        resumeSuggestionContinuationIfResolved(roomID: roomID)
+    }
+
+    /// 모든 제안이 해결되면 대기 중인 continuation 재개
+    private func resumeSuggestionContinuationIfResolved(roomID: UUID) {
+        guard let room = rooms.first(where: { $0.id == roomID }) else { return }
+        let hasPending = room.pendingAgentSuggestions.contains { $0.status == .pending }
+        if !hasPending, let cont = suggestionContinuations.removeValue(forKey: roomID) {
+            cont.resume()
+        }
     }
 
     // MARK: - 방에 에이전트 추가
@@ -400,12 +413,14 @@ class RoomManager: ObservableObject {
 
         절차:
         1. list_agents로 사용 가능한 에이전트 확인
-        2. invite_agent로 필요한 에이전트 초대 (반드시 1명 이상)
-        3. 적합한 에이전트가 없으면 suggest_agent_creation으로 제안
+        2. 적합한 에이전트가 있으면 → invite_agent로 초대
+        3. 적합한 에이전트가 없으면 → suggest_agent_creation으로 생성 제안
+           (name, persona, reason 필수)
 
-        금지:
-        - 번역, 코딩, 문서 작성 등 실제 작업 수행 금지
-        - 초대 결과만 1줄로 보고 (예: "백엔드 개발자를 초대했습니다")
+        중요:
+        - 존재하지 않는 이름으로 invite_agent를 호출하면 실패합니다
+        - list_agents 결과에 없는 에이전트는 반드시 suggest_agent_creation을 사용하세요
+        - 초대/제안 결과만 1줄로 보고하세요
         """
 
         let updatedHistory = buildRoomHistory(roomID: roomID)
@@ -446,6 +461,33 @@ class RoomManager: ObservableObject {
             syncAgentStatuses()
             scheduleSave()
             return
+        }
+
+        // 에이전트 생성 제안이 있으면 사용자 승인 대기
+        if let currentRoom = rooms.first(where: { $0.id == roomID }),
+           currentRoom.pendingAgentSuggestions.contains(where: { $0.status == .pending }) {
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.awaitingApproval)
+            }
+            let waitMsg = ChatMessage(
+                role: .system,
+                content: "에이전트 생성 제안을 확인해 주세요."
+            )
+            appendMessage(waitMsg, to: roomID)
+            syncAgentStatuses()
+            scheduleSave()
+
+            // 사용자가 모든 제안을 승인/거부할 때까지 대기
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                suggestionContinuations[roomID] = continuation
+            }
+
+            // 승인 후 planning으로 복귀
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.planning)
+            }
+            syncAgentStatuses()
+            scheduleSave()
         }
 
         // 전문가 미초대 시 워크플로우 종료
