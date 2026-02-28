@@ -32,8 +32,10 @@ enum RoomStatus: String, Codable {
              (.awaitingApproval, .inProgress),
              (.awaitingApproval, .planning),
              (.awaitingApproval, .failed),
+             (.awaitingApproval, .completed),
              (.awaitingUserInput, .planning),
              (.awaitingUserInput, .inProgress),
+             (.awaitingUserInput, .completed),
              (.awaitingUserInput, .failed):
             return true
         default:

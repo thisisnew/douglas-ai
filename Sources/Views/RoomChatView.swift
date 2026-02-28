@@ -121,6 +121,19 @@ struct RoomChatView: View {
                     .lineLimit(1)
                 Spacer()
 
+                // 작업 중지 버튼 (진행 중인 방만)
+                if room.isActive {
+                    Button {
+                        roomManager.completeRoom(room.id)
+                    } label: {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.caption)
+                            .foregroundColor(.orange.opacity(0.7))
+                    }
+                    .buttonStyle(.plain)
+                    .help("작업 중지 (완료 처리)")
+                }
+
                 // 삭제 버튼
                 Button {
                     showDeleteConfirm = true

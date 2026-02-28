@@ -2689,8 +2689,14 @@ class RoomManager: ObservableObject {
         roomTasks[roomID]?.cancel()
         roomTasks.removeValue(forKey: roomID)
         speakingAgentIDByRoom.removeValue(forKey: roomID)
-        // 대기 중인 승인 continuation 해제
+        // 대기 중인 continuation 해제
         if let cont = approvalContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: false)
+        }
+        if let cont = userInputContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: "")
+        }
+        if let cont = suggestionContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: false)
         }
         guard rooms[idx].transitionTo(.completed) else { return }
