@@ -366,6 +366,7 @@ class RoomManager: ObservableObject {
 
         let history = buildRoomHistory(roomID: roomID)
 
+        var analysisText = ""
         do {
             // sendMessageWithTools(tools: []) → 이미지 전달 O, 도구 사용 X
             let analysisResponse = try await provider.sendMessageWithTools(
@@ -375,14 +376,13 @@ class RoomManager: ObservableObject {
                 tools: []
             )
 
-            let responseText: String
             switch analysisResponse {
-            case .text(let t): responseText = t
-            case .toolCalls: responseText = "분석 완료"
-            case .mixed(let t, _): responseText = t
+            case .text(let t): analysisText = t
+            case .toolCalls: analysisText = "분석 완료"
+            case .mixed(let t, _): analysisText = t
             }
 
-            let analysisReply = ChatMessage(role: .assistant, content: responseText, agentName: analyst.name)
+            let analysisReply = ChatMessage(role: .assistant, content: analysisText, agentName: analyst.name)
             appendMessage(analysisReply, to: roomID)
         } catch {
             let errorMsg = ChatMessage(
@@ -401,28 +401,30 @@ class RoomManager: ObservableObject {
             return
         }
 
-        // ── Step 2: 전문가 초대 (도구 사용) ──
-        let inviteMsg = ChatMessage(
-            role: .system,
-            content: "분석가가 전문가를 초대하는 중..."
-        )
-        appendMessage(inviteMsg, to: roomID)
-
+        // ── Step 2: 전문가 초대 ──
         // 분석가 자신을 제외한 사용 가능 에이전트 목록
         let availableAgents = agentStore?.subAgents.filter { $0.id != analystID } ?? []
-        let agentListText = availableAgents.isEmpty
-            ? "(없음)"
-            : availableAgents.map { "- \($0.name)" }.joined(separator: "\n")
 
-        let invitePrompt: String
         if availableAgents.isEmpty {
-            invitePrompt = """
-            사용 가능한 전문가가 없습니다. suggest_agent_creation으로 새 에이전트를 생성 제안하세요.
-            name, persona, reason 파라미터를 모두 채워서 호출하세요.
-            작업을 직접 수행하지 마세요. 제안 후 1줄로 보고만 하세요.
-            """
+            // 가용 에이전트 없음 → 분석 결과에서 역할 추출하여 프로그래밍적으로 생성 제안
+            let roleName = Self.extractRoleName(from: analysisText) ?? "전문가"
+            let suggestion = RoomAgentSuggestion(
+                name: roleName,
+                persona: "당신은 \(roleName)입니다. 사용자의 요청을 전문적으로 수행하세요. 결과물을 직접 작성하여 제출하세요.",
+                reason: "분석 결과 \(roleName) 역할이 필요합니다.",
+                suggestedBy: analyst.name
+            )
+            addAgentSuggestion(suggestion, to: roomID)
         } else {
-            invitePrompt = """
+            // 가용 에이전트 있음 → LLM으로 초대
+            let inviteMsg = ChatMessage(
+                role: .system,
+                content: "분석가가 전문가를 초대하는 중..."
+            )
+            appendMessage(inviteMsg, to: roomID)
+
+            let agentListText = availableAgents.map { "- \($0.name)" }.joined(separator: "\n")
+            let invitePrompt = """
             전문가를 초대하세요. 작업을 직접 수행하지 마세요.
 
             사용 가능한 에이전트:
@@ -434,46 +436,46 @@ class RoomManager: ObservableObject {
 
             초대/제안 결과만 1줄로 보고하세요.
             """
-        }
 
-        let updatedHistory = buildRoomHistory(roomID: roomID)
-        let context = makeToolContext(roomID: roomID, currentAgentID: analystID)
+            let updatedHistory = buildRoomHistory(roomID: roomID)
+            let context = makeToolContext(roomID: roomID, currentAgentID: analystID)
 
-        do {
-            let inviteResponse = try await ToolExecutor.smartSend(
-                provider: provider,
-                agent: analyst,
-                systemPrompt: invitePrompt,
-                conversationMessages: updatedHistory,
-                context: context,
-                onToolActivity: { [weak self] activity in
-                    Task { @MainActor in
-                        let toolMsg = ChatMessage(
-                            role: .assistant, content: activity,
-                            agentName: analyst.name, messageType: .toolActivity
-                        )
-                        self?.appendMessage(toolMsg, to: roomID)
+            do {
+                let inviteResponse = try await ToolExecutor.smartSend(
+                    provider: provider,
+                    agent: analyst,
+                    systemPrompt: invitePrompt,
+                    conversationMessages: updatedHistory,
+                    context: context,
+                    onToolActivity: { [weak self] activity in
+                        Task { @MainActor in
+                            let toolMsg = ChatMessage(
+                                role: .assistant, content: activity,
+                                agentName: analyst.name, messageType: .toolActivity
+                            )
+                            self?.appendMessage(toolMsg, to: roomID)
+                        }
                     }
-                }
-            )
+                )
 
-            let inviteReply = ChatMessage(role: .assistant, content: inviteResponse, agentName: analyst.name)
-            appendMessage(inviteReply, to: roomID)
-        } catch {
-            let errorMsg = ChatMessage(
-                role: .assistant,
-                content: "팀 구성 오류: \(error.localizedDescription)",
-                agentName: analyst.name,
-                messageType: .error
-            )
-            appendMessage(errorMsg, to: roomID)
-            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].transitionTo(.failed)
-                rooms[i].completedAt = Date()
+                let inviteReply = ChatMessage(role: .assistant, content: inviteResponse, agentName: analyst.name)
+                appendMessage(inviteReply, to: roomID)
+            } catch {
+                let errorMsg = ChatMessage(
+                    role: .assistant,
+                    content: "팀 구성 오류: \(error.localizedDescription)",
+                    agentName: analyst.name,
+                    messageType: .error
+                )
+                appendMessage(errorMsg, to: roomID)
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.failed)
+                    rooms[i].completedAt = Date()
+                }
+                syncAgentStatuses()
+                scheduleSave()
+                return
             }
-            syncAgentStatuses()
-            scheduleSave()
-            return
         }
 
         // 에이전트 생성 제안이 있으면 사용자 승인 대기
@@ -2260,6 +2262,22 @@ class RoomManager: ObservableObject {
     // MARK: - 유사도 계산
 
     /// 두 텍스트의 단어 집합 Jaccard 유사도 (0.0~1.0)
+    /// 분석 결과에서 "전문가:" 라인의 역할명을 추출
+    static func extractRoleName(from analysisText: String) -> String? {
+        for line in analysisText.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            // "- 전문가: 다국어 번역 전문가 (이미지 OCR + 번역)" 형태
+            guard trimmed.contains("전문가"), let colonRange = trimmed.range(of: ":") else { continue }
+            var role = String(trimmed[colonRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+            // 괄호 이후 제거: "다국어 번역 전문가 (설명)" → "다국어 번역 전문가"
+            if let parenIdx = role.firstIndex(of: "(") {
+                role = String(role[..<parenIdx]).trimmingCharacters(in: .whitespaces)
+            }
+            if !role.isEmpty { return role }
+        }
+        return nil
+    }
+
     static func wordOverlapSimilarity(_ a: String, _ b: String) -> Double {
         let wordsA = Set(a.lowercased().split(whereSeparator: { $0.isWhitespace || $0.isPunctuation }).map(String.init))
         let wordsB = Set(b.lowercased().split(whereSeparator: { $0.isWhitespace || $0.isPunctuation }).map(String.init))
