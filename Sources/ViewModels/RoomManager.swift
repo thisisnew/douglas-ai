@@ -578,8 +578,17 @@ class RoomManager: ObservableObject {
             .filter { $0.role == .user && $0.content != "승인" }
             .map(\.content)
             .joined(separator: " ") ?? ""
-        let combinedContext = analysisText + "\n" + userHints
-        let roleName = Self.extractRoleName(from: combinedContext) ?? Self.extractRoleFromTask(task + " " + userHints)
+
+        // 사용자 힌트 우선: 사용자가 구체적 역할을 언급했으면 분석 텍스트보다 우선
+        let userHintRole = Self.extractRoleFromTask(userHints)
+        let roleName: String
+        if !userHints.isEmpty && userHintRole != "전문가" {
+            // 사용자가 "프론트엔드", "백엔드" 등 구체적 역할 언급 → 우선 사용
+            roleName = userHintRole
+        } else {
+            // 사용자 힌트에 구체적 역할 없음 → 분석 텍스트에서 추출
+            roleName = Self.extractRoleName(from: analysisText) ?? Self.extractRoleFromTask(task)
+        }
 
         // 기존 에이전트 중 이름이 유사한 에이전트 매칭
         let matchedAgent = Self.findMatchingAgent(roleName: roleName, among: availableAgents)
