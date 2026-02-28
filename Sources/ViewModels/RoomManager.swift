@@ -572,7 +572,14 @@ class RoomManager: ObservableObject {
 
         // ── Step 2: 전문가 초대 (프로그래밍적 — LLM 의존 없음) ──
         let availableAgents = agentStore?.subAgents.filter { !$0.isMaster } ?? []
-        let roleName = Self.extractRoleName(from: analysisText) ?? Self.extractRoleFromTask(task)
+
+        // 승인 전 사용자가 보낸 힌트 메시지 반영 (예: "프론트엔드 작업자가 필요할거야")
+        let userHints = rooms.first(where: { $0.id == roomID })?.messages
+            .filter { $0.role == .user && $0.content != "승인" }
+            .map(\.content)
+            .joined(separator: " ") ?? ""
+        let combinedContext = analysisText + "\n" + userHints
+        let roleName = Self.extractRoleName(from: combinedContext) ?? Self.extractRoleFromTask(task + " " + userHints)
 
         // 기존 에이전트 중 이름이 유사한 에이전트 매칭
         let matchedAgent = Self.findMatchingAgent(roleName: roleName, among: availableAgents)
@@ -2454,6 +2461,12 @@ class RoomManager: ObservableObject {
     /// 태스크 텍스트에서 역할 키워드 추출
     static func extractRoleFromTask(_ task: String) -> String {
         let keywords: [(pattern: String, role: String)] = [
+            // 더 구체적인 키워드를 먼저 매칭 (프론트엔드/백엔드 구분)
+            ("프론트엔드", "프론트엔드 개발자"),
+            ("프론트", "프론트엔드 개발자"),
+            ("frontend", "프론트엔드 개발자"),
+            ("백엔드", "백엔드 개발자"),
+            ("backend", "백엔드 개발자"),
             ("번역", "번역 전문가"),
             ("翻訳", "번역 전문가"),
             ("translate", "번역 전문가"),
@@ -2463,6 +2476,7 @@ class RoomManager: ObservableObject {
             ("코드", "개발자"),
             ("테스트", "QA 엔지니어"),
             ("디자인", "디자이너"),
+            ("기획", "기획자"),
             ("문서", "테크라이터"),
             ("분석", "분석가"),
             ("리뷰", "코드 리뷰어"),

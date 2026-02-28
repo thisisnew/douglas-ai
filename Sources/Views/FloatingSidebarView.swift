@@ -394,7 +394,6 @@ struct FloatingSidebarView: View {
                                 agentStore.moveSubAgent(fromID: from, toID: to)
                             }
                         ))
-                        .onTapGesture { openInfoWindow(for: agent) }
                         .contextMenu {
                             Button {
                                 openEditWindow(for: agent)
@@ -475,6 +474,7 @@ struct FloatingSidebarView: View {
                 .foregroundColor(.primary)
                 .lineLimit(1)
                 .frame(width: DesignTokens.Layout.rosterItemWidth)
+                .onTapGesture { openInfoWindow(for: agent) }
         }
     }
 
