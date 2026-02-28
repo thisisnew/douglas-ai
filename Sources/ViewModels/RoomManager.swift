@@ -119,6 +119,12 @@ class RoomManager: ObservableObject {
         cont.resume(returning: false)
     }
 
+    /// 승인 카드에서 추가 요구사항 입력 시 방 메시지에 추가
+    func appendAdditionalInput(roomID: UUID, text: String) {
+        let msg = ChatMessage(role: .user, content: text)
+        appendMessage(msg, to: roomID)
+    }
+
     // MARK: - 사용자 입력 게이트
 
     /// ask_user 도구에 대한 사용자 답변 제출
@@ -367,10 +373,11 @@ class RoomManager: ObservableObject {
         let analyzePrompt = """
         당신은 요청 분류기입니다. 작업을 수행하는 것이 아니라 분류만 합니다.
 
-        아래 3줄만 출력하세요. 다른 내용은 절대 출력하지 마세요:
+        아래 항목을 출력하세요. 다른 내용은 절대 출력하지 마세요:
         - 요청: (1문장 요약)
         - 전문가: (필요한 역할명)
         - 범위: (작업량)
+        - 대상: (파일 경로, URL 등 작업 대상. 요청에 명시되어 있을 때만 출력. 없으면 이 줄 생략)
 
         [절대 금지] 번역, 코딩, 문서 작성, 요약, 설명 등 실제 작업 수행
         [절대 금지] 질문, 확인 요청, 추가 설명
@@ -413,7 +420,41 @@ class RoomManager: ObservableObject {
             return
         }
 
-        // ── Step 1.5: 포괄적 분석가 → 사용자 컨펌 (거부 시 재분석 루프) ──
+        // ── Step 1.5: 작업 대상 누락 시 사용자에게 질문 ──
+        let codingKeywords = ["개발", "코딩", "수정", "버그", "구현", "리팩토", "배포", "빌드", "테스트", "코드"]
+        let needsTarget = codingKeywords.contains(where: { analysisText.contains($0) })
+        let hasTarget = analysisText.contains("- 대상:")
+        let taskHasPath = task.contains("/") || task.contains("\\") || task.contains(".swift") || task.contains(".ts") || task.contains(".js") || task.contains(".py")
+
+        if needsTarget && !hasTarget && !taskHasPath {
+            // 코딩 관련 작업인데 대상 파일/경로가 없음 → 사용자에게 질문
+            let askTargetMsg = ChatMessage(
+                role: .system,
+                content: "작업 대상 파일이나 경로를 알려주세요.",
+                messageType: .userQuestion
+            )
+            appendMessage(askTargetMsg, to: roomID)
+
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.awaitingUserInput)
+            }
+            scheduleSave()
+
+            let targetAnswer = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+                userInputContinuations[roomID] = continuation
+            }
+
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.planning)
+            }
+
+            // 사용자 답변을 분석 결과에 추가
+            analysisText += "\n- 대상: \(targetAnswer)"
+            let updatedAnalysis = ChatMessage(role: .system, content: "대상 정보가 추가되었습니다: \(targetAnswer)")
+            appendMessage(updatedAnalysis, to: roomID)
+        }
+
+        // ── Step 1.6: 포괄적 분석가 → 사용자 컨펌 (거부 시 재분석 루프) ──
         let isGenericAnalyst = analyst.roleTemplateID == "requirements_analyst"
         if isGenericAnalyst {
             var currentAnalysis = analysisText

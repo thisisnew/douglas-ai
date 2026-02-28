@@ -164,6 +164,7 @@ DOUGLAS/
 에이전트 목록의 CRUD와 상태 관리를 담당한다.
 
 - 앱 시작 시 마스터 에이전트 자동 생성 보장
+- 앱 시작 시 요구사항 분석가 자동 생성 보장 (`requirements_analyst` 템플릿)
 - 모든 에이전트 상태를 `.idle`로 초기화 (이전 세션 잔여 상태 제거)
 - 마스터 에이전트는 삭제 불가
 - 기존 워즈니악 에이전트 자동 마이그레이션 제거
@@ -658,7 +659,8 @@ MessageType에 따른 시각 차별화:
 재사용 가능한 원형 아바타 컴포넌트:
 - hasImage 있으면 → 파일시스템에서 이미지 로드 → 원형 클립
 - 마스터 에이전트 → `brain.head.profile` (보라색)
-- 서브 에이전트 → `person.crop.circle` (파란색)
+- 역할 템플릿이 있는 에이전트 → 템플릿 아이콘 + 카테고리 색상 (분석=보라, 개발=파랑, 품질=초록, 운영=주황)
+- 기타 에이전트 → `person.crop.circle` (파란색)
 
 `pickAgentImage()` 유틸: NSOpenPanel → PNG/JPEG 선택 → 128x128 리사이즈 → 파일시스템 저장
 
@@ -855,7 +857,11 @@ executeWithTools() 루프 (최대 10회):
 - **CLI WebFetch 차단**: `ClaudeCodeProvider.sendMessage()`에서 `--disallowed-tools WebFetch` 적용 (바이브코딩 유지, URL 직접 접근만 차단)
 - **SuggestionCard 편집**: 에이전트 생성 전 이름/설명을 사용자가 편집 가능 (마스터가 초안 제공)
 
-**승인 게이트** (`executeRoomWork`): `step.requiresApproval == true`이면 `.awaitingApproval` 상태 전환 + `CheckedContinuation`으로 비동기 일시 정지. `approveStep(roomID:)` / `rejectStep(roomID:)` 호출 시 continuation resume. 거부 시 `.failed` 전환.
+**승인 게이트** (`executeRoomWork`): `step.requiresApproval == true`이면 `.awaitingApproval` 상태 전환 + `CheckedContinuation`으로 비동기 일시 정지. `approveStep(roomID:)` / `rejectStep(roomID:)` 호출 시 continuation resume. 거부 시 재분석 루프 (최대 3회).
+
+**승인 카드 UI** (`ApprovalCard`): 분석 결과 확인 + 추가 요구사항 입력 TextEditor + "승인"/"취소" 버튼. 추가 입력이 있으면 "추가 후 승인" 표시. `appendAdditionalInput()`으로 방 메시지에 추가 후 승인.
+
+**대상 경로 감지**: 코딩 관련 키워드가 포함된 요청에 파일 경로가 없으면 → `.awaitingUserInput`으로 전환 → 사용자에게 대상 파일/경로 질문 → 답변을 분석 결과에 추가.
 
 **실패 자동 감지** (`executeRoomWork`):
 - 단계 실행 실패(에러): `executeStep()` 반환값 `false` → 즉시 `.failed` 전환 + 중단.

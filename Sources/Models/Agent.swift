@@ -135,6 +135,18 @@ struct Agent: Identifiable, Codable, Hashable {
         )
     }
 
+    /// 기본 요구사항 분석가 에이전트 생성 (앱 첫 실행 시)
+    static func createDefaultAnalyst(providerName: String = "Claude Code", modelName: String = "claude-sonnet-4-6") -> Agent {
+        let template = AgentRoleTemplateRegistry.template(for: "requirements_analyst")
+        return Agent(
+            name: template?.name ?? "요구사항 분석가",
+            persona: template?.basePersona ?? "",
+            providerName: providerName,
+            modelName: modelName,
+            roleTemplateID: "requirements_analyst"
+        )
+    }
+
     // MARK: - 이미지 파일 관리
 
     private static var imageDirectory: URL {

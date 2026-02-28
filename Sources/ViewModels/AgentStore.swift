@@ -30,6 +30,11 @@ class AgentStore: ObservableObject {
             agents.insert(master, at: 0)
             selectedAgentID = master.id
         }
+        // 요구사항 분석가가 없으면 자동 생성
+        if !agents.contains(where: { $0.roleTemplateID == "requirements_analyst" }) {
+            let analyst = Agent.createDefaultAnalyst()
+            agents.append(analyst)
+        }
         // 마이그레이션: 기존 워즈니악 에이전트 자동 제거
         agents.removeAll { $0.name.contains("워즈니악") }
         // 앱 시작 시 모든 에이전트 상태 초기화 (이전 실행의 잔여 상태 제거)

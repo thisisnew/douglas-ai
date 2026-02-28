@@ -612,36 +612,66 @@ struct BuildStatusCard: View {
 struct ApprovalCard: View {
     let roomID: UUID
     @EnvironmentObject var roomManager: RoomManager
+    @State private var additionalInput: String = ""
 
     var body: some View {
         CardContainer(accentColor: .yellow, opacity: 0.08) {
-            HStack(spacing: 10) {
-                Image(systemName: "hand.raised.fill")
-                    .font(.caption)
-                    .foregroundColor(.yellow)
-                Text("이 단계는 승인이 필요합니다")
-                    .font(.caption2.bold())
-                    .foregroundColor(.primary)
-                Spacer()
-                Button("거부") {
-                    roomManager.rejectStep(roomID: roomID)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    Image(systemName: "hand.raised.fill")
+                        .font(.caption)
+                        .foregroundColor(.yellow)
+                    Text("분석 결과를 확인해주세요")
+                        .font(.caption2.bold())
+                        .foregroundColor(.primary)
+                    Spacer()
                 }
-                .font(.caption2)
-                .foregroundColor(.red)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(Color.red.opacity(0.1))
-                .continuousRadius(DesignTokens.Radius.md)
 
-                Button("승인") {
-                    roomManager.approveStep(roomID: roomID)
+                TextEditor(text: $additionalInput)
+                    .font(.callout)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 36, maxHeight: 80)
+                    .padding(6)
+                    .background(DesignTokens.Colors.inputBackground)
+                    .continuousRadius(DesignTokens.Radius.md)
+                    .overlay(
+                        Group {
+                            if additionalInput.isEmpty {
+                                Text("추가 요구사항이 있으면 입력하세요...")
+                                    .font(.callout)
+                                    .foregroundColor(.secondary.opacity(0.5))
+                                    .padding(.leading, 10)
+                                    .padding(.top, 8)
+                                    .allowsHitTesting(false)
+                            }
+                        }, alignment: .topLeading
+                    )
+
+                HStack(spacing: 8) {
+                    Spacer()
+                    Button("취소") {
+                        roomManager.rejectStep(roomID: roomID)
+                    }
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(DesignTokens.Colors.inputBackground)
+                    .continuousRadius(DesignTokens.Radius.md)
+
+                    Button(additionalInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "승인" : "추가 후 승인") {
+                        if !additionalInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            roomManager.appendAdditionalInput(roomID: roomID, text: additionalInput.trimmingCharacters(in: .whitespacesAndNewlines))
+                        }
+                        roomManager.approveStep(roomID: roomID)
+                    }
+                    .font(.caption2.bold())
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.accentColor)
+                    .continuousRadius(DesignTokens.Radius.md)
                 }
-                .font(.caption2.bold())
-                .foregroundColor(.white)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(Color.green)
-                .continuousRadius(DesignTokens.Radius.md)
             }
         }
     }
