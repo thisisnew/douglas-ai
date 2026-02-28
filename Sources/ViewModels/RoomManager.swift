@@ -47,8 +47,8 @@ class RoomManager: ObservableObject {
 
     /// 마스터 위임 또는 사용자가 방 생성
     @discardableResult
-    func createRoom(title: String, agentIDs: [UUID], createdBy: RoomCreator, mode: RoomMode = .task, maxDiscussionRounds: Int = 3, projectPaths: [String] = [], buildCommand: String? = nil, testCommand: String? = nil) -> Room {
-        let room = Room(
+    func createRoom(title: String, agentIDs: [UUID], createdBy: RoomCreator, mode: RoomMode = .task, maxDiscussionRounds: Int = 3, projectPaths: [String] = [], buildCommand: String? = nil, testCommand: String? = nil, intent: WorkflowIntent? = nil) -> Room {
+        var room = Room(
             title: title,
             assignedAgentIDs: agentIDs,
             createdBy: createdBy,
@@ -58,6 +58,7 @@ class RoomManager: ObservableObject {
             buildCommand: buildCommand,
             testCommand: testCommand
         )
+        room.intent = intent
         rooms.append(room)
         selectedRoomID = room.id
         syncAgentStatuses()
@@ -66,8 +67,8 @@ class RoomManager: ObservableObject {
     }
 
     /// 사용자 수동 방 생성 + 바로 작업 시작
-    func createManualRoom(title: String, agentIDs: [UUID], task: String, projectPaths: [String] = [], buildCommand: String? = nil, testCommand: String? = nil) {
-        let room = createRoom(title: title, agentIDs: agentIDs, createdBy: .user, projectPaths: projectPaths, buildCommand: buildCommand, testCommand: testCommand)
+    func createManualRoom(title: String, agentIDs: [UUID], task: String, projectPaths: [String] = [], buildCommand: String? = nil, testCommand: String? = nil, intent: WorkflowIntent? = nil) {
+        let room = createRoom(title: title, agentIDs: agentIDs, createdBy: .user, projectPaths: projectPaths, buildCommand: buildCommand, testCommand: testCommand, intent: intent)
 
         // 사용자 메시지 추가
         let userMsg = ChatMessage(role: .user, content: task)
