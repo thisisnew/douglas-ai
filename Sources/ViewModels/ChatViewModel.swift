@@ -114,7 +114,7 @@ class ChatViewModel: ObservableObject {
         let progressMsg = ChatMessage(
             role: .assistant,
             content: "방을 생성하는 중...",
-            agentName: "마스터",
+            agentName: agent.name,
             messageType: .toolActivity
         )
         appendMessage(progressMsg, for: agent.id)
@@ -126,7 +126,7 @@ class ChatViewModel: ObservableObject {
             let errorReply = ChatMessage(
                 role: .assistant,
                 content: "방 관리자를 사용할 수 없습니다.",
-                agentName: "마스터",
+                agentName: agent.name,
                 messageType: .error
             )
             appendMessage(errorReply, for: agent.id)
@@ -138,7 +138,7 @@ class ChatViewModel: ObservableObject {
         let delegationMsg = ChatMessage(
             role: .assistant,
             content: "작업을 시작합니다: \(task)",
-            agentName: "마스터",
+            agentName: agent.name,
             messageType: .delegation
         )
         appendMessage(delegationMsg, for: agent.id)
@@ -158,7 +158,7 @@ class ChatViewModel: ObservableObject {
         roomManager.launchWorkflow(roomID: room.id, task: task)
 
         agentStore.updateStatus(agentID: agent.id, status: .idle)
-        sendNotification(agentName: "마스터", message: "작업 시작")
+        sendNotification(agentName: agent.name, message: "작업 시작")
     }
 
     // MARK: - 서브 에이전트 직접 대화

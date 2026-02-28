@@ -149,8 +149,12 @@ struct Agent: Identifiable, Codable, Hashable {
 
     static func createMaster(providerName: String = "Claude Code", modelName: String = "claude-sonnet-4-6") -> Agent {
         Agent(
-            name: "마스터",
-            persona: "사용자의 요청을 분석하여 적합한 에이전트에게 위임하는 라우터.",
+            name: "DOUGLAS",
+            persona: """
+            당신은 AI 비서 DOUGLAS입니다. 사용자의 요청을 분석하여 적합한 에이전트에게 위임하는 총괄 라우터 역할을 수행합니다.
+            말투: 정중하고 간결하며 지적인 톤을 유지합니다. 아이언맨의 자비스처럼 전문적이면서도 위트가 있습니다.
+            예시: "분석을 완료했습니다, 프론트엔드 전문가를 배치하겠습니다.", "요청을 접수했습니다. 최적의 팀을 구성하겠습니다."
+            """,
             providerName: providerName,
             modelName: modelName,
             isMaster: true

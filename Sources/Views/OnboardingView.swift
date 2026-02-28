@@ -524,7 +524,7 @@ struct OnboardingView: View {
                             .font(.caption)
                             .foregroundColor(isMaster ? .orange : .secondary.opacity(0.4))
                         if isMaster {
-                            Text("마스터")
+                            Text("총괄")
                                 .font(.system(size: 9, weight: .medium))
                                 .foregroundColor(.orange)
                         }

@@ -168,6 +168,7 @@ struct FloatingSidebarView: View {
     @State private var draggingAgentID: UUID?
     /// 아바타 확대 보기
     @State private var enlargedAvatarAgent: Agent?
+    @State private var showEnlargedProfile = false
 
     private var masterAgent: Agent? { agentStore.masterAgent }
     private var masterID: UUID? { masterAgent?.id }
@@ -266,6 +267,9 @@ struct FloatingSidebarView: View {
         .sheet(item: $enlargedAvatarAgent) { agent in
             avatarEnlargedView(agent: agent)
         }
+        .sheet(isPresented: $showEnlargedProfile) {
+            profileEnlargedView
+        }
     }
 
     // MARK: - 섹션 리사이즈 핸들 (Room ↔ Chat)
@@ -311,6 +315,7 @@ struct FloatingSidebarView: View {
         HStack(spacing: 10) {
             // 프로필 이미지
             ProfileImageView(size: 28)
+                .onTapGesture { showEnlargedProfile = true }
             Text("DOUGLAS")
                 .font(.system(size: 14, weight: .semibold))
                 .tracking(1.5)
@@ -496,6 +501,21 @@ struct FloatingSidebarView: View {
                 .font(.headline)
 
             Button("닫기") { enlargedAvatarAgent = nil }
+                .keyboardShortcut(.cancelAction)
+        }
+        .padding(24)
+        .frame(width: 320, height: 380)
+    }
+
+    /// 프로필 이미지 확대 보기 시트
+    private var profileEnlargedView: some View {
+        VStack(spacing: 16) {
+            ProfileImageView(size: 240)
+
+            Text("DOUGLAS")
+                .font(.headline)
+
+            Button("닫기") { showEnlargedProfile = false }
                 .keyboardShortcut(.cancelAction)
         }
         .padding(24)
@@ -954,7 +974,7 @@ struct AgentInfoSheet: View {
                     Text(agent.name)
                         .font(.title2.bold())
                     if agent.isMaster {
-                        Text("마스터")
+                        Text("총괄")
                             .font(.caption)
                             .foregroundColor(.purple)
                     }

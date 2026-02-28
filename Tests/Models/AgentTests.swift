@@ -36,7 +36,7 @@ struct AgentTests {
     func createMasterDefaults() {
         let master = Agent.createMaster()
         #expect(master.isMaster == true)
-        #expect(master.name == "마스터")
+        #expect(master.name == "DOUGLAS")
         #expect(master.providerName == "Claude Code")
         #expect(master.modelName == "claude-sonnet-4-6")
     }
