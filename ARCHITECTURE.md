@@ -43,7 +43,12 @@ DOUGLAS/
 │   │   ├── ImageAttachment.swift    # 이미지 첨부 모델 (디스크 저장, base64 로드, MIME 판별)
 │   │   ├── BuildResult.swift         # 빌드 결과 모델 + BuildLoopStatus + QAResult + QALoopStatus
 │   │   ├── FileWriteTracker.swift   # 병렬 실행 파일 쓰기 충돌 감지 (actor)
-│   │   ├── ToolExecutionContext.swift # 도구 실행 컨텍스트 (방/에이전트/프로젝트 정보 스냅샷)
+│   │   ├── ToolExecutionContext.swift # 도구 실행 컨텍스트 (방/에이전트/프로젝트 정보 스냅샷, askUser, currentPhase)
+│   │   ├── WorkflowIntent.swift    # 워크플로우 의도 (7단계 상태기계: WorkflowPhase, WorkflowIntent)
+│   │   ├── WorkflowAssumption.swift # 가정 선언 (RiskLevel: low/medium/high) + UserAnswer
+│   │   ├── ProjectPlaybook.swift   # 프로젝트 플레이북 (브랜치 전략, 테스트 정책, 프리셋 3종)
+│   │   ├── IntakeData.swift        # Intake 입력 데이터 (InputSourceType, JiraTicketSummary)
+│   │   ├── RoleRequirement.swift   # Assemble 역할 요구사항 (Priority, MatchStatus)
 │   │   ├── DependencyChecker.swift  # 의존성 체크 (Node.js, Git, Homebrew)
 │   │   ├── JiraConfig.swift          # Jira Cloud 연동 설정 (도메인, 이메일, API 토큰)
 │   │   ├── ProviderConfig.swift     # 프로바이더 설정 (AuthMethod, ProviderType, isConnected)
@@ -58,7 +63,8 @@ DOUGLAS/
 │   │   ├── OnboardingViewModel.swift # 첫 실행 온보딩 (의존성 체크 + Claude 설정 + 프로바이더 선택)
 │   │   ├── ProviderManager.swift    # 프로바이더 설정 관리
 │   │   ├── BuildLoopRunner.swift     # 빌드/테스트 실행 + 수정 프롬프트 생성 엔진
-│   │   ├── RoomManager.swift        # 프로젝트 방 생명주기, 팀 작업 조율, 빌드/QA 루프, 승인 게이트
+│   │   ├── RoomManager.swift        # 프로젝트 방 생명주기, 7단계 워크플로우, 승인/입력 게이트
+│   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (templateID → persona 키워드 → unmatched)
 │   │   └── ToolExecutor.swift       # 도구 호출 루프 + smartSend + 경로 해석/충돌 추적
 │   ├── Providers/
 │   │   ├── AIProvider.swift         # AIProvider 프로토콜 + 공통 인증 + Tool Use 확장
@@ -372,7 +378,7 @@ struct AgentRoleTemplate: Identifiable, Codable {
 ```swift
 struct DiscussionArtifact: Identifiable, Codable {
     let id: UUID
-    let type: ArtifactType      // api_spec, test_plan, task_breakdown, architecture_decision, generic
+    let type: ArtifactType      // api_spec, test_plan, task_breakdown, architecture_decision, assumptions, role_requirements, generic
     let title: String
     let content: String
     let producedBy: String      // 에이전트 이름
@@ -423,12 +429,21 @@ struct ToolExecutionContext: Sendable {
     let agentsByName: [String: UUID]
     let agentListString: String
     let inviteAgent: @Sendable (UUID) async -> Bool
+    let suggestAgentCreation: @Sendable (RoomAgentSuggestion) async -> Bool
+    let projectPaths: [String]
+    let currentAgentID: UUID?
+    let currentAgentName: String?
+    let fileWriteTracker: FileWriteTracker?
+    let askUser: @Sendable (String, String?, [String]?) async -> String
+    let currentPhase: WorkflowPhase?
 }
 ```
 
 - 도구 실행 시 필요한 방/에이전트 컨텍스트의 **스냅샷**
 - `Sendable`로 `@MainActor` 경계를 안전하게 통과
-- `inviteAgent` 클로저: `@Sendable`로 전달, MainActor에서 실행
+- `inviteAgent` / `suggestAgentCreation` / `askUser`: `@Sendable` 클로저, MainActor에서 실행
+- `askUser`: CheckedContinuation 기반 블로킹 — 사용자 답변까지 대기
+- `currentPhase`: ask_user 도구의 Clarify 단계 제한에 사용
 - `static let empty`: 기본값 (방 컨텍스트 없음)
 
 ### DependencyChecker (`Models/DependencyChecker.swift`)
@@ -514,6 +529,7 @@ struct ProviderConfig: Identifiable, Codable {
 | `planning` | 계획 중 | 보라 | 토론 + 계획 수립 단계 |
 | `inProgress` | 진행중 | 주황 | 계획에 따라 작업 실행 중 |
 | `awaitingApproval` | 승인 대기 | 노랑 | Human-in-the-loop 승인 게이트 |
+| `awaitingUserInput` | 입력 대기 | 시안 | ask_user 도구로 사용자 질문 대기 |
 | `completed` | 완료 | 초록 | 모든 단계 완료 |
 | `failed` | 실패 | 빨강 | 오류 또는 승인 거부로 중단 |
 
@@ -524,16 +540,22 @@ planning → awaitingApproval (토론 후 사용자 승인)
     │              ├→ planning (승인 → 계획 수립)
     │              └→ failed (거부)
     │
+    ├→ awaitingUserInput (ask_user 질문)
+    │              │
+    │              ├→ planning (답변 수신)
+    │              └→ failed
+    │
     ├→ inProgress → completed
     │      │
     │      ├→ awaitingApproval → inProgress (단계 승인)
     │      │                   → failed (거부)
+    │      ├→ awaitingUserInput → inProgress (답변 수신)
     │      └→ failed
     ├→ completed
     └→ failed
 ```
 
-`isActive` = `planning` | `inProgress` | `awaitingApproval` (에이전트 상태 계산에 사용)
+`isActive` = `planning` | `inProgress` | `awaitingApproval` | `awaitingUserInput` (에이전트 상태 계산에 사용)
 
 ---
 
@@ -739,7 +761,7 @@ MessageType에 따른 시각 차별화:
 
 ### 내장 도구 (ToolRegistry)
 
-모든 에이전트는 전체 11종 도구에 접근 가능 (프리셋 제한 없음).
+모든 에이전트는 전체 12종 도구에 접근 가능 (프리셋 제한 없음).
 
 | ID | 이름 | 설명 |
 |----|------|------|
@@ -750,6 +772,7 @@ MessageType에 따른 시각 차별화:
 | `web_fetch` | 웹 페이지 가져오기 | URL → HTML 가져오기 + Jira REST API 티켓 조회 (JiraConfig 연동) |
 | `invite_agent` | 에이전트 초대 | 방에 다른 에이전트를 런타임 초대 (params: agent_name, reason) |
 | `list_agents` | 에이전트 목록 | 등록된 서브 에이전트 목록 조회 (params: 없음) |
+| `ask_user` | 사용자 질문 | Clarify 단계에서만 사용 가능. 사용자에게 질문 (params: question, context?, options?) |
 | `jira_create_subtask` | Jira 서브태스크 생성 | 상위 이슈에 서브태스크 자동 생성 (params: parent_key, summary, project_key?) |
 | `jira_update_status` | Jira 상태 변경 | 이슈 상태 전이 (params: issue_key, status_name) |
 | `jira_add_comment` | Jira 코멘트 작성 | ADF 형식으로 코멘트 추가 (params: issue_key, comment) |
@@ -803,8 +826,11 @@ executeWithTools() 루프 (최대 10회):
 | `ChatViewModel.swift` | `handleAgentMessage`, `executeDelegation` → `ToolExecutor.smartSend()` (이미지 포함 시 conversationMessages 오버로드) |
 | `RoomManager.swift` | `sendUserMessage`, `executeStep` → `ToolExecutor.smartSend()` + `ToolExecutionContext` 전달 (invite_agent/list_agents 지원) |
 
-**방 워크플로우** (`startRoomWorkflow`): 자동 초대 → 토론 → 사용자 승인 → 계획 수립 → 실행.
-- **자동 초대** (`autoInviteForAnalyst`): 분석가 방이면 기존 서브 에이전트를 자동 초대 (토론 참여)
+**방 워크플로우** (`startRoomWorkflow`): `room.intent` 유무에 따라 분기.
+- **레거시** (`intent == nil`): 자동 초대 → 토론 → 승인 → 계획 → 실행 (기존 동작 유지)
+- **새 워크플로우** (`intent != nil`): `executePhaseWorkflow` → intent.requiredPhases 순회 디스패치
+  - Intake → Clarify(ask_user) → Assemble(AgentMatcher) → Plan(플레이북 주입) → Execute → Review
+- **자동 초대** (`autoInviteForAnalyst`): 레거시 방 + Assemble 단계에서 사용
 - **토론 후 승인**: 토론 완료 시 브리핑 생성 → `.awaitingApproval` → 사용자 승인 후 계획 수립
 - **CLI WebFetch 차단**: `ClaudeCodeProvider.sendMessage()`에서 `--disallowed-tools WebFetch` 적용 (바이브코딩 유지, URL 직접 접근만 차단)
 - **SuggestionCard 편집**: 에이전트 생성 전 이름/설명을 사용자가 편집 가능 (마스터가 초안 제공)
@@ -862,6 +888,39 @@ executeWithTools() 루프 (최대 10회):
 | D-4 | **방 목록 "확인 필요" 플래그**: `Room.needsUserAttention` (승인 대기 or pending suggestion). 방 목록에 주황 캡슐 뱃지 표시. | ✅ |
 | D-5 | **하드코딩 빌드/QA 루프 제거**: `executeRoomWork()`에서 빌드/QA 자동 호출 블록 제거. 에이전트가 계획 단계에서 직접 shell_exec으로 처리. | ✅ |
 | D-6 | **QA 템플릿 세분화**: `qa_engineer` 1개 → `qa_test_automation`, `qa_exploratory`, `qa_security`, `qa_code_review` 4종. 레거시 별칭 유지. | ✅ |
+
+### Phase E — Intent 기반 7단계 워크플로우 ✅ 완료
+
+| 항목 | 내용 | 상태 |
+|------|------|------|
+| E-1 | **상태기계 + WorkflowIntent 모델**: `WorkflowPhase` 7단계 enum, `WorkflowIntent` 4종 (implementation, requirementsAnalysis, testPlanning, taskDecomposition). Intent별 필요 단계 매핑. `RoomStatus.awaitingUserInput` 추가. | ✅ |
+| E-2 | **ProjectPlaybook**: 프로젝트별 워크플로우 설정 (`{projectPath}/.douglas/playbook.json`). UserRole→defaultIntent 매핑. 브랜치 전략, 테스트 정책, 배포 프로세스. 프리셋 3종 (startup/team/enterprise). Override 추적 + 영구 변경 제안. | ✅ |
+| E-3 | **ask_user 도구 + UserInput 게이트**: Clarify 단계에서만 사용 가능한 사용자 질문 도구. `CheckedContinuation` 기반 블로킹. `UserInputCard` UI. | ✅ |
+| E-4 | **Intake + Intent 단계**: 입력 파싱 (URL/Jira 감지), Jira API fetch → `IntakeData` 구조화 저장, 플레이북 로드. `room.intent` 유무로 레거시/새 워크플로우 분기. | ✅ |
+| E-5 | **Clarify 단계 + 가정 선언**: 분석가가 `ask_user`로 결측치 질문 (최대 5개). 미답 시 `artifact:assumptions`로 가정 선언 (위험도: 낮음/중간/높음). `WorkflowAssumption` 파싱. | ✅ |
+| E-6 | **시스템 주도 Assembly**: 분석가가 `artifact:role_requirements` 산출 → `AgentMatcher`가 자동 매칭 (templateID → persona 키워드). 매칭된 에이전트 자동 초대, 미매칭은 생성 제안. 필수 역할 50%+ 커버리지 게이트. | ✅ |
+| E-7 | **Plan/Execute/Review + 플레이북 주입**: 계획 수립 프롬프트에 플레이북 컨텍스트 주입. Review 단계에서 플레이북 override 감지. 레거시 메서드 재사용으로 점진적 전환. | ✅ |
+
+**7단계 워크플로우 상태기계**:
+```
+① Intake ── 입력 파싱 (Jira fetch, URL 감지, IntakeData 저장, 플레이북 로드)
+② Intent ── 작업 목적 확인 (방 생성 시 설정, 플레이북 기본값)
+③ Clarify ─ 결측치 질문 (ask_user 최대 5개) + 미답 시 가정 선언
+④ Assemble ─ 분석가 역할 산출 → 시스템 매칭/초대 (커버리지 게이트)
+⑤ Plan ──── 토론 + 브리핑 + 승인 + 계획 수립 (플레이북 주입)
+⑥ Execute ── 단계별 병렬 실행
+⑦ Review ─── 작업일지 + 플레이북 override 감지
+```
+
+**Intent별 단계 분기**:
+| Intent | 포함 단계 |
+|--------|----------|
+| implementation | ①②③④⑤⑥⑦ (전체) |
+| requirementsAnalysis | ①②③⑤⑦ |
+| testPlanning | ①②③⑤⑦ |
+| taskDecomposition | ①②③⑤⑦ |
+
+**역호환**: `room.intent == nil` → 기존 레거시 워크플로우 (`legacyStartRoomWorkflow`). 모든 새 Room 필드는 `decodeIfPresent` + nil 기본값.
 
 ---
 
