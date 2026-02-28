@@ -607,11 +607,13 @@ struct FloatingSidebarView: View {
                             .lineLimit(1...5)
                             .focused($isInputFocused)
                             .onSubmit { sendToMaster() }
-                            .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
-                                handleImageDrop(providers)
-                                return true
-                            }
                             .onChange(of: inputText) { _, newValue in
+                                // 드롭된 파일 경로 감지 → 이미지 첨부로 변환
+                                if let remaining = extractDroppedImagePath(from: newValue) {
+                                    inputText = remaining
+                                    return
+                                }
+
                                 let matched = SlashCommand.filtered(by: newValue)
                                 let shouldShow = newValue.hasPrefix("/") && !matched.isEmpty
                                 withAnimation(.dgFast) {
@@ -763,6 +765,45 @@ struct FloatingSidebarView: View {
         guard let mime = ImageAttachment.mimeType(for: data) else { return }
         guard let attachment = try? ImageAttachment.save(data: data, mimeType: mime) else { return }
         pendingAttachments.append(attachment)
+    }
+
+    /// 텍스트에서 드롭된 이미지 파일 경로를 감지 → 첨부로 변환, 나머지 텍스트 반환
+    /// 경로가 없으면 nil 반환
+    private func extractDroppedImagePath(from text: String) -> String? {
+        let imageExtensions = ["jpg", "jpeg", "png", "gif", "webp", "heic", "tiff", "bmp"]
+
+        // file:// URL 또는 절대 경로 패턴 매칭
+        let pattern = #"(file:///[^\s]+|/(?:Users|Volumes|tmp|var|private)[^\s]+)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range = Range(match.range, in: text) else { return nil }
+
+        var pathString = String(text[range])
+
+        // file:// scheme 제거
+        if pathString.hasPrefix("file://") {
+            pathString = pathString.replacingOccurrences(of: "file://", with: "")
+        }
+
+        // URL 디코딩 (%20 → 공백 등)
+        pathString = pathString.removingPercentEncoding ?? pathString
+
+        // 이미지 확장자 확인
+        let ext = (pathString as NSString).pathExtension.lowercased()
+        guard imageExtensions.contains(ext) else { return nil }
+
+        // 파일 로드 + 첨부 생성
+        let url = URL(fileURLWithPath: pathString)
+        guard let data = try? Data(contentsOf: url),
+              let mime = ImageAttachment.mimeType(for: data),
+              let attachment = try? ImageAttachment.save(data: data, mimeType: mime) else { return nil }
+
+        pendingAttachments.append(attachment)
+
+        // 경로를 텍스트에서 제거하고 나머지 반환
+        var remaining = text
+        remaining.removeSubrange(range)
+        return remaining.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func handleImageDrop(_ providers: [NSItemProvider]) {

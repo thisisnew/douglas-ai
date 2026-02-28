@@ -68,6 +68,30 @@ class ClaudeCodeProvider: AIProvider {
         )
     }
 
+    /// 이미지 첨부를 파일 경로로 변환하여 CLI에 전달
+    func sendMessageWithTools(
+        model: String,
+        systemPrompt: String,
+        messages: [ConversationMessage],
+        tools: [AgentTool]
+    ) async throws -> AIResponseContent {
+        let simpleMsgs = messages
+            .filter { $0.role != "tool" }
+            .compactMap { msg -> (role: String, content: String)? in
+                var text = msg.content ?? ""
+                if let attachments = msg.attachments, !attachments.isEmpty {
+                    let paths = attachments.map { $0.diskPath.path }
+                    text += "\n\n[첨부 이미지 — 아래 경로의 파일을 Read 도구로 확인하세요]\n" + paths.joined(separator: "\n")
+                }
+                guard !text.isEmpty else { return nil }
+                return (role: msg.role, content: text)
+            }
+        let result = try await sendMessage(
+            model: model, systemPrompt: systemPrompt, messages: simpleMsgs
+        )
+        return .text(result)
+    }
+
     /// 라우터 전용: CLI 내장 도구 비활성화 (URL 직접 접근 방지)
     func sendRouterMessage(
         model: String,
