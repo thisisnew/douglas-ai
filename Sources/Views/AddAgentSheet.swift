@@ -50,8 +50,8 @@ struct AddAgentSheet: View {
 
                     // 이름
                     VStack(alignment: .leading, spacing: 6) {
-                        sectionLabel("이름")
-                        TextField("에이전트 이름", text: $name)
+                        sectionLabel("이름", required: true)
+                        TextField("예) 백엔드 개발자, QA 담당, UI 디자이너", text: $name)
                             .textFieldStyle(.plain)
                             .font(.body)
                             .padding(10)
@@ -65,7 +65,7 @@ struct AddAgentSheet: View {
 
                     // 역할 설명
                     VStack(alignment: .leading, spacing: 6) {
-                        sectionLabel("역할 설명")
+                        sectionLabel("역할 설명", required: true)
                         TextEditor(text: $persona)
                             .font(.body)
                             .scrollContentBackground(.hidden)
@@ -73,6 +73,19 @@ struct AddAgentSheet: View {
                             .padding(8)
                             .background(DesignTokens.Colors.inputBackground)
                             .continuousRadius(DesignTokens.Radius.lg)
+                            .overlay(
+                                Group {
+                                    if persona.isEmpty {
+                                        Text("예) Node.js 백엔드 API 전문 개발자. REST API 설계 및 구현을 담당합니다.")
+                                            .font(.body)
+                                            .foregroundColor(.secondary.opacity(0.5))
+                                            .padding(.leading, 12)
+                                            .padding(.top, 16)
+                                            .allowsHitTesting(false)
+                                    }
+                                },
+                                alignment: .topLeading
+                            )
                     }
 
                     // 작업 규칙 (필수)
@@ -80,7 +93,7 @@ struct AddAgentSheet: View {
 
                     // 모델 설정 (그룹 카드)
                     VStack(alignment: .leading, spacing: 6) {
-                        sectionLabel("모델")
+                        sectionLabel("모델", required: true)
 
                         VStack(spacing: 0) {
                             settingsRow("제공자") {
@@ -165,7 +178,7 @@ struct AddAgentSheet: View {
     @ViewBuilder
     private var workingRulesSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            sectionLabel("작업 규칙 (필수)")
+            sectionLabel("작업 규칙", required: true)
 
             Picker("입력 방식", selection: $rulesMode) {
                 Text("직접 입력").tag(RulesInputMode.inline)
@@ -186,7 +199,13 @@ struct AddAgentSheet: View {
                     .overlay(
                         Group {
                             if inlineRules.isEmpty {
-                                Text("작업 원칙, 금지 사항, 산출물 형식(타입/완성도/포맷) 등...")
+                                Text("""
+                                예) \
+                                - 산출물: 마크다운 체크리스트, 초안 수준
+                                - 코드 작성 시 feature/ 브랜치 사용
+                                - 한국어로 작성, 존댓말 금지
+                                - 변경 사항마다 테스트 포함 필수
+                                """)
                                     .font(.body)
                                     .foregroundColor(.secondary.opacity(0.5))
                                     .padding(.leading, 12)
@@ -314,7 +333,7 @@ struct AddAgentSheet: View {
     @ViewBuilder
     private var referenceProjectSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            sectionLabel("참조 프로젝트 (선택)")
+            sectionLabel("참조 프로젝트", required: false)
 
             if !referenceProjectPaths.isEmpty {
                 VStack(spacing: 0) {

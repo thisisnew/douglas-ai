@@ -68,7 +68,7 @@ struct EditAgentSheet: View {
 
                     // 이름
                     VStack(alignment: .leading, spacing: 6) {
-                        sectionLabel("이름")
+                        sectionLabel("이름", required: true)
                         if agent.isMaster {
                             Text(name)
                                 .font(.body)
@@ -78,7 +78,7 @@ struct EditAgentSheet: View {
                                 .background(DesignTokens.Colors.surfaceTertiary)
                                 .continuousRadius(DesignTokens.Radius.lg)
                         } else {
-                            TextField("에이전트 이름", text: $name)
+                            TextField("예) 백엔드 개발자, QA 담당, UI 디자이너", text: $name)
                                 .textFieldStyle(.plain)
                                 .font(.body)
                                 .padding(10)
@@ -89,7 +89,7 @@ struct EditAgentSheet: View {
 
                     // 역할 설명
                     VStack(alignment: .leading, spacing: 6) {
-                        sectionLabel("역할 설명")
+                        sectionLabel("역할 설명", required: true)
                         TextEditor(text: $persona)
                             .font(.body)
                             .scrollContentBackground(.hidden)
@@ -106,7 +106,7 @@ struct EditAgentSheet: View {
 
                     // 모델 설정 (그룹 카드)
                     VStack(alignment: .leading, spacing: 6) {
-                        sectionLabel("모델")
+                        sectionLabel("모델", required: true)
 
                         VStack(spacing: 0) {
                             settingsRow("제공자") {
@@ -186,7 +186,7 @@ struct EditAgentSheet: View {
     @ViewBuilder
     private var workingRulesSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            sectionLabel("작업 규칙 (필수)")
+            sectionLabel("작업 규칙", required: true)
 
             // 기존 에이전트에 규칙이 없는 경우 안내
             if agent.workingRules == nil {
@@ -215,7 +215,13 @@ struct EditAgentSheet: View {
                     .overlay(
                         Group {
                             if inlineRules.isEmpty {
-                                Text("작업 원칙, 금지 사항, 산출물 형식(타입/완성도/포맷) 등...")
+                                Text("""
+                                예) \
+                                - 산출물: 마크다운 체크리스트, 초안 수준
+                                - 코드 작성 시 feature/ 브랜치 사용
+                                - 한국어로 작성, 존댓말 금지
+                                - 변경 사항마다 테스트 포함 필수
+                                """)
                                     .font(.body)
                                     .foregroundColor(.secondary.opacity(0.5))
                                     .padding(.leading, 12)
@@ -324,7 +330,7 @@ struct EditAgentSheet: View {
     @ViewBuilder
     private var referenceProjectSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            sectionLabel("참조 프로젝트 (선택)")
+            sectionLabel("참조 프로젝트", required: false)
 
             if !referenceProjectPaths.isEmpty {
                 VStack(spacing: 0) {

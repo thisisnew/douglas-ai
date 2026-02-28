@@ -106,6 +106,24 @@ func sectionLabel(_ text: String) -> some View {
         .foregroundColor(.secondary)
 }
 
+/// 시트 폼 내 섹션 제목 + 필수/선택 표시
+func sectionLabel(_ text: String, required: Bool) -> some View {
+    HStack(spacing: 4) {
+        Text(text)
+            .font(.subheadline.weight(.medium))
+            .foregroundColor(.secondary)
+        if required {
+            Text("*")
+                .font(.subheadline.weight(.bold))
+                .foregroundColor(.red.opacity(0.7))
+        } else {
+            Text("(선택)")
+                .font(.caption2)
+                .foregroundColor(.secondary.opacity(0.6))
+        }
+    }
+}
+
 // MARK: - 설정 행
 
 /// 시트 내 레이블 + 컨텐츠 행
