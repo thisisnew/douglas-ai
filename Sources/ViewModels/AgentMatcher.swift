@@ -2,11 +2,10 @@ import Foundation
 
 // MARK: - 에이전트 매칭 (시스템 주도 Assembly)
 
-/// 분석가가 산출한 역할 요구사항을 기존 에이전트와 매칭
+/// 역할 요구사항을 기존 에이전트와 매칭 (이름 + 페르소나 + 작업 규칙 키워드 기반)
 enum AgentMatcher {
 
     /// 역할 요구사항을 기존 에이전트와 매칭
-    /// 매칭 순서: ① roleTemplateID 정확 매칭 → ② persona 키워드 매칭 → ③ unmatched
     static func matchRoles(
         requirements: [RoleRequirement],
         agents: [Agent]
@@ -15,23 +14,13 @@ enum AgentMatcher {
         var usedAgentIDs: Set<UUID> = []
 
         for i in results.indices {
-            // ① roleTemplateID 기반 정확 매칭
-            if let matched = findByTemplateID(roleName: results[i].roleName, agents: agents, excluding: usedAgentIDs) {
+            if let matched = findByKeyword(roleName: results[i].roleName, agents: agents, excluding: usedAgentIDs) {
                 results[i].matchedAgentID = matched.id
                 results[i].status = .matched
                 usedAgentIDs.insert(matched.id)
                 continue
             }
 
-            // ② persona 키워드 매칭
-            if let matched = findByPersonaKeyword(roleName: results[i].roleName, agents: agents, excluding: usedAgentIDs) {
-                results[i].matchedAgentID = matched.id
-                results[i].status = .matched
-                usedAgentIDs.insert(matched.id)
-                continue
-            }
-
-            // ③ 매칭 실패
             results[i].status = .unmatched
         }
 
@@ -83,46 +72,26 @@ enum AgentMatcher {
 
     // MARK: - Private
 
-    /// roleTemplateID 기반 매칭 (템플릿 이름 ↔ 역할 이름)
-    private static func findByTemplateID(roleName: String, agents: [Agent], excluding used: Set<UUID>) -> Agent? {
-        let lowerRole = roleName.lowercased()
-
-        // 빌트인 템플릿에서 역할 이름이 매칭되는 템플릿 ID 찾기
-        let matchingTemplateIDs = AgentRoleTemplateRegistry.builtIn
-            .filter { template in
-                template.name.lowercased().contains(lowerRole) ||
-                lowerRole.contains(template.name.lowercased()) ||
-                template.id.replacingOccurrences(of: "_", with: " ").contains(lowerRole)
-            }
-            .map { $0.id }
-
-        // 해당 템플릿 ID를 가진 에이전트 찾기
-        return agents.first { agent in
-            guard !used.contains(agent.id),
-                  let templateID = agent.roleTemplateID else { return false }
-            return matchingTemplateIDs.contains(templateID)
-        }
-    }
-
-    /// persona 키워드 매칭
-    private static func findByPersonaKeyword(roleName: String, agents: [Agent], excluding used: Set<UUID>) -> Agent? {
+    /// 이름 + 페르소나 + 작업 규칙 키워드 기반 매칭
+    private static func findByKeyword(roleName: String, agents: [Agent], excluding used: Set<UUID>) -> Agent? {
         let keywords = roleName.lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { $0.count >= 2 }
 
         guard !keywords.isEmpty else { return nil }
 
-        // 키워드 매칭 점수 기반
         var bestMatch: (agent: Agent, score: Int)?
 
         for agent in agents where !used.contains(agent.id) {
             let lowerPersona = agent.persona.lowercased()
             let lowerName = agent.name.lowercased()
+            let lowerRules = (agent.workingRules.flatMap { $0.isEmpty ? nil : $0 }?.resolve() ?? "").lowercased()
             var score = 0
 
             for keyword in keywords {
-                if lowerPersona.contains(keyword) { score += 1 }
-                if lowerName.contains(keyword) { score += 2 }  // 이름 매칭 가중치
+                if lowerName.contains(keyword) { score += 3 }
+                if lowerPersona.contains(keyword) { score += 2 }
+                if lowerRules.contains(keyword) { score += 1 }
             }
 
             if score > 0, score > (bestMatch?.score ?? 0) {

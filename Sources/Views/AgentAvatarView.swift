@@ -26,38 +26,17 @@ struct AgentAvatarView: View {
 
     private var defaultIconName: String {
         if agent.isMaster { return "brain.head.profile" }
-        if let templateID = agent.roleTemplateID,
-           let template = AgentRoleTemplateRegistry.template(for: templateID) {
-            return template.icon
-        }
         return "person.crop.circle"
     }
 
     private var defaultIconColor: Color {
         if agent.isMaster { return .purple }
-        if let templateID = agent.roleTemplateID,
-           let template = AgentRoleTemplateRegistry.template(for: templateID) {
-            return templateCategoryColor(template.category)
-        }
         return .blue
     }
 
     private var defaultBackgroundColor: Color {
         if agent.isMaster { return .purple }
-        if let templateID = agent.roleTemplateID,
-           let template = AgentRoleTemplateRegistry.template(for: templateID) {
-            return templateCategoryColor(template.category)
-        }
         return .blue
-    }
-
-    private func templateCategoryColor(_ category: TemplateCategory) -> Color {
-        switch category {
-        case .analysis:    return .purple
-        case .development: return .blue
-        case .quality:     return .green
-        case .operations:  return .orange
-        }
     }
 }
 

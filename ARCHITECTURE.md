@@ -33,9 +33,8 @@ DOUGLAS/
 │   │   ├── AppDelegate.swift        # 사이드바 패널(400pt), 채팅 윈도우, 마우스 트래킹
 │   │   └── UtilityWindowManager.swift # 유틸리티 윈도우 관리
 │   ├── Models/
-│   │   ├── Agent.swift              # 에이전트 모델 (이름, 페르소나, 이미지, isMaster, 도구 설정, roleTemplateID, referenceProjectPaths)
-│   │   ├── AgentRoleTemplate.swift  # 역할 템플릿 (프로바이더별 힌트, 카테고리)
-│   │   ├── AgentRoleTemplateRegistry.swift # 빌트인 9개 템플릿 (requirements_analyst, backend_dev, QA 4종 등)
+│   │   ├── Agent.swift              # 에이전트 모델 (이름, 페르소나, 이미지, isMaster, workingRules, referenceProjectPaths)
+│   │   ├── WorkingRules.swift       # 작업 규칙 (WorkingRulesSource — inline/filePath)
 │   │   ├── AgentTool.swift          # 도구 시스템 (AgentTool, ToolCall, ToolResult, ToolRegistry, ConversationMessage)
 │   │   ├── ArtifactParser.swift     # 토론 산출물 파서 (artifact 블록 추출/제거)
 │   │   ├── ChatMessage.swift        # 메시지 모델 (MessageType 포함: toolActivity, buildStatus, qaStatus, approvalRequest 등, ImageAttachment 첨부)
@@ -336,24 +335,23 @@ struct ImageAttachment: Codable, Identifiable {
 - 크기 제한: 이미지당 최대 20MB
 - `ImageAttachmentError`: `.fileTooLarge`, `.unsupportedFormat`
 
-### AgentRoleTemplate (`Models/AgentRoleTemplate.swift`)
+### WorkingRulesSource (`Models/WorkingRules.swift`)
 
 ```swift
-struct AgentRoleTemplate: Identifiable, Codable {
-    let id: String                          // "jira_analyst", "backend_dev" 등
-    let name: String                        // "Jira 분석가"
-    let icon: String                        // SF Symbol
-    let category: TemplateCategory          // 분석/개발/품질/운영
-    let basePersona: String                 // 기본 시스템 프롬프트
-    let providerHints: [String: String]     // 프로바이더별 추가 지시
+enum WorkingRulesSource: Codable, Equatable {
+    case inline(String)      // 직접 입력한 텍스트 규칙
+    case filePath(String)    // 파일 경로 참조 (예: .cursorrules)
 
-    func resolvedPersona(for providerType: String) -> String  // 프로바이더별 최적화 프롬프트
+    func resolve() -> String   // 실행 시점에 텍스트 반환
+    var displaySummary: String // UI 요약
+    var isEmpty: Bool
 }
 ```
 
-- `AgentRoleTemplateRegistry`: 빌트인 9개 템플릿 (requirements_analyst, backend_dev, frontend_dev, qa_test_automation, qa_exploratory, qa_security, qa_code_review, tech_writer, devops_engineer)
-- 에이전트 생성 시 템플릿 선택 → persona/name 자동 설정
-- `Agent.roleTemplateID`: 적용된 템플릿 ID (nil = 사용자 정의)
+- 에이전트 생성 시 **필수 입력** (마스터 제외)
+- persona = 역할 정체성, workingRules = 구체적 작업 지시사항으로 분리
+- `Agent.resolvedSystemPrompt`: persona + rules를 결합한 최종 시스템 프롬프트
+- filePath는 실행 시점에 파일을 읽어 항상 최신 규칙 반영
 
 ### DiscussionArtifact (`Models/DiscussionArtifact.swift`)
 
@@ -638,7 +636,7 @@ MessageType에 따른 시각 차별화:
 재사용 가능한 원형 아바타 컴포넌트:
 - hasImage 있으면 → 파일시스템에서 이미지 로드 → 원형 클립
 - 마스터 에이전트 → `brain.head.profile` (보라색)
-- 역할 템플릿이 있는 에이전트 → 템플릿 아이콘 + 카테고리 색상 (분석=보라, 개발=파랑, 품질=초록, 운영=주황)
+- 마스터 에이전트 → brain 아이콘 + 보라색, 일반 에이전트 → person 아이콘 + 파란색
 - 기타 에이전트 → `person.crop.circle` (파란색)
 
 `pickAgentImage()` 유틸: NSOpenPanel → PNG/JPEG 선택 → 128x128 리사이즈 → 파일시스템 저장
@@ -839,7 +837,7 @@ executeWithTools() 루프 (최대 10회):
 
 **작업일지**: `executeRoomWork()` 완료 시 `generateWorkLog()` → 상태 전환 순서. `completeRoom()` (수동 완료)에서도 작업일지 생성.
 
-**QA 루프** (`runQALoop`): 빌드 루프 성공 후 `testCommand`가 있으면 자동 실행. `BuildLoopRunner.runTests()` → 실패 시 QA 에이전트(`roleTemplateID == "qa_engineer"`)에게 수정 프롬프트 → 재테스트 (최대 `maxQARetries`회).
+**QA 루프** (`runQALoop`): 빌드 루프 성공 후 `testCommand`가 있으면 자동 실행. `BuildLoopRunner.runTests()` → 실패 시 QA 에이전트(이름/페르소나에 "QA" 키워드 포함)에게 수정 프롬프트 → 재테스트 (최대 `maxQARetries`회).
 
 **컨텍스트 압축**: 토론 종료 후 `generateBriefing()`이 전체 히스토리를 JSON 브리핑으로 압축.
 - 계획 수립: 브리핑 + 산출물만 전달 (40msg → ~500토큰)
@@ -858,7 +856,7 @@ executeWithTools() 루프 (최대 10회):
 
 | 항목 | 내용 | 상태 |
 |------|------|------|
-| A-1 | Agent Role Template 시스템 (역할 템플릿 + 모델별 어댑터) | ✅ |
+| A-1 | ~~Agent Role Template 시스템~~ → Working Rules로 대체 (Phase H) | ✅ |
 | A-2 | 토론 산출물 구조화 (artifact 블록 자동 추출, 버전 관리) | ✅ |
 | A-3 | 컨텍스트 요약/압축 전달 메커니즘 (RoomBriefing) | ✅ |
 
@@ -892,6 +890,17 @@ executeWithTools() 루프 (최대 10회):
 | G-4 | **SuggestionCard 제거**: 사이드바 에이전트 제안 카드 삭제 (방 내 `AgentSuggestionCard`는 유지). | ✅ |
 | G-5 | **masterSystemPrompt 간소화**: PM/오케스트레이터 역할 프롬프트 (JSON 형식 불필요). | ✅ |
 
+### Phase H — 작업 규칙 (Working Rules) ✅ 완료
+
+| 항목 | 내용 | 상태 |
+|------|------|------|
+| H-1 | **WorkingRulesSource 모델**: `inline(String)` / `filePath(String)` enum. `resolve()`로 실행 시점에 텍스트 반환. | ✅ |
+| H-2 | **Agent.workingRules 필드**: 마스터는 nil, 서브 에이전트는 필수 입력. `resolvedSystemPrompt`로 persona + rules 결합. | ✅ |
+| H-3 | **역할 템플릿 제거**: `AgentRoleTemplate`, `AgentRoleTemplateRegistry`, `TemplateCategory` 삭제. AgentAvatarView/AgentMatcher에서 템플릿 참조 제거. | ✅ |
+| H-4 | **AddAgentSheet/EditAgentSheet UI**: 템플릿 선택 → 작업 규칙 편집기 (직접 입력/파일 참조 Segmented Picker). 규칙 비어있으면 저장 불가. | ✅ |
+| H-5 | **시스템 프롬프트 주입 변경**: RoomManager/ChatViewModel 6+ 위치에서 `agent.persona` → `agent.resolvedSystemPrompt`. | ✅ |
+| H-6 | **트리아지 자동 생성 → 제안**: 매칭 실패 시 에이전트 자동 생성 대신 `RoomAgentSuggestion` 생성. AgentSuggestionCard 승인 시 AddAgentSheet 열기. | ✅ |
+
 ### Phase E — Intent 기반 7단계 워크플로우 ✅ 완료
 
 | 항목 | 내용 | 상태 |
@@ -901,7 +910,7 @@ executeWithTools() 루프 (최대 10회):
 | E-3 | **ask_user 도구 + UserInput 게이트**: Clarify 단계에서만 사용 가능한 사용자 질문 도구. `CheckedContinuation` 기반 블로킹. `UserInputCard` UI. | ✅ |
 | E-4 | **Intake + Intent 단계**: 입력 파싱 (URL/Jira 감지), Jira API fetch → `IntakeData` 구조화 저장, 플레이북 로드. `room.intent` 유무로 레거시/새 워크플로우 분기. | ✅ |
 | E-5 | **Clarify 단계 + 가정 선언**: 마스터가 `ask_user`로 결측치 질문 (최대 5개). 미답 시 `artifact:assumptions`로 가정 선언 (위험도: 낮음/중간/높음). `WorkflowAssumption` 파싱. | ✅ |
-| E-6 | **시스템 주도 Assembly**: 마스터가 `artifact:role_requirements` 산출 → `AgentMatcher`가 자동 매칭 (templateID → persona 키워드). 매칭된 에이전트 자동 초대, 미매칭은 생성 제안. 필수 역할 50%+ 커버리지 게이트. | ✅ |
+| E-6 | **시스템 주도 Assembly**: 마스터가 `artifact:role_requirements` 산출 → `AgentMatcher`가 자동 매칭 (이름 + persona + workingRules 키워드). 매칭된 에이전트 자동 초대, 미매칭은 생성 제안. 필수 역할 50%+ 커버리지 게이트. | ✅ |
 | E-7 | **Plan/Execute/Review + 플레이북 주입**: 계획 수립 프롬프트에 플레이북 컨텍스트 주입. Review 단계에서 플레이북 override 감지. 레거시 메서드 재사용으로 점진적 전환. | ✅ |
 
 **7단계 워크플로우 상태기계**:
@@ -1037,7 +1046,7 @@ executeWithTools() 루프 (최대 10회):
 Tests/
 ├── Models/
 │   ├── AgentTests.swift              # 22 tests — 초기화, 팩토리, Codable, 레거시 디코딩, imageData I/O, resolvedToolIDs (항상 전체 도구)
-│   ├── AgentRoleTemplateTests.swift  # 19 tests — 템플릿 초기화, 레지스트리, resolvedPersona, Codable
+│   ├── WorkingRulesTests.swift       # WorkingRulesSource — resolve, isEmpty, displaySummary, Codable
 │   ├── AgentToolTests.swift          # 32 tests — AgentTool/ToolCall/ToolResult Codable, ToolRegistry (11종 도구), ConversationMessage, Jira 도구
 │   ├── ArtifactParserTests.swift     # 15 tests — 산출물 추출, 다중 산출물, 타입별 파싱, 블록 제거
 │   ├── ChatMessageTests.swift        # 12 tests — 모든 MessageType, Codable 라운드트립, 이미지 첨부 호환
@@ -1084,7 +1093,7 @@ Tests/
 
 | 계층 | 테스트 수 | 주요 커버리지 |
 |------|----------|-------------|
-| Models | 397 | Agent, AgentRoleTemplate, AgentTool, ArtifactParser, ChatMessage, ClaudeCodeInstaller, DependencyChecker, DiscussionArtifact, ImageAttachment, JiraConfig, KeychainHelper, ProviderConfig, ProviderDetector, Room, RoomBriefing, RoomStep, ToolExecutionContext, BuildResult (QA 포함) |
+| Models | 397 | Agent, WorkingRules, AgentTool, ArtifactParser, ChatMessage, ClaudeCodeInstaller, DependencyChecker, DiscussionArtifact, ImageAttachment, JiraConfig, KeychainHelper, ProviderConfig, ProviderDetector, Room, RoomBriefing, RoomStep, ToolExecutionContext, BuildResult (QA 포함) |
 | ViewModels | 302 | ChatViewModel (통합+파싱+상태), AgentStore, ProviderManager, RoomManager, OnboardingViewModel, ToolExecutor (Jira 도구 포함), BuildLoopRunner (QA 포함) |
 | Providers | 91 | OpenAI, Anthropic, Google, Ollama, LM Studio, Custom, ClaudeCode, ToolFormatConverter (도구 + 이미지) |
 | **합계** | **789** | 테스트 가능 코드 87% 라인 커버리지 (View/App 레이어는 UI 특성상 제외) |

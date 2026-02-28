@@ -240,4 +240,100 @@ struct AgentTests {
         #expect(decoded.name == "A")
         #expect(decoded.resolvedToolIDs == ToolRegistry.allToolIDs)
     }
+
+    // MARK: - workingRules
+
+    @Test("workingRules — inline 초기화")
+    func workingRulesInline() {
+        let agent = Agent(
+            name: "Dev",
+            persona: "개발자",
+            providerName: "P",
+            modelName: "M",
+            workingRules: .inline("브랜치 전략: feature/ 사용")
+        )
+        #expect(agent.workingRules == .inline("브랜치 전략: feature/ 사용"))
+    }
+
+    @Test("workingRules — filePath 초기화")
+    func workingRulesFilePath() {
+        let agent = Agent(
+            name: "Dev",
+            persona: "개발자",
+            providerName: "P",
+            modelName: "M",
+            workingRules: .filePath("/path/to/.cursorrules")
+        )
+        #expect(agent.workingRules == .filePath("/path/to/.cursorrules"))
+    }
+
+    @Test("workingRules — 기본값 nil")
+    func workingRulesDefault() {
+        let agent = Agent(name: "Dev", persona: "p", providerName: "P", modelName: "M")
+        #expect(agent.workingRules == nil)
+    }
+
+    @Test("resolvedSystemPrompt — 규칙 없으면 persona만")
+    func resolvedSystemPromptNoRules() {
+        let agent = Agent(name: "Dev", persona: "개발자입니다.", providerName: "P", modelName: "M")
+        #expect(agent.resolvedSystemPrompt == "개발자입니다.")
+    }
+
+    @Test("resolvedSystemPrompt — 규칙 있으면 결합")
+    func resolvedSystemPromptWithRules() {
+        let agent = Agent(
+            name: "Dev",
+            persona: "개발자입니다.",
+            providerName: "P",
+            modelName: "M",
+            workingRules: .inline("탭 대신 스페이스 사용")
+        )
+        let prompt = agent.resolvedSystemPrompt
+        #expect(prompt.contains("개발자입니다."))
+        #expect(prompt.contains("작업 규칙"))
+        #expect(prompt.contains("탭 대신 스페이스 사용"))
+    }
+
+    @Test("resolvedSystemPrompt — 빈 규칙이면 persona만")
+    func resolvedSystemPromptEmptyRules() {
+        let agent = Agent(
+            name: "Dev",
+            persona: "개발자입니다.",
+            providerName: "P",
+            modelName: "M",
+            workingRules: .inline("  ")
+        )
+        #expect(agent.resolvedSystemPrompt == "개발자입니다.")
+    }
+
+    @Test("Codable — workingRules 라운드트립")
+    func codableWorkingRulesRoundTrip() throws {
+        let original = Agent(
+            name: "Dev",
+            persona: "p",
+            providerName: "P",
+            modelName: "M",
+            workingRules: .inline("규칙 텍스트")
+        )
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(Agent.self, from: data)
+        #expect(decoded.workingRules == .inline("규칙 텍스트"))
+    }
+
+    @Test("Decodable — workingRules 없는 레거시 JSON 호환")
+    func decodeLegacyWithoutWorkingRules() throws {
+        let json: [String: Any] = [
+            "id": UUID().uuidString,
+            "name": "Legacy",
+            "persona": "p",
+            "providerName": "P",
+            "modelName": "M",
+            "isMaster": false,
+            "hasImage": false
+        ]
+        let data = try JSONSerialization.data(withJSONObject: json)
+        let agent = try JSONDecoder().decode(Agent.self, from: data)
+        #expect(agent.workingRules == nil)
+        #expect(agent.resolvedSystemPrompt == "p")
+    }
 }

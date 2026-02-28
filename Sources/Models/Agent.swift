@@ -25,11 +25,27 @@ struct Agent: Identifiable, Codable, Hashable {
     var errorMessage: String?
     var hasImage: Bool
 
-    // 역할 템플릿 (nil = 사용자 정의)
-    var roleTemplateID: String?
+    // 작업 규칙 (nil = 마스터 등 규칙 불필요)
+    var workingRules: WorkingRulesSource?
 
     // 참조 프로젝트 디렉토리 (여러 건)
     var referenceProjectPaths: [String]
+
+    /// 실행 시점에 사용할 완전한 시스템 프롬프트 (페르소나 + 작업 규칙)
+    var resolvedSystemPrompt: String {
+        guard let rules = workingRules, !rules.isEmpty else {
+            return persona
+        }
+        let resolvedRules = rules.resolve()
+        return """
+        \(persona)
+
+        ## 작업 규칙
+        아래 규칙을 반드시 준수하세요:
+
+        \(resolvedRules)
+        """
+    }
 
     /// 모든 에이전트는 전체 도구에 접근 가능
     var resolvedToolIDs: [String] {
@@ -41,7 +57,12 @@ struct Agent: Identifiable, Codable, Hashable {
     // imageData는 Codable에서 제외 — 파일 시스템에 저장
     private enum CodingKeys: String, CodingKey {
         case id, name, persona, providerName, modelName, status, isMaster, errorMessage, hasImage
-        case roleTemplateID, referenceProjectPaths
+        case referenceProjectPaths, workingRules
+    }
+
+    /// 레거시 JSON의 roleTemplateID 디코딩용
+    private enum LegacyCodingKeys: String, CodingKey {
+        case roleTemplateID
     }
 
     // 이미지를 파일 시스템에 저장/로드
@@ -68,8 +89,8 @@ struct Agent: Identifiable, Codable, Hashable {
         isMaster: Bool = false,
         errorMessage: String? = nil,
         imageData: Data? = nil,
-        roleTemplateID: String? = nil,
-        referenceProjectPaths: [String] = []
+        referenceProjectPaths: [String] = [],
+        workingRules: WorkingRulesSource? = nil
     ) {
         self.id = id
         self.name = name
@@ -79,7 +100,7 @@ struct Agent: Identifiable, Codable, Hashable {
         self.status = status
         self.isMaster = isMaster
         self.errorMessage = errorMessage
-        self.roleTemplateID = roleTemplateID
+        self.workingRules = workingRules
         self.referenceProjectPaths = referenceProjectPaths
         self.hasImage = false
         if let imageData {
@@ -100,8 +121,8 @@ struct Agent: Identifiable, Codable, Hashable {
         isMaster = try container.decodeIfPresent(Bool.self, forKey: .isMaster) ?? false
         errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
         hasImage = try container.decodeIfPresent(Bool.self, forKey: .hasImage) ?? false
-        roleTemplateID = try container.decodeIfPresent(String.self, forKey: .roleTemplateID)
         referenceProjectPaths = try container.decodeIfPresent([String].self, forKey: .referenceProjectPaths) ?? []
+        workingRules = try container.decodeIfPresent(WorkingRulesSource.self, forKey: .workingRules)
 
         // 레거시 마이그레이션: UserDefaults에 imageData가 있으면 파일로 이동
         struct LegacyKey: CodingKey {

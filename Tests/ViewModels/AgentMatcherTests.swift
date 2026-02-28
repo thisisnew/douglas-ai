@@ -10,14 +10,14 @@ struct AgentMatcherTests {
     private func makeAgent(
         name: String,
         persona: String,
-        roleTemplateID: String? = nil
+        workingRules: WorkingRulesSource? = nil
     ) -> Agent {
         Agent(
             name: name,
             persona: persona,
             providerName: "TestProvider",
             modelName: "test-model",
-            roleTemplateID: roleTemplateID
+            workingRules: workingRules
         )
     }
 
@@ -34,15 +34,11 @@ struct AgentMatcherTests {
         #expect(results.allSatisfy { $0.status == .unmatched })
     }
 
-    @Test("matchRoles — templateID 기반 정확 매칭")
-    func matchRolesByTemplate() {
-        let agent = makeAgent(
-            name: "분석가",
-            persona: "요구사항 분석",
-            roleTemplateID: "requirements_analyst"
-        )
+    @Test("matchRoles — 이름 키워드 매칭")
+    func matchRolesByName() {
+        let agent = makeAgent(name: "백엔드 개발자", persona: "서버 개발 전문")
         let requirements = [
-            RoleRequirement(roleName: "분석가")
+            RoleRequirement(roleName: "백엔드")
         ]
         let results = AgentMatcher.matchRoles(requirements: requirements, agents: [agent])
         #expect(results[0].status == .matched)
@@ -61,6 +57,20 @@ struct AgentMatcherTests {
         let results = AgentMatcher.matchRoles(requirements: requirements, agents: [agent])
         #expect(results[0].status == .matched)
         #expect(results[0].matchedAgentID == agent.id)
+    }
+
+    @Test("matchRoles — 작업 규칙 키워드 매칭")
+    func matchRolesByWorkingRules() {
+        let agent = makeAgent(
+            name: "개발자",
+            persona: "코드 작성 전문",
+            workingRules: .inline("React 컴포넌트는 함수형으로 작성. TypeScript 필수.")
+        )
+        let requirements = [
+            RoleRequirement(roleName: "React")
+        ]
+        let results = AgentMatcher.matchRoles(requirements: requirements, agents: [agent])
+        #expect(results[0].status == .matched)
     }
 
     @Test("matchRoles — 에이전트 중복 사용 불가")

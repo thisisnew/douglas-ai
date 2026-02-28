@@ -180,7 +180,7 @@ class ChatViewModel: ObservableObject {
             let response = try await ToolExecutor.smartSend(
                 provider: provider,
                 agent: agent,
-                systemPrompt: agent.persona,
+                systemPrompt: agent.resolvedSystemPrompt,
                 conversationMessages: history,
                 onToolActivity: { [weak self] activity in
                     Task { @MainActor in

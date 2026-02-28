@@ -982,6 +982,29 @@ struct AgentInfoSheet: View {
                         .textSelection(.enabled)
                 }
 
+                if let rules = agent.workingRules {
+                    Section("작업 규칙") {
+                        switch rules {
+                        case .inline(let text):
+                            Text(text)
+                                .font(.body)
+                                .textSelection(.enabled)
+                        case .filePath(let path):
+                            HStack {
+                                Image(systemName: "doc.text")
+                                Text((path as NSString).lastPathComponent)
+                                    .font(.body)
+                                Spacer()
+                                Text(path)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
+                    }
+                }
+
                 if let err = agent.errorMessage {
                     Section("최근 오류") {
                         Text(err)

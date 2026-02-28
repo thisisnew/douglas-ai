@@ -735,6 +735,8 @@ struct AgentSuggestionCard: View {
     let suggestion: RoomAgentSuggestion
     let roomID: UUID
     @EnvironmentObject var roomManager: RoomManager
+    @EnvironmentObject var agentStore: AgentStore
+    @State private var showAddSheet = false
 
     var body: some View {
         CardContainer(accentColor: .orange, opacity: 0.06) {
@@ -780,7 +782,7 @@ struct AgentSuggestionCard: View {
                     .continuousRadius(DesignTokens.Radius.md)
 
                     Button("추가") {
-                        roomManager.approveAgentSuggestion(suggestionID: suggestion.id, in: roomID)
+                        showAddSheet = true
                     }
                     .font(.caption2.bold())
                     .foregroundColor(.white)
@@ -790,6 +792,27 @@ struct AgentSuggestionCard: View {
                     .continuousRadius(DesignTokens.Radius.md)
                 }
             }
+        }
+        .sheet(isPresented: $showAddSheet) {
+            AddAgentSheet(
+                prefillName: suggestion.name,
+                prefillPersona: suggestion.persona,
+                onCreated: { newAgent in
+                    // 제안 승인 + 방에 에이전트 추가
+                    if let roomIdx = roomManager.rooms.firstIndex(where: { $0.id == roomID }),
+                       let sugIdx = roomManager.rooms[roomIdx].pendingAgentSuggestions.firstIndex(where: { $0.id == suggestion.id }) {
+                        roomManager.rooms[roomIdx].pendingAgentSuggestions[sugIdx].status = .approved
+                    }
+                    roomManager.addAgent(newAgent.id, to: roomID)
+                    let msg = ChatMessage(
+                        role: .system,
+                        content: "'\(newAgent.name)' 에이전트가 생성되어 방에 참여했습니다."
+                    )
+                    roomManager.appendMessage(msg, to: roomID)
+                    roomManager.resumeSuggestionContinuationIfResolved(roomID: roomID)
+                }
+            )
+            .environmentObject(agentStore)
         }
     }
 }

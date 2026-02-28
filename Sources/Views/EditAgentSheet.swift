@@ -15,8 +15,12 @@ struct EditAgentSheet: View {
     @State private var imageData: Data?
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
-    @State private var roleTemplateID: String?
     @State private var referenceProjectPaths: [String]
+
+    // 작업 규칙
+    @State private var rulesMode: RulesInputMode
+    @State private var inlineRules: String
+    @State private var rulesFilePath: String
 
     init(agent: Agent) {
         self.agent = agent
@@ -25,8 +29,23 @@ struct EditAgentSheet: View {
         _selectedProvider = State(initialValue: agent.providerName)
         _selectedModel = State(initialValue: agent.modelName)
         _imageData = State(initialValue: agent.imageData)
-        _roleTemplateID = State(initialValue: agent.roleTemplateID)
         _referenceProjectPaths = State(initialValue: agent.referenceProjectPaths)
+
+        // 작업 규칙 초기화
+        switch agent.workingRules {
+        case .inline(let text):
+            _rulesMode = State(initialValue: .inline)
+            _inlineRules = State(initialValue: text)
+            _rulesFilePath = State(initialValue: "")
+        case .filePath(let path):
+            _rulesMode = State(initialValue: .filePath)
+            _inlineRules = State(initialValue: "")
+            _rulesFilePath = State(initialValue: path)
+        case nil:
+            _rulesMode = State(initialValue: .inline)
+            _inlineRules = State(initialValue: "")
+            _rulesFilePath = State(initialValue: "")
+        }
     }
 
     var body: some View {
@@ -38,7 +57,7 @@ struct EditAgentSheet: View {
                 Button("저장") { save() }
                     .keyboardShortcut(.defaultAction)
                     .fontWeight(.semibold)
-                    .disabled(name.isEmpty || persona.isEmpty)
+                    .disabled(!isFormValid)
             }
 
             ScrollView {
@@ -68,40 +87,6 @@ struct EditAgentSheet: View {
                         }
                     }
 
-                    // 역할 템플릿
-                    if !agent.isMaster {
-                        VStack(alignment: .leading, spacing: 6) {
-                            sectionLabel("역할 템플릿")
-                            if let templateID = roleTemplateID,
-                               let template = AgentRoleTemplateRegistry.template(for: templateID) {
-                                HStack(spacing: 6) {
-                                    Image(systemName: template.icon)
-                                        .font(.caption)
-                                        .foregroundColor(.accentColor)
-                                    Text(template.name)
-                                        .font(.caption)
-                                        .foregroundColor(.accentColor)
-                                    Spacer()
-                                    Button("다시 적용") {
-                                        if let config = providerManager.configs.first(where: { $0.name == selectedProvider }) {
-                                            persona = template.resolvedPersona(for: config.type.rawValue)
-                                        } else {
-                                            persona = template.basePersona
-                                        }
-                                    }
-                                    .font(.caption)
-                                }
-                                .padding(8)
-                                .background(Color.accentColor.opacity(0.06))
-                                .continuousRadius(DesignTokens.Radius.lg)
-                            } else {
-                                Text("사용자 정의")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
-
                     // 역할 설명
                     VStack(alignment: .leading, spacing: 6) {
                         sectionLabel("역할 설명")
@@ -112,6 +97,11 @@ struct EditAgentSheet: View {
                             .padding(8)
                             .background(DesignTokens.Colors.inputBackground)
                             .continuousRadius(DesignTokens.Radius.lg)
+                    }
+
+                    // 작업 규칙 (마스터가 아닌 경우만)
+                    if !agent.isMaster {
+                        workingRulesSection
                     }
 
                     // 모델 설정 (그룹 카드)
@@ -191,6 +181,101 @@ struct EditAgentSheet: View {
         }
     }
 
+    // MARK: - 작업 규칙 섹션
+
+    @ViewBuilder
+    private var workingRulesSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionLabel("작업 규칙 (필수)")
+
+            // 기존 에이전트에 규칙이 없는 경우 안내
+            if agent.workingRules == nil {
+                Label("작업 규칙을 설정하면 더 정확한 결과를 얻을 수 있습니다.",
+                      systemImage: "lightbulb")
+                    .font(.caption)
+                    .foregroundColor(.orange)
+            }
+
+            Picker("입력 방식", selection: $rulesMode) {
+                Text("직접 입력").tag(RulesInputMode.inline)
+                Text("파일 참조").tag(RulesInputMode.filePath)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            switch rulesMode {
+            case .inline:
+                TextEditor(text: $inlineRules)
+                    .font(.body)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 80)
+                    .padding(8)
+                    .background(DesignTokens.Colors.inputBackground)
+                    .continuousRadius(DesignTokens.Radius.lg)
+                    .overlay(
+                        Group {
+                            if inlineRules.isEmpty {
+                                Text("코딩 컨벤션, 작업 원칙, 금지 사항 등...")
+                                    .font(.body)
+                                    .foregroundColor(.secondary.opacity(0.5))
+                                    .padding(.leading, 12)
+                                    .padding(.top, 16)
+                                    .allowsHitTesting(false)
+                            }
+                        },
+                        alignment: .topLeading
+                    )
+
+            case .filePath:
+                VStack(spacing: 8) {
+                    if !rulesFilePath.isEmpty {
+                        HStack(spacing: 8) {
+                            Image(systemName: "doc.text")
+                                .foregroundColor(.secondary)
+                                .font(.caption)
+                            Text((rulesFilePath as NSString).lastPathComponent)
+                                .font(.callout)
+                                .lineLimit(1)
+                            Spacer()
+                            Text(rulesFilePath)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Button {
+                                rulesFilePath = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(DesignTokens.Colors.inputBackground)
+                        .continuousRadius(DesignTokens.Radius.lg)
+                    }
+
+                    Button {
+                        pickRulesFile()
+                    } label: {
+                        HStack {
+                            Image(systemName: "doc.badge.plus")
+                            Text(rulesFilePath.isEmpty ? "파일 선택" : "파일 변경")
+                        }
+                        .font(.callout)
+                        .frame(maxWidth: .infinity)
+                        .padding(8)
+                        .background(DesignTokens.Colors.inputBackground)
+                        .continuousRadius(DesignTokens.Radius.lg)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
     // MARK: - Components
 
     private var avatarPicker: some View {
@@ -229,8 +314,6 @@ struct EditAgentSheet: View {
         .buttonStyle(.plain)
         .contentShape(Circle())
     }
-
-    // sectionLabel, settingsRow → SharedComponents 사용
 
     private func settingsRow<Content: View>(_ label: String, @ViewBuilder content: @escaping () -> Content) -> some View {
         SettingsRow(label: label, content: content)
@@ -303,10 +386,32 @@ struct EditAgentSheet: View {
         referenceProjectPaths.append(contentsOf: newPaths)
     }
 
+    private func pickRulesFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.message = "작업 규칙 파일을 선택하세요"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        rulesFilePath = url.path
+    }
+
     // MARK: - Logic
 
+    private var isFormValid: Bool {
+        let baseValid = !name.isEmpty && !persona.isEmpty
+        if agent.isMaster { return baseValid }
+        return baseValid && hasValidRules
+    }
+
+    private var hasValidRules: Bool {
+        switch rulesMode {
+        case .inline: return !inlineRules.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .filePath: return !rulesFilePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
     private func loadModels(for providerName: String) {
-        // 미연결 프로바이더는 모델 로딩 차단
         if let config = providerManager.configs.first(where: { $0.name == providerName }),
            !config.isConnected {
             availableModels = []
@@ -334,8 +439,12 @@ struct EditAgentSheet: View {
         updated.providerName = selectedProvider
         updated.modelName = selectedModel
         updated.imageData = imageData
-        updated.roleTemplateID = roleTemplateID
         updated.referenceProjectPaths = referenceProjectPaths
+        if !agent.isMaster {
+            updated.workingRules = rulesMode == .inline
+                ? .inline(inlineRules)
+                : .filePath(rulesFilePath)
+        }
         agentStore.updateAgent(updated)
         dismiss()
     }

@@ -1,5 +1,10 @@
 import SwiftUI
 
+enum RulesInputMode: String {
+    case inline
+    case filePath
+}
+
 struct AddAgentSheet: View {
     @EnvironmentObject var agentStore: AgentStore
     @EnvironmentObject var providerManager: ProviderManager
@@ -13,8 +18,17 @@ struct AddAgentSheet: View {
     @State private var isLoadingModels = false
     @State private var errorMessage: String?
     @State private var imageData: Data?
-    @State private var selectedTemplateID: String? = nil
     @State private var referenceProjectPaths: [String] = []
+
+    // 작업 규칙
+    @State private var rulesMode: RulesInputMode = .inline
+    @State private var inlineRules: String = ""
+    @State private var rulesFilePath: String = ""
+
+    // 사전 입력 (AgentSuggestionCard에서 호출 시)
+    var prefillName: String?
+    var prefillPersona: String?
+    var onCreated: ((Agent) -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -33,12 +47,6 @@ struct AddAgentSheet: View {
                     // 아바타 히어로
                     avatarPicker
                         .padding(.top, 8)
-
-                    // 역할 템플릿
-                    VStack(alignment: .leading, spacing: 6) {
-                        sectionLabel("역할 템플릿")
-                        templatePicker
-                    }
 
                     // 이름
                     VStack(alignment: .leading, spacing: 6) {
@@ -66,6 +74,9 @@ struct AddAgentSheet: View {
                             .background(DesignTokens.Colors.inputBackground)
                             .continuousRadius(DesignTokens.Radius.lg)
                     }
+
+                    // 작업 규칙 (필수)
+                    workingRulesSection
 
                     // 모델 설정 (그룹 카드)
                     VStack(alignment: .leading, spacing: 6) {
@@ -138,76 +149,112 @@ struct AddAgentSheet: View {
             }
         }
         .frame(width: DesignTokens.WindowSize.agentSheet.width, height: min(DesignTokens.WindowSize.agentSheet.height, (NSScreen.main?.frame.height ?? 800) * 0.75))
+        .onAppear {
+            if let n = prefillName { name = n }
+            if let p = prefillPersona { persona = p }
+        }
         .onChange(of: selectedProvider) { _, newValue in
             selectedModel = ""
             availableModels = []
             if !newValue.isEmpty { loadModels(for: newValue) }
+        }
+    }
 
-            // 템플릿 선택 시 프로바이더 변경에 맞춰 persona 재생성
-            if let templateID = selectedTemplateID,
-               let template = AgentRoleTemplateRegistry.template(for: templateID),
-               let config = providerManager.configs.first(where: { $0.name == newValue }) {
-                persona = template.resolvedPersona(for: config.type.rawValue)
+    // MARK: - 작업 규칙 섹션
+
+    @ViewBuilder
+    private var workingRulesSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionLabel("작업 규칙 (필수)")
+
+            Picker("입력 방식", selection: $rulesMode) {
+                Text("직접 입력").tag(RulesInputMode.inline)
+                Text("파일 참조").tag(RulesInputMode.filePath)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            switch rulesMode {
+            case .inline:
+                TextEditor(text: $inlineRules)
+                    .font(.body)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 80)
+                    .padding(8)
+                    .background(DesignTokens.Colors.inputBackground)
+                    .continuousRadius(DesignTokens.Radius.lg)
+                    .overlay(
+                        Group {
+                            if inlineRules.isEmpty {
+                                Text("코딩 컨벤션, 작업 원칙, 금지 사항 등...")
+                                    .font(.body)
+                                    .foregroundColor(.secondary.opacity(0.5))
+                                    .padding(.leading, 12)
+                                    .padding(.top, 16)
+                                    .allowsHitTesting(false)
+                            }
+                        },
+                        alignment: .topLeading
+                    )
+
+            case .filePath:
+                VStack(spacing: 8) {
+                    if !rulesFilePath.isEmpty {
+                        HStack(spacing: 8) {
+                            Image(systemName: "doc.text")
+                                .foregroundColor(.secondary)
+                                .font(.caption)
+                            Text((rulesFilePath as NSString).lastPathComponent)
+                                .font(.callout)
+                                .lineLimit(1)
+                            Spacer()
+                            Text(rulesFilePath)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Button {
+                                rulesFilePath = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(DesignTokens.Colors.inputBackground)
+                        .continuousRadius(DesignTokens.Radius.lg)
+                    }
+
+                    Button {
+                        pickRulesFile()
+                    } label: {
+                        HStack {
+                            Image(systemName: "doc.badge.plus")
+                            Text(rulesFilePath.isEmpty ? "파일 선택" : "파일 변경")
+                        }
+                        .font(.callout)
+                        .frame(maxWidth: .infinity)
+                        .padding(8)
+                        .background(DesignTokens.Colors.inputBackground)
+                        .continuousRadius(DesignTokens.Radius.lg)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            if !hasValidRules {
+                Label("작업 규칙을 입력해야 에이전트를 추가할 수 있습니다.",
+                      systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundColor(.orange)
             }
         }
     }
 
     // MARK: - Components
-
-    private var templatePicker: some View {
-        FlowLayout(spacing: 6) {
-            templateChip(
-                icon: "person.fill",
-                label: "사용자 정의",
-                isSelected: selectedTemplateID == nil
-            ) {
-                selectedTemplateID = nil
-            }
-
-            ForEach(AgentRoleTemplateRegistry.builtIn) { tmpl in
-                templateChip(
-                    icon: tmpl.icon,
-                    label: tmpl.name,
-                    isSelected: selectedTemplateID == tmpl.id
-                ) {
-                    applyTemplate(tmpl)
-                }
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    private func templateChip(icon: String, label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.caption2)
-                Text(label)
-                    .font(.caption)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(isSelected ? Color.accentColor.opacity(0.15) : DesignTokens.Colors.inputBackground)
-            .foregroundColor(isSelected ? .accentColor : .primary)
-            .continuousRadius(DesignTokens.Radius.lg)
-            .overlay(
-                RoundedRectangle(cornerRadius: DesignTokens.Radius.lg, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func applyTemplate(_ template: AgentRoleTemplate) {
-        selectedTemplateID = template.id
-        if name.isEmpty { name = template.name }
-
-        if let config = providerManager.configs.first(where: { $0.name == selectedProvider }) {
-            persona = template.resolvedPersona(for: config.type.rawValue)
-        } else {
-            persona = template.basePersona
-        }
-    }
 
     private var avatarPicker: some View {
         Button {
@@ -245,8 +292,6 @@ struct AddAgentSheet: View {
         .buttonStyle(.plain)
         .contentShape(Circle())
     }
-
-    // sectionLabel, settingsRow → SharedComponents 사용
 
     private func settingsRow<Content: View>(_ label: String, @ViewBuilder content: @escaping () -> Content) -> some View {
         SettingsRow(label: label, content: content)
@@ -331,10 +376,27 @@ struct AddAgentSheet: View {
         referenceProjectPaths.append(contentsOf: newPaths)
     }
 
+    private func pickRulesFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.message = "작업 규칙 파일을 선택하세요"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        rulesFilePath = url.path
+    }
+
     // MARK: - Logic
 
     private var isFormValid: Bool {
-        !name.isEmpty && !persona.isEmpty && !selectedModel.isEmpty && !isDuplicateName
+        !name.isEmpty && !persona.isEmpty && !selectedModel.isEmpty && !isDuplicateName && hasValidRules
+    }
+
+    private var hasValidRules: Bool {
+        switch rulesMode {
+        case .inline: return !inlineRules.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .filePath: return !rulesFilePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
     }
 
     private var isDuplicateName: Bool {
@@ -342,16 +404,7 @@ struct AddAgentSheet: View {
         return !trimmed.isEmpty && agentStore.agents.contains { $0.name == trimmed }
     }
 
-    private var formValidationHint: String {
-        if isDuplicateName { return "이미 사용 중인 이름입니다" }
-        if persona.isEmpty { return "역할을 입력하세요" }
-        if selectedProvider.isEmpty { return "프로바이더를 선택하세요" }
-        if selectedModel.isEmpty { return "모델을 선택하세요" }
-        return ""
-    }
-
     private func loadModels(for providerName: String) {
-        // 미연결 프로바이더는 모델 로딩 차단
         if let config = providerManager.configs.first(where: { $0.name == providerName }),
            !config.isConnected {
             availableModels = []
@@ -376,16 +429,25 @@ struct AddAgentSheet: View {
     }
 
     private func addAgent() {
+        let rules: WorkingRulesSource = rulesMode == .inline
+            ? .inline(inlineRules)
+            : .filePath(rulesFilePath)
+
         let agent = Agent(
             name: name,
             persona: persona,
             providerName: selectedProvider,
             modelName: selectedModel,
             imageData: imageData,
-            roleTemplateID: selectedTemplateID,
-            referenceProjectPaths: referenceProjectPaths
+            referenceProjectPaths: referenceProjectPaths,
+            workingRules: rules
         )
         agentStore.addAgent(agent)
+
+        if let onCreated {
+            onCreated(agent)
+        }
+
         dismiss()
     }
 }

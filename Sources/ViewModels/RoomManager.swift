@@ -159,7 +159,7 @@ class RoomManager: ObservableObject {
                 let response = try await ToolExecutor.smartSend(
                     provider: provider,
                     agent: agent,
-                    systemPrompt: agent.persona,
+                    systemPrompt: agent.resolvedSystemPrompt,
                     conversationMessages: history,
                     context: context
                 )
@@ -311,7 +311,7 @@ class RoomManager: ObservableObject {
     }
 
     /// 모든 제안이 해결되면 대기 중인 continuation 재개
-    private func resumeSuggestionContinuationIfResolved(roomID: UUID) {
+    func resumeSuggestionContinuationIfResolved(roomID: UUID) {
         guard let room = rooms.first(where: { $0.id == roomID }) else { return }
         let hasPending = room.pendingAgentSuggestions.contains { $0.status == .pending }
         if !hasPending, let cont = suggestionContinuations.removeValue(forKey: roomID) {
@@ -581,15 +581,16 @@ class RoomManager: ObservableObject {
             // 매칭 성공 → 프로그래밍적 초대
             addAgent(matched.id, to: roomID)
         } else {
-            // 매칭 실패 → 에이전트 자동 생성 (승인 없이 즉시)
-            let newAgent = Agent(
+            // 매칭 실패 → 에이전트 생성 제안 (사용자가 작업 규칙 설정 후 추가)
+            let suggestion = RoomAgentSuggestion(
                 name: roleName,
-                persona: "당신은 \(roleName)입니다. 사용자의 요청을 전문적으로 수행하세요. 결과물을 직접 작성하여 제출하세요.",
-                providerName: masterAgent.providerName,
-                modelName: masterAgent.modelName
+                persona: "당신은 \(roleName)입니다. 사용자의 요청을 전문적으로 수행하세요.",
+                recommendedProvider: masterAgent.providerName,
+                recommendedModel: masterAgent.modelName,
+                reason: "작업에 필요한 '\(roleName)' 역할의 에이전트가 없습니다. 작업 규칙을 설정하여 추가해주세요.",
+                suggestedBy: masterAgent.name
             )
-            agentStore?.addAgent(newAgent)
-            addAgent(newAgent.id, to: roomID)
+            addAgentSuggestion(suggestion, to: roomID)
         }
 
         // 전문가 미초대 시 워크플로우 종료
@@ -896,7 +897,7 @@ class RoomManager: ObservableObject {
         let contextString = contextParts.joined(separator: "\n\n")
 
         let clarifySystemPrompt = """
-        \(agent.persona)
+        \(agent.resolvedSystemPrompt)
 
         당신은 Clarify(요건 확인) 단계를 수행하고 있습니다.
         주어진 입력 데이터를 분석하고, 작업 수행에 필요하지만 누락된 핵심 정보를 파악하세요.
@@ -1024,7 +1025,7 @@ class RoomManager: ObservableObject {
         }
 
         let assembleSystemPrompt = """
-        \(agent.persona)
+        \(agent.resolvedSystemPrompt)
 
         당신은 Assemble(팀 구성) 단계를 수행하고 있습니다.
         작업 수행에 필요한 역할을 분석하고 산출물로 제출하세요.
@@ -1397,7 +1398,7 @@ class RoomManager: ObservableObject {
         specialistNames = specialists.isEmpty ? "(없음)" : specialists.joined(separator: ", ")
 
         let planSystemPrompt = """
-        \(agent.persona)
+        \(agent.resolvedSystemPrompt)
 
         현재 작업방에 배정되었습니다. 팀원들과의 토론이 완료되었습니다.
         토론 내용을 바탕으로 반드시 아래 형식의 JSON으로 실행 계획을 제출하세요:
@@ -1819,7 +1820,7 @@ class RoomManager: ObservableObject {
             let response = try await ToolExecutor.smartSend(
                 provider: provider,
                 agent: agent,
-                systemPrompt: agent.persona,
+                systemPrompt: agent.resolvedSystemPrompt,
                 conversationMessages: messagesWithStep,
                 context: context
             )
@@ -2096,11 +2097,11 @@ class RoomManager: ObservableObject {
         return false
     }
 
-    /// QA 에이전트 우선 선택 (roleTemplateID == "qa_engineer" 에이전트 우선)
+    /// QA 에이전트 우선 선택 (이름/페르소나에 QA 키워드 포함 에이전트 우선)
     private func qaAgentID(in room: Room) -> UUID? {
         for agentID in room.assignedAgentIDs {
             if let agent = agentStore?.agents.first(where: { $0.id == agentID }),
-               agent.roleTemplateID == "qa_engineer" {
+               agent.name.lowercased().contains("qa") || agent.persona.lowercased().contains("qa") {
                 return agentID
             }
         }
@@ -2233,7 +2234,7 @@ class RoomManager: ObservableObject {
         } else {
             // 전문가: 자기 역할에 맞는 작업
             discussionPrompt = """
-            \(agent.persona)
+            \(agent.resolvedSystemPrompt)
 
             [회의실] \(topic)
             라운드 \(round + 1) | 동료: \(otherNames)
