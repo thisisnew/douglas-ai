@@ -27,6 +27,13 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 # 실행 파일 복사
 cp "$EXECUTABLE" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
+# 앱 아이콘 복사
+ICON_FILE="$PROJECT_DIR/Sources/Resources/AppIcon.icns"
+if [ -f "$ICON_FILE" ]; then
+    cp "$ICON_FILE" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+    echo "앱 아이콘 복사 완료"
+fi
+
 # SPM 리소스 번들 복사 (Contents/Resources 안에 배치)
 RESOURCE_BUNDLE="$PROJECT_DIR/.build/arm64-apple-macosx/release/DOUGLAS_DOUGLAS.bundle"
 if [ -d "$RESOURCE_BUNDLE" ]; then
