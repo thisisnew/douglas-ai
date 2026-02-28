@@ -351,17 +351,15 @@ class RoomManager: ObservableObject {
         appendMessage(analyzeMsg, to: roomID)
 
         let analyzePrompt = """
-        사용자의 요청을 분석하세요.
+        당신은 요청 분류기입니다. 작업을 수행하는 것이 아니라 분류만 합니다.
 
-        출력 형식 (이 형식만 출력):
+        아래 3줄만 출력하세요. 다른 내용은 절대 출력하지 마세요:
         - 요청: (1문장 요약)
-        - 전문가: (필요한 역할)
-        - 범위: (작업량 추정)
+        - 전문가: (필요한 역할명)
+        - 범위: (작업량)
 
-        금지:
-        - 작업을 직접 수행하지 마세요 (번역, 코딩, 문서 작성 등 일체 금지)
-        - 질문하지 마세요 ("진행할까요?" 등 금지)
-        - 3줄 이내로 작성하세요
+        [절대 금지] 번역, 코딩, 문서 작성, 요약, 설명 등 실제 작업 수행
+        [절대 금지] 질문, 확인 요청, 추가 설명
         """
 
         let history = buildRoomHistory(roomID: roomID)
@@ -401,13 +399,18 @@ class RoomManager: ObservableObject {
             return
         }
 
-        // ── Step 2: 전문가 초대 ──
-        // 분석가 자신을 제외한 사용 가능 에이전트 목록
+        // ── Step 2: 전문가 초대 (프로그래밍적 — LLM 의존 없음) ──
         let availableAgents = agentStore?.subAgents.filter { $0.id != analystID } ?? []
+        let roleName = Self.extractRoleName(from: analysisText) ?? Self.extractRoleFromTask(task)
 
-        if availableAgents.isEmpty {
-            // 가용 에이전트 없음 → 분석 결과에서 역할 추출하여 프로그래밍적으로 생성 제안
-            let roleName = Self.extractRoleName(from: analysisText) ?? "전문가"
+        // 기존 에이전트 중 이름이 유사한 에이전트 매칭
+        let matchedAgent = Self.findMatchingAgent(roleName: roleName, among: availableAgents)
+
+        if let matched = matchedAgent {
+            // 매칭 성공 → 프로그래밍적 초대
+            addAgent(matched.id, to: roomID)
+        } else {
+            // 매칭 실패 → 에이전트 생성 제안
             let suggestion = RoomAgentSuggestion(
                 name: roleName,
                 persona: "당신은 \(roleName)입니다. 사용자의 요청을 전문적으로 수행하세요. 결과물을 직접 작성하여 제출하세요.",
@@ -415,67 +418,6 @@ class RoomManager: ObservableObject {
                 suggestedBy: analyst.name
             )
             addAgentSuggestion(suggestion, to: roomID)
-        } else {
-            // 가용 에이전트 있음 → LLM으로 초대
-            let inviteMsg = ChatMessage(
-                role: .system,
-                content: "분석가가 전문가를 초대하는 중..."
-            )
-            appendMessage(inviteMsg, to: roomID)
-
-            let agentListText = availableAgents.map { "- \($0.name)" }.joined(separator: "\n")
-            let invitePrompt = """
-            전문가를 초대하세요. 작업을 직접 수행하지 마세요.
-
-            사용 가능한 에이전트:
-            \(agentListText)
-
-            절차:
-            - 위 목록에 적합한 에이전트가 있으면 → invite_agent(agent_name: "정확한 이름")
-            - 적합한 에이전트가 없으면 → suggest_agent_creation(name, persona, reason)
-
-            초대/제안 결과만 1줄로 보고하세요.
-            """
-
-            let updatedHistory = buildRoomHistory(roomID: roomID)
-            let context = makeToolContext(roomID: roomID, currentAgentID: analystID)
-
-            do {
-                let inviteResponse = try await ToolExecutor.smartSend(
-                    provider: provider,
-                    agent: analyst,
-                    systemPrompt: invitePrompt,
-                    conversationMessages: updatedHistory,
-                    context: context,
-                    onToolActivity: { [weak self] activity in
-                        Task { @MainActor in
-                            let toolMsg = ChatMessage(
-                                role: .assistant, content: activity,
-                                agentName: analyst.name, messageType: .toolActivity
-                            )
-                            self?.appendMessage(toolMsg, to: roomID)
-                        }
-                    }
-                )
-
-                let inviteReply = ChatMessage(role: .assistant, content: inviteResponse, agentName: analyst.name)
-                appendMessage(inviteReply, to: roomID)
-            } catch {
-                let errorMsg = ChatMessage(
-                    role: .assistant,
-                    content: "팀 구성 오류: \(error.localizedDescription)",
-                    agentName: analyst.name,
-                    messageType: .error
-                )
-                appendMessage(errorMsg, to: roomID)
-                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].transitionTo(.failed)
-                    rooms[i].completedAt = Date()
-                }
-                syncAgentStatuses()
-                scheduleSave()
-                return
-            }
         }
 
         // 에이전트 생성 제안이 있으면 사용자 승인 대기
@@ -2276,6 +2218,50 @@ class RoomManager: ObservableObject {
             if !role.isEmpty { return role }
         }
         return nil
+    }
+
+    /// 태스크 텍스트에서 역할 키워드 추출
+    static func extractRoleFromTask(_ task: String) -> String {
+        let keywords: [(pattern: String, role: String)] = [
+            ("번역", "번역 전문가"),
+            ("翻訳", "번역 전문가"),
+            ("translate", "번역 전문가"),
+            ("코딩", "개발자"),
+            ("개발", "개발자"),
+            ("구현", "개발자"),
+            ("코드", "개발자"),
+            ("테스트", "QA 엔지니어"),
+            ("디자인", "디자이너"),
+            ("문서", "테크라이터"),
+            ("분석", "분석가"),
+            ("리뷰", "코드 리뷰어"),
+            ("배포", "DevOps 엔지니어"),
+        ]
+        let lowered = task.lowercased()
+        for kw in keywords {
+            if lowered.contains(kw.pattern) {
+                return kw.role
+            }
+        }
+        return "전문가"
+    }
+
+    /// 역할명과 기존 에이전트 이름을 비교하여 가장 유사한 에이전트 반환
+    static func findMatchingAgent(roleName: String, among agents: [Agent]) -> Agent? {
+        guard !agents.isEmpty else { return nil }
+        let roleWords = Set(roleName.lowercased().split(whereSeparator: { $0.isWhitespace || $0.isPunctuation }).map(String.init))
+        var bestMatch: (agent: Agent, score: Double) = (agents[0], 0.0)
+        for agent in agents {
+            let nameWords = Set(agent.name.lowercased().split(whereSeparator: { $0.isWhitespace || $0.isPunctuation }).map(String.init))
+            let intersection = roleWords.intersection(nameWords).count
+            let union = roleWords.union(nameWords).count
+            let score = union > 0 ? Double(intersection) / Double(union) : 0.0
+            if score > bestMatch.score {
+                bestMatch = (agent, score)
+            }
+        }
+        // 최소 유사도 0.2 (단어 1개 이상 겹침)
+        return bestMatch.score >= 0.2 ? bestMatch.agent : nil
     }
 
     static func wordOverlapSimilarity(_ a: String, _ b: String) -> Double {
