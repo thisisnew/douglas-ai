@@ -2446,13 +2446,32 @@ class RoomManager: ObservableObject {
     static func findMatchingAgent(roleName: String, among agents: [Agent]) -> Agent? {
         guard !agents.isEmpty else { return nil }
         let roleLower = roleName.lowercased()
+        // 상충 키워드 쌍: 한쪽이 roleName에 있고 다른 쪽이 agentName에 있으면 매칭 금지
+        let conflictPairs: [(String, String)] = [
+            ("프론트엔드", "백엔드"), ("frontend", "backend"),
+            ("프론트", "백엔드"), ("백엔드", "프론트"),
+            ("ios", "android"), ("web", "app"),
+        ]
+
         var bestMatch: (agent: Agent, score: Int) = (agents[0], 0)
         for agent in agents {
             let nameLower = agent.name.lowercased()
             var score = 0
             // 정확 일치
             if roleLower == nameLower { return agent }
-            // 부분 문자열 포함 (한국어 대응: "번역가" ⊂ "번역 전문가", "번역" ⊂ "번역가")
+
+            // 상충 키워드 검사
+            var conflicted = false
+            for (a, b) in conflictPairs {
+                if (roleLower.contains(a) && nameLower.contains(b)) ||
+                   (roleLower.contains(b) && nameLower.contains(a)) {
+                    conflicted = true
+                    break
+                }
+            }
+            if conflicted { continue }
+
+            // 부분 문자열 포함 (한국어 대응: "번역가" ⊂ "번역 전문가")
             if roleLower.contains(nameLower) || nameLower.contains(roleLower) {
                 score += 10
             }
