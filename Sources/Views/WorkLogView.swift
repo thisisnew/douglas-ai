@@ -20,19 +20,13 @@ struct WorkLogView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 헤더
-            HStack {
-                Text("작업일지")
-                    .font(.headline)
-                Spacer()
+            SheetNavHeader(title: "작업일지") {
+                EmptyView()
+            } trailing: {
                 Text("\(roomManager.rooms.compactMap(\.workLog).count)건")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-
-            Divider()
 
             if logsByDate.isEmpty {
                 Spacer()
@@ -65,13 +59,13 @@ struct WorkLogView: View {
                 }
             }
         }
-        .frame(width: 520, height: 560)
+        .frame(width: DesignTokens.WindowSize.workLog.width, height: DesignTokens.WindowSize.workLog.height)
     }
 
     private func dateSectionHeader(_ dateString: String) -> some View {
         HStack {
             Text(dateString)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: DesignTokens.FontSize.sm, weight: .semibold))
                 .foregroundColor(.secondary)
             Spacer()
         }
@@ -98,19 +92,19 @@ struct LogEntryRow: View {
         VStack(alignment: .leading, spacing: 0) {
             // 요약 행
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+                withAnimation(.dgStandard) { isExpanded.toggle() }
             } label: {
                 HStack(alignment: .top, spacing: 10) {
                     // 시간
                     Text(Self.timeFormatter.string(from: log.createdAt))
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(DesignTokens.Typography.mono(DesignTokens.FontSize.sm))
                         .foregroundColor(.secondary)
                         .frame(width: 38, alignment: .leading)
 
                     // 내용
                     VStack(alignment: .leading, spacing: 3) {
                         Text(log.roomTitle)
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: DesignTokens.FontSize.bodyMd, weight: .medium))
                             .foregroundColor(.primary)
                             .lineLimit(1)
 
@@ -125,7 +119,7 @@ struct LogEntryRow: View {
                     // 소요 시간 + 참여자 수
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(formatDuration(log.durationSeconds))
-                            .font(.system(size: 10, design: .monospaced))
+                            .font(DesignTokens.Typography.mono(DesignTokens.FontSize.xs))
                             .foregroundColor(.secondary)
                         Text("\(log.participants.count)명")
                             .font(.system(size: 9))
@@ -176,11 +170,11 @@ struct LogEntryRow: View {
     private func logDetail(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
-                .font(.system(size: 9, weight: .bold))
+                .font(.system(size: DesignTokens.FontSize.badge, weight: .bold))
                 .foregroundColor(.secondary.opacity(0.6))
                 .textCase(.uppercase)
             Text(value)
-                .font(.system(size: 12))
+                .font(.system(size: DesignTokens.FontSize.body))
                 .foregroundColor(.primary.opacity(0.8))
                 .textSelection(.enabled)
         }

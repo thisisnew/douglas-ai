@@ -14,7 +14,7 @@ struct ToastView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(.red.gradient)
-        .cornerRadius(10)
+        .continuousRadius(DesignTokens.Radius.xl)
         .shadow(color: .black.opacity(0.15), radius: 12, y: 6)
     }
 }
@@ -34,7 +34,7 @@ struct ToastModifier: ViewModifier {
                     .zIndex(100)
             }
         }
-        .animation(.easeInOut(duration: 0.3), value: isShowing)
+        .animation(.dgSlow, value: isShowing)
     }
 }
 

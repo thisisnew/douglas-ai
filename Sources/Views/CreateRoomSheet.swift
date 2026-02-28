@@ -20,24 +20,15 @@ struct CreateRoomSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 네비게이션 바 스타일 헤더
-            ZStack {
-                Text("새 방 만들기")
-                    .font(.headline)
-                HStack {
-                    Button("취소") { dismiss() }
-                        .keyboardShortcut(.cancelAction)
-                    Spacer()
-                    Button("만들기") { createRoom() }
-                        .keyboardShortcut(.defaultAction)
-                        .fontWeight(.semibold)
-                        .disabled(!canCreate)
-                }
+            SheetNavHeader(title: "새 방 만들기") {
+                Button("취소") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            } trailing: {
+                Button("만들기") { createRoom() }
+                    .keyboardShortcut(.defaultAction)
+                    .fontWeight(.semibold)
+                    .disabled(!canCreate)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-
-            Divider()
 
             ScrollView {
                 VStack(spacing: 24) {
@@ -48,8 +39,8 @@ struct CreateRoomSheet: View {
                             .textFieldStyle(.plain)
                             .font(.body)
                             .padding(10)
-                            .background(Color.primary.opacity(0.04))
-                            .cornerRadius(8)
+                            .background(DesignTokens.Colors.inputBackground)
+                            .continuousRadius(DesignTokens.Radius.lg)
                     }
 
                     // 에이전트 선택
@@ -78,8 +69,8 @@ struct CreateRoomSheet: View {
                                 .padding(.vertical, 16)
                                 Spacer()
                             }
-                            .background(Color.primary.opacity(0.03))
-                            .cornerRadius(8)
+                            .background(DesignTokens.Colors.surfaceTertiary)
+                            .continuousRadius(DesignTokens.Radius.lg)
                         } else {
                             VStack(spacing: 0) {
                                 ForEach(Array(availableAgents.enumerated()), id: \.element.id) { index, agent in
@@ -89,8 +80,8 @@ struct CreateRoomSheet: View {
                                     agentRow(agent)
                                 }
                             }
-                            .background(Color.primary.opacity(0.04))
-                            .cornerRadius(8)
+                            .background(DesignTokens.Colors.inputBackground)
+                            .continuousRadius(DesignTokens.Radius.lg)
                         }
                     }
 
@@ -102,8 +93,8 @@ struct CreateRoomSheet: View {
                             .scrollContentBackground(.hidden)
                             .frame(minHeight: 80, maxHeight: 120)
                             .padding(8)
-                            .background(Color.primary.opacity(0.04))
-                            .cornerRadius(8)
+                            .background(DesignTokens.Colors.inputBackground)
+                            .continuousRadius(DesignTokens.Radius.lg)
                         Text("에이전트들이 먼저 토론한 후, 계획을 세우고 작업을 진행합니다.")
                             .font(.caption2)
                             .foregroundColor(.secondary.opacity(0.6))
@@ -145,8 +136,8 @@ struct CreateRoomSheet: View {
                                     .font(.callout)
                                     .frame(maxWidth: .infinity)
                                     .padding(8)
-                                    .background(Color.primary.opacity(0.04))
-                                    .cornerRadius(8)
+                                    .background(DesignTokens.Colors.inputBackground)
+                                    .continuousRadius(DesignTokens.Radius.lg)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -161,8 +152,8 @@ struct CreateRoomSheet: View {
                                     .textFieldStyle(.plain)
                                     .font(.callout)
                                     .padding(6)
-                                    .background(Color.primary.opacity(0.04))
-                                    .cornerRadius(6)
+                                    .background(DesignTokens.Colors.inputBackground)
+                                    .continuousRadius(DesignTokens.Radius.md)
                             }
                             HStack(spacing: 6) {
                                 Image(systemName: "checkmark.shield")
@@ -172,8 +163,8 @@ struct CreateRoomSheet: View {
                                     .textFieldStyle(.plain)
                                     .font(.callout)
                                     .padding(6)
-                                    .background(Color.primary.opacity(0.04))
-                                    .cornerRadius(6)
+                                    .background(DesignTokens.Colors.inputBackground)
+                                    .continuousRadius(DesignTokens.Radius.md)
                             }
                             Text("빌드/테스트 명령이 있으면 각 단계 후 자동 빌드→테스트→수정 루프를 실행합니다.")
                                 .font(.caption2)
@@ -184,16 +175,12 @@ struct CreateRoomSheet: View {
                 .padding(24)
             }
         }
-        .frame(width: 440, height: 680)
+        .frame(width: DesignTokens.WindowSize.createRoomSheet.width, height: DesignTokens.WindowSize.createRoomSheet.height)
     }
 
     // MARK: - Components
 
-    private func sectionLabel(_ text: String) -> some View {
-        Text(text)
-            .font(.subheadline.weight(.medium))
-            .foregroundColor(.secondary)
-    }
+    // sectionLabel → SharedComponents 사용
 
     private func agentRow(_ agent: Agent) -> some View {
         let isSelected = selectedAgentIDs.contains(agent.id)
@@ -220,7 +207,7 @@ struct CreateRoomSheet: View {
             }
 
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .foregroundColor(isSelected ? .accentColor : Color.primary.opacity(0.15))
+                .foregroundColor(isSelected ? .accentColor : DesignTokens.Colors.stepInactive)
                 .font(.title3)
         }
         .padding(.horizontal, 12)
@@ -236,7 +223,7 @@ struct CreateRoomSheet: View {
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(color.opacity(0.1))
-            .cornerRadius(4)
+            .continuousRadius(DesignTokens.Radius.sm)
     }
 
     // MARK: - Logic

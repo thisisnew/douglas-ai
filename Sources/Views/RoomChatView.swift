@@ -148,7 +148,10 @@ struct RoomChatView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         ForEach(pendingAttachments) { att in
-                            roomAttachmentThumbnail(att)
+                            AttachmentThumbnail(attachment: att) {
+                                att.delete()
+                                pendingAttachments.removeAll { $0.id == att.id }
+                            }
                         }
                     }
                     .padding(.horizontal, 10)
@@ -172,14 +175,7 @@ struct RoomChatView: View {
                     .focused($isInputFocused)
                     .onSubmit { sendMessage() }
 
-                Button(action: sendMessage) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.title2)
-                        .foregroundColor(canSend ? .accentColor : .gray)
-                }
-                .buttonStyle(.plain)
-                .disabled(!canSend)
-                .keyboardShortcut(.return, modifiers: .command)
+                SendButton(canSend: canSend, isLoading: false, action: sendMessage)
             }
         }
         .padding(10)
@@ -235,35 +231,7 @@ struct RoomChatView: View {
         }
     }
 
-    @ViewBuilder
-    private func roomAttachmentThumbnail(_ attachment: ImageAttachment) -> some View {
-        ZStack(alignment: .topTrailing) {
-            if let data = try? attachment.loadData(), let nsImage = NSImage(data: data) {
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 48, height: 48)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-            } else {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.gray.opacity(0.2))
-                    .frame(width: 48, height: 48)
-                    .overlay(Image(systemName: "photo").foregroundColor(.secondary))
-            }
-
-            Button {
-                attachment.delete()
-                pendingAttachments.removeAll { $0.id == attachment.id }
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 14))
-                    .foregroundColor(.white)
-                    .background(Circle().fill(Color.black.opacity(0.5)))
-            }
-            .buttonStyle(.plain)
-            .offset(x: 4, y: -4)
-        }
-    }
+    // roomAttachmentThumbnail → SharedComponents.AttachmentThumbnail 사용
 
     // MARK: - 상태 라벨
 
@@ -333,55 +301,50 @@ struct PlanCard: View {
     @State private var isExpanded = true
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            // 헤더 (접이식)
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
-            } label: {
-                HStack {
-                    Image(systemName: "list.bullet.clipboard")
-                        .font(.caption2)
-                        .foregroundColor(.purple)
-                    Text("작업 계획")
-                        .font(.caption2.bold())
-                        .foregroundColor(.purple)
-                    Spacer()
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 8))
-                        .foregroundColor(.secondary)
-                }
-            }
-            .buttonStyle(.plain)
-
-            if isExpanded {
-                // 요약
-                Text(plan.summary)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-
-                // 단계 목록
-                ForEach(Array(plan.steps.enumerated()), id: \.offset) { index, step in
-                    HStack(spacing: 6) {
-                        stepIcon(index: index)
-                        if step.requiresApproval {
-                            Image(systemName: "hand.raised.fill")
-                                .font(.system(size: 8))
-                                .foregroundColor(.orange)
-                        }
-                        Text(step.text)
+        CardContainer(accentColor: .purple) {
+            VStack(alignment: .leading, spacing: 4) {
+                // 헤더 (접이식)
+                Button {
+                    withAnimation(.dgStandard) { isExpanded.toggle() }
+                } label: {
+                    HStack {
+                        Image(systemName: "list.bullet.clipboard")
                             .font(.caption2)
-                            .foregroundColor(stepColor(index: index))
-                            .lineLimit(1)
+                            .foregroundColor(.purple)
+                        Text("작업 계획")
+                            .font(.caption2.bold())
+                            .foregroundColor(.purple)
+                        Spacer()
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: DesignTokens.FontSize.nano))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                if isExpanded {
+                    Text(plan.summary)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+
+                    ForEach(Array(plan.steps.enumerated()), id: \.offset) { index, step in
+                        HStack(spacing: 6) {
+                            stepIcon(index: index)
+                            if step.requiresApproval {
+                                Image(systemName: "hand.raised.fill")
+                                    .font(.system(size: DesignTokens.FontSize.nano))
+                                    .foregroundColor(.orange)
+                            }
+                            Text(step.text)
+                                .font(.caption2)
+                                .foregroundColor(stepColor(index: index))
+                                .lineLimit(1)
+                        }
                     }
                 }
             }
         }
-        .padding(8)
-        .background(Color.purple.opacity(0.05))
-        .cornerRadius(10)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
     }
 
     @ViewBuilder
@@ -426,19 +389,20 @@ struct DiscussionProgressBar: View {
     @EnvironmentObject var agentStore: AgentStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Image(systemName: "bubble.left.and.bubble.right.fill")
-                    .font(.caption2)
-                    .foregroundColor(.blue)
-                Text("토론 진행")
-                    .font(.caption2.bold())
-                    .foregroundColor(.blue)
-                Spacer()
-                Text(room.discussionProgressText)
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundColor(.secondary)
-            }
+        CardContainer(accentColor: .blue) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                        .font(.caption2)
+                        .foregroundColor(.blue)
+                    Text("토론 진행")
+                        .font(.caption2.bold())
+                        .foregroundColor(.blue)
+                    Spacer()
+                    Text(room.discussionProgressText)
+                        .font(DesignTokens.Typography.monoBadge)
+                        .foregroundColor(.secondary)
+                }
 
             // 프로그레스 바
             GeometryReader { geo in
@@ -469,12 +433,8 @@ struct DiscussionProgressBar: View {
                     .foregroundColor(.secondary)
                     .lineLimit(1)
             }
+            }
         }
-        .padding(8)
-        .background(Color.blue.opacity(0.05))
-        .cornerRadius(10)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
     }
 
     private var progressRatio: CGFloat {
@@ -496,11 +456,12 @@ struct ArtifactListBar: View {
     @State private var expandedArtifactID: UUID?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            // 헤더 (접이식)
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
-            } label: {
+        CardContainer(accentColor: .indigo) {
+            VStack(alignment: .leading, spacing: 4) {
+                // 헤더 (접이식)
+                Button {
+                    withAnimation(.dgStandard) { isExpanded.toggle() }
+                } label: {
                 HStack {
                     Image(systemName: "doc.on.doc.fill")
                         .font(.caption2)
@@ -519,7 +480,7 @@ struct ArtifactListBar: View {
             if isExpanded {
                 ForEach(artifacts) { artifact in
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
+                        withAnimation(.dgStandard) {
                             if expandedArtifactID == artifact.id {
                                 expandedArtifactID = nil
                             } else {
@@ -537,7 +498,7 @@ struct ArtifactListBar: View {
                                     .foregroundColor(.primary)
                                     .lineLimit(1)
                                 Text("v\(artifact.version)")
-                                    .font(.system(size: 8, design: .monospaced))
+                                    .font(DesignTokens.Typography.mono(DesignTokens.FontSize.nano))
                                     .foregroundColor(.secondary)
                                 Spacer()
                                 Text(artifact.producedBy)
@@ -557,12 +518,8 @@ struct ArtifactListBar: View {
                     .buttonStyle(.plain)
                 }
             }
+            }
         }
-        .padding(8)
-        .background(Color.indigo.opacity(0.05))
-        .cornerRadius(10)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
     }
 }
 
@@ -572,30 +529,27 @@ struct BuildStatusCard: View {
     let room: Room
 
     var body: some View {
-        HStack(spacing: 8) {
-            statusIcon
-            VStack(alignment: .leading, spacing: 2) {
-                Text(statusText)
-                    .font(.caption2.bold())
-                    .foregroundColor(statusColor)
-                if let cmd = room.buildCommand {
-                    Text(cmd)
-                        .font(.system(size: 9, design: .monospaced))
+        CardContainer(accentColor: statusColor, opacity: 0.06) {
+            HStack(spacing: 8) {
+                statusIcon
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(statusText)
+                        .font(.caption2.bold())
+                        .foregroundColor(statusColor)
+                    if let cmd = room.buildCommand {
+                        Text(cmd)
+                            .font(DesignTokens.Typography.mono(DesignTokens.FontSize.badge))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                Spacer()
+                if room.buildRetryCount > 0 {
+                    Text("\(room.buildRetryCount)/\(room.maxBuildRetries)")
+                        .font(DesignTokens.Typography.monoStatus)
                         .foregroundColor(.secondary)
                 }
             }
-            Spacer()
-            if room.buildRetryCount > 0 {
-                Text("\(room.buildRetryCount)/\(room.maxBuildRetries)")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundColor(.secondary)
-            }
         }
-        .padding(8)
-        .background(statusColor.opacity(0.06))
-        .cornerRadius(10)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
     }
 
     private var statusText: String {
@@ -648,39 +602,36 @@ struct ApprovalCard: View {
     @EnvironmentObject var roomManager: RoomManager
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "hand.raised.fill")
-                .font(.caption)
-                .foregroundColor(.yellow)
-            Text("이 단계는 승인이 필요합니다")
-                .font(.caption2.bold())
-                .foregroundColor(.primary)
-            Spacer()
-            Button("거부") {
-                roomManager.rejectStep(roomID: roomID)
-            }
-            .font(.caption2)
-            .foregroundColor(.red)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(Color.red.opacity(0.1))
-            .cornerRadius(6)
+        CardContainer(accentColor: .yellow, opacity: 0.08) {
+            HStack(spacing: 10) {
+                Image(systemName: "hand.raised.fill")
+                    .font(.caption)
+                    .foregroundColor(.yellow)
+                Text("이 단계는 승인이 필요합니다")
+                    .font(.caption2.bold())
+                    .foregroundColor(.primary)
+                Spacer()
+                Button("거부") {
+                    roomManager.rejectStep(roomID: roomID)
+                }
+                .font(.caption2)
+                .foregroundColor(.red)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Color.red.opacity(0.1))
+                .continuousRadius(DesignTokens.Radius.md)
 
-            Button("승인") {
-                roomManager.approveStep(roomID: roomID)
+                Button("승인") {
+                    roomManager.approveStep(roomID: roomID)
+                }
+                .font(.caption2.bold())
+                .foregroundColor(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Color.green)
+                .continuousRadius(DesignTokens.Radius.md)
             }
-            .font(.caption2.bold())
-            .foregroundColor(.white)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(Color.green)
-            .cornerRadius(6)
         }
-        .padding(10)
-        .background(Color.yellow.opacity(0.08))
-        .cornerRadius(10)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
     }
 }
 
@@ -692,63 +643,60 @@ struct AgentSuggestionCard: View {
     @EnvironmentObject var roomManager: RoomManager
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: "person.badge.plus")
-                    .font(.caption)
-                    .foregroundColor(.orange)
-                Text("에이전트 생성 제안")
+        CardContainer(accentColor: .orange, opacity: 0.06) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "person.badge.plus")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                    Text("에이전트 생성 제안")
+                        .font(.caption2.bold())
+                        .foregroundColor(.orange)
+                    Spacer()
+                    Text(suggestion.suggestedBy)
+                        .font(.system(size: DesignTokens.FontSize.badge))
+                        .foregroundColor(.secondary)
+                }
+
+                Text(suggestion.name)
+                    .font(.caption.bold())
+                    .foregroundColor(.primary)
+
+                Text(suggestion.persona.prefix(120) + (suggestion.persona.count > 120 ? "..." : ""))
+                    .font(.system(size: DesignTokens.FontSize.xs))
+                    .foregroundColor(.secondary)
+                    .lineLimit(3)
+
+                if !suggestion.reason.isEmpty {
+                    Text("사유: \(suggestion.reason)")
+                        .font(.system(size: DesignTokens.FontSize.badge))
+                        .foregroundColor(.secondary)
+                }
+
+                HStack {
+                    Spacer()
+                    Button("건너뛰기") {
+                        roomManager.rejectAgentSuggestion(suggestionID: suggestion.id, in: roomID)
+                    }
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.gray.opacity(0.1))
+                    .continuousRadius(DesignTokens.Radius.md)
+
+                    Button("추가") {
+                        roomManager.approveAgentSuggestion(suggestionID: suggestion.id, in: roomID)
+                    }
                     .font(.caption2.bold())
-                    .foregroundColor(.orange)
-                Spacer()
-                Text(suggestion.suggestedBy)
-                    .font(.system(size: 9))
-                    .foregroundColor(.secondary)
-            }
-
-            Text(suggestion.name)
-                .font(.caption.bold())
-                .foregroundColor(.primary)
-
-            Text(suggestion.persona.prefix(120) + (suggestion.persona.count > 120 ? "..." : ""))
-                .font(.system(size: 10))
-                .foregroundColor(.secondary)
-                .lineLimit(3)
-
-            if !suggestion.reason.isEmpty {
-                Text("사유: \(suggestion.reason)")
-                    .font(.system(size: 9))
-                    .foregroundColor(.secondary)
-            }
-
-            HStack {
-                Spacer()
-                Button("건너뛰기") {
-                    roomManager.rejectAgentSuggestion(suggestionID: suggestion.id, in: roomID)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.orange)
+                    .continuousRadius(DesignTokens.Radius.md)
                 }
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(6)
-
-                Button("추가") {
-                    roomManager.approveAgentSuggestion(suggestionID: suggestion.id, in: roomID)
-                }
-                .font(.caption2.bold())
-                .foregroundColor(.white)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(Color.orange)
-                .cornerRadius(6)
             }
         }
-        .padding(10)
-        .background(Color.orange.opacity(0.06))
-        .cornerRadius(10)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
     }
 }
 
@@ -758,30 +706,27 @@ struct QAStatusCard: View {
     let room: Room
 
     var body: some View {
-        HStack(spacing: 8) {
-            qaStatusIcon
-            VStack(alignment: .leading, spacing: 2) {
-                Text(qaStatusText)
-                    .font(.caption2.bold())
-                    .foregroundColor(qaStatusColor)
-                if let cmd = room.testCommand {
-                    Text(cmd)
-                        .font(.system(size: 9, design: .monospaced))
+        CardContainer(accentColor: qaStatusColor, opacity: 0.06) {
+            HStack(spacing: 8) {
+                qaStatusIcon
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(qaStatusText)
+                        .font(.caption2.bold())
+                        .foregroundColor(qaStatusColor)
+                    if let cmd = room.testCommand {
+                        Text(cmd)
+                            .font(DesignTokens.Typography.mono(DesignTokens.FontSize.badge))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                Spacer()
+                if room.qaRetryCount > 0 {
+                    Text("\(room.qaRetryCount)/\(room.maxQARetries)")
+                        .font(DesignTokens.Typography.monoStatus)
                         .foregroundColor(.secondary)
                 }
             }
-            Spacer()
-            if room.qaRetryCount > 0 {
-                Text("\(room.qaRetryCount)/\(room.maxQARetries)")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundColor(.secondary)
-            }
         }
-        .padding(8)
-        .background(qaStatusColor.opacity(0.06))
-        .cornerRadius(10)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
     }
 
     private var qaStatusText: String {

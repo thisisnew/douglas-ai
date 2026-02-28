@@ -64,7 +64,7 @@ class ClaudeCodeProvider: AIProvider {
         let userPrompt = buildUserPrompt(from: messages)
         return try await runClaude(
             path: config.baseURL, prompt: userPrompt, model: model,
-            systemPrompt: systemPrompt, disableTools: false
+            systemPrompt: systemPrompt, disallowedTools: ["WebFetch"]
         )
     }
 
@@ -99,7 +99,8 @@ class ClaudeCodeProvider: AIProvider {
 
     private func runClaude(
         path: String, prompt: String, model: String,
-        systemPrompt: String = "", disableTools: Bool = false
+        systemPrompt: String = "", disableTools: Bool = false,
+        disallowedTools: [String] = []
     ) async throws -> String {
         // claude CLI는 Node.js 스크립트 → 같은 디렉토리의 node를 직접 사용
         let executable: String
@@ -120,6 +121,11 @@ class ClaudeCodeProvider: AIProvider {
         // 라우터 모드: 내장 도구 비활성화 (URL 직접 접근/파일 조작 방지)
         if disableTools {
             args += ["--tools", ""]
+        }
+
+        // 특정 도구만 선택적으로 차단 (바이브코딩 유지하면서 WebFetch 등 차단)
+        for tool in disallowedTools {
+            args += ["--disallowed-tools", tool]
         }
 
         // 환경변수 상속

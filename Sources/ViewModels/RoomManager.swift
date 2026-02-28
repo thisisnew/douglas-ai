@@ -263,12 +263,49 @@ class RoomManager: ObservableObject {
 
     // MARK: - 방 워크플로우 (계획 → 실행)
 
-    /// 통합 워크플로우: 토론 → 계획 → 실행
+    /// 분석가 방일 때 기존 서브 에이전트를 자동 초대 (토론을 위해)
+    private func autoInviteForAnalyst(roomID: UUID) {
+        guard let room = rooms.first(where: { $0.id == roomID }),
+              let firstAgentID = room.assignedAgentIDs.first,
+              let firstAgent = agentStore?.agents.first(where: { $0.id == firstAgentID }) else { return }
+
+        // 분석가 계열인지 확인
+        let analystIDs: Set<String> = ["requirements_analyst", "jira_analyst"]
+        guard let templateID = firstAgent.roleTemplateID,
+              analystIDs.contains(templateID) else { return }
+
+        // 분석가가 아닌 모든 기존 서브 에이전트를 초대
+        guard let subAgents = agentStore?.subAgents else { return }
+        var invitedNames: [String] = []
+        for agent in subAgents {
+            // 자기 자신 스킵, 이미 방에 있는 에이전트 스킵
+            guard agent.id != firstAgentID,
+                  !room.assignedAgentIDs.contains(agent.id) else { continue }
+            // 분석가 계열은 제외
+            if let tid = agent.roleTemplateID, analystIDs.contains(tid) { continue }
+            addAgent(agent.id, to: roomID)
+            invitedNames.append(agent.name)
+        }
+
+        if !invitedNames.isEmpty {
+            let names = invitedNames.joined(separator: ", ")
+            let msg = ChatMessage(
+                role: .system,
+                content: "관련 에이전트가 토론에 참여합니다: \(names)"
+            )
+            appendMessage(msg, to: roomID)
+        }
+    }
+
+    /// 통합 워크플로우: 자동 초대 → 토론 → 승인 → 계획 → 실행
     func startRoomWorkflow(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
         rooms[idx].status = .planning
         syncAgentStatuses()
+
+        // ── Phase 0: 분석가 방이면 관련 에이전트 자동 초대 ──
+        autoInviteForAnalyst(roomID: roomID)
 
         let agentCount = rooms[idx].assignedAgentIDs.count
 
@@ -287,6 +324,43 @@ class RoomManager: ObservableObject {
             // 토론 브리핑 생성 (컨텍스트 압축)
             await generateBriefing(roomID: roomID, topic: task)
             guard !Task.isCancelled else { return }
+
+            // ── Phase 1.5: 토론 후 사용자 승인 ──
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.awaitingApproval)
+            }
+            let briefingSummary = rooms.first(where: { $0.id == roomID })?.briefing?.summary ?? "토론 결과"
+            let approvalMsg = ChatMessage(
+                role: .system,
+                content: "토론이 완료되었습니다.\n\n\(briefingSummary)\n\n이대로 진행하시겠습니까?",
+                messageType: .approvalRequest
+            )
+            appendMessage(approvalMsg, to: roomID)
+            scheduleSave()
+
+            let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                approvalContinuations[roomID] = continuation
+            }
+            approvalContinuations.removeValue(forKey: roomID)
+
+            guard !Task.isCancelled else { return }
+
+            if !approved {
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.failed)
+                    rooms[i].completedAt = Date()
+                }
+                let rejectMsg = ChatMessage(role: .system, content: "사용자가 실행을 거부했습니다.")
+                appendMessage(rejectMsg, to: roomID)
+                syncAgentStatuses()
+                scheduleSave()
+                return
+            }
+
+            // 승인 → planning 상태로 복귀
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.planning)
+            }
         }
 
         // ── Phase 2: 계획 수립 ──
@@ -566,17 +640,17 @@ class RoomManager: ObservableObject {
             // 빌드/QA 루프는 에이전트 주도로 실행 (계획 단계에서 에이전트가 직접 shell_exec으로 처리)
         }
 
-        // 완료
-        if let i = rooms.firstIndex(where: { $0.id == roomID }),
-           rooms[i].status == .inProgress {
-            rooms[i].transitionTo(.completed)
-            rooms[i].completedAt = Date()
+        // 완료: 작업일지를 먼저 생성한 후 상태 변경
+        if rooms.first(where: { $0.id == roomID })?.status == .inProgress {
+            await generateWorkLog(roomID: roomID, task: task)
+
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.completed)
+                rooms[i].completedAt = Date()
+            }
 
             let doneMsg = ChatMessage(role: .system, content: "모든 작업이 완료되었습니다.")
             appendMessage(doneMsg, to: roomID)
-
-            // 작업일지 자동 생성
-            await generateWorkLog(roomID: roomID, task: task)
         }
         syncAgentStatuses()
         scheduleSave()
@@ -1308,6 +1382,11 @@ class RoomManager: ObservableObject {
         }
         guard rooms[idx].transitionTo(.completed) else { return }
         rooms[idx].completedAt = Date()
+
+        // 작업일지 생성 (수동 완료 시에도)
+        let task = rooms[idx].messages.first(where: { $0.role == .user })?.content ?? rooms[idx].title
+        Task { await generateWorkLog(roomID: roomID, task: task) }
+
         syncAgentStatuses()
         scheduleSave()
     }

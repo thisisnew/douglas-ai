@@ -69,14 +69,11 @@ struct ChatContentView: View {
                     .focused($isInputFocused)
                     .onSubmit { send() }
 
-                Button(action: send) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.title2)
-                        .foregroundColor(inputText.isEmpty ? .gray : .accentColor)
-                }
-                .buttonStyle(.plain)
-                .disabled(inputText.isEmpty || chatVM.loadingAgentIDs.contains(agentID))
-                .keyboardShortcut(.return, modifiers: .command)
+                SendButton(
+                    canSend: !inputText.isEmpty,
+                    isLoading: chatVM.loadingAgentIDs.contains(agentID),
+                    action: send
+                )
             }
             .padding(10)
             .background(Color(nsColor: .textBackgroundColor).opacity(0.5))

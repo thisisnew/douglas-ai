@@ -22,10 +22,12 @@ enum RoomStatus: String, Codable {
         case (.planning, .inProgress),
              (.planning, .completed),
              (.planning, .failed),
+             (.planning, .awaitingApproval),
              (.inProgress, .completed),
              (.inProgress, .failed),
              (.inProgress, .awaitingApproval),
              (.awaitingApproval, .inProgress),
+             (.awaitingApproval, .planning),
              (.awaitingApproval, .failed):
             return true
         default:

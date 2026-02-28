@@ -29,24 +29,15 @@ struct EditAgentSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 네비게이션 바 스타일 헤더
-            ZStack {
-                Text("에이전트 수정")
-                    .font(.headline)
-                HStack {
-                    Button("취소") { dismiss() }
-                        .keyboardShortcut(.cancelAction)
-                    Spacer()
-                    Button("저장") { save() }
-                        .keyboardShortcut(.defaultAction)
-                        .fontWeight(.semibold)
-                        .disabled(name.isEmpty || persona.isEmpty)
-                }
+            SheetNavHeader(title: "에이전트 수정") {
+                Button("취소") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            } trailing: {
+                Button("저장") { save() }
+                    .keyboardShortcut(.defaultAction)
+                    .fontWeight(.semibold)
+                    .disabled(name.isEmpty || persona.isEmpty)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-
-            Divider()
 
             ScrollView {
                 VStack(spacing: 28) {
@@ -63,15 +54,15 @@ struct EditAgentSheet: View {
                                 .foregroundColor(.secondary)
                                 .padding(10)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color.primary.opacity(0.03))
-                                .cornerRadius(8)
+                                .background(DesignTokens.Colors.surfaceTertiary)
+                                .continuousRadius(DesignTokens.Radius.lg)
                         } else {
                             TextField("에이전트 이름", text: $name)
                                 .textFieldStyle(.plain)
                                 .font(.body)
                                 .padding(10)
-                                .background(Color.primary.opacity(0.04))
-                                .cornerRadius(8)
+                                .background(DesignTokens.Colors.inputBackground)
+                                .continuousRadius(DesignTokens.Radius.lg)
                         }
                     }
 
@@ -100,7 +91,7 @@ struct EditAgentSheet: View {
                                 }
                                 .padding(8)
                                 .background(Color.accentColor.opacity(0.06))
-                                .cornerRadius(8)
+                                .continuousRadius(DesignTokens.Radius.lg)
                             } else {
                                 Text("사용자 정의")
                                     .font(.caption)
@@ -117,8 +108,8 @@ struct EditAgentSheet: View {
                             .scrollContentBackground(.hidden)
                             .frame(minHeight: 80)
                             .padding(8)
-                            .background(Color.primary.opacity(0.04))
-                            .cornerRadius(8)
+                            .background(DesignTokens.Colors.inputBackground)
+                            .continuousRadius(DesignTokens.Radius.lg)
                     }
 
                     // 모델 설정 (그룹 카드)
@@ -165,8 +156,8 @@ struct EditAgentSheet: View {
                                 }
                             }
                         }
-                        .background(Color.primary.opacity(0.04))
-                        .cornerRadius(8)
+                        .background(DesignTokens.Colors.inputBackground)
+                        .continuousRadius(DesignTokens.Radius.lg)
 
                         if let config = providerManager.configs.first(where: { $0.name == selectedProvider }),
                            !config.isConnected {
@@ -182,7 +173,7 @@ struct EditAgentSheet: View {
                 .padding(.vertical, 16)
             }
         }
-        .frame(width: 440, height: min(600, (NSScreen.main?.frame.height ?? 800) * 0.75))
+        .frame(width: DesignTokens.WindowSize.agentSheet.width, height: min(DesignTokens.WindowSize.agentSheet.height, (NSScreen.main?.frame.height ?? 800) * 0.75))
         .onAppear {
             loadModels(for: selectedProvider)
         }
@@ -208,7 +199,7 @@ struct EditAgentSheet: View {
                         .clipShape(Circle())
                 } else {
                     Circle()
-                        .fill(Color.primary.opacity(0.06))
+                        .fill(DesignTokens.Colors.avatarFallback)
                         .frame(width: 72, height: 72)
                         .overlay(
                             Image(systemName: agent.isMaster ? "brain.head.profile" : "person.fill")
@@ -232,21 +223,10 @@ struct EditAgentSheet: View {
         .contentShape(Circle())
     }
 
-    private func sectionLabel(_ text: String) -> some View {
-        Text(text)
-            .font(.subheadline.weight(.medium))
-            .foregroundColor(.secondary)
-    }
+    // sectionLabel, settingsRow → SharedComponents 사용
 
-    private func settingsRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack {
-            Text(label)
-                .font(.body)
-            Spacer()
-            content()
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+    private func settingsRow<Content: View>(_ label: String, @ViewBuilder content: @escaping () -> Content) -> some View {
+        SettingsRow(label: label, content: content)
     }
 
     // MARK: - Logic

@@ -125,7 +125,7 @@ struct RoomListView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: isEditMode)
+        .animation(.dgStandard, value: isEditMode)
         .confirmationDialog(
             "선택한 \(selectedIDs.count)개 방을 삭제할까요?",
             isPresented: $showDeleteConfirm,
@@ -217,7 +217,7 @@ struct RoomListView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
-        .background(Color.primary.opacity(0.03))
+        .background(DesignTokens.Colors.surfaceTertiary)
     }
 
     // MARK: - 하단 액션 바
@@ -280,7 +280,7 @@ struct RoomListView: View {
                 .fill(.ultraThinMaterial)
                 .overlay(alignment: .top) {
                     Rectangle()
-                        .fill(Color.primary.opacity(0.06))
+                        .fill(DesignTokens.Colors.avatarFallback)
                         .frame(height: 0.5)
                 }
         )
@@ -295,7 +295,7 @@ struct RoomListView: View {
                 let isSelected = selectedFilter == filter
 
                 Button {
-                    withAnimation(.easeInOut(duration: 0.15)) {
+                    withAnimation(.dgFast) {
                         selectedFilter = filter
                         // 필터 바꾸면 선택 초기화
                         selectedIDs.removeAll()
@@ -429,13 +429,13 @@ struct RoomListItem: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: DesignTokens.Spacing.lg, style: .continuous)
                 .fill(isHovered
-                      ? Color.black.opacity(0.07)
-                      : (room.isActive ? Color.black.opacity(0.04) : Color.clear))
+                      ? DesignTokens.Colors.hoverBackground
+                      : (room.isActive ? DesignTokens.Colors.activeRowBackground : Color.clear))
         )
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
+            withAnimation(.dgFast) {
                 isHovered = hovering
             }
         }

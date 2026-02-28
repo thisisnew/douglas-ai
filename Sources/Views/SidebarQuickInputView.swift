@@ -43,7 +43,7 @@ struct SidebarQuickInputView: View {
             }
         }
         .padding(8)
-        .background(Color.gray.opacity(0.08))
-        .cornerRadius(8)
+        .background(DesignTokens.Colors.overlay)
+        .continuousRadius(DesignTokens.Radius.lg)
     }
 }

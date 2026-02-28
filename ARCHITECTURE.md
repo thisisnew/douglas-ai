@@ -87,7 +87,8 @@ DOUGLAS/
 │       ├── WorkLogView.swift        # 방 작업 로그 뷰
 │       ├── AgentAvatarView.swift    # 원형 아바타 (마스터/서브 아이콘 분기)
 │       ├── SuggestionCard.swift     # 에이전트 자동 생성 제안 카드
-│       ├── DesignTokens.swift       # 중앙화된 색상, 타이포그래피, 간격 상수
+│       ├── DesignTokens.swift       # 디자인 시스템 (색상, 타이포, 간격, 모서리, 애니메이션, 윈도우 크기)
+│       ├── SharedComponents.swift   # 공유 UI 컴포넌트 (SheetNavHeader, CardContainer, SendButton 등)
 │       └── ToastView.swift          # 임시 알림 오버레이
 ```
 
@@ -524,11 +525,16 @@ struct ProviderConfig: Identifiable, Codable {
 
 상태 전이:
 ```
-planning → inProgress → completed
-    │          │
-    │          ├→ awaitingApproval → inProgress (승인)
-    │          │                   → failed (거부)
-    │          └→ failed
+planning → awaitingApproval (토론 후 사용자 승인)
+    │              │
+    │              ├→ planning (승인 → 계획 수립)
+    │              └→ failed (거부)
+    │
+    ├→ inProgress → completed
+    │      │
+    │      ├→ awaitingApproval → inProgress (단계 승인)
+    │      │                   → failed (거부)
+    │      └→ failed
     ├→ completed
     └→ failed
 ```
@@ -845,9 +851,15 @@ executeWithTools() 루프 (최대 10회):
 | `ChatViewModel.swift` | `handleAgentMessage`, `executeDelegation` → `ToolExecutor.smartSend()` (이미지 포함 시 conversationMessages 오버로드) |
 | `RoomManager.swift` | `sendUserMessage`, `executeStep` → `ToolExecutor.smartSend()` + `ToolExecutionContext` 전달 (invite_agent/list_agents 지원) |
 
-**방 워크플로우** (`startRoomWorkflow`): 에이전트 2명 이상일 때만 토론 실행. 1명이면 토론 스킵 → 바로 계획 수립 → 실행.
+**방 워크플로우** (`startRoomWorkflow`): 자동 초대 → 토론 → 사용자 승인 → 계획 수립 → 실행.
+- **자동 초대** (`autoInviteForAnalyst`): 분석가 방이면 기존 서브 에이전트를 자동 초대 (토론 참여)
+- **토론 후 승인**: 토론 완료 시 브리핑 생성 → `.awaitingApproval` → 사용자 승인 후 계획 수립
+- **CLI WebFetch 차단**: `ClaudeCodeProvider.sendMessage()`에서 `--disallowed-tools WebFetch` 적용 (바이브코딩 유지, URL 직접 접근만 차단)
+- **SuggestionCard 편집**: 에이전트 생성 전 이름/설명을 사용자가 편집 가능 (마스터가 초안 제공)
 
 **승인 게이트** (`executeRoomWork`): `step.requiresApproval == true`이면 `.awaitingApproval` 상태 전환 + `CheckedContinuation`으로 비동기 일시 정지. `approveStep(roomID:)` / `rejectStep(roomID:)` 호출 시 continuation resume. 거부 시 `.failed` 전환.
+
+**작업일지**: `executeRoomWork()` 완료 시 `generateWorkLog()` → 상태 전환 순서. `completeRoom()` (수동 완료)에서도 작업일지 생성.
 
 **QA 루프** (`runQALoop`): 빌드 루프 성공 후 `testCommand`가 있으면 자동 실행. `BuildLoopRunner.runTests()` → 실패 시 QA 에이전트(`roleTemplateID == "qa_engineer"`)에게 수정 프롬프트 → 재테스트 (최대 `maxQARetries`회).
 
@@ -898,6 +910,51 @@ executeWithTools() 루프 (최대 10회):
 | D-4 | **방 목록 "확인 필요" 플래그**: `Room.needsUserAttention` (승인 대기 or pending suggestion). 방 목록에 주황 캡슐 뱃지 표시. | ✅ |
 | D-5 | **하드코딩 빌드/QA 루프 제거**: `executeRoomWork()`에서 빌드/QA 자동 호출 블록 제거. 에이전트가 계획 단계에서 직접 shell_exec으로 처리. | ✅ |
 | D-6 | **QA 템플릿 세분화**: `qa_engineer` 1개 → `qa_test_automation`, `qa_exploratory`, `qa_security`, `qa_code_review` 4종. 레거시 별칭 유지. | ✅ |
+
+---
+
+## 디자인 시스템 (`Views/DesignTokens.swift` + `Views/SharedComponents.swift`)
+
+### 토큰 구조
+
+| 카테고리 | 내용 |
+|----------|------|
+| `DesignTokens.Radius` | `sm(4)`, `md(6)`, `lg(8)`, `xl(10)` — squircle 전용 |
+| `DesignTokens.Spacing` | `xs(4)`, `sm(8)`, `md(12)`, `lg(16)`, `xl(24)` |
+| `DesignTokens.Colors` | 13개 시맨틱 색상 — `background`, `inputBackground`, `surfaceSecondary`, `surfaceTertiary`, `hoverBackground`, `activeRowBackground`, `systemMessageBackground`, `messageBubbleBackground`, `avatarFallback`, `overlay`, `separator`, `closeButton`, `stepInactive` 등 |
+| `DesignTokens.FontSize` | `nano(8)`, `badge(9)`, `xs(10)`, `sm(11)`, `body(12)`, `bodyMd(13)`, `icon(14)`, `lg(16)` |
+| `DesignTokens.Typography` | `mono(_ size:weight:)` 헬퍼, `monoBadge`, `monoStatus` 프리셋 |
+| `DesignTokens.WindowSize` | 7개 시트/윈도우 크기 상수 — `agentSheet`, `createRoomSheet`, `providerSheet`, `agentInfoSheet`, `roomChat`, `workLog`, `onboarding` |
+| `DesignTokens.Sidebar` | 사이드바 전용: `cornerRadius`, `shadowOpacity`, `shadowRadius` |
+| `DesignTokens.Layout` | 사이드바/로스터/상태 표시 레이아웃 상수 |
+
+### 다크모드 대응 패턴
+
+- `Color.primary.opacity(N)` — 라이트(검정) ↔ 다크(흰색) 자동 적응
+- `Color(nsColor: .windowBackgroundColor)` — 시스템 배경 추적
+- `.ultraThinMaterial` — 플로팅 사이드바 반투명 배경 (AppKit `backgroundColor = .clear` + `isOpaque = false` 전제)
+
+### 모서리 규칙
+
+- **`.continuousRadius(N)`** View extension 사용 (`.clipShape(RoundedRectangle(cornerRadius: N, style: .continuous))`)
+- deprecated `.cornerRadius()` 사용 금지
+
+### 애니메이션 토큰
+
+- `.dgFast` (0.15s) — 호버, 마이크로 인터랙션
+- `.dgStandard` (0.25s) — 일반 전환
+- `.dgSlow` (0.35s) — 모달, 토스트, 확장
+
+### 공유 컴포넌트 (`SharedComponents.swift`)
+
+| 컴포넌트 | 용도 |
+|----------|------|
+| `SheetNavHeader` | 모든 시트 상단 네비게이션 헤더 (취소/제목/액션) |
+| `CardContainer` | 방 채팅 내 카드 래퍼 (accentColor + opacity 파라미터) |
+| `AttachmentThumbnail` | 48x48 이미지 썸네일 + 삭제 버튼 |
+| `SendButton` | 전송 버튼 (canSend/isLoading 상태) |
+| `sectionLabel()` | 섹션 라벨 (caption, secondary) |
+| `SettingsRow` | 라벨 + 컨텐츠 설정 행 |
 
 ---
 

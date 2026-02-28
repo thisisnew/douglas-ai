@@ -60,17 +60,75 @@ enum DesignTokens {
         static let badgeBg: Double = 0.12
     }
 
-    // MARK: - 시스템 폰트 크기 (semantic font 외 특수 용도)
+    // MARK: - 시맨틱 색상 (다크모드 자동 대응)
+
+    enum Colors {
+        /// 윈도우/시트 메인 배경 (Color.white 대체)
+        static let background = Color(nsColor: .windowBackgroundColor)
+        /// 입력 필드, TextEditor 배경
+        static let inputBackground = Color.primary.opacity(0.04)
+        /// 카드/그룹 배경
+        static let surfaceSecondary = Color.primary.opacity(0.04)
+        /// 약한 카드 배경
+        static let surfaceTertiary = Color.primary.opacity(0.03)
+        /// 호버 상태 배경
+        static let hoverBackground = Color.primary.opacity(0.07)
+        /// 활성 행 배경
+        static let activeRowBackground = Color.primary.opacity(0.04)
+        /// 시스템 메시지 배경
+        static let systemMessageBackground = Color.primary.opacity(0.03)
+        /// 기본 메시지 버블 배경
+        static let messageBubbleBackground = Color.primary.opacity(0.05)
+        /// 아바타 폴백 배경
+        static let avatarFallback = Color.primary.opacity(0.06)
+        /// 슬래시 메뉴/퀵인풋 배경
+        static let overlay = Color.primary.opacity(0.08)
+        /// 구분선
+        static let separator = Color.primary.opacity(0.08)
+        /// 닫기/xmark 버튼 배경
+        static let closeButton = Color.primary.opacity(0.06)
+        /// 썸네일 삭제 버튼 배경
+        static let thumbnailDelete = Color.black.opacity(0.5)
+        /// 스텝 인디케이터 비활성
+        static let stepInactive = Color.primary.opacity(0.1)
+    }
+
+    // MARK: - 시스템 폰트 크기
 
     enum FontSize {
-        /// 뱃지 숫자, 상태 텍스트
+        /// 극소 아이콘 보조 텍스트 (8pt)
+        static let nano: CGFloat = 8
+        /// 뱃지 숫자, 상태 텍스트 (9pt)
         static let badge: CGFloat = 9
-        /// 아주 작은 라벨
+        /// 아주 작은 라벨 (9pt)
         static let micro: CGFloat = 9
-        /// 상태 뱃지 텍스트
+        /// 보조 레이블, 타임스탬프 (10pt)
+        static let xs: CGFloat = 10
+        /// 상태 뱃지 텍스트 (10pt)
         static let status: CGFloat = 10
-        /// 타이머 표시
+        /// 작은 레이블 (11pt)
+        static let sm: CGFloat = 11
+        /// 타이머 표시 (11pt)
         static let timer: CGFloat = 11
+        /// 작은 본문 (12pt)
+        static let body: CGFloat = 12
+        /// 기본 본문 — 채팅 버블 (13pt)
+        static let bodyMd: CGFloat = 13
+        /// 헤더 아이콘/버튼 (14pt)
+        static let icon: CGFloat = 14
+    }
+
+    // MARK: - 타이포그래피 헬퍼
+
+    enum Typography {
+        /// 모노스페이스 폰트
+        static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+            .system(size: size, weight: weight, design: .monospaced)
+        }
+        /// 모노스페이스 뱃지 (9pt bold)
+        static let monoBadge: Font = .system(size: FontSize.badge, weight: .bold, design: .monospaced)
+        /// 모노스페이스 상태 (10pt bold)
+        static let monoStatus: Font = .system(size: FontSize.xs, weight: .bold, design: .monospaced)
     }
 
     // MARK: - 아바타 크기
@@ -171,6 +229,18 @@ enum DesignTokens {
         static let slow: Double = 0.3
     }
 
+    // MARK: - 윈도우 크기 상수
+
+    enum WindowSize {
+        static let agentSheet = CGSize(width: 480, height: 560)
+        static let createRoomSheet = CGSize(width: 480, height: 560)
+        static let providerSheet = CGSize(width: 480, height: 560)
+        static let agentInfoSheet = CGSize(width: 480, height: 480)
+        static let roomChat = CGSize(width: 520, height: 600)
+        static let workLog = CGSize(width: 520, height: 560)
+        static let onboarding = CGSize(width: 520, height: 560)
+    }
+
     // MARK: - 레이아웃 상수
 
     enum Layout {
@@ -260,5 +330,22 @@ struct FlowLayout: Layout {
             }
         }
         return rows
+    }
+}
+
+// MARK: - SwiftUI Animation 편의 확장
+
+extension SwiftUI.Animation {
+    static let dgFast = SwiftUI.Animation.easeInOut(duration: DesignTokens.Animation.fast)
+    static let dgStandard = SwiftUI.Animation.easeInOut(duration: DesignTokens.Animation.standard)
+    static let dgSlow = SwiftUI.Animation.easeInOut(duration: DesignTokens.Animation.slow)
+}
+
+// MARK: - 연속 곡선 RoundedRectangle 편의 확장
+
+extension View {
+    /// `.cornerRadius(n)` 대체 — `.continuous` 스쿼클 곡선 적용
+    func continuousRadius(_ radius: CGFloat) -> some View {
+        clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
 }

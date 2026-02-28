@@ -18,21 +18,13 @@ struct AddProviderSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 헤더
-            ZStack {
-                Text("API 설정")
-                    .font(.headline)
-                HStack {
-                    Spacer()
-                    Button("완료") { dismiss() }
-                        .keyboardShortcut(.cancelAction)
-                        .fontWeight(.semibold)
-                }
+            SheetNavHeader(title: "API 설정") {
+                EmptyView()
+            } trailing: {
+                Button("완료") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                    .fontWeight(.semibold)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-
-            Divider()
 
             ScrollView {
                 VStack(spacing: 20) {
@@ -81,8 +73,8 @@ struct AddProviderSheet: View {
                                 .textFieldStyle(.plain)
                                 .font(.body)
                                 .padding(10)
-                                .background(Color.primary.opacity(0.04))
-                                .cornerRadius(8)
+                                .background(DesignTokens.Colors.inputBackground)
+                                .continuousRadius(DesignTokens.Radius.lg)
                                 .onAppear {
                                     openAIKey = providerManager.configs.first(where: { $0.type == .openAI })?.apiKey ?? ""
                                 }
@@ -120,8 +112,8 @@ struct AddProviderSheet: View {
                                 .textFieldStyle(.plain)
                                 .font(.body)
                                 .padding(10)
-                                .background(Color.primary.opacity(0.04))
-                                .cornerRadius(8)
+                                .background(DesignTokens.Colors.inputBackground)
+                                .continuousRadius(DesignTokens.Radius.lg)
                                 .onAppear {
                                     googleKey = providerManager.configs.first(where: { $0.type == .google })?.apiKey ?? ""
                                 }
@@ -159,22 +151,22 @@ struct AddProviderSheet: View {
                                 .textFieldStyle(.plain)
                                 .font(.body)
                                 .padding(10)
-                                .background(Color.primary.opacity(0.04))
-                                .cornerRadius(8)
+                                .background(DesignTokens.Colors.inputBackground)
+                                .continuousRadius(DesignTokens.Radius.lg)
 
                             TextField("이메일", text: $jiraEmail)
                                 .textFieldStyle(.plain)
                                 .font(.body)
                                 .padding(10)
-                                .background(Color.primary.opacity(0.04))
-                                .cornerRadius(8)
+                                .background(DesignTokens.Colors.inputBackground)
+                                .continuousRadius(DesignTokens.Radius.lg)
 
                             SecureField("API Token", text: $jiraToken)
                                 .textFieldStyle(.plain)
                                 .font(.body)
                                 .padding(10)
-                                .background(Color.primary.opacity(0.04))
-                                .cornerRadius(8)
+                                .background(DesignTokens.Colors.inputBackground)
+                                .continuousRadius(DesignTokens.Radius.lg)
 
                             HStack(spacing: 8) {
                                 Spacer()
@@ -193,7 +185,7 @@ struct AddProviderSheet: View {
                 .padding(24)
             }
         }
-        .frame(width: 460, height: 680)
+        .frame(width: DesignTokens.WindowSize.providerSheet.width, height: DesignTokens.WindowSize.providerSheet.height)
     }
 
     // MARK: - Components
@@ -201,8 +193,8 @@ struct AddProviderSheet: View {
     private func providerCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
             .padding(16)
-            .background(Color.primary.opacity(0.03))
-            .cornerRadius(10)
+            .background(DesignTokens.Colors.surfaceTertiary)
+            .continuousRadius(DesignTokens.Radius.xl)
     }
 
     private func providerIcon(_ name: String, color: Color) -> some View {
@@ -225,7 +217,7 @@ struct AddProviderSheet: View {
                 .padding(.vertical, 3)
                 .background(result.contains("성공") || result.contains("완료") ? Color.green.opacity(0.1) : Color.red.opacity(0.1))
                 .foregroundColor(result.contains("성공") || result.contains("완료") ? .green : .red)
-                .cornerRadius(4)
+                .continuousRadius(DesignTokens.Radius.sm)
         }
     }
 
@@ -242,7 +234,7 @@ struct AddProviderSheet: View {
                 .padding(.vertical, 3)
                 .background(result.contains("성공") || result.contains("완료") ? Color.green.opacity(0.1) : Color.red.opacity(0.1))
                 .foregroundColor(result.contains("성공") || result.contains("완료") ? .green : .red)
-                .cornerRadius(4)
+                .continuousRadius(DesignTokens.Radius.sm)
         }
     }
 

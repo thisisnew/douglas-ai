@@ -247,13 +247,13 @@ struct FloatingSidebarView: View {
                 }
             }
         }
-        .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(color: .black.opacity(0.12), radius: 20, x: -4, y: 0)
+        .background(.ultraThinMaterial)
+        .continuousRadius(DesignTokens.Sidebar.cornerRadius)
+        .shadow(color: .black.opacity(DesignTokens.Sidebar.shadowOpacity), radius: DesignTokens.Sidebar.shadowRadius, x: -4, y: 0)
         .padding(.leading, 4)
         .padding(.trailing, 6)
         .padding(.vertical, 8)
-        .animation(.easeInOut(duration: 0.3), value: chatVM.showToast)
+        .animation(.dgSlow, value: chatVM.showToast)
         .onChange(of: roomManager.pendingAutoOpenRoomID) { _, newID in
             if let roomID = newID {
                 openRoomChatWindow(roomID: roomID)
@@ -272,7 +272,7 @@ struct FloatingSidebarView: View {
                 Capsule()
                     .fill(Color.primary.opacity(sectionHandleHovered ? 0.3 : 0.12))
                     .frame(width: 36, height: 4)
-                    .animation(.easeInOut(duration: 0.15), value: sectionHandleHovered)
+                    .animation(.dgFast, value: sectionHandleHovered)
             )
             .contentShape(Rectangle())
             .gesture(
@@ -341,7 +341,7 @@ struct FloatingSidebarView: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(.secondary.opacity(0.6))
                     .frame(width: 20, height: 20)
-                    .background(Color.primary.opacity(0.06))
+                    .background(DesignTokens.Colors.closeButton)
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
@@ -467,7 +467,7 @@ struct FloatingSidebarView: View {
                 Capsule()
                     .fill(Color.primary.opacity(resizeHandleHovered ? 0.3 : 0.12))
                     .frame(width: 36, height: 4)
-                    .animation(.easeInOut(duration: 0.15), value: resizeHandleHovered)
+                    .animation(.dgFast, value: resizeHandleHovered)
             )
             .contentShape(Rectangle())
             .gesture(
@@ -581,7 +581,10 @@ struct FloatingSidebarView: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 6) {
                                 ForEach(pendingAttachments) { att in
-                                    attachmentThumbnail(att)
+                                    AttachmentThumbnail(attachment: att) {
+                                        att.delete()
+                                        pendingAttachments.removeAll { $0.id == att.id }
+                                    }
                                 }
                             }
                             .padding(.horizontal, 12)
@@ -607,7 +610,7 @@ struct FloatingSidebarView: View {
                             .onChange(of: inputText) { _, newValue in
                                 let matched = SlashCommand.filtered(by: newValue)
                                 let shouldShow = newValue.hasPrefix("/") && !matched.isEmpty
-                                withAnimation(.easeInOut(duration: 0.15)) {
+                                withAnimation(.dgFast) {
                                     filteredCommands = matched
                                     showSlashMenu = shouldShow
                                 }
@@ -622,20 +625,17 @@ struct FloatingSidebarView: View {
                                 }
                             }
 
-                        Button(action: sendToMaster) {
-                            Image(systemName: "arrow.up.circle.fill")
-                                .font(.title2)
-                                .foregroundColor(canSend ? .accentColor : .gray)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(!canSend || chatVM.loadingAgentIDs.contains(agentID))
-                        .keyboardShortcut(.return, modifiers: .command)
+                        SendButton(
+                            canSend: canSend,
+                            isLoading: chatVM.loadingAgentIDs.contains(agentID),
+                            action: sendToMaster
+                        )
                     }
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
-                .background(Color.black.opacity(0.04))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(DesignTokens.Colors.inputBackground)
+                .continuousRadius(DesignTokens.Radius.lg)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
@@ -684,8 +684,8 @@ struct FloatingSidebarView: View {
                 .buttonStyle(.plain)
             }
         }
-        .background(Color.black.opacity(0.04))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(DesignTokens.Colors.inputBackground)
+        .continuousRadius(DesignTokens.Radius.xl)
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -776,84 +776,63 @@ struct FloatingSidebarView: View {
         }
     }
 
-    @ViewBuilder
-    private func attachmentThumbnail(_ attachment: ImageAttachment) -> some View {
-        ZStack(alignment: .topTrailing) {
-            if let data = try? attachment.loadData(), let nsImage = NSImage(data: data) {
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 48, height: 48)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-            } else {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.gray.opacity(0.2))
-                    .frame(width: 48, height: 48)
-                    .overlay(Image(systemName: "photo").foregroundColor(.secondary))
-            }
-
-            Button {
-                attachment.delete()
-                pendingAttachments.removeAll { $0.id == attachment.id }
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 14))
-                    .foregroundColor(.white)
-                    .background(Circle().fill(Color.black.opacity(0.5)))
-            }
-            .buttonStyle(.plain)
-            .offset(x: 4, y: -4)
-        }
-    }
+    // attachmentThumbnail → SharedComponents.AttachmentThumbnail 사용
 
     // MARK: - 윈도우 열기 헬퍼
 
     private func openAddAgentWindow() {
-        UtilityWindowManager.shared.open(title: "새 에이전트", width: 480, height: 560,
-                          agentStore: agentStore, providerManager: providerManager, chatVM: chatVM) {
+        UtilityWindowManager.shared.open(title: "새 에이전트",
+            width: DesignTokens.WindowSize.agentSheet.width, height: DesignTokens.WindowSize.agentSheet.height,
+            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM) {
             AddAgentSheet()
         }
     }
 
     private func openProviderWindow() {
-        UtilityWindowManager.shared.open(title: "API 설정", width: 480, height: 520,
-                          agentStore: agentStore, providerManager: providerManager, chatVM: chatVM) {
+        UtilityWindowManager.shared.open(title: "API 설정",
+            width: DesignTokens.WindowSize.providerSheet.width, height: DesignTokens.WindowSize.providerSheet.height,
+            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM) {
             AddProviderSheet()
         }
     }
 
     private func openEditWindow(for agent: Agent) {
-        UtilityWindowManager.shared.open(title: "\(agent.name) 편집", width: 480, height: 520,
-                          agentStore: agentStore, providerManager: providerManager, chatVM: chatVM) {
+        UtilityWindowManager.shared.open(title: "\(agent.name) 편집",
+            width: DesignTokens.WindowSize.agentSheet.width, height: DesignTokens.WindowSize.agentSheet.height,
+            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM) {
             EditAgentSheet(agent: agent)
         }
     }
 
     private func openInfoWindow(for agent: Agent) {
-        UtilityWindowManager.shared.open(title: "\(agent.name) 정보", width: 480, height: 480,
-                          agentStore: agentStore, providerManager: providerManager, chatVM: chatVM) {
+        UtilityWindowManager.shared.open(title: "\(agent.name) 정보",
+            width: DesignTokens.WindowSize.agentInfoSheet.width, height: DesignTokens.WindowSize.agentInfoSheet.height,
+            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM) {
             AgentInfoSheet(agent: agent)
         }
     }
 
     private func openRoomChatWindow(roomID: UUID) {
         let title = roomManager.rooms.first(where: { $0.id == roomID })?.title ?? "방"
-        UtilityWindowManager.shared.open(title: title, width: 520, height: 600,
-                          agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, roomManager: roomManager) {
+        UtilityWindowManager.shared.open(title: title,
+            width: DesignTokens.WindowSize.roomChat.width, height: DesignTokens.WindowSize.roomChat.height,
+            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, roomManager: roomManager) {
             RoomChatView(roomID: roomID)
         }
     }
 
     private func openWorkLogWindow() {
-        UtilityWindowManager.shared.open(title: "작업일지", width: 520, height: 560,
-                          agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, roomManager: roomManager) {
+        UtilityWindowManager.shared.open(title: "작업일지",
+            width: DesignTokens.WindowSize.workLog.width, height: DesignTokens.WindowSize.workLog.height,
+            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, roomManager: roomManager) {
             WorkLogView()
         }
     }
 
     private func openCreateRoomWindow() {
-        UtilityWindowManager.shared.open(title: "새 방 만들기", width: 480, height: 520,
-                          agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, roomManager: roomManager) {
+        UtilityWindowManager.shared.open(title: "새 방 만들기",
+            width: DesignTokens.WindowSize.createRoomSheet.width, height: DesignTokens.WindowSize.createRoomSheet.height,
+            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, roomManager: roomManager) {
             CreateRoomSheet()
         }
     }

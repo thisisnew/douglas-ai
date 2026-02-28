@@ -6,6 +6,9 @@ struct SuggestionCard: View {
     @EnvironmentObject var chatVM: ChatViewModel
     @EnvironmentObject var roomManager: RoomManager
 
+    @State private var editedName: String = ""
+    @State private var editedPersona: String = ""
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -15,13 +18,19 @@ struct SuggestionCard: View {
                     .font(.callout.bold())
             }
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(suggestion.name)
+            VStack(alignment: .leading, spacing: 6) {
+                TextField("에이전트 이름", text: $editedName)
                     .font(.callout.weight(.medium))
-                Text(suggestion.persona)
+                    .textFieldStyle(.roundedBorder)
+
+                TextEditor(text: $editedPersona)
                     .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(3)
+                    .frame(minHeight: 48, maxHeight: 80)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                    )
+
                 if !suggestion.recommendedProvider.isEmpty {
                     Text("\(suggestion.recommendedProvider) / \(suggestion.recommendedModel)")
                         .font(.caption2)
@@ -33,6 +42,7 @@ struct SuggestionCard: View {
                 Button("추가") { createAgent() }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
+                    .disabled(editedName.trimmingCharacters(in: .whitespaces).isEmpty)
 
                 Button("건너뛰기") { chatVM.pendingSuggestion = nil }
                     .buttonStyle(.bordered)
@@ -42,10 +52,17 @@ struct SuggestionCard: View {
         }
         .padding(12)
         .background(Color.orange.opacity(0.08))
-        .cornerRadius(8)
+        .continuousRadius(DesignTokens.Radius.lg)
+        .onAppear {
+            editedName = suggestion.name
+            editedPersona = suggestion.persona
+        }
     }
 
     private func createAgent() {
+        let name = editedName.trimmingCharacters(in: .whitespaces)
+        let persona = editedPersona.trimmingCharacters(in: .whitespacesAndNewlines)
+
         let providerName = suggestion.recommendedProvider.isEmpty
             ? (agentStore.masterAgent?.providerName ?? "Claude Code")
             : suggestion.recommendedProvider
@@ -53,17 +70,18 @@ struct SuggestionCard: View {
             ? (agentStore.masterAgent?.modelName ?? "claude-sonnet-4-6")
             : suggestion.recommendedModel
 
-        // roleTemplateID가 있으면 템플릿의 persona를 사용
+        // 사용자가 설명을 편집하지 않았고 roleTemplateID가 있으면 템플릿 persona 사용
         let finalPersona: String
-        if let templateID = suggestion.roleTemplateID,
+        if persona == suggestion.persona,
+           let templateID = suggestion.roleTemplateID,
            let template = AgentRoleTemplateRegistry.template(for: templateID) {
             finalPersona = template.resolvedPersona(for: providerName)
         } else {
-            finalPersona = suggestion.persona
+            finalPersona = persona
         }
 
         let agent = Agent(
-            name: suggestion.name,
+            name: name,
             persona: finalPersona,
             providerName: providerName,
             modelName: modelName,
@@ -73,7 +91,7 @@ struct SuggestionCard: View {
 
         let msg = ChatMessage(
             role: .assistant,
-            content: "'\(suggestion.name)' 에이전트가 생성되었습니다.",
+            content: "'\(name)' 에이전트가 생성되었습니다.",
             agentName: "마스터",
             messageType: .text
         )
@@ -90,7 +108,7 @@ struct SuggestionCard: View {
 
         let delegationMsg = ChatMessage(
             role: .assistant,
-            content: "'\(suggestion.name)' 에이전트로 방을 생성합니다: \(task)",
+            content: "'\(name)' 에이전트로 방을 생성합니다: \(task)",
             agentName: "마스터",
             messageType: .delegation
         )

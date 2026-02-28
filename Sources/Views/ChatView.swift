@@ -62,7 +62,7 @@ struct MessageBubble: View {
                             .padding(.top, 2)
                     } else {
                         Circle()
-                            .fill(Color.black.opacity(0.06))
+                            .fill(DesignTokens.Colors.avatarFallback)
                             .frame(width: 26, height: 26)
                             .overlay(
                                 Image(systemName: "person.fill")
@@ -78,11 +78,11 @@ struct MessageBubble: View {
                     if let name = message.agentName, message.role == .assistant {
                         HStack(spacing: 4) {
                             Text(name)
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.system(size: DesignTokens.FontSize.sm, weight: .semibold))
                                 .foregroundColor(.primary.opacity(0.7))
                             if let icon = typeIcon {
                                 Image(systemName: icon)
-                                    .font(.system(size: 8))
+                                    .font(.system(size: DesignTokens.FontSize.nano))
                                     .foregroundColor(typeColor)
                             }
                         }
@@ -104,7 +104,7 @@ struct MessageBubble: View {
                     }
 
                     Text(message.content)
-                        .font(.system(size: 13))
+                        .font(.system(size: DesignTokens.FontSize.bodyMd))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .background(bubbleBackground)
@@ -128,11 +128,11 @@ struct MessageBubble: View {
         HStack {
             Spacer()
             Text(message.content)
-                .font(.system(size: 10))
+                .font(.system(size: DesignTokens.FontSize.xs))
                 .foregroundColor(.secondary.opacity(0.6))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(Color.black.opacity(0.03))
+                .background(DesignTokens.Colors.systemMessageBackground)
                 .clipShape(Capsule())
             Spacer()
         }
@@ -151,7 +151,7 @@ struct MessageBubble: View {
         case .buildStatus:   return Color.orange.opacity(0.1)
         case .qaStatus:      return Color.teal.opacity(0.1)
         case .approvalRequest: return Color.yellow.opacity(0.1)
-        default:             return Color.black.opacity(0.05)
+        default:             return DesignTokens.Colors.messageBubbleBackground
         }
     }
 

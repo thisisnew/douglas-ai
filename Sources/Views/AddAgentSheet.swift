@@ -17,32 +17,15 @@ struct AddAgentSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 네비게이션 바 스타일 헤더
-            ZStack {
-                Text("새 에이전트")
-                    .font(.headline)
-                HStack {
-                    Button("취소") { dismiss() }
-                        .keyboardShortcut(.cancelAction)
-                    Spacer()
-                    Button("추가") { addAgent() }
-                        .keyboardShortcut(.defaultAction)
-                        .fontWeight(.semibold)
-                        .disabled(!isFormValid)
-                }
-                if !isFormValid && !name.isEmpty {
-                    HStack {
-                        Spacer()
-                        Text(formValidationHint)
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                }
+            SheetNavHeader(title: "새 에이전트") {
+                Button("취소") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            } trailing: {
+                Button("추가") { addAgent() }
+                    .keyboardShortcut(.defaultAction)
+                    .fontWeight(.semibold)
+                    .disabled(!isFormValid)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-
-            Divider()
 
             ScrollView {
                 VStack(spacing: 28) {
@@ -63,8 +46,8 @@ struct AddAgentSheet: View {
                             .textFieldStyle(.plain)
                             .font(.body)
                             .padding(10)
-                            .background(Color.primary.opacity(0.04))
-                            .cornerRadius(8)
+                            .background(DesignTokens.Colors.inputBackground)
+                            .continuousRadius(DesignTokens.Radius.lg)
 
                         if isDuplicateName {
                             inlineWarning("이미 같은 이름의 에이전트가 있습니다")
@@ -79,8 +62,8 @@ struct AddAgentSheet: View {
                             .scrollContentBackground(.hidden)
                             .frame(minHeight: 80)
                             .padding(8)
-                            .background(Color.primary.opacity(0.04))
-                            .cornerRadius(8)
+                            .background(DesignTokens.Colors.inputBackground)
+                            .continuousRadius(DesignTokens.Radius.lg)
                     }
 
                     // 모델 설정 (그룹 카드)
@@ -129,8 +112,8 @@ struct AddAgentSheet: View {
                                 }
                             }
                         }
-                        .background(Color.primary.opacity(0.04))
-                        .cornerRadius(8)
+                        .background(DesignTokens.Colors.inputBackground)
+                        .continuousRadius(DesignTokens.Radius.lg)
 
                         if let errorMessage {
                             inlineError(errorMessage)
@@ -150,7 +133,7 @@ struct AddAgentSheet: View {
                 .padding(.vertical, 16)
             }
         }
-        .frame(width: 440, height: min(600, (NSScreen.main?.frame.height ?? 800) * 0.75))
+        .frame(width: DesignTokens.WindowSize.agentSheet.width, height: min(DesignTokens.WindowSize.agentSheet.height, (NSScreen.main?.frame.height ?? 800) * 0.75))
         .onChange(of: selectedProvider) { _, newValue in
             selectedModel = ""
             availableModels = []
@@ -200,11 +183,11 @@ struct AddAgentSheet: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(isSelected ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.04))
+            .background(isSelected ? Color.accentColor.opacity(0.15) : DesignTokens.Colors.inputBackground)
             .foregroundColor(isSelected ? .accentColor : .primary)
-            .cornerRadius(8)
+            .continuousRadius(DesignTokens.Radius.lg)
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: DesignTokens.Radius.lg, style: .continuous)
                     .stroke(isSelected ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1)
             )
         }
@@ -235,7 +218,7 @@ struct AddAgentSheet: View {
                         .clipShape(Circle())
                 } else {
                     Circle()
-                        .fill(Color.primary.opacity(0.06))
+                        .fill(DesignTokens.Colors.avatarFallback)
                         .frame(width: 72, height: 72)
                         .overlay(
                             Image(systemName: "person.fill")
@@ -259,21 +242,10 @@ struct AddAgentSheet: View {
         .contentShape(Circle())
     }
 
-    private func sectionLabel(_ text: String) -> some View {
-        Text(text)
-            .font(.subheadline.weight(.medium))
-            .foregroundColor(.secondary)
-    }
+    // sectionLabel, settingsRow → SharedComponents 사용
 
-    private func settingsRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack {
-            Text(label)
-                .font(.body)
-            Spacer()
-            content()
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+    private func settingsRow<Content: View>(_ label: String, @ViewBuilder content: @escaping () -> Content) -> some View {
+        SettingsRow(label: label, content: content)
     }
 
     private func inlineWarning(_ text: String) -> some View {
