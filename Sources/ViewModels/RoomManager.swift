@@ -1286,8 +1286,9 @@ class RoomManager: ObservableObject {
             )
             appendMessage(progressMsg, to: roomID)
 
-            // 병렬로 모든 에이전트 실행
-            await withTaskGroup(of: Void.self) { group in
+            // 병렬로 모든 에이전트 실행, 하나라도 실패하면 워크플로우 중단
+            var stepFailed = false
+            await withTaskGroup(of: Bool.self) { group in
                 for agentID in room.assignedAgentIDs {
                     group.addTask { [self] in
                         await self.executeStep(
@@ -1301,6 +1302,25 @@ class RoomManager: ObservableObject {
                         )
                     }
                 }
+                for await success in group {
+                    if !success { stepFailed = true }
+                }
+            }
+
+            if stepFailed {
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.failed)
+                    rooms[i].completedAt = Date()
+                }
+                let failMsg = ChatMessage(
+                    role: .system,
+                    content: "단계 \(stepIndex + 1) 실행 실패로 워크플로우를 중단합니다.",
+                    messageType: .error
+                )
+                appendMessage(failMsg, to: roomID)
+                syncAgentStatuses()
+                scheduleSave()
+                return
             }
 
             // 충돌 감지 경고
@@ -1334,7 +1354,8 @@ class RoomManager: ObservableObject {
         scheduleSave()
     }
 
-    /// 개별 에이전트의 단계 실행
+    /// 개별 에이전트의 단계 실행. 성공 시 true, 실패 시 false.
+    @discardableResult
     private func executeStep(
         step: String,
         fullTask: String,
@@ -1343,9 +1364,9 @@ class RoomManager: ObservableObject {
         stepIndex: Int,
         totalSteps: Int,
         fileWriteTracker: FileWriteTracker? = nil
-    ) async {
+    ) async -> Bool {
         guard let agent = agentStore?.agents.first(where: { $0.id == agentID }),
-              let provider = providerManager?.provider(named: agent.providerName) else { return }
+              let provider = providerManager?.provider(named: agent.providerName) else { return false }
 
         let room = rooms.first(where: { $0.id == roomID })
 
@@ -1405,6 +1426,7 @@ class RoomManager: ObservableObject {
 
             let reply = ChatMessage(role: .assistant, content: response, agentName: agent.name)
             appendMessage(reply, to: roomID)
+            return true
         } catch {
             if speakingAgentIDByRoom[roomID] == agentID {
                 speakingAgentIDByRoom.removeValue(forKey: roomID)
@@ -1416,6 +1438,7 @@ class RoomManager: ObservableObject {
                 messageType: .error
             )
             appendMessage(errorMsg, to: roomID)
+            return false
         }
     }
 
