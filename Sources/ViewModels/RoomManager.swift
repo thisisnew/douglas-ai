@@ -601,8 +601,9 @@ class RoomManager: ObservableObject {
         guard let currentRoom = rooms.first(where: { $0.id == roomID }) else { return }
         let agentCount = currentRoom.assignedAgentIDs.count
 
-        // ── Phase 1: 토론 (2명 이상) ──
-        if agentCount > 1 {
+        // ── Phase 1: 토론 (전문가 2명 이상일 때만) ──
+        let specialistCount = executingAgentIDs(in: roomID).count
+        if specialistCount >= 2 {
             let startMsg = ChatMessage(
                 role: .system,
                 content: "토론을 시작합니다. 참여자: \(agentCount)명 | 합의 시 자동 종료"
@@ -616,7 +617,7 @@ class RoomManager: ObservableObject {
             // 토론 브리핑 생성 (컨텍스트 압축)
             await generateBriefing(roomID: roomID, topic: task)
             guard !Task.isCancelled else { return }
-        } else {
+        } else if agentCount <= 1 {
             // 단일 에이전트 (Triage 없이 직접 지정된 경우): 기본 계획으로 직접 실행
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].plan = RoomPlan(summary: task, estimatedSeconds: 300, steps: [RoomStep(text: task)])
@@ -2130,16 +2131,16 @@ class RoomManager: ObservableObject {
         guard let agent = agentStore?.agents.first(where: { $0.id == agentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return false }
 
-        // 이미지 포함 히스토리 (ConversationMessage)
+        // 토론 히스토리 (이미지는 존재 여부만 알림 — 실제 작업은 실행 단계에서)
         let roomRef = rooms.first(where: { $0.id == roomID })
         var history: [ConversationMessage] = []
-        // 첫 사용자 메시지(이미지 첨부 포함)를 항상 포함
-        if let firstUserMsg = roomRef?.messages.first(where: { $0.role == .user && $0.messageType == .text }),
-           firstUserMsg.attachments != nil && !(firstUserMsg.attachments?.isEmpty ?? true) {
-            history.append(ConversationMessage(
-                role: "user", content: firstUserMsg.content,
-                toolCalls: nil, toolCallID: nil, attachments: firstUserMsg.attachments
-            ))
+        // 첫 사용자 메시지: 이미지 첨부 시 텍스트로 존재 알림 (파일 전달 안 함)
+        if let firstUserMsg = roomRef?.messages.first(where: { $0.role == .user && $0.messageType == .text }) {
+            var content = firstUserMsg.content
+            if let attachments = firstUserMsg.attachments, !attachments.isEmpty {
+                content += "\n\n[첨부 이미지 \(attachments.count)장 — 실행 단계에서 확인 가능]"
+            }
+            history.append(ConversationMessage.user(content))
         }
         // 토론 히스토리 추가
         let discussionMsgs = buildDiscussionHistory(roomID: roomID, currentAgentName: agent.name)
