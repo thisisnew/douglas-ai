@@ -323,14 +323,14 @@ class RoomManager: ObservableObject {
         return agent.roleTemplateID.map { analystIDs.contains($0) } ?? false
     }
 
-    /// Triage 단계: 분석 → 사용자 확인 → 전문가 초대
+    /// Triage 단계: 분석 → 전문가 초대
     private func executeTriagePhase(roomID: UUID, task: String) async {
         guard let room = rooms.first(where: { $0.id == roomID }),
               let analystID = room.assignedAgentIDs.first,
               let analyst = agentStore?.agents.first(where: { $0.id == analystID }),
               let provider = providerManager?.provider(named: analyst.providerName) else { return }
 
-        // ── Step 1: 분석 (도구 없이 분석만) ──
+        // ── Step 1: 분석 + 요약 (도구 없이, 이미지 포함) ──
         let analyzeMsg = ChatMessage(
             role: .system,
             content: "분석가가 요청을 분석하는 중..."
@@ -338,9 +338,7 @@ class RoomManager: ObservableObject {
         appendMessage(analyzeMsg, to: roomID)
 
         let analyzePrompt = """
-        \(analyst.persona)
-
-        [분석 단계] 사용자의 요청을 분석하세요. 아직 도구를 사용하지 마세요.
+        사용자의 요청을 분석하세요.
 
         다음을 간결하게 정리하세요:
         1. 요청의 핵심 요약 (1~2문장)
@@ -348,22 +346,29 @@ class RoomManager: ObservableObject {
         3. 예상 작업 범위
 
         규칙:
-        - 도구를 사용하지 마세요 (분석만)
-        - 간결하게 작성하세요
+        - 간결하게 분석만 하세요 (3~5줄 이내)
+        - 작업을 직접 수행하지 마세요
         """
 
         let history = buildRoomHistory(roomID: roomID)
 
         do {
-            // smartSend: 이미지 첨부가 있으면 자동으로 Vision 경로 사용
-            let analysisResponse = try await ToolExecutor.smartSend(
-                provider: provider,
-                agent: analyst,
+            // sendMessageWithTools(tools: []) → 이미지 전달 O, 도구 사용 X
+            let analysisResponse = try await provider.sendMessageWithTools(
+                model: analyst.modelName,
                 systemPrompt: analyzePrompt,
-                conversationMessages: history
+                messages: history,
+                tools: []
             )
 
-            let analysisReply = ChatMessage(role: .assistant, content: analysisResponse, agentName: analyst.name)
+            let responseText: String
+            switch analysisResponse {
+            case .text(let t): responseText = t
+            case .toolCalls: responseText = "분석 완료"
+            case .mixed(let t, _): responseText = t
+            }
+
+            let analysisReply = ChatMessage(role: .assistant, content: responseText, agentName: analyst.name)
             appendMessage(analysisReply, to: roomID)
         } catch {
             let errorMsg = ChatMessage(
@@ -382,43 +387,7 @@ class RoomManager: ObservableObject {
             return
         }
 
-        // ── Step 2: 사용자 확인 ──
-        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].transitionTo(.awaitingApproval)
-        }
-        let confirmMsg = ChatMessage(
-            role: .system,
-            content: "분석 결과를 확인해주세요. 이대로 진행하시겠습니까?",
-            messageType: .approvalRequest
-        )
-        appendMessage(confirmMsg, to: roomID)
-        scheduleSave()
-
-        let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            approvalContinuations[roomID] = continuation
-        }
-        approvalContinuations.removeValue(forKey: roomID)
-
-        guard !Task.isCancelled else { return }
-
-        if !approved {
-            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].transitionTo(.failed)
-                rooms[i].completedAt = Date()
-            }
-            let rejectMsg = ChatMessage(role: .system, content: "사용자가 분석을 거부하여 작업을 종료합니다.")
-            appendMessage(rejectMsg, to: roomID)
-            syncAgentStatuses()
-            scheduleSave()
-            return
-        }
-
-        // 승인 → planning 복귀
-        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].transitionTo(.planning)
-        }
-
-        // ── Step 3: 전문가 초대 (도구 사용) ──
+        // ── Step 2: 전문가 초대 (도구 사용) ──
         let inviteMsg = ChatMessage(
             role: .system,
             content: "분석가가 전문가를 초대하는 중..."
