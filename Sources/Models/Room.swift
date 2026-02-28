@@ -51,14 +51,16 @@ enum RoomCreator: Codable, Equatable {
 
 // MARK: - 작업 단계
 
-/// 개별 실행 단계 (승인 게이트 지원)
+/// 개별 실행 단계 (승인 게이트 + 에이전트 배정 지원)
 struct RoomStep: Codable, Equatable {
     let text: String
     let requiresApproval: Bool
+    var assignedAgentID: UUID?
 
-    init(text: String, requiresApproval: Bool = false) {
+    init(text: String, requiresApproval: Bool = false, assignedAgentID: UUID? = nil) {
         self.text = text
         self.requiresApproval = requiresApproval
+        self.assignedAgentID = assignedAgentID
     }
 
     /// 커스텀 디코딩: plain String 또는 {"text":..., "requires_approval":...} 둘 다 지원
@@ -68,29 +70,33 @@ struct RoomStep: Codable, Equatable {
            let str = try? container.decode(String.self) {
             self.text = str
             self.requiresApproval = false
+            self.assignedAgentID = nil
             return
         }
         // object 형태
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.text = try container.decode(String.self, forKey: .text)
         self.requiresApproval = try container.decodeIfPresent(Bool.self, forKey: .requiresApproval) ?? false
+        self.assignedAgentID = try container.decodeIfPresent(UUID.self, forKey: .assignedAgentID)
     }
 
     func encode(to encoder: Encoder) throws {
-        // 승인 불필요면 plain String으로 인코딩 (역호환)
-        if !requiresApproval {
+        // 승인 불필요 + 배정 없으면 plain String으로 인코딩 (역호환)
+        if !requiresApproval && assignedAgentID == nil {
             var container = encoder.singleValueContainer()
             try container.encode(text)
         } else {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(text, forKey: .text)
             try container.encode(requiresApproval, forKey: .requiresApproval)
+            try container.encodeIfPresent(assignedAgentID, forKey: .assignedAgentID)
         }
     }
 
     private enum CodingKeys: String, CodingKey {
         case text
         case requiresApproval = "requires_approval"
+        case assignedAgentID = "assigned_agent_id"
     }
 }
 

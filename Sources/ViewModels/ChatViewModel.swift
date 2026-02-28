@@ -281,19 +281,14 @@ class ChatViewModel: ObservableObject {
         // Jira URL이 포함된 경우 미리 조회하여 task에 포함
         let task = await enrichTaskWithJira(task)
 
-        let resolvedAgents = agentNames.compactMap { name in
+        var resolvedAgents = agentNames.compactMap { name in
             resolveAgent(name: name, in: agentStore)
         }
 
+        // 분석가 자동 생성: 분석가가 없으면 빌트인 템플릿으로 생성
         if resolvedAgents.isEmpty {
-            let errorMsg = ChatMessage(
-                role: .assistant,
-                content: "위임할 에이전트를 찾을 수 없습니다: \(agentNames.joined(separator: ", "))",
-                agentName: "마스터",
-                messageType: .error
-            )
-            appendMessage(errorMsg, for: masterAgent.id)
-            return
+            let analyst = ensureAnalystExists(masterAgent: masterAgent, agentStore: agentStore)
+            resolvedAgents = [analyst]
         }
 
         let agentIDs = resolvedAgents.map { $0.id }
@@ -767,6 +762,31 @@ class ChatViewModel: ObservableObject {
             return String(text[start...end])
         }
         return text
+    }
+
+    // MARK: - 분석가 자동 생성
+
+    /// 분석가가 없으면 빌트인 템플릿으로 자동 생성
+    private func ensureAnalystExists(masterAgent: Agent, agentStore: AgentStore) -> Agent {
+        // 이미 존재하면 반환
+        let analystIDs: Set<String> = ["requirements_analyst", "jira_analyst"]
+        if let existing = agentStore.subAgents.first(where: {
+            $0.roleTemplateID.map { analystIDs.contains($0) } ?? false
+        }) {
+            return existing
+        }
+
+        // 빌트인 템플릿으로 생성
+        let template = AgentRoleTemplateRegistry.template(for: "requirements_analyst")!
+        let analyst = Agent(
+            name: template.name,
+            persona: template.resolvedPersona(for: masterAgent.providerName),
+            providerName: masterAgent.providerName,
+            modelName: masterAgent.modelName,
+            roleTemplateID: "requirements_analyst"
+        )
+        agentStore.addAgent(analyst)
+        return analyst
     }
 
     // MARK: - 에이전트 이름 해석 (퍼지 매칭)

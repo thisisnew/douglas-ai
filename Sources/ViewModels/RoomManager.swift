@@ -314,36 +314,102 @@ class RoomManager: ObservableObject {
     // MARK: - 방 워크플로우 (계획 → 실행)
 
     /// 분석가 방일 때 기존 서브 에이전트를 자동 초대 (토론을 위해)
-    private func autoInviteForAnalyst(roomID: UUID) {
+    /// 방의 첫 번째 에이전트가 분석가 계열인지 확인
+    private func isAnalystLed(roomID: UUID) -> Bool {
         guard let room = rooms.first(where: { $0.id == roomID }),
               let firstAgentID = room.assignedAgentIDs.first,
-              let firstAgent = agentStore?.agents.first(where: { $0.id == firstAgentID }) else { return }
-
-        // 분석가 계열인지 확인
+              let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }) else { return false }
         let analystIDs: Set<String> = ["requirements_analyst", "jira_analyst"]
-        guard let templateID = firstAgent.roleTemplateID,
-              analystIDs.contains(templateID) else { return }
+        return agent.roleTemplateID.map { analystIDs.contains($0) } ?? false
+    }
 
-        // 분석가가 아닌 모든 기존 서브 에이전트를 초대
-        guard let subAgents = agentStore?.subAgents else { return }
-        var invitedNames: [String] = []
-        for agent in subAgents {
-            // 자기 자신 스킵, 이미 방에 있는 에이전트 스킵
-            guard agent.id != firstAgentID,
-                  !room.assignedAgentIDs.contains(agent.id) else { continue }
-            // 분석가 계열은 제외
-            if let tid = agent.roleTemplateID, analystIDs.contains(tid) { continue }
-            addAgent(agent.id, to: roomID)
-            invitedNames.append(agent.name)
+    /// Triage 단계: 분석가가 요청을 분석하고 필요한 전문가를 초대
+    private func executeTriagePhase(roomID: UUID, task: String) async {
+        guard let room = rooms.first(where: { $0.id == roomID }),
+              let analystID = room.assignedAgentIDs.first,
+              let analyst = agentStore?.agents.first(where: { $0.id == analystID }),
+              let provider = providerManager?.provider(named: analyst.providerName) else { return }
+
+        let triageMsg = ChatMessage(
+            role: .system,
+            content: "분석가가 요청을 분석하고 팀을 구성하는 중..."
+        )
+        appendMessage(triageMsg, to: roomID)
+
+        let triageSystemPrompt = """
+        \(analyst.persona)
+
+        [Triage 단계] 사용자의 요청을 분석하고 필요한 전문가를 초대하세요.
+
+        작업 흐름:
+        1. 요청의 핵심을 파악하고 간결하게 정리
+        2. list_agents로 사용 가능한 에이전트 확인
+        3. 필요한 에이전트를 invite_agent로 초대 (반드시 1명 이상)
+        4. 존재하지 않는 전문가가 필요하면 suggest_agent_creation으로 제안
+
+        규칙:
+        - 반드시 1명 이상의 전문가를 초대하세요
+        - 간결하게 분석 결과만 보고하세요
+        - 아직 작업을 시작하지 마세요 (분석과 팀 구성만)
+        """
+
+        let history = buildRoomHistory(roomID: roomID)
+        let context = makeToolContext(roomID: roomID, currentAgentID: analystID)
+
+        do {
+            let response = try await ToolExecutor.smartSend(
+                provider: provider,
+                agent: analyst,
+                systemPrompt: triageSystemPrompt,
+                conversationMessages: history,
+                context: context,
+                onToolActivity: { [weak self] activity in
+                    Task { @MainActor in
+                        let toolMsg = ChatMessage(
+                            role: .assistant, content: activity,
+                            agentName: analyst.name, messageType: .toolActivity
+                        )
+                        self?.appendMessage(toolMsg, to: roomID)
+                    }
+                }
+            )
+
+            let reply = ChatMessage(role: .assistant, content: response, agentName: analyst.name)
+            appendMessage(reply, to: roomID)
+        } catch {
+            let errorMsg = ChatMessage(
+                role: .assistant,
+                content: "Triage 오류: \(error.localizedDescription)",
+                agentName: analyst.name,
+                messageType: .error
+            )
+            appendMessage(errorMsg, to: roomID)
+            // Triage 실패 시 워크플로우 중단
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.failed)
+                rooms[i].completedAt = Date()
+            }
+            syncAgentStatuses()
+            scheduleSave()
         }
 
-        if !invitedNames.isEmpty {
-            let names = invitedNames.joined(separator: ", ")
-            let msg = ChatMessage(
+        // suggest_agent_creation 후 사용자 취소 감지
+        if let currentRoom = rooms.first(where: { $0.id == roomID }),
+           currentRoom.assignedAgentIDs.count <= 1,
+           currentRoom.status == .planning {
+            // Triage 완료 후에도 전문가가 초대되지 않았으면 실패 처리
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.failed)
+                rooms[i].completedAt = Date()
+            }
+            let failMsg = ChatMessage(
                 role: .system,
-                content: "관련 에이전트가 토론에 참여합니다: \(names)"
+                content: "전문가가 초대되지 않아 작업을 종료합니다.",
+                messageType: .error
             )
-            appendMessage(msg, to: roomID)
+            appendMessage(failMsg, to: roomID)
+            syncAgentStatuses()
+            scheduleSave()
         }
     }
 
@@ -357,19 +423,25 @@ class RoomManager: ObservableObject {
         await executePhaseWorkflow(roomID: roomID, task: task)
     }
 
-    /// 레거시 워크플로우: 자동 초대 → 토론 → 승인 → 계획 → 실행
+    /// 레거시 워크플로우: Triage → 토론 → 승인 → 계획 → 실행
     private func legacyStartRoomWorkflow(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
         rooms[idx].status = .planning
         syncAgentStatuses()
 
-        // ── Phase 0: 분석가 방이면 관련 에이전트 자동 초대 ──
-        autoInviteForAnalyst(roomID: roomID)
+        // ── Phase 0: Triage (분석가 방이면 분석 + 팀 구성) ──
+        if isAnalystLed(roomID: roomID) {
+            await executeTriagePhase(roomID: roomID, task: task)
+            guard !Task.isCancelled,
+                  rooms.first(where: { $0.id == roomID })?.status == .planning else { return }
+        }
 
-        let agentCount = rooms[idx].assignedAgentIDs.count
+        // Triage 후 에이전트 수 재확인
+        guard let currentRoom = rooms.first(where: { $0.id == roomID }) else { return }
+        let agentCount = currentRoom.assignedAgentIDs.count
 
-        // ── Phase 1: 토론 (2명 이상일 때만) ──
+        // ── Phase 1: 토론 (2명 이상) ──
         if agentCount > 1 {
             let startMsg = ChatMessage(
                 role: .system,
@@ -421,11 +493,8 @@ class RoomManager: ObservableObject {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].transitionTo(.planning)
             }
-        }
-
-        // ── Phase 2: 계획 수립 (단일 에이전트는 건너뜀) ──
-        if agentCount == 1 {
-            // 단일 에이전트: 계획 없이 직접 실행
+        } else {
+            // 단일 에이전트 (Triage 없이 직접 지정된 경우): 기본 계획으로 직접 실행
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].plan = RoomPlan(summary: task, estimatedSeconds: 300, steps: [RoomStep(text: task)])
                 rooms[i].timerDurationSeconds = 300
@@ -437,6 +506,7 @@ class RoomManager: ObservableObject {
             return
         }
 
+        // ── Phase 2: 계획 수립 ──
         let planningMsg = ChatMessage(
             role: .system,
             content: "토론 결과를 바탕으로 계획을 수립하는 중..."
@@ -461,7 +531,44 @@ class RoomManager: ObservableObject {
             return
         }
 
-        // 계획 성공 → 타이머 시작
+        // ── Phase 2.5: 전문가 2명+ 시 계획 승인 ──
+        let specialistIDs = executingAgentIDs(in: roomID)
+        if specialistIDs.count >= 2 {
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].plan = plan
+                rooms[i].transitionTo(.awaitingApproval)
+            }
+
+            let stepsDesc = plan.steps.enumerated().map { "\($0.offset + 1). \($0.element.text)" }.joined(separator: "\n")
+            let planApprovalMsg = ChatMessage(
+                role: .system,
+                content: "실행 계획:\n\n\(stepsDesc)\n\n이 순서대로 진행하시겠습니까?",
+                messageType: .approvalRequest
+            )
+            appendMessage(planApprovalMsg, to: roomID)
+            scheduleSave()
+
+            let planApproved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                approvalContinuations[roomID] = continuation
+            }
+            approvalContinuations.removeValue(forKey: roomID)
+
+            guard !Task.isCancelled else { return }
+
+            if !planApproved {
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.failed)
+                    rooms[i].completedAt = Date()
+                }
+                let rejectMsg = ChatMessage(role: .system, content: "사용자가 실행 계획을 거부했습니다.")
+                appendMessage(rejectMsg, to: roomID)
+                syncAgentStatuses()
+                scheduleSave()
+                return
+            }
+        }
+
+        // 계획 확정 → 타이머 시작
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
             rooms[i].plan = plan
             rooms[i].timerDurationSeconds = plan.estimatedSeconds
@@ -472,6 +579,16 @@ class RoomManager: ObservableObject {
 
         // ── Phase 3: 단계별 실행 ──
         await executeRoomWork(roomID: roomID, task: task)
+    }
+
+    /// 실행 대상 에이전트 (분석가 제외)
+    private func executingAgentIDs(in roomID: UUID) -> [UUID] {
+        guard let room = rooms.first(where: { $0.id == roomID }) else { return [] }
+        let analystTemplateIDs: Set<String> = ["requirements_analyst", "jira_analyst"]
+        return room.assignedAgentIDs.filter { id in
+            let agent = agentStore?.agents.first(where: { $0.id == id })
+            return !(agent?.roleTemplateID.map { analystTemplateIDs.contains($0) } ?? false)
+        }
     }
 
     // MARK: - Phase 워크플로우 (새 7단계)
@@ -871,8 +988,12 @@ class RoomManager: ObservableObject {
     private func executeLegacyPlanPhase(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
-        // 분석가 방이면 관련 에이전트 자동 초대
-        autoInviteForAnalyst(roomID: roomID)
+        // 분석가 방이면 Triage 단계 실행
+        if isAnalystLed(roomID: roomID) {
+            await executeTriagePhase(roomID: roomID, task: task)
+            guard !Task.isCancelled,
+                  rooms.first(where: { $0.id == roomID })?.status == .planning else { return }
+        }
 
         let agentCount = rooms[idx].assignedAgentIDs.count
 
@@ -1098,19 +1219,31 @@ class RoomManager: ObservableObject {
             playbookContext = ""
         }
 
+        // 방 내 전문가 목록 (분석가 제외)
+        let specialistNames: String
+        let analystTemplateIDs: Set<String> = ["requirements_analyst", "jira_analyst"]
+        let specialists = room.assignedAgentIDs.compactMap { id -> String? in
+            guard let agent = agentStore?.agents.first(where: { $0.id == id }) else { return nil }
+            if let tid = agent.roleTemplateID, analystTemplateIDs.contains(tid) { return nil }
+            return agent.name
+        }
+        specialistNames = specialists.isEmpty ? "(없음)" : specialists.joined(separator: ", ")
+
         let planSystemPrompt = """
         \(agent.persona)
 
         현재 작업방에 배정되었습니다. 팀원들과의 토론이 완료되었습니다.
         토론 내용을 바탕으로 반드시 아래 형식의 JSON으로 실행 계획을 제출하세요:
 
-        {"plan": {"summary": "전체 계획 요약", "estimated_minutes": 5, "steps": ["1단계: ...", {"text": "위험한 단계", "requires_approval": true}, "3단계: ..."]}}
+        {"plan": {"summary": "전체 계획 요약", "estimated_minutes": 5, "steps": [{"text": "단계 설명", "agent": "담당 에이전트 이름"}, ...]}}
+
+        방 내 전문가: \(specialistNames)
 
         규칙:
         - 토론에서 합의된 방향을 반영하세요
         - estimated_minutes는 현실적으로 추정하세요 (1~30분)
-        - steps는 구체적이고 실행 가능한 단계로 나누세요
-        - 배포, 데이터 삭제 등 위험한 단계는 {"text": "...", "requires_approval": true} 형식으로 표기하세요
+        - 각 step에 "agent" 필드로 담당 전문가를 지정하세요 (위 목록에서 정확한 이름 사용)
+        - 배포, 데이터 삭제 등 위험한 단계는 "requires_approval": true 추가
         - 프로젝트 플레이북이 있다면 브랜치 전략, 테스트 정책 등을 반영하세요
         - 반드시 유효한 JSON으로만 응답하세요
         """
@@ -1169,14 +1302,33 @@ class RoomManager: ObservableObject {
             return nil
         }
 
-        // steps: plain String과 {"text":"...", "requires_approval": true} 혼합 지원
+        // 에이전트 이름 → ID 매핑 (퍼지 매칭)
+        let agentNameToID: [String: UUID] = {
+            guard let agents = agentStore?.subAgents else { return [:] }
+            var map: [String: UUID] = [:]
+            for agent in agents {
+                map[agent.name.lowercased()] = agent.id
+            }
+            return map
+        }()
+
+        func resolveAgentID(name: String?) -> UUID? {
+            guard let name = name?.lowercased() else { return nil }
+            if let id = agentNameToID[name] { return id }
+            // 부분 매칭
+            return agentNameToID.first(where: { $0.key.contains(name) || name.contains($0.key) })?.value
+        }
+
+        // steps: plain String과 {"text":"...", "agent":"...", "requires_approval": true} 혼합 지원
         var steps: [RoomStep] = []
         for raw in rawSteps {
             if let str = raw as? String {
                 steps.append(RoomStep(text: str))
             } else if let dict = raw as? [String: Any], let text = dict["text"] as? String {
                 let requiresApproval = dict["requires_approval"] as? Bool ?? false
-                steps.append(RoomStep(text: text, requiresApproval: requiresApproval))
+                let agentName = dict["agent"] as? String
+                let agentID = resolveAgentID(name: agentName)
+                steps.append(RoomStep(text: text, requiresApproval: requiresApproval, assignedAgentID: agentID))
             }
         }
         guard !steps.isEmpty else { return nil }
@@ -1214,6 +1366,8 @@ class RoomManager: ObservableObject {
 
         // 병렬 실행 시 파일 충돌 추적용
         let tracker = FileWriteTracker()
+        // 이전 단계 응답 추적 (반복 감지용)
+        var previousStepResponse: String?
 
         for (stepIndex, step) in plan.steps.enumerated() {
             // 취소 또는 방 삭제 감지
@@ -1280,16 +1434,28 @@ class RoomManager: ObservableObject {
             // 단계별 충돌 추적 초기화
             await tracker.reset()
 
-            let progressMsg = ChatMessage(
-                role: .system,
-                content: "[\(stepIndex + 1)/\(plan.steps.count)] \(step.text)"
-            )
-            appendMessage(progressMsg, to: roomID)
+            // 진행률 메시지 (단일 단계면 숨김)
+            if plan.steps.count > 1 {
+                let progressMsg = ChatMessage(
+                    role: .system,
+                    content: "[\(stepIndex + 1)/\(plan.steps.count)] \(step.text)"
+                )
+                appendMessage(progressMsg, to: roomID)
+            }
 
-            // 병렬로 모든 에이전트 실행, 하나라도 실패하면 워크플로우 중단
+            // 실행 대상: 분석가 제외, 전문가만
+            let targetAgentIDs: [UUID]
+            if let assignedID = step.assignedAgentID {
+                targetAgentIDs = [assignedID]
+            } else {
+                let specialists = executingAgentIDs(in: roomID)
+                targetAgentIDs = specialists.isEmpty ? room.assignedAgentIDs : specialists
+            }
+
+            // 에이전트 실행, 하나라도 실패하면 워크플로우 중단
             var stepFailed = false
             await withTaskGroup(of: Bool.self) { group in
-                for agentID in room.assignedAgentIDs {
+                for agentID in targetAgentIDs {
                     group.addTask { [self] in
                         await self.executeStep(
                             step: step.text,
@@ -1333,6 +1499,32 @@ class RoomManager: ObservableObject {
                     messageType: .error
                 )
                 appendMessage(warnMsg, to: roomID)
+            }
+
+            // 연속 응답 유사도 감지: 에이전트가 같은 응답을 반복하면 중단
+            if let currentRoom = rooms.first(where: { $0.id == roomID }) {
+                let latestResponse = currentRoom.messages
+                    .last(where: { $0.role == .assistant && $0.messageType == .text })?
+                    .content ?? ""
+                if let prev = previousStepResponse, !prev.isEmpty, !latestResponse.isEmpty {
+                    let similarity = Self.wordOverlapSimilarity(prev, latestResponse)
+                    if similarity > 0.6 {
+                        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                            rooms[i].transitionTo(.failed)
+                            rooms[i].completedAt = Date()
+                        }
+                        let stuckMsg = ChatMessage(
+                            role: .system,
+                            content: "에이전트가 동일한 응답을 반복하여 워크플로우를 중단합니다.",
+                            messageType: .error
+                        )
+                        appendMessage(stuckMsg, to: roomID)
+                        syncAgentStatuses()
+                        scheduleSave()
+                        return
+                    }
+                }
+                previousStepResponse = latestResponse
             }
 
             // 빌드/QA 루프는 에이전트 주도로 실행 (계획 단계에서 에이전트가 직접 shell_exec으로 처리)
@@ -1991,6 +2183,18 @@ class RoomManager: ObservableObject {
                 }
                 return (role: role, content: content)
             }
+    }
+
+    // MARK: - 유사도 계산
+
+    /// 두 텍스트의 단어 집합 Jaccard 유사도 (0.0~1.0)
+    static func wordOverlapSimilarity(_ a: String, _ b: String) -> Double {
+        let wordsA = Set(a.lowercased().split(whereSeparator: { $0.isWhitespace || $0.isPunctuation }).map(String.init))
+        let wordsB = Set(b.lowercased().split(whereSeparator: { $0.isWhitespace || $0.isPunctuation }).map(String.init))
+        guard !wordsA.isEmpty, !wordsB.isEmpty else { return 0.0 }
+        let intersection = wordsA.intersection(wordsB).count
+        let union = wordsA.union(wordsB).count
+        return Double(intersection) / Double(union)
     }
 
     // MARK: - 작업일지 생성

@@ -827,15 +827,36 @@ executeWithTools() 루프 (최대 10회):
 | `RoomManager.swift` | `sendUserMessage`, `executeStep` → `ToolExecutor.smartSend()` + `ToolExecutionContext` 전달 (invite_agent/list_agents 지원) |
 
 **방 워크플로우** (`startRoomWorkflow`): `room.intent` 유무에 따라 분기.
-- **레거시** (`intent == nil`): 자동 초대 → 토론 → 승인 → 계획 → 실행 (기존 동작 유지)
+
+**공통 프로세스 (분석가 주도 위임)**:
+```
+마스터 → 항상 분석가에게 delegate → 방 생성 (분석가 1명)
+  → Triage: 분석가가 분석 + invite_agent로 전문가 초대
+  → 토론 (필수): 분석가가 전문가에게 요구사항 전달
+  → 계획 수립: 실행 순서 결정 (전문가 2명+ 시 사용자 확인)
+  → 실행: 전문가만 순차 실행 (분석가 제외)
+  → 리뷰: 작업일지 생성
+```
+
+- 마스터 라우터: 모든 요청을 분석가(`requirements_analyst`)에게 위임 (사용자가 에이전트를 명시 지정한 경우만 예외)
+- 분석가 자동 생성: 분석가가 없으면 빌트인 템플릿으로 자동 생성 (`ensureAnalystExists`)
+- **Triage 단계** (`executeTriagePhase`): 분석가가 `list_agents` + `invite_agent`로 팀 구성. 전문가 미초대 시 워크플로우 종료.
+- **실행 시 분석가 제외** (`executingAgentIDs`): `roleTemplateID`가 분석가 계열이면 실행 대상에서 제외
+- **단계별 에이전트 배정** (`RoomStep.assignedAgentID`): 계획 수립 시 각 단계에 담당 전문가 지정
+- **실행 순서 승인**: 전문가 2명+ 시 계획을 사용자에게 제시하여 승인 후 실행
+
+- **레거시** (`intent == nil`): Triage → 토론 → 승인 → 계획 → (순서 확인) → 실행
 - **새 워크플로우** (`intent != nil`): `executePhaseWorkflow` → intent.requiredPhases 순회 디스패치
   - Intake → Clarify(ask_user) → Assemble(AgentMatcher) → Plan(플레이북 주입) → Execute → Review
-- **자동 초대** (`autoInviteForAnalyst`): 레거시 방 + Assemble 단계에서 사용
 - **토론 후 승인**: 토론 완료 시 브리핑 생성 → `.awaitingApproval` → 사용자 승인 후 계획 수립
 - **CLI WebFetch 차단**: `ClaudeCodeProvider.sendMessage()`에서 `--disallowed-tools WebFetch` 적용 (바이브코딩 유지, URL 직접 접근만 차단)
 - **SuggestionCard 편집**: 에이전트 생성 전 이름/설명을 사용자가 편집 가능 (마스터가 초안 제공)
 
 **승인 게이트** (`executeRoomWork`): `step.requiresApproval == true`이면 `.awaitingApproval` 상태 전환 + `CheckedContinuation`으로 비동기 일시 정지. `approveStep(roomID:)` / `rejectStep(roomID:)` 호출 시 continuation resume. 거부 시 `.failed` 전환.
+
+**실패 자동 감지** (`executeRoomWork`):
+- 단계 실행 실패(에러): `executeStep()` 반환값 `false` → 즉시 `.failed` 전환 + 중단.
+- 반복 응답 감지: 연속 단계에서 Jaccard 단어 유사도 > 60% → 에이전트가 stuck 상태로 판단 → `.failed` 전환 + 중단. (`wordOverlapSimilarity()`)
 
 **작업일지**: `executeRoomWork()` 완료 시 `generateWorkLog()` → 상태 전환 순서. `completeRoom()` (수동 완료)에서도 작업일지 생성.
 
@@ -888,6 +909,18 @@ executeWithTools() 루프 (최대 10회):
 | D-4 | **방 목록 "확인 필요" 플래그**: `Room.needsUserAttention` (승인 대기 or pending suggestion). 방 목록에 주황 캡슐 뱃지 표시. | ✅ |
 | D-5 | **하드코딩 빌드/QA 루프 제거**: `executeRoomWork()`에서 빌드/QA 자동 호출 블록 제거. 에이전트가 계획 단계에서 직접 shell_exec으로 처리. | ✅ |
 | D-6 | **QA 템플릿 세분화**: `qa_engineer` 1개 → `qa_test_automation`, `qa_exploratory`, `qa_security`, `qa_code_review` 4종. 레거시 별칭 유지. | ✅ |
+
+### Phase F — 분석가 주도 위임 (공통 프로세스) ✅ 완료
+
+| 항목 | 내용 | 상태 |
+|------|------|------|
+| F-1 | **마스터 라우터 단순화**: 모든 요청 → 분석가 delegate (사용자가 에이전트 명시 지정 시만 예외). `.chain` 제거. | ✅ |
+| F-2 | **분석가 자동 생성**: `ensureAnalystExists()` — 분석가 없으면 빌트인 `requirements_analyst` 템플릿으로 자동 생성. | ✅ |
+| F-3 | **Triage 단계**: `executeTriagePhase()` — 분석가가 `list_agents` + `invite_agent`로 팀 구성. `autoInviteForAnalyst` 제거. | ✅ |
+| F-4 | **실행 시 분석가 제외**: `executingAgentIDs()` — 분석가 계열을 실행 대상에서 제외. 토론까지만 참여. | ✅ |
+| F-5 | **단계별 에이전트 배정**: `RoomStep.assignedAgentID` 추가. 계획 수립 시 각 단계에 담당 전문가 지정. | ✅ |
+| F-6 | **실행 순서 승인**: 전문가 2명+ 시 계획을 사용자에게 제시하여 승인 후 실행. | ✅ |
+| F-7 | **전문가 미초대 시 워크플로우 종료**: Triage 후 전문가 0명이면 `.failed` 전환. | ✅ |
 
 ### Phase E — Intent 기반 7단계 워크플로우 ✅ 완료
 
