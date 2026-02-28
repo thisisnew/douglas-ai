@@ -9,7 +9,10 @@ enum AgentStatus: String, Codable {
 
 struct Agent: Identifiable, Codable, Hashable {
     static func == (lhs: Agent, rhs: Agent) -> Bool {
-        lhs.id == rhs.id
+        lhs.id == rhs.id &&
+        lhs.name == rhs.name &&
+        lhs.hasImage == rhs.hasImage &&
+        lhs.status == rhs.status
     }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
     let id: UUID
@@ -25,6 +28,9 @@ struct Agent: Identifiable, Codable, Hashable {
     // 역할 템플릿 (nil = 사용자 정의)
     var roleTemplateID: String?
 
+    // 참조 프로젝트 디렉토리 (여러 건)
+    var referenceProjectPaths: [String]
+
     /// 모든 에이전트는 전체 도구에 접근 가능
     var resolvedToolIDs: [String] {
         ToolRegistry.allToolIDs
@@ -35,7 +41,7 @@ struct Agent: Identifiable, Codable, Hashable {
     // imageData는 Codable에서 제외 — 파일 시스템에 저장
     private enum CodingKeys: String, CodingKey {
         case id, name, persona, providerName, modelName, status, isMaster, errorMessage, hasImage
-        case roleTemplateID
+        case roleTemplateID, referenceProjectPaths
     }
 
     // 이미지를 파일 시스템에 저장/로드
@@ -62,7 +68,8 @@ struct Agent: Identifiable, Codable, Hashable {
         isMaster: Bool = false,
         errorMessage: String? = nil,
         imageData: Data? = nil,
-        roleTemplateID: String? = nil
+        roleTemplateID: String? = nil,
+        referenceProjectPaths: [String] = []
     ) {
         self.id = id
         self.name = name
@@ -73,6 +80,7 @@ struct Agent: Identifiable, Codable, Hashable {
         self.isMaster = isMaster
         self.errorMessage = errorMessage
         self.roleTemplateID = roleTemplateID
+        self.referenceProjectPaths = referenceProjectPaths
         self.hasImage = false
         if let imageData {
             Self.saveImage(imageData, for: id)
@@ -93,6 +101,7 @@ struct Agent: Identifiable, Codable, Hashable {
         errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
         hasImage = try container.decodeIfPresent(Bool.self, forKey: .hasImage) ?? false
         roleTemplateID = try container.decodeIfPresent(String.self, forKey: .roleTemplateID)
+        referenceProjectPaths = try container.decodeIfPresent([String].self, forKey: .referenceProjectPaths) ?? []
 
         // 레거시 마이그레이션: UserDefaults에 imageData가 있으면 파일로 이동
         struct LegacyKey: CodingKey {

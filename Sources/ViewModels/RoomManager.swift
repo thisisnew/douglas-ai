@@ -319,6 +319,16 @@ class RoomManager: ObservableObject {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
         guard !rooms[idx].assignedAgentIDs.contains(agentID) else { return }
         rooms[idx].assignedAgentIDs.append(agentID)
+
+        // 에이전트의 참조 프로젝트를 방에 병합
+        if let agent = agentStore?.agents.first(where: { $0.id == agentID }) {
+            for path in agent.referenceProjectPaths {
+                if !rooms[idx].projectPaths.contains(path) {
+                    rooms[idx].projectPaths.append(path)
+                }
+            }
+        }
+
         syncAgentStatuses()
         scheduleSave()
 

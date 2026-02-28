@@ -14,6 +14,7 @@ struct AddAgentSheet: View {
     @State private var errorMessage: String?
     @State private var imageData: Data?
     @State private var selectedTemplateID: String? = nil
+    @State private var referenceProjectPaths: [String] = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -127,6 +128,9 @@ struct AddAgentSheet: View {
                                 .foregroundColor(.orange)
                         }
                     }
+
+                    // 참조 프로젝트
+                    referenceProjectSection
 
                 }
                 .padding(.horizontal, 24)
@@ -260,6 +264,73 @@ struct AddAgentSheet: View {
             .foregroundColor(.red)
     }
 
+    // MARK: - 참조 프로젝트
+
+    @ViewBuilder
+    private var referenceProjectSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionLabel("참조 프로젝트 (선택)")
+
+            if !referenceProjectPaths.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(Array(referenceProjectPaths.enumerated()), id: \.offset) { index, path in
+                        HStack(spacing: 8) {
+                            Image(systemName: "folder")
+                                .foregroundColor(.secondary)
+                                .font(.caption)
+                            Text((path as NSString).lastPathComponent)
+                                .font(.callout)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                            Button {
+                                referenceProjectPaths.remove(at: index)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        if index < referenceProjectPaths.count - 1 {
+                            Divider().padding(.leading, 30)
+                        }
+                    }
+                }
+                .background(DesignTokens.Colors.inputBackground)
+                .continuousRadius(DesignTokens.Radius.lg)
+            }
+
+            Button {
+                pickReferenceProjects()
+            } label: {
+                HStack {
+                    Image(systemName: "folder.badge.plus")
+                    Text(referenceProjectPaths.isEmpty ? "디렉토리 선택" : "디렉토리 추가")
+                }
+                .font(.callout)
+                .frame(maxWidth: .infinity)
+                .padding(8)
+                .background(DesignTokens.Colors.inputBackground)
+                .continuousRadius(DesignTokens.Radius.lg)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func pickReferenceProjects() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = true
+        panel.message = "참조 프로젝트 디렉토리를 선택하세요 (여러 개 가능)"
+        guard panel.runModal() == .OK else { return }
+        let newPaths = panel.urls.map(\.path).filter { !referenceProjectPaths.contains($0) }
+        referenceProjectPaths.append(contentsOf: newPaths)
+    }
+
     // MARK: - Logic
 
     private var isFormValid: Bool {
@@ -311,7 +382,8 @@ struct AddAgentSheet: View {
             providerName: selectedProvider,
             modelName: selectedModel,
             imageData: imageData,
-            roleTemplateID: selectedTemplateID
+            roleTemplateID: selectedTemplateID,
+            referenceProjectPaths: referenceProjectPaths
         )
         agentStore.addAgent(agent)
         dismiss()

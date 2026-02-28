@@ -16,6 +16,7 @@ struct EditAgentSheet: View {
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
     @State private var roleTemplateID: String?
+    @State private var referenceProjectPaths: [String]
 
     init(agent: Agent) {
         self.agent = agent
@@ -25,6 +26,7 @@ struct EditAgentSheet: View {
         _selectedModel = State(initialValue: agent.modelName)
         _imageData = State(initialValue: agent.imageData)
         _roleTemplateID = State(initialValue: agent.roleTemplateID)
+        _referenceProjectPaths = State(initialValue: agent.referenceProjectPaths)
     }
 
     var body: some View {
@@ -168,6 +170,11 @@ struct EditAgentSheet: View {
                         }
                     }
 
+                    // 참조 프로젝트
+                    if !agent.isMaster {
+                        referenceProjectSection
+                    }
+
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 16)
@@ -229,6 +236,73 @@ struct EditAgentSheet: View {
         SettingsRow(label: label, content: content)
     }
 
+    // MARK: - 참조 프로젝트
+
+    @ViewBuilder
+    private var referenceProjectSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionLabel("참조 프로젝트 (선택)")
+
+            if !referenceProjectPaths.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(Array(referenceProjectPaths.enumerated()), id: \.offset) { index, path in
+                        HStack(spacing: 8) {
+                            Image(systemName: "folder")
+                                .foregroundColor(.secondary)
+                                .font(.caption)
+                            Text((path as NSString).lastPathComponent)
+                                .font(.callout)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                            Button {
+                                referenceProjectPaths.remove(at: index)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        if index < referenceProjectPaths.count - 1 {
+                            Divider().padding(.leading, 30)
+                        }
+                    }
+                }
+                .background(DesignTokens.Colors.inputBackground)
+                .continuousRadius(DesignTokens.Radius.lg)
+            }
+
+            Button {
+                pickReferenceProjects()
+            } label: {
+                HStack {
+                    Image(systemName: "folder.badge.plus")
+                    Text(referenceProjectPaths.isEmpty ? "디렉토리 선택" : "디렉토리 추가")
+                }
+                .font(.callout)
+                .frame(maxWidth: .infinity)
+                .padding(8)
+                .background(DesignTokens.Colors.inputBackground)
+                .continuousRadius(DesignTokens.Radius.lg)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func pickReferenceProjects() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = true
+        panel.message = "참조 프로젝트 디렉토리를 선택하세요 (여러 개 가능)"
+        guard panel.runModal() == .OK else { return }
+        let newPaths = panel.urls.map(\.path).filter { !referenceProjectPaths.contains($0) }
+        referenceProjectPaths.append(contentsOf: newPaths)
+    }
+
     // MARK: - Logic
 
     private func loadModels(for providerName: String) {
@@ -261,6 +335,7 @@ struct EditAgentSheet: View {
         updated.modelName = selectedModel
         updated.imageData = imageData
         updated.roleTemplateID = roleTemplateID
+        updated.referenceProjectPaths = referenceProjectPaths
         agentStore.updateAgent(updated)
         dismiss()
     }

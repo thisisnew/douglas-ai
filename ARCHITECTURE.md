@@ -33,7 +33,7 @@ DOUGLAS/
 │   │   ├── AppDelegate.swift        # 사이드바 패널(400pt), 채팅 윈도우, 마우스 트래킹
 │   │   └── UtilityWindowManager.swift # 유틸리티 윈도우 관리
 │   ├── Models/
-│   │   ├── Agent.swift              # 에이전트 모델 (이름, 페르소나, 이미지, isMaster, 도구 설정, roleTemplateID)
+│   │   ├── Agent.swift              # 에이전트 모델 (이름, 페르소나, 이미지, isMaster, 도구 설정, roleTemplateID, referenceProjectPaths)
 │   │   ├── AgentRoleTemplate.swift  # 역할 템플릿 (프로바이더별 힌트, 카테고리)
 │   │   ├── AgentRoleTemplateRegistry.swift # 빌트인 9개 템플릿 (requirements_analyst, backend_dev, QA 4종 등)
 │   │   ├── AgentTool.swift          # 도구 시스템 (AgentTool, ToolCall, ToolResult, ToolRegistry, ConversationMessage)
@@ -846,6 +846,7 @@ executeWithTools() 루프 (최대 10회):
 - **실행 순서 승인**: 전문가 2명+ 시 계획을 사용자에게 제시하여 승인 후 실행
 - **계획 수립**: 전문가가 생성 (분석가 제외). 계획 JSON은 사용자에게 숨김. 분석가에게 단계 배정 금지.
 - **진행 메시지 간결화** (`shortenStepLabel`): 실행 단계 진행률을 `"~하는 중…"` 스타일로 축약 표시. `MessageType.progress`로 분류.
+- **에이전트 참조 프로젝트** (`Agent.referenceProjectPaths`): 에이전트별로 참조 프로젝트 디렉토리를 여러 건 등록. 방에 초대 시 `addAgent(_:to:)`에서 방의 `projectPaths`에 자동 병합.
 
 - **레거시** (`intent == nil`): Triage → 토론 → 승인 → 계획 → (순서 확인) → 실행
 - **새 워크플로우** (`intent != nil`): `executePhaseWorkflow` → intent.requiredPhases 순회 디스패치
