@@ -186,7 +186,7 @@ struct AddAgentSheet: View {
                     .overlay(
                         Group {
                             if inlineRules.isEmpty {
-                                Text("코딩 컨벤션, 작업 원칙, 금지 사항 등...")
+                                Text("작업 원칙, 금지 사항, 산출물 형식(타입/완성도/포맷) 등...")
                                     .font(.body)
                                     .foregroundColor(.secondary.opacity(0.5))
                                     .padding(.leading, 12)
