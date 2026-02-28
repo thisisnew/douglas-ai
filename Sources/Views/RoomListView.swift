@@ -111,7 +111,12 @@ struct RoomListView: View {
                                 onComplete: { roomManager.completeRoom(room.id) },
                                 onDelete: { roomManager.deleteRoom(room.id) }
                             )
+                            .transition(.asymmetric(
+                                insertion: .scale(scale: 0.9).combined(with: .opacity),
+                                removal: .scale(scale: 0.95).combined(with: .opacity)
+                            ))
                         }
+                        .animation(.easeOut(duration: 0.3), value: filteredRooms.count)
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 4)

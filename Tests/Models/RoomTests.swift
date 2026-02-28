@@ -202,21 +202,21 @@ struct RoomTests {
     @Test("discussionProgressText - planning 상태 + currentRound 0")
     func discussionProgressTextReady() {
         let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, mode: .discussion)
-        #expect(room.discussionProgressText == "토론 준비 중")
+        #expect(room.discussionProgressText == "준비 중")
     }
 
     @Test("discussionProgressText - planning 상태 + 진행 중")
     func discussionProgressTextInProgress() {
         var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, mode: .discussion, maxDiscussionRounds: 3)
         room.currentRound = 1
-        #expect(room.discussionProgressText == "토론 중 (1라운드)")
+        #expect(room.discussionProgressText == "분석 중 (1단계)")
     }
 
     @Test("discussionProgressText - 완료 (status != planning)")
     func discussionProgressTextCompleted() {
         var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, mode: .discussion, maxDiscussionRounds: 3)
         room.status = .completed
-        #expect(room.discussionProgressText == "토론 완료")
+        #expect(room.discussionProgressText == "분석 완료")
     }
 
     // MARK: - timerDisplayText 추가 케이스
@@ -504,14 +504,14 @@ struct RoomTests {
     func discussionProgressTextInProgressStatus() {
         var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, mode: .discussion)
         room.status = .inProgress
-        #expect(room.discussionProgressText == "토론 완료")
+        #expect(room.discussionProgressText == "분석 완료")
     }
 
     @Test("discussionProgressText - failed 상태")
     func discussionProgressTextFailed() {
         var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, mode: .discussion)
         room.status = .failed
-        #expect(room.discussionProgressText == "토론 완료")
+        #expect(room.discussionProgressText == "분석 완료")
     }
 
     // MARK: - Phase B 필드

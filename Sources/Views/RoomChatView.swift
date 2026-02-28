@@ -480,7 +480,7 @@ struct DiscussionProgressBar: View {
                     Image(systemName: "bubble.left.and.bubble.right.fill")
                         .font(.caption2)
                         .foregroundColor(.blue)
-                    Text("토론 진행")
+                    Text("작업 진행")
                         .font(.caption2.bold())
                         .foregroundColor(.blue)
                     Spacer()

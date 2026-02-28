@@ -299,11 +299,11 @@ struct Room: Identifiable, Codable {
         pendingAgentSuggestions.contains { $0.status == .pending }
     }
 
-    /// 토론 진행률 텍스트 (합의 기반)
+    /// 작업 진행률 텍스트
     var discussionProgressText: String {
-        if status != .planning { return "토론 완료" }
-        if currentRound == 0 { return "토론 준비 중" }
-        return "토론 중 (\(currentRound)라운드)"
+        if status != .planning { return "분석 완료" }
+        if currentRound == 0 { return "준비 중" }
+        return "분석 중 (\(currentRound)단계)"
     }
 
     /// 남은 시간 포맷 문자열
