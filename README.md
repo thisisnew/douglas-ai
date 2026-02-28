@@ -100,10 +100,4 @@ Sources/
 └── Views/          # SwiftUI 뷰
 ```
 
-### 커밋 규칙
-
-```
-[DG] <type>: <설명>
-# type: feat, fix, refactor, style, docs
-```
 
