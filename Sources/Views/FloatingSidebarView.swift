@@ -597,7 +597,8 @@ struct FloatingSidebarView: View {
 
                         TextField("Tell Don't Ask", text: $inputText, axis: .vertical)
                             .textFieldStyle(.plain)
-                            .lineLimit(1...8)
+                            .lineLimit(3...12)
+                            .frame(minHeight: 60)
                             .focused($isInputFocused)
                             .onSubmit { sendToMaster() }
                             .onChange(of: inputText) { _, newValue in
