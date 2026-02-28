@@ -340,14 +340,15 @@ class RoomManager: ObservableObject {
         let analyzePrompt = """
         사용자의 요청을 분석하세요.
 
-        다음을 간결하게 정리하세요:
-        1. 요청의 핵심 요약 (1~2문장)
-        2. 필요한 전문가 역할 (예: 번역가, 백엔드 개발자 등)
-        3. 예상 작업 범위
+        출력 형식 (이 형식만 출력):
+        - 요청: (1문장 요약)
+        - 전문가: (필요한 역할)
+        - 범위: (작업량 추정)
 
-        규칙:
-        - 간결하게 분석만 하세요 (3~5줄 이내)
-        - 작업을 직접 수행하지 마세요
+        금지:
+        - 작업을 직접 수행하지 마세요 (번역, 코딩, 문서 작성 등 일체 금지)
+        - 질문하지 마세요 ("진행할까요?" 등 금지)
+        - 3줄 이내로 작성하세요
         """
 
         let history = buildRoomHistory(roomID: roomID)
@@ -395,18 +396,16 @@ class RoomManager: ObservableObject {
         appendMessage(inviteMsg, to: roomID)
 
         let invitePrompt = """
-        \(analyst.persona)
+        전문가를 초대하세요. 작업을 직접 수행하지 마세요.
 
-        [팀 구성 단계] 사용자가 분석 결과를 승인했습니다. 이제 필요한 전문가를 초대하세요.
+        절차:
+        1. list_agents로 사용 가능한 에이전트 확인
+        2. invite_agent로 필요한 에이전트 초대 (반드시 1명 이상)
+        3. 적합한 에이전트가 없으면 suggest_agent_creation으로 제안
 
-        작업:
-        1. list_agents로 사용 가능한 에이전트를 확인
-        2. 필요한 에이전트를 invite_agent로 초대 (반드시 1명 이상)
-        3. 존재하지 않는 전문가가 필요하면 suggest_agent_creation으로 제안
-
-        규칙:
-        - 반드시 1명 이상의 전문가를 초대하세요
-        - 초대 결과만 간결하게 보고하세요
+        금지:
+        - 번역, 코딩, 문서 작성 등 실제 작업 수행 금지
+        - 초대 결과만 1줄로 보고 (예: "백엔드 개발자를 초대했습니다")
         """
 
         let updatedHistory = buildRoomHistory(roomID: roomID)
