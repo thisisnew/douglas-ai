@@ -19,8 +19,8 @@ class RoomManager: ObservableObject {
     private var approvalContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
     /// 사용자 입력 대기 중인 continuation (방 ID → continuation)
     private var userInputContinuations: [UUID: CheckedContinuation<String, Never>] = [:]
-    /// 에이전트 생성 제안 승인 대기 continuation (방 ID → continuation)
-    private var suggestionContinuations: [UUID: CheckedContinuation<Void, Never>] = [:]
+    /// 에이전트 생성 제안 승인 대기 continuation (방 ID → continuation, Bool = 사용자 응답 여부)
+    private var suggestionContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
 
     // MARK: - 계산 프로퍼티
 
@@ -315,7 +315,27 @@ class RoomManager: ObservableObject {
         guard let room = rooms.first(where: { $0.id == roomID }) else { return }
         let hasPending = room.pendingAgentSuggestions.contains { $0.status == .pending }
         if !hasPending, let cont = suggestionContinuations.removeValue(forKey: roomID) {
-            cont.resume()
+            cont.resume(returning: true)
+        }
+    }
+
+    /// 제안 응답 대기 (타임아웃 포함) — true: 사용자 응답, false: 타임아웃
+    private func waitForSuggestionResponse(roomID: UUID, timeout: TimeInterval) async -> Bool {
+        guard let room = rooms.first(where: { $0.id == roomID }),
+              room.pendingAgentSuggestions.contains(where: { $0.status == .pending }) else {
+            return true
+        }
+
+        return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            self.suggestionContinuations[roomID] = cont
+
+            // 타임아웃 타이머: 시간 내 응답 없으면 false로 재개
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                if let cont = self?.suggestionContinuations.removeValue(forKey: roomID) {
+                    cont.resume(returning: false)
+                }
+            }
         }
     }
 
@@ -607,6 +627,17 @@ class RoomManager: ObservableObject {
                 suggestedBy: masterAgent.name
             )
             addAgentSuggestion(suggestion, to: roomID)
+
+            // 사용자가 제안에 응답할 때까지 대기 (최대 60초)
+            let responded = await waitForSuggestionResponse(roomID: roomID, timeout: 60)
+            if !responded {
+                // 타임아웃 — pending 제안 자동 거절 처리
+                if let room = rooms.first(where: { $0.id == roomID }) {
+                    for sug in room.pendingAgentSuggestions where sug.status == .pending {
+                        rejectAgentSuggestion(suggestionID: sug.id, in: roomID)
+                    }
+                }
+            }
         }
 
         // 전문가 미초대 시 워크플로우 종료
@@ -1111,6 +1142,18 @@ class RoomManager: ObservableObject {
                     suggestedBy: agent.name
                 )
                 addAgentSuggestion(suggestion, to: roomID)
+            }
+
+            // 4.5) 미매칭 제안이 있으면 사용자 응답 대기 (최대 60초)
+            if matched.contains(where: { $0.status == .unmatched }) {
+                let responded = await waitForSuggestionResponse(roomID: roomID, timeout: 60)
+                if !responded {
+                    if let room = rooms.first(where: { $0.id == roomID }) {
+                        for sug in room.pendingAgentSuggestions where sug.status == .pending {
+                            rejectAgentSuggestion(suggestionID: sug.id, in: roomID)
+                        }
+                    }
+                }
             }
 
             // 5) 매칭 결과 메시지
