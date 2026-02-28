@@ -166,6 +166,8 @@ struct FloatingSidebarView: View {
     @State private var isDraggingWindow = false
     /// 드래그 앤 드롭 재정렬
     @State private var draggingAgentID: UUID?
+    @State private var dropTargetAgentID: UUID?
+    @State private var hoveredAgentID: UUID?
     /// 아바타 확대 보기
     @State private var enlargedAvatarAgent: Agent?
     @State private var showEnlargedProfile = false
@@ -387,7 +389,18 @@ struct FloatingSidebarView: View {
                     rosterItem(agent)
                         .padding(.top, 6)  // 뱃지 잘림 방지
                         .opacity(draggingAgentID == agent.id ? 0.4 : 1.0)
-                        .scaleEffect(draggingAgentID == agent.id ? 0.9 : 1.0)
+                        .scaleEffect(draggingAgentID == agent.id ? 0.85 : (dropTargetAgentID == agent.id ? 1.08 : 1.0))
+                        // 호버 시 하이라이트
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(hoveredAgentID == agent.id ? Color.accentColor.opacity(0.08) : Color.clear)
+                                .padding(-4)
+                        )
+                        .onHover { isHovered in
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                hoveredAgentID = isHovered ? agent.id : nil
+                            }
+                        }
                         .onDrag {
                             draggingAgentID = agent.id
                             return NSItemProvider(object: agent.id.uuidString as NSString)
@@ -395,6 +408,7 @@ struct FloatingSidebarView: View {
                         .onDrop(of: [.text], delegate: AgentReorderDropDelegate(
                             targetID: agent.id,
                             draggingID: $draggingAgentID,
+                            dropTargetID: $dropTargetAgentID,
                             onReorder: { from, to in
                                 agentStore.moveSubAgent(fromID: from, toID: to)
                             }
@@ -925,11 +939,13 @@ struct ProfileImageView: View {
             return img
         }
         // 2. Contents/Resources/ 내 번들
-        if let resourceURL = Bundle.main.resourceURL?
-            .appendingPathComponent("DOUGLAS_DOUGLASLib.bundle")
-            .appendingPathComponent("douglas_profile.png"),
-           let img = NSImage(contentsOf: resourceURL) {
-            return img
+        for name in ["DOUGLAS_DOUGLAS.bundle", "DOUGLAS_DOUGLASLib.bundle"] {
+            if let url = Bundle.main.resourceURL?
+                .appendingPathComponent(name)
+                .appendingPathComponent("douglas_profile.png"),
+               let img = NSImage(contentsOf: url) {
+                return img
+            }
         }
         // 3. Bundle.main 직접
         if let url = Bundle.main.url(forResource: "douglas_profile", withExtension: "png"),
@@ -1058,17 +1074,30 @@ struct AgentInfoSheet: View {
 struct AgentReorderDropDelegate: DropDelegate {
     let targetID: UUID
     @Binding var draggingID: UUID?
+    @Binding var dropTargetID: UUID?
     let onReorder: (UUID, UUID) -> Void
 
     func performDrop(info: DropInfo) -> Bool {
-        draggingID = nil
+        withAnimation(.easeOut(duration: 0.2)) {
+            draggingID = nil
+            dropTargetID = nil
+        }
         return true
     }
 
     func dropEntered(info: DropInfo) {
         guard let from = draggingID, from != targetID else { return }
         withAnimation(.easeInOut(duration: 0.2)) {
+            dropTargetID = targetID
             onReorder(from, targetID)
+        }
+    }
+
+    func dropExited(info: DropInfo) {
+        withAnimation(.easeOut(duration: 0.15)) {
+            if dropTargetID == targetID {
+                dropTargetID = nil
+            }
         }
     }
 

@@ -97,7 +97,7 @@ struct RoomListView: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(spacing: 2) {
                         ForEach(filteredRooms) { room in
-                            RoomRow(
+                            RoomRowAnimated(
                                 room: room,
                                 isEditMode: isEditMode,
                                 isSelected: selectedIDs.contains(room.id),
@@ -111,12 +111,7 @@ struct RoomListView: View {
                                 onComplete: { roomManager.completeRoom(room.id) },
                                 onDelete: { roomManager.deleteRoom(room.id) }
                             )
-                            .transition(.asymmetric(
-                                insertion: .scale(scale: 0.9).combined(with: .opacity),
-                                removal: .scale(scale: 0.95).combined(with: .opacity)
-                            ))
                         }
-                        .animation(.easeOut(duration: 0.3), value: filteredRooms.count)
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 4)
@@ -530,5 +525,34 @@ struct RoomListItem: View {
     private var progressPercent: Int {
         guard let plan = room.plan, !plan.steps.isEmpty else { return 0 }
         return min(100, room.currentStepIndex * 100 / plan.steps.count)
+    }
+}
+
+/// onAppear 페이드인 래퍼 — ForEach 레벨 animation 없이 개별 행만 애니메이션
+private struct RoomRowAnimated: View {
+    let room: Room
+    let isEditMode: Bool
+    let isSelected: Bool
+    let onTap: () -> Void
+    let onComplete: () -> Void
+    let onDelete: () -> Void
+    @State private var appeared = false
+
+    var body: some View {
+        RoomRow(
+            room: room,
+            isEditMode: isEditMode,
+            isSelected: isSelected,
+            onTap: onTap,
+            onComplete: onComplete,
+            onDelete: onDelete
+        )
+        .opacity(appeared ? 1 : 0)
+        .offset(y: appeared ? 0 : -6)
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.35)) {
+                appeared = true
+            }
+        }
     }
 }

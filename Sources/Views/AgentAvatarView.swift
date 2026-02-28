@@ -37,11 +37,13 @@ struct AgentAvatarView: View {
            let img = NSImage(contentsOf: url) {
             return img
         }
-        if let resourceURL = Bundle.main.resourceURL?
-            .appendingPathComponent("DOUGLAS_DOUGLASLib.bundle")
-            .appendingPathComponent("douglas_profile.png"),
-           let img = NSImage(contentsOf: resourceURL) {
-            return img
+        for name in ["DOUGLAS_DOUGLAS.bundle", "DOUGLAS_DOUGLASLib.bundle"] {
+            if let url = Bundle.main.resourceURL?
+                .appendingPathComponent(name)
+                .appendingPathComponent("douglas_profile.png"),
+               let img = NSImage(contentsOf: url) {
+                return img
+            }
         }
         if let url = Bundle.main.url(forResource: "douglas_profile", withExtension: "png"),
            let img = NSImage(contentsOf: url) {

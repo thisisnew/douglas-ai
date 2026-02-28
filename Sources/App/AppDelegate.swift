@@ -107,11 +107,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "brain.head.profile", accessibilityDescription: "DOUGLAS")
+            if let profileImage = loadProfileImage() {
+                let size: CGFloat = 18
+                let resized = NSImage(size: NSSize(width: size, height: size))
+                resized.lockFocus()
+                // 원형 클리핑
+                let path = NSBezierPath(ovalIn: NSRect(x: 0, y: 0, width: size, height: size))
+                path.addClip()
+                profileImage.draw(in: NSRect(x: 0, y: 0, width: size, height: size))
+                resized.unlockFocus()
+                resized.isTemplate = false
+                button.image = resized
+            } else {
+                button.image = NSImage(systemSymbolName: "brain.head.profile", accessibilityDescription: "DOUGLAS")
+            }
             button.target = self
             button.action = #selector(statusItemClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
+    }
+
+    private func loadProfileImage() -> NSImage? {
+        // SPM 리소스 번들 이름은 DOUGLAS_DOUGLAS.bundle
+        let bundleNames = ["DOUGLAS_DOUGLAS.bundle", "DOUGLAS_DOUGLASLib.bundle"]
+        for name in bundleNames {
+            if let url = Bundle.main.resourceURL?
+                .appendingPathComponent(name)
+                .appendingPathComponent("douglas_profile.png"),
+               let img = NSImage(contentsOf: url) {
+                return img
+            }
+        }
+        if let url = Bundle.main.url(forResource: "douglas_profile", withExtension: "png"),
+           let img = NSImage(contentsOf: url) {
+            return img
+        }
+        return nil
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
