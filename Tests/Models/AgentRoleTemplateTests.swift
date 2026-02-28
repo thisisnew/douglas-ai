@@ -120,8 +120,9 @@ struct AgentRoleTemplateTests {
 
     @Test("Registry - 레거시 별칭 매핑 검증")
     func registryLegacyAliasMapping() {
+        // jira_analyst, requirements_analyst 제거됨 (마스터가 PM 역할 수행)
         let analyst = AgentRoleTemplateRegistry.template(for: "jira_analyst")
-        #expect(analyst?.id == "requirements_analyst")
+        #expect(analyst == nil)
 
         let qa = AgentRoleTemplateRegistry.template(for: "qa_engineer")
         #expect(qa?.id == "qa_test_automation")
@@ -191,22 +192,12 @@ struct AgentRoleTemplateTests {
 
     // MARK: - Codable round-trip
 
-    // MARK: - Phase D: 요구사항 분석가 + QA 세분화
+    // MARK: - Phase D: QA 세분화
 
-    @Test("Registry - requirements_analyst 존재")
-    func registryRequirementsAnalyst() {
+    @Test("Registry - requirements_analyst 제거됨")
+    func registryRequirementsAnalystRemoved() {
         let template = AgentRoleTemplateRegistry.template(for: "requirements_analyst")
-        #expect(template != nil)
-        #expect(template?.name == "요구사항 분석가")
-        #expect(template?.category == .analysis)
-        #expect(template?.basePersona.contains("invite_agent") == true)
-        #expect(template?.basePersona.contains("suggest_agent_creation") == true)
-    }
-
-    @Test("Registry - jira_analyst 레거시 별칭 → requirements_analyst")
-    func registryJiraAnalystLegacy() {
-        let template = AgentRoleTemplateRegistry.template(for: "jira_analyst")
-        #expect(template?.id == "requirements_analyst")
+        #expect(template == nil)
     }
 
     @Test("Registry - qa_engineer 레거시 별칭 → qa_test_automation")

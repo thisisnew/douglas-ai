@@ -12,8 +12,8 @@ enum TemplateCategory: String, Codable, CaseIterable {
 // MARK: - 에이전트 역할 템플릿
 
 struct AgentRoleTemplate: Identifiable, Codable {
-    let id: String                          // "requirements_analyst", "backend_dev" 등
-    let name: String                        // "요구사항 분석가"
+    let id: String                          // "backend_dev", "frontend_dev" 등
+    let name: String                        // "백엔드 개발자"
     let icon: String                        // SF Symbol name
     let category: TemplateCategory
     let basePersona: String                 // 프로바이더 무관 기본 시스템 프롬프트
