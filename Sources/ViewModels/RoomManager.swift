@@ -408,20 +408,33 @@ class RoomManager: ObservableObject {
         )
         appendMessage(inviteMsg, to: roomID)
 
-        let invitePrompt = """
-        전문가를 초대하세요. 작업을 직접 수행하지 마세요.
+        // 분석가 자신을 제외한 사용 가능 에이전트 목록
+        let availableAgents = agentStore?.subAgents.filter { $0.id != analystID } ?? []
+        let agentListText = availableAgents.isEmpty
+            ? "(없음)"
+            : availableAgents.map { "- \($0.name)" }.joined(separator: "\n")
 
-        절차:
-        1. list_agents로 사용 가능한 에이전트 확인
-        2. 적합한 에이전트가 있으면 → invite_agent로 초대
-        3. 적합한 에이전트가 없으면 → suggest_agent_creation으로 생성 제안
-           (name, persona, reason 필수)
+        let invitePrompt: String
+        if availableAgents.isEmpty {
+            invitePrompt = """
+            사용 가능한 전문가가 없습니다. suggest_agent_creation으로 새 에이전트를 생성 제안하세요.
+            name, persona, reason 파라미터를 모두 채워서 호출하세요.
+            작업을 직접 수행하지 마세요. 제안 후 1줄로 보고만 하세요.
+            """
+        } else {
+            invitePrompt = """
+            전문가를 초대하세요. 작업을 직접 수행하지 마세요.
 
-        중요:
-        - 존재하지 않는 이름으로 invite_agent를 호출하면 실패합니다
-        - list_agents 결과에 없는 에이전트는 반드시 suggest_agent_creation을 사용하세요
-        - 초대/제안 결과만 1줄로 보고하세요
-        """
+            사용 가능한 에이전트:
+            \(agentListText)
+
+            절차:
+            - 위 목록에 적합한 에이전트가 있으면 → invite_agent(agent_name: "정확한 이름")
+            - 적합한 에이전트가 없으면 → suggest_agent_creation(name, persona, reason)
+
+            초대/제안 결과만 1줄로 보고하세요.
+            """
+        }
 
         let updatedHistory = buildRoomHistory(roomID: roomID)
         let context = makeToolContext(roomID: roomID, currentAgentID: analystID)
