@@ -107,6 +107,3 @@ Sources/
 # type: feat, fix, refactor, style, docs
 ```
 
-## 라이선스
-
-Private project.
