@@ -1170,8 +1170,16 @@ class RoomManager: ObservableObject {
 
     /// 에이전트에게 계획 수립 요청
     private func requestPlan(roomID: UUID, task: String) async -> RoomPlan? {
-        guard let room = rooms.first(where: { $0.id == roomID }),
-              let firstAgentID = room.assignedAgentIDs.first,
+        guard let room = rooms.first(where: { $0.id == roomID }) else {
+            return nil
+        }
+        // 전문가(분석가 제외)를 계획 생성자로 선택
+        let analystTemplateIDs: Set<String> = ["requirements_analyst", "jira_analyst"]
+        let specialistID = room.assignedAgentIDs.first { id in
+            guard let a = agentStore?.agents.first(where: { $0.id == id }) else { return false }
+            return !(a.roleTemplateID.map { analystTemplateIDs.contains($0) } ?? false)
+        } ?? room.assignedAgentIDs.first
+        guard let firstAgentID = specialistID,
               let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
               let provider = providerManager?.provider(named: agent.providerName) else {
             let errorMsg = ChatMessage(
@@ -1211,10 +1219,10 @@ class RoomManager: ObservableObject {
 
         // 방 내 전문가 목록 (분석가 제외)
         let specialistNames: String
-        let analystTemplateIDs: Set<String> = ["requirements_analyst", "jira_analyst"]
+        let planAnalystIDs: Set<String> = ["requirements_analyst", "jira_analyst"]
         let specialists = room.assignedAgentIDs.compactMap { id -> String? in
             guard let agent = agentStore?.agents.first(where: { $0.id == id }) else { return nil }
-            if let tid = agent.roleTemplateID, analystTemplateIDs.contains(tid) { return nil }
+            if let tid = agent.roleTemplateID, planAnalystIDs.contains(tid) { return nil }
             return agent.name
         }
         specialistNames = specialists.isEmpty ? "(없음)" : specialists.joined(separator: ", ")
@@ -1233,6 +1241,7 @@ class RoomManager: ObservableObject {
         - 토론에서 합의된 방향을 반영하세요
         - estimated_minutes는 현실적으로 추정하세요 (1~30분)
         - 각 step에 "agent" 필드로 담당 전문가를 지정하세요 (위 목록에서 정확한 이름 사용)
+        - 분석가(요구사항 분석가)는 실행 대상이 아닙니다. 분석가에게 step을 배정하지 마세요.
         - 배포, 데이터 삭제 등 위험한 단계는 "requires_approval": true 추가
         - 프로젝트 플레이북이 있다면 브랜치 전략, 테스트 정책 등을 반영하세요
         - 반드시 유효한 JSON으로만 응답하세요
@@ -1244,9 +1253,8 @@ class RoomManager: ObservableObject {
             .compactMap { $0.attachments }
             .flatMap { $0 }
         if !imageAttachments.isEmpty {
-            let paths = imageAttachments.map { $0.diskPath.path }
-            attachmentContext = "\n\n[사용자 첨부 이미지 — 이미 제공됨]\n" + paths.joined(separator: "\n") +
-                "\n(이미지가 이미 제공되었으므로, 사용자에게 다시 요청하지 마세요. 바로 작업하세요.)"
+            attachmentContext = "\n\n[사용자 첨부 이미지 \(imageAttachments.count)장 — 이미 제공됨]\n" +
+                "(이미지가 이미 제공되었으므로, 사용자에게 다시 요청하지 마세요. 바로 작업하세요. 계획의 step에 파일 경로를 포함하지 마세요.)"
         } else {
             attachmentContext = ""
         }
@@ -1262,9 +1270,7 @@ class RoomManager: ObservableObject {
                 messages: planMessages
             )
 
-            // 계획 메시지를 방에 추가 (toolActivity로 표시하여 raw JSON이 일반 채팅으로 보이지 않게)
-            let planMsg = ChatMessage(role: .assistant, content: response, agentName: agent.name, messageType: .toolActivity)
-            appendMessage(planMsg, to: roomID)
+            // 계획 JSON은 내부 처리용 — 사용자에게 표시하지 않음
 
             // JSON 파싱
             return parsePlan(from: response)
@@ -1424,14 +1430,14 @@ class RoomManager: ObservableObject {
             // 단계별 충돌 추적 초기화
             await tracker.reset()
 
-            // 진행률 메시지 (단일 단계면 숨김)
-            if plan.steps.count > 1 {
-                let progressMsg = ChatMessage(
-                    role: .system,
-                    content: "[\(stepIndex + 1)/\(plan.steps.count)] \(step.text)"
-                )
-                appendMessage(progressMsg, to: roomID)
-            }
+            // 진행률 메시지: 짧은 "~하는 중" 스타일
+            let shortLabel = Self.shortenStepLabel(step.text)
+            let progressMsg = ChatMessage(
+                role: .system,
+                content: shortLabel,
+                messageType: .progress
+            )
+            appendMessage(progressMsg, to: roomID)
 
             // 실행 대상: 분석가 제외, 전문가만
             let targetAgentIDs: [UUID]
@@ -1534,6 +1540,39 @@ class RoomManager: ObservableObject {
         }
         syncAgentStatuses()
         scheduleSave()
+    }
+
+    /// step 텍스트를 짧은 "~하는 중" 스타일로 변환
+    static func shortenStepLabel(_ text: String) -> String {
+        // 핵심 키워드 추출: 첫 번째 의미 있는 동사/명사 구문
+        let cleaned = text
+            .replacingOccurrences(of: "\\[.*?\\]", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+
+        // 긴 텍스트면 첫 문장/절만 사용 (마침표, 쉼표, 줄바꿈 기준)
+        let firstClause: String
+        if let range = cleaned.rangeOfCharacter(from: CharacterSet(charactersIn: ".,\n")) {
+            firstClause = String(cleaned[cleaned.startIndex..<range.lowerBound])
+                .trimmingCharacters(in: .whitespaces)
+        } else {
+            firstClause = cleaned
+        }
+
+        // 최대 20자로 자르고 "하는 중" 접미사
+        let maxLen = 20
+        let truncated: String
+        if firstClause.count > maxLen {
+            truncated = String(firstClause.prefix(maxLen)) + "…"
+        } else {
+            truncated = firstClause
+        }
+
+        // 이미 "~중" 으로 끝나면 그대로 반환
+        if truncated.hasSuffix("중") {
+            return truncated
+        }
+
+        return "\(truncated) 하는 중…"
     }
 
     /// 개별 에이전트의 단계 실행. 성공 시 true, 실패 시 false.
@@ -1981,23 +2020,41 @@ class RoomManager: ObservableObject {
             .filter { $0 != agent.name }
             .joined(separator: ", ") ?? ""
 
-        let discussionPrompt = """
-        \(agent.persona)
+        // 분석가 여부 판별
+        let analystTemplateIDs: Set<String> = ["requirements_analyst", "jira_analyst"]
+        let isAnalyst = agent.roleTemplateID.map { analystTemplateIDs.contains($0) } ?? false
 
-        [회의실] \(topic)
-        라운드 \(round + 1) | 동료: \(otherNames)
+        let discussionPrompt: String
+        if isAnalyst {
+            // 분석가: 요구사항 전달만, 직접 작업 금지
+            discussionPrompt = """
+            당신은 요구사항 분석가입니다. 토론에서의 역할:
+            - 전문가에게 사용자의 요구사항을 간결하게 전달
+            - 전문가의 질문에 답변
+            - 작업 방향이 맞는지 확인
 
-        당신은 팀 회의에 참석한 실무자입니다. 팀원으로서 자연스럽게 대화하세요.
-        첨부된 이미지나 파일이 있으면 내용을 확인하고 참고하세요.
+            [절대 금지] 번역, 코딩, 문서 작성 등 실제 작업 수행
+            [절대 금지] 전문가의 업무를 대신 수행
 
-        말투 규칙:
-        - 실제 회의처럼 짧고 직접적으로 말할 것 (2-4문장)
-        - 핵심만 말하고, 반복하지 말 것
+            [회의실] \(topic)
+            라운드 \(round + 1) | 동료: \(otherNames)
 
-        중요: 발언 마지막 줄에 반드시 다음 중 하나를 태그로 붙이세요:
-        [합의] — 현재 방향에 동의하고, 실행으로 넘어가도 된다고 판단할 때
-        [계속] — 추가 논의가 필요하다고 판단할 때
-        """
+            2문장 이내로 발언하세요.
+            발언 마지막 줄에 [합의] 또는 [계속] 태그를 붙이세요.
+            """
+        } else {
+            // 전문가: 자기 역할에 맞는 작업
+            discussionPrompt = """
+            \(agent.persona)
+
+            [회의실] \(topic)
+            라운드 \(round + 1) | 동료: \(otherNames)
+
+            첨부된 이미지나 파일이 있으면 내용을 확인하고 참고하세요.
+            2-4문장으로 핵심만 말하세요.
+            발언 마지막 줄에 [합의] 또는 [계속] 태그를 붙이세요.
+            """
+        }
 
         do {
             agentStore?.updateStatus(agentID: agentID, status: .working)

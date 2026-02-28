@@ -200,6 +200,7 @@ enum DesignTokens {
             case .userQuestion:    return .cyan
             case .phaseTransition: return .purple
             case .assumption:      return .orange
+            case .progress:        return .blue
             }
         }
 

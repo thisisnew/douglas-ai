@@ -844,6 +844,8 @@ executeWithTools() 루프 (최대 10회):
 - **실행 시 분석가 제외** (`executingAgentIDs`): `roleTemplateID`가 분석가 계열이면 실행 대상에서 제외
 - **단계별 에이전트 배정** (`RoomStep.assignedAgentID`): 계획 수립 시 각 단계에 담당 전문가 지정
 - **실행 순서 승인**: 전문가 2명+ 시 계획을 사용자에게 제시하여 승인 후 실행
+- **계획 수립**: 전문가가 생성 (분석가 제외). 계획 JSON은 사용자에게 숨김. 분석가에게 단계 배정 금지.
+- **진행 메시지 간결화** (`shortenStepLabel`): 실행 단계 진행률을 `"~하는 중…"` 스타일로 축약 표시. `MessageType.progress`로 분류.
 
 - **레거시** (`intent == nil`): Triage → 토론 → 승인 → 계획 → (순서 확인) → 실행
 - **새 워크플로우** (`intent != nil`): `executePhaseWorkflow` → intent.requiredPhases 순회 디스패치

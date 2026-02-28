@@ -151,6 +151,7 @@ struct MessageBubble: View {
         case .buildStatus:   return Color.orange.opacity(0.1)
         case .qaStatus:      return Color.teal.opacity(0.1)
         case .approvalRequest: return Color.yellow.opacity(0.1)
+        case .progress:      return Color.blue.opacity(0.06)
         default:             return DesignTokens.Colors.messageBubbleBackground
         }
     }
@@ -170,6 +171,7 @@ struct MessageBubble: View {
         case .buildStatus:   return "hammer"
         case .qaStatus:      return "checkmark.shield"
         case .approvalRequest: return "hand.raised"
+        case .progress:      return "hourglass"
         default:             return nil
         }
     }
@@ -185,6 +187,7 @@ struct MessageBubble: View {
         case .buildStatus:   return .orange
         case .qaStatus:      return .teal
         case .approvalRequest: return .yellow
+        case .progress:      return .blue
         default:             return .secondary
         }
     }

@@ -21,6 +21,7 @@ enum MessageType: String, Codable {
     case userQuestion       // ask_user 도구로 사용자에게 보내는 질문
     case phaseTransition    // 워크플로우 단계 전환 알림
     case assumption         // 가정 선언
+    case progress           // 실행 단계 진행 상태 ("~하는 중")
 }
 
 struct ChatMessage: Identifiable, Codable {
