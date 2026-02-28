@@ -1102,8 +1102,21 @@ class RoomManager: ObservableObject {
         - 반드시 유효한 JSON으로만 응답하세요
         """
 
+        // 이미지 첨부 정보 포함 (첨부된 내용을 "확인하라"는 불필요한 단계 방지)
+        let attachmentContext: String
+        let imageAttachments = room.messages
+            .compactMap { $0.attachments }
+            .flatMap { $0 }
+        if !imageAttachments.isEmpty {
+            let paths = imageAttachments.map { $0.diskPath.path }
+            attachmentContext = "\n\n[사용자 첨부 이미지 — 이미 제공됨]\n" + paths.joined(separator: "\n") +
+                "\n(이미지가 이미 제공되었으므로, 사용자에게 다시 요청하지 마세요. 바로 작업하세요.)"
+        } else {
+            attachmentContext = ""
+        }
+
         let planMessages: [(role: String, content: String)] = [
-            ("user", "브리핑:\n\(briefingContext)\(artifactContext)\(playbookContext)\n\n실행 계획을 JSON으로 작성해주세요. 작업: \(task)")
+            ("user", "브리핑:\n\(briefingContext)\(artifactContext)\(playbookContext)\(attachmentContext)\n\n실행 계획을 JSON으로 작성해주세요. 작업: \(task)")
         ]
 
         do {
@@ -1323,12 +1336,24 @@ class RoomManager: ObservableObject {
 
         let room = rooms.first(where: { $0.id == roomID })
 
-        // 브리핑 기반 컨텍스트 (압축) + 최근 메시지만
+        // 브리핑 기반 컨텍스트 (압축) + 최근 메시지 + 첫 사용자 메시지(이미지 포함) 보장
         var history: [ConversationMessage] = []
         if let briefing = room?.briefing {
             history.append(ConversationMessage.user("작업 브리핑:\n\(briefing.asContextString())"))
         }
-        history.append(contentsOf: buildRoomHistory(roomID: roomID, limit: 5))
+
+        // 첫 사용자 메시지(이미지 첨부 포함)를 항상 포함
+        let recentHistory = buildRoomHistory(roomID: roomID, limit: 5)
+        if let room = room,
+           let firstUserMsg = room.messages.first(where: { $0.role == .user && $0.messageType == .text }),
+           firstUserMsg.attachments != nil && !(firstUserMsg.attachments?.isEmpty ?? true),
+           !recentHistory.contains(where: { $0.attachments != nil && !($0.attachments?.isEmpty ?? true) }) {
+            history.append(ConversationMessage(
+                role: "user", content: firstUserMsg.content,
+                toolCalls: nil, toolCallID: nil, attachments: firstUserMsg.attachments
+            ))
+        }
+        history.append(contentsOf: recentHistory)
 
         // 산출물 컨텍스트 구성
         let artifactContext: String
