@@ -87,8 +87,9 @@ struct RoomChatView: View {
                         messageRow(message, in: room)
                     }
 
-                    // 작업 진행 중 타이핑 인디케이터
-                    if room.status == .planning || room.status == .inProgress {
+                    // 작업 진행 중 타이핑 인디케이터 (활성 진행 버블이 없을 때만)
+                    if (room.status == .planning || room.status == .inProgress),
+                       !hasActiveProgressBubble(room) {
                         TypingIndicator(room: room, agentStore: agentStore)
                             .id("typing-indicator")
                     }
@@ -140,6 +141,12 @@ struct RoomChatView: View {
         let progressMessages = room.messages.filter { $0.messageType == .progress }
         guard let lastProgress = progressMessages.last else { return false }
         return lastProgress.id == message.id
+    }
+
+    /// 현재 활성 상태인 진행 버블이 있는지
+    private func hasActiveProgressBubble(_ room: Room) -> Bool {
+        guard room.isActive else { return false }
+        return room.messages.contains { $0.messageType == .progress }
     }
 
     // MARK: - 방 헤더
