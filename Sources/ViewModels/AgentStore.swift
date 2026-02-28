@@ -124,8 +124,17 @@ class AgentStore: ObservableObject {
 
     private func loadAgents() {
         guard let data = defaults.data(forKey: saveKey),
-              let loaded = try? JSONDecoder().decode([Agent].self, from: data) else {
+              var loaded = try? JSONDecoder().decode([Agent].self, from: data) else {
             return
+        }
+        // 마이그레이션: "마스터" → "DOUGLAS" 리네이밍
+        for i in loaded.indices where loaded[i].isMaster && loaded[i].name == "마스터" {
+            let master = Agent.createMaster(
+                providerName: loaded[i].providerName,
+                modelName: loaded[i].modelName
+            )
+            loaded[i].name = master.name
+            loaded[i].persona = master.persona
         }
         agents = loaded
     }
