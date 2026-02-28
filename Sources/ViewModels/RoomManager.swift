@@ -507,8 +507,7 @@ class RoomManager: ObservableObject {
             case .clarify:
                 await executeClarifyPhase(roomID: roomID, task: task)
             case .assemble:
-                // 커밋 6에서 구현
-                break
+                await executeAssemblePhase(roomID: roomID, task: task)
             case .plan:
                 // 커밋 7에서 구현 — 현재는 레거시 plan+discussion 재사용
                 await executeLegacyPlanPhase(roomID: roomID, task: task)
@@ -718,6 +717,144 @@ class RoomManager: ObservableObject {
 
             return WorkflowAssumption(text: text, riskLevel: riskLevel)
         }
+    }
+
+    /// Assemble 단계: 분석가 역할 산출 → 시스템 매칭/초대 → 커버리지 게이트
+    private func executeAssemblePhase(roomID: UUID, task: String) async {
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }),
+              let firstAgentID = rooms[idx].assignedAgentIDs.first,
+              let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
+              let provider = providerManager?.provider(named: agent.providerName) else { return }
+
+        // 1) 분석가에게 역할 요구사항 산출 요청
+        var contextParts: [String] = []
+        if let intakeData = rooms[idx].intakeData {
+            contextParts.append(intakeData.asContextString())
+        }
+        if let assumptions = rooms[idx].assumptions, !assumptions.isEmpty {
+            contextParts.append("[가정]\n" + assumptions.map { "- \($0.text)" }.joined(separator: "\n"))
+        }
+
+        let assembleSystemPrompt = """
+        \(agent.persona)
+
+        당신은 Assemble(팀 구성) 단계를 수행하고 있습니다.
+        작업 수행에 필요한 역할을 분석하고 산출물로 제출하세요.
+
+        반드시 아래 형식으로 산출물을 생성하세요:
+
+        ```artifact:role_requirements title="역할 요구사항"
+        - [필수] 역할이름: 이 역할이 필요한 이유
+        - [선택] 역할이름: 이 역할이 필요한 이유
+        ```
+
+        역할 이름 예시: 백엔드 개발자, 프론트엔드 개발자, QA 테스트 자동화, DevOps 엔지니어, 기술 문서 작성자
+        """
+
+        let messages: [(role: String, content: String)] = [
+            ("user", "\(contextParts.joined(separator: "\n\n"))\n\n위 작업에 필요한 역할을 분석하세요. 작업: \(task)")
+        ]
+
+        do {
+            let response = try await provider.sendMessage(
+                model: agent.modelName,
+                systemPrompt: assembleSystemPrompt,
+                messages: messages
+            )
+
+            // 산출물 추출
+            let artifacts = ArtifactParser.extractArtifacts(from: response, producedBy: agent.name)
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].artifacts.append(contentsOf: artifacts)
+            }
+
+            // role_requirements 산출물에서 역할 파싱
+            var requirements: [RoleRequirement] = []
+            for artifact in artifacts where artifact.type == .roleRequirements {
+                requirements.append(contentsOf: AgentMatcher.parseRoleRequirements(from: artifact.content))
+            }
+
+            guard !requirements.isEmpty else {
+                let noReqMsg = ChatMessage(role: .system, content: "역할 요구사항이 감지되지 않았습니다. 기존 에이전트로 진행합니다.")
+                appendMessage(noReqMsg, to: roomID)
+                return
+            }
+
+            // 2) 시스템 매칭
+            let subAgents = agentStore?.subAgents ?? []
+            let matched = AgentMatcher.matchRoles(requirements: requirements, agents: subAgents)
+
+            // 3) 매칭된 에이전트 자동 초대
+            var invitedNames: [String] = []
+            for req in matched where req.status == .matched {
+                if let agentID = req.matchedAgentID,
+                   let room = rooms.first(where: { $0.id == roomID }),
+                   !room.assignedAgentIDs.contains(agentID) {
+                    addAgent(agentID, to: roomID)
+                    if let name = agentStore?.agents.first(where: { $0.id == agentID })?.name {
+                        invitedNames.append("\(name) ← \(req.roleName)")
+                    }
+                }
+            }
+
+            // 4) 매칭 안 된 역할은 에이전트 생성 제안
+            for req in matched where req.status == .unmatched {
+                let suggestion = RoomAgentSuggestion(
+                    name: req.roleName,
+                    persona: "이 에이전트는 '\(req.roleName)' 역할을 수행합니다. \(req.reason)",
+                    reason: req.reason,
+                    suggestedBy: agent.name
+                )
+                addAgentSuggestion(suggestion, to: roomID)
+            }
+
+            // 5) 매칭 결과 메시지
+            let matchedCount = matched.filter { $0.status == .matched }.count
+            let unmatchedCount = matched.filter { $0.status == .unmatched }.count
+            let coverage = AgentMatcher.coverageRatio(matched)
+
+            var resultParts: [String] = ["팀 구성 결과:"]
+            resultParts.append("- 매칭: \(matchedCount)명, 미매칭: \(unmatchedCount)명")
+            resultParts.append("- 커버리지: \(Int(coverage * 100))%")
+            if !invitedNames.isEmpty {
+                resultParts.append("- 초대됨: \(invitedNames.joined(separator: ", "))")
+            }
+
+            let resultMsg = ChatMessage(role: .system, content: resultParts.joined(separator: "\n"))
+            appendMessage(resultMsg, to: roomID)
+
+            // 6) 커버리지 게이트
+            if !AgentMatcher.checkMinimumCoverage(matched) {
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.awaitingUserInput)
+                }
+                let gateMsg = ChatMessage(
+                    role: .system,
+                    content: "필수 역할 커버리지가 50% 미만입니다. 에이전트 생성 제안을 검토하거나, 현재 구성으로 계속하시겠습니까?",
+                    messageType: .userQuestion
+                )
+                appendMessage(gateMsg, to: roomID)
+                scheduleSave()
+
+                // 사용자 답변 대기
+                let _ = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+                    userInputContinuations[roomID] = continuation
+                }
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.planning)
+                }
+            }
+
+        } catch {
+            let errorMsg = ChatMessage(
+                role: .assistant,
+                content: "Assemble 단계 오류: \(error.localizedDescription)",
+                agentName: agent.name,
+                messageType: .error
+            )
+            appendMessage(errorMsg, to: roomID)
+        }
+        scheduleSave()
     }
 
     /// 레거시 Plan 단계 재사용 (토론 + 브리핑 + 승인 + 계획)
