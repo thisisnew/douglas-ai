@@ -1372,12 +1372,13 @@ class RoomManager: ObservableObject {
         방 내 전문가: \(specialistNames)
 
         규칙:
-        - 토론에서 합의된 방향을 반영하세요
+        - 단계를 최소화하세요. 한 번에 할 수 있는 작업은 한 단계로 묶으세요.
+        - 번역, 요약, 분석 등 단일 작업은 반드시 1단계로 작성하세요.
+        - 여러 단계로 쪼개야 하는 경우는 "서로 다른 전문가가 순서대로" 작업할 때뿐입니다.
         - estimated_minutes는 현실적으로 추정하세요 (1~30분)
         - 각 step에 "agent" 필드로 담당 전문가를 지정하세요 (위 목록에서 정확한 이름 사용)
         - 분석가(요구사항 분석가)는 실행 대상이 아닙니다. 분석가에게 step을 배정하지 마세요.
         - 배포, 데이터 삭제 등 위험한 단계는 "requires_approval": true 추가
-        - 프로젝트 플레이북이 있다면 브랜치 전략, 테스트 정책 등을 반영하세요
         - 반드시 유효한 JSON으로만 응답하세요
         """
 
@@ -1634,7 +1635,7 @@ class RoomManager: ObservableObject {
             // 연속 응답 유사도 감지: 에이전트가 같은 응답을 반복하면 중단
             if let currentRoom = rooms.first(where: { $0.id == roomID }) {
                 let latestResponse = currentRoom.messages
-                    .last(where: { $0.role == .assistant && $0.messageType == .text })?
+                    .last(where: { $0.role == .assistant && ($0.messageType == .text || $0.messageType == .toolActivity) })?
                     .content ?? ""
                 if let prev = previousStepResponse, !prev.isEmpty, !latestResponse.isEmpty {
                     let similarity = Self.wordOverlapSimilarity(prev, latestResponse)
@@ -1754,12 +1755,25 @@ class RoomManager: ObservableObject {
             artifactContext = ""
         }
 
-        let stepPrompt = """
-        [작업 \(stepIndex + 1)/\(totalSteps)] \(step)
-        \(artifactContext)
+        let isLastStep = stepIndex == totalSteps - 1
+        let stepPrompt: String
+        if isLastStep || totalSteps == 1 {
+            stepPrompt = """
+            [작업 \(stepIndex + 1)/\(totalSteps)] \(step)
+            \(artifactContext)
 
-        이 단계의 결과만 간결하게 보고하세요. 과정 설명 불필요. 핵심 결과 + 다음 단계에 필요한 사항만.
-        """
+            이것이 최종 단계입니다. 사용자에게 전달할 완성된 결과물을 직접 작성하세요.
+            과정 설명이나 단계 번호 없이, 결과물만 깔끔하게 출력하세요.
+            """
+        } else {
+            stepPrompt = """
+            [작업 \(stepIndex + 1)/\(totalSteps)] \(step)
+            \(artifactContext)
+
+            중간 단계입니다. 다음 단계에 필요한 핵심 데이터만 간결하게 출력하세요 (3줄 이내).
+            전체 결과물은 마지막 단계에서 작성합니다.
+            """
+        }
 
         do {
             agentStore?.updateStatus(agentID: agentID, status: .working)
@@ -1779,8 +1793,14 @@ class RoomManager: ObservableObject {
                 speakingAgentIDByRoom.removeValue(forKey: roomID)
             }
 
-            let reply = ChatMessage(role: .assistant, content: response, agentName: agent.name)
-            appendMessage(reply, to: roomID)
+            // 중간 단계는 toolActivity(접힘), 마지막 단계만 일반 메시지로 표시
+            if isLastStep || totalSteps == 1 {
+                let reply = ChatMessage(role: .assistant, content: response, agentName: agent.name)
+                appendMessage(reply, to: roomID)
+            } else {
+                let reply = ChatMessage(role: .assistant, content: response, agentName: agent.name, messageType: .toolActivity)
+                appendMessage(reply, to: roomID)
+            }
             return true
         } catch {
             if speakingAgentIDByRoom[roomID] == agentID {
