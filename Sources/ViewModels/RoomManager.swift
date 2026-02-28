@@ -112,6 +112,10 @@ class RoomManager: ObservableObject {
         guard let cont = approvalContinuations.removeValue(forKey: roomID) else { return }
         let msg = ChatMessage(role: .user, content: "거부")
         appendMessage(msg, to: roomID)
+        // 즉시 planning으로 전환하여 승인 카드 숨김
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].transitionTo(.planning)
+        }
         cont.resume(returning: false)
     }
 
@@ -455,7 +459,7 @@ class RoomManager: ObservableObject {
                         rooms[i].transitionTo(.planning)
                     }
 
-                    // 사용자 피드백으로 재분석
+                    // 사용자 피드백으로 재분석 (이미지 없이 텍스트만)
                     let retryPrompt = """
                     당신은 요청 분류기입니다. 이전 분석이 거부되었습니다.
 
@@ -470,18 +474,23 @@ class RoomManager: ObservableObject {
                     - 전문가: (필요한 역할명)
                     - 범위: (작업량)
 
-                    [절대 금지] 번역, 코딩, 문서 작성 등 실제 작업 수행
+                    [절대 금지] 번역, 코딩, 문서 작성, 요약 등 실제 작업 수행
+                    [절대 금지] 이미지 내용을 직접 번역하거나 분석 결과를 작성
+                    3줄 외 다른 출력 금지.
                     """
 
                     let retryMsg = ChatMessage(role: .system, content: "피드백을 반영하여 재분석하는 중...")
                     appendMessage(retryMsg, to: roomID)
 
                     do {
-                        let retryHistory = buildRoomHistory(roomID: roomID)
+                        // 이미지 없이 텍스트만 전달 (분석가가 작업 수행 방지)
+                        let retryMessages = [
+                            ConversationMessage.user("이전 분석:\n\(currentAnalysis)\n\n사용자 피드백:\n\(userFeedback)")
+                        ]
                         let retryResponse = try await provider.sendMessageWithTools(
                             model: analyst.modelName,
                             systemPrompt: retryPrompt,
-                            messages: retryHistory,
+                            messages: retryMessages,
                             tools: []
                         )
                         switch retryResponse {
