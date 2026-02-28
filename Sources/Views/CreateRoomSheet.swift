@@ -9,7 +9,7 @@ struct CreateRoomSheet: View {
     @State private var title = ""
     @State private var task = ""
     @State private var selectedAgentIDs: Set<UUID> = []
-    @State private var projectPath: String?
+    @State private var projectPaths: [String] = []
     @State private var buildCommand = ""
     @State private var testCommand = ""
 
@@ -32,150 +32,200 @@ struct CreateRoomSheet: View {
 
             ScrollView {
                 VStack(spacing: 24) {
-                    // 방 제목
-                    VStack(alignment: .leading, spacing: 6) {
-                        sectionLabel("방 제목")
-                        TextField("예: 블로그 글 작성", text: $title)
-                            .textFieldStyle(.plain)
-                            .font(.body)
-                            .padding(10)
-                            .background(DesignTokens.Colors.inputBackground)
-                            .continuousRadius(DesignTokens.Radius.lg)
-                    }
-
-                    // 에이전트 선택
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            sectionLabel("에이전트")
-                            Spacer()
-                            if !selectedAgentIDs.isEmpty {
-                                Text("\(selectedAgentIDs.count)명")
-                                    .font(.caption)
-                                    .foregroundColor(.accentColor)
-                            }
-                        }
-
-                        if availableAgents.isEmpty {
-                            HStack {
-                                Spacer()
-                                VStack(spacing: 4) {
-                                    Image(systemName: "person.badge.plus")
-                                        .font(.title3)
-                                        .foregroundColor(.secondary.opacity(0.5))
-                                    Text("에이전트를 먼저 추가하세요")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                                .padding(.vertical, 16)
-                                Spacer()
-                            }
-                            .background(DesignTokens.Colors.surfaceTertiary)
-                            .continuousRadius(DesignTokens.Radius.lg)
-                        } else {
-                            VStack(spacing: 0) {
-                                ForEach(Array(availableAgents.enumerated()), id: \.element.id) { index, agent in
-                                    if index > 0 {
-                                        Divider().padding(.leading, 48)
-                                    }
-                                    agentRow(agent)
-                                }
-                            }
-                            .background(DesignTokens.Colors.inputBackground)
-                            .continuousRadius(DesignTokens.Radius.lg)
-                        }
-                    }
-
-                    // 작업 내용
-                    VStack(alignment: .leading, spacing: 6) {
-                        sectionLabel("작업 내용")
-                        TextEditor(text: $task)
-                            .font(.body)
-                            .scrollContentBackground(.hidden)
-                            .frame(minHeight: 80, maxHeight: 120)
-                            .padding(8)
-                            .background(DesignTokens.Colors.inputBackground)
-                            .continuousRadius(DesignTokens.Radius.lg)
-                        Text("에이전트들이 먼저 토론한 후, 계획을 세우고 작업을 진행합니다.")
-                            .font(.caption2)
-                            .foregroundColor(.secondary.opacity(0.6))
-                    }
-
-                    // 프로젝트 디렉토리 (선택)
-                    VStack(alignment: .leading, spacing: 6) {
-                        sectionLabel("프로젝트 디렉토리 (선택)")
-                        HStack {
-                            if let path = projectPath {
-                                Image(systemName: "folder.fill")
-                                    .foregroundColor(.accentColor)
-                                    .font(.caption)
-                                Text((path as NSString).lastPathComponent)
-                                    .font(.callout)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                Spacer()
-                                Button("변경") { pickProjectDirectory() }
-                                    .font(.caption)
-                                Button {
-                                    projectPath = nil
-                                    buildCommand = ""
-                                    testCommand = ""
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(.secondary)
-                                        .font(.caption)
-                                }
-                                .buttonStyle(.plain)
-                            } else {
-                                Button {
-                                    pickProjectDirectory()
-                                } label: {
-                                    HStack {
-                                        Image(systemName: "folder.badge.plus")
-                                        Text("디렉토리 선택")
-                                    }
-                                    .font(.callout)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(8)
-                                    .background(DesignTokens.Colors.inputBackground)
-                                    .continuousRadius(DesignTokens.Radius.lg)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-
-                        if projectPath != nil {
-                            HStack(spacing: 6) {
-                                Image(systemName: "hammer")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                                TextField("빌드 명령 (예: swift build)", text: $buildCommand)
-                                    .textFieldStyle(.plain)
-                                    .font(.callout)
-                                    .padding(6)
-                                    .background(DesignTokens.Colors.inputBackground)
-                                    .continuousRadius(DesignTokens.Radius.md)
-                            }
-                            HStack(spacing: 6) {
-                                Image(systemName: "checkmark.shield")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                                TextField("테스트 명령 (예: swift test)", text: $testCommand)
-                                    .textFieldStyle(.plain)
-                                    .font(.callout)
-                                    .padding(6)
-                                    .background(DesignTokens.Colors.inputBackground)
-                                    .continuousRadius(DesignTokens.Radius.md)
-                            }
-                            Text("빌드/테스트 명령이 있으면 각 단계 후 자동 빌드→테스트→수정 루프를 실행합니다.")
-                                .font(.caption2)
-                                .foregroundColor(.secondary.opacity(0.6))
-                        }
-                    }
+                    titleSection
+                    agentSection
+                    taskSection
+                    projectSection
                 }
                 .padding(24)
             }
         }
         .frame(width: DesignTokens.WindowSize.createRoomSheet.width, height: DesignTokens.WindowSize.createRoomSheet.height)
+    }
+
+    // MARK: - Sections
+
+    private var titleSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionLabel("방 제목")
+            TextField("예: 블로그 글 작성", text: $title)
+                .textFieldStyle(.plain)
+                .font(.body)
+                .padding(10)
+                .background(DesignTokens.Colors.inputBackground)
+                .continuousRadius(DesignTokens.Radius.lg)
+        }
+    }
+
+    private var agentSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                sectionLabel("에이전트")
+                Spacer()
+                if !selectedAgentIDs.isEmpty {
+                    Text("\(selectedAgentIDs.count)명")
+                        .font(.caption)
+                        .foregroundColor(.accentColor)
+                }
+            }
+
+            if availableAgents.isEmpty {
+                HStack {
+                    Spacer()
+                    VStack(spacing: 4) {
+                        Image(systemName: "person.badge.plus")
+                            .font(.title3)
+                            .foregroundColor(.secondary.opacity(0.5))
+                        Text("에이전트를 먼저 추가하세요")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 16)
+                    Spacer()
+                }
+                .background(DesignTokens.Colors.surfaceTertiary)
+                .continuousRadius(DesignTokens.Radius.lg)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(availableAgents.enumerated()), id: \.element.id) { index, agent in
+                        if index > 0 {
+                            Divider().padding(.leading, 48)
+                        }
+                        agentRow(agent)
+                    }
+                }
+                .background(DesignTokens.Colors.inputBackground)
+                .continuousRadius(DesignTokens.Radius.lg)
+            }
+        }
+    }
+
+    private var taskSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionLabel("작업 내용")
+            TextEditor(text: $task)
+                .font(.body)
+                .scrollContentBackground(.hidden)
+                .frame(minHeight: 80, maxHeight: 120)
+                .padding(8)
+                .background(DesignTokens.Colors.inputBackground)
+                .continuousRadius(DesignTokens.Radius.lg)
+            Text("에이전트들이 먼저 토론한 후, 계획을 세우고 작업을 진행합니다.")
+                .font(.caption2)
+                .foregroundColor(.secondary.opacity(0.6))
+        }
+    }
+
+    @ViewBuilder
+    private var projectSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionLabel("프로젝트 디렉토리 (선택)")
+
+            if !projectPaths.isEmpty {
+                projectPathList
+            }
+
+            Button {
+                pickProjectDirectories()
+            } label: {
+                HStack {
+                    Image(systemName: "folder.badge.plus")
+                    Text(projectPaths.isEmpty ? "디렉토리 선택" : "디렉토리 추가")
+                }
+                .font(.callout)
+                .frame(maxWidth: .infinity)
+                .padding(8)
+                .background(DesignTokens.Colors.inputBackground)
+                .continuousRadius(DesignTokens.Radius.lg)
+            }
+            .buttonStyle(.plain)
+
+            if !projectPaths.isEmpty {
+                buildTestFields
+            }
+        }
+    }
+
+    private var projectPathList: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(projectPaths.enumerated()), id: \.offset) { index, path in
+                projectPathRow(index: index, path: path)
+                if index < projectPaths.count - 1 {
+                    Divider().padding(.leading, 30)
+                }
+            }
+        }
+        .background(DesignTokens.Colors.inputBackground)
+        .continuousRadius(DesignTokens.Radius.lg)
+    }
+
+    private func projectPathRow(index: Int, path: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: index == 0 ? "folder.fill" : "folder")
+                .foregroundColor(index == 0 ? .accentColor : .secondary)
+                .font(.caption)
+            Text((path as NSString).lastPathComponent)
+                .font(.callout)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if index == 0 {
+                Text("주")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(.accentColor)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Color.accentColor.opacity(0.1))
+                    .continuousRadius(DesignTokens.Radius.sm)
+            }
+            Spacer()
+            Button {
+                projectPaths.remove(at: index)
+                if projectPaths.isEmpty {
+                    buildCommand = ""
+                    testCommand = ""
+                } else if index == 0, let first = projectPaths.first {
+                    if buildCommand.isEmpty { buildCommand = detectBuildCommand(at: first) }
+                    if testCommand.isEmpty { testCommand = detectTestCommand(at: first) }
+                }
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundColor(.secondary)
+                    .font(.caption)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    }
+
+    private var buildTestFields: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "hammer")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                TextField("빌드 명령 (예: swift build)", text: $buildCommand)
+                    .textFieldStyle(.plain)
+                    .font(.callout)
+                    .padding(6)
+                    .background(DesignTokens.Colors.inputBackground)
+                    .continuousRadius(DesignTokens.Radius.md)
+            }
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.shield")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                TextField("테스트 명령 (예: swift test)", text: $testCommand)
+                    .textFieldStyle(.plain)
+                    .font(.callout)
+                    .padding(6)
+                    .background(DesignTokens.Colors.inputBackground)
+                    .continuousRadius(DesignTokens.Radius.md)
+            }
+            Text("빌드/테스트 명령은 첫 번째(주) 디렉토리에서 실행됩니다.")
+                .font(.caption2)
+                .foregroundColor(.secondary.opacity(0.6))
+        }
     }
 
     // MARK: - Components
@@ -253,7 +303,7 @@ struct CreateRoomSheet: View {
             title: trimmedTitle,
             agentIDs: Array(selectedAgentIDs),
             task: trimmedTask,
-            projectPath: projectPath,
+            projectPaths: projectPaths,
             buildCommand: trimmedBuild.isEmpty ? nil : trimmedBuild,
             testCommand: trimmedTest.isEmpty ? nil : trimmedTest
         )
@@ -261,21 +311,25 @@ struct CreateRoomSheet: View {
         NSApp.keyWindow?.close()
     }
 
-    private func pickProjectDirectory() {
+    private func pickProjectDirectories() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.message = "프로젝트 디렉토리를 선택하세요"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        projectPath = url.path
+        panel.allowsMultipleSelection = true
+        panel.message = "프로젝트 디렉토리를 선택하세요 (여러 개 가능)"
+        guard panel.runModal() == .OK else { return }
 
-        // 빌드/테스트 명령 자동 감지
-        if buildCommand.isEmpty {
-            buildCommand = detectBuildCommand(at: url.path)
-        }
-        if testCommand.isEmpty {
-            testCommand = detectTestCommand(at: url.path)
+        let newPaths = panel.urls.map(\.path).filter { !projectPaths.contains($0) }
+        projectPaths.append(contentsOf: newPaths)
+
+        // 첫 번째 경로 기준 빌드/테스트 명령 자동 감지
+        if let first = projectPaths.first {
+            if buildCommand.isEmpty {
+                buildCommand = detectBuildCommand(at: first)
+            }
+            if testCommand.isEmpty {
+                testCommand = detectTestCommand(at: first)
+            }
         }
     }
 

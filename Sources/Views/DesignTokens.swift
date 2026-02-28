@@ -163,6 +163,7 @@ enum DesignTokens {
             case .planning:          return .purple
             case .inProgress:        return .orange
             case .awaitingApproval:  return .yellow
+            case .awaitingUserInput: return .cyan
             case .completed:         return .green
             case .failed:            return .red
             }
@@ -173,6 +174,7 @@ enum DesignTokens {
             case .planning:          return "계획 중"
             case .inProgress:        return "진행중"
             case .awaitingApproval:  return "승인 대기"
+            case .awaitingUserInput: return "입력 대기"
             case .completed:         return "완료"
             case .failed:            return "실패"
             }
@@ -195,6 +197,9 @@ enum DesignTokens {
             case .buildStatus:     return .orange
             case .qaStatus:        return .teal
             case .approvalRequest: return .yellow
+            case .userQuestion:    return .cyan
+            case .phaseTransition: return .purple
+            case .assumption:      return .orange
             }
         }
 

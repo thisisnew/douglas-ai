@@ -17,6 +17,8 @@ class RoomManager: ObservableObject {
     private var roomTasks: [UUID: Task<Void, Never>] = [:]
     /// 승인 게이트 대기 중인 continuation (방 ID → continuation)
     private var approvalContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
+    /// 사용자 입력 대기 중인 continuation (방 ID → continuation)
+    private var userInputContinuations: [UUID: CheckedContinuation<String, Never>] = [:]
 
     // MARK: - 계산 프로퍼티
 
@@ -45,14 +47,14 @@ class RoomManager: ObservableObject {
 
     /// 마스터 위임 또는 사용자가 방 생성
     @discardableResult
-    func createRoom(title: String, agentIDs: [UUID], createdBy: RoomCreator, mode: RoomMode = .task, maxDiscussionRounds: Int = 3, projectPath: String? = nil, buildCommand: String? = nil, testCommand: String? = nil) -> Room {
+    func createRoom(title: String, agentIDs: [UUID], createdBy: RoomCreator, mode: RoomMode = .task, maxDiscussionRounds: Int = 3, projectPaths: [String] = [], buildCommand: String? = nil, testCommand: String? = nil) -> Room {
         let room = Room(
             title: title,
             assignedAgentIDs: agentIDs,
             createdBy: createdBy,
             mode: mode,
             maxDiscussionRounds: maxDiscussionRounds,
-            projectPath: projectPath,
+            projectPaths: projectPaths,
             buildCommand: buildCommand,
             testCommand: testCommand
         )
@@ -64,8 +66,8 @@ class RoomManager: ObservableObject {
     }
 
     /// 사용자 수동 방 생성 + 바로 작업 시작
-    func createManualRoom(title: String, agentIDs: [UUID], task: String, projectPath: String? = nil, buildCommand: String? = nil, testCommand: String? = nil) {
-        let room = createRoom(title: title, agentIDs: agentIDs, createdBy: .user, projectPath: projectPath, buildCommand: buildCommand, testCommand: testCommand)
+    func createManualRoom(title: String, agentIDs: [UUID], task: String, projectPaths: [String] = [], buildCommand: String? = nil, testCommand: String? = nil) {
+        let room = createRoom(title: title, agentIDs: agentIDs, createdBy: .user, projectPaths: projectPaths, buildCommand: buildCommand, testCommand: testCommand)
 
         // 사용자 메시지 추가
         let userMsg = ChatMessage(role: .user, content: task)
@@ -108,6 +110,22 @@ class RoomManager: ObservableObject {
         let msg = ChatMessage(role: .user, content: "거부")
         appendMessage(msg, to: roomID)
         cont.resume(returning: false)
+    }
+
+    // MARK: - 사용자 입력 게이트
+
+    /// ask_user 도구에 대한 사용자 답변 제출
+    func answerUserQuestion(roomID: UUID, answer: String) {
+        guard let cont = userInputContinuations.removeValue(forKey: roomID) else { return }
+        let msg = ChatMessage(role: .user, content: answer)
+        appendMessage(msg, to: roomID)
+        // userAnswers에 저장 (질문은 메시지에서 역추적)
+        if let idx = rooms.firstIndex(where: { $0.id == roomID }) {
+            let userAnswer = UserAnswer(question: "", answer: answer)
+            if rooms[idx].userAnswers == nil { rooms[idx].userAnswers = [] }
+            rooms[idx].userAnswers?.append(userAnswer)
+        }
+        cont.resume(returning: answer)
     }
 
     /// 사용자가 방에 메시지 보내기
@@ -177,10 +195,41 @@ class RoomManager: ObservableObject {
                     return true
                 }
             },
-            projectPath: room?.projectPath,
+            projectPaths: room?.projectPaths ?? [],
             currentAgentID: currentAgentID,
             currentAgentName: currentAgentName,
-            fileWriteTracker: fileWriteTracker
+            fileWriteTracker: fileWriteTracker,
+            askUser: { @Sendable [weak self] (question: String, context: String?, options: [String]?) -> String in
+                // 1) 질문 메시지 추가 + 상태 전이 (MainActor)
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    var content = question
+                    if let ctx = context { content += "\n\n배경: \(ctx)" }
+                    if let opts = options, !opts.isEmpty {
+                        content += "\n\n선택지:\n" + opts.enumerated().map { "  \($0.offset + 1). \($0.element)" }.joined(separator: "\n")
+                    }
+                    let msg = ChatMessage(role: .assistant, content: content, agentName: currentAgentName, messageType: .userQuestion)
+                    self.appendMessage(msg, to: roomID)
+                    if let idx = self.rooms.firstIndex(where: { $0.id == roomID }) {
+                        self.rooms[idx].transitionTo(.awaitingUserInput)
+                    }
+                    self.scheduleSave()
+                }
+                // 2) 사용자 답변 대기 (continuation)
+                let answer: String = await withCheckedContinuation { continuation in
+                    Task { @MainActor [weak self] in
+                        self?.userInputContinuations[roomID] = continuation
+                    }
+                }
+                // 3) 상태 복귀 (MainActor)
+                await MainActor.run { [weak self] in
+                    if let self, let idx = self.rooms.firstIndex(where: { $0.id == roomID }) {
+                        self.rooms[idx].transitionTo(.planning)
+                    }
+                }
+                return answer
+            },
+            currentPhase: room?.currentPhase
         )
     }
 
@@ -297,8 +346,18 @@ class RoomManager: ObservableObject {
         }
     }
 
-    /// 통합 워크플로우: 자동 초대 → 토론 → 승인 → 계획 → 실행
+    /// 워크플로우 진입점: intent 유무에 따라 새/레거시 분기
     func startRoomWorkflow(roomID: UUID, task: String) async {
+        guard let room = rooms.first(where: { $0.id == roomID }) else { return }
+        guard room.intent != nil else {
+            await legacyStartRoomWorkflow(roomID: roomID, task: task)
+            return
+        }
+        await executePhaseWorkflow(roomID: roomID, task: task)
+    }
+
+    /// 레거시 워크플로우: 자동 초대 → 토론 → 승인 → 계획 → 실행
+    private func legacyStartRoomWorkflow(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
         rooms[idx].status = .planning
@@ -399,6 +458,285 @@ class RoomManager: ObservableObject {
 
         // ── Phase 3: 단계별 실행 ──
         await executeRoomWork(roomID: roomID, task: task)
+    }
+
+    // MARK: - Phase 워크플로우 (새 7단계)
+
+    /// 새 워크플로우: intent.requiredPhases 순회 디스패치
+    private func executePhaseWorkflow(roomID: UUID, task: String) async {
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }),
+              let intent = rooms[idx].intent else { return }
+
+        rooms[idx].status = .planning
+        syncAgentStatuses()
+
+        let phases = intent.requiredPhases
+
+        let phaseStartMsg = ChatMessage(
+            role: .system,
+            content: "[\(intent.displayName)] 워크플로우를 시작합니다. 단계: \(phases.map { $0.displayName }.joined(separator: " → "))",
+            messageType: .phaseTransition
+        )
+        appendMessage(phaseStartMsg, to: roomID)
+
+        for phase in phases {
+            guard !Task.isCancelled,
+                  let currentRoom = rooms.first(where: { $0.id == roomID }),
+                  currentRoom.isActive else { break }
+
+            // 현재 단계 기록
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].currentPhase = phase
+            }
+            scheduleSave()
+
+            let transitionMsg = ChatMessage(
+                role: .system,
+                content: "── \(phase.displayName) 단계 ──",
+                messageType: .phaseTransition
+            )
+            appendMessage(transitionMsg, to: roomID)
+
+            switch phase {
+            case .intake:
+                await executeIntakePhase(roomID: roomID, task: task)
+            case .intent:
+                // Intent는 이미 결정됨 (방 생성 시 설정)
+                break
+            case .clarify:
+                // 커밋 5에서 구현
+                break
+            case .assemble:
+                // 커밋 6에서 구현
+                break
+            case .plan:
+                // 커밋 7에서 구현 — 현재는 레거시 plan+discussion 재사용
+                await executeLegacyPlanPhase(roomID: roomID, task: task)
+            case .execute:
+                // 커밋 7에서 구현 — 현재는 레거시 executeRoomWork 재사용
+                await executeLegacyExecutePhase(roomID: roomID, task: task)
+            case .review:
+                // 커밋 7에서 구현
+                await generateWorkLog(roomID: roomID, task: task)
+            }
+        }
+
+        // 워크플로우 완료
+        if let i = rooms.firstIndex(where: { $0.id == roomID }),
+           rooms[i].status != .failed {
+            rooms[i].currentPhase = nil
+            rooms[i].status = .completed
+            rooms[i].completedAt = Date()
+        }
+        syncAgentStatuses()
+        scheduleSave()
+    }
+
+    /// Intake 단계: 입력 파싱, Jira fetch, IntakeData 저장, 플레이북 로드
+    private func executeIntakePhase(roomID: UUID, task: String) async {
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
+
+        // 1) URL 감지
+        let urls = extractURLs(from: task)
+
+        // 2) Jira URL 감지 + fetch
+        let jiraConfig = JiraConfig.shared
+        var sourceType: InputSourceType = .text
+        var jiraKey: String?
+        var jiraData: JiraTicketSummary?
+
+        if jiraConfig.isConfigured, jiraConfig.isJiraURL(task) {
+            sourceType = .jira
+            // Jira 키 추출 (PROJ-123 패턴)
+            if let keyRange = task.range(of: "[A-Z][A-Z0-9]+-\\d+", options: .regularExpression) {
+                jiraKey = String(task[keyRange])
+            }
+            // Jira API fetch
+            jiraData = await fetchJiraTicketSummary(from: task)
+        } else if !urls.isEmpty {
+            sourceType = .url
+        }
+
+        // 3) IntakeData 저장
+        let intakeData = IntakeData(
+            sourceType: sourceType,
+            rawInput: task,
+            jiraKey: jiraKey,
+            jiraData: jiraData,
+            urls: urls
+        )
+        rooms[idx].intakeData = intakeData
+
+        // 4) 플레이북 로드
+        if let projectPath = rooms[idx].primaryProjectPath {
+            if let playbook = PlaybookManager.load(from: projectPath) {
+                rooms[idx].playbook = playbook
+                let playbookMsg = ChatMessage(
+                    role: .system,
+                    content: "프로젝트 플레이북을 로드했습니다: \(playbook.userRole?.displayName ?? "역할 미설정")"
+                )
+                appendMessage(playbookMsg, to: roomID)
+            }
+        }
+
+        // 5) 요약 메시지
+        let summaryMsg = ChatMessage(
+            role: .system,
+            content: intakeData.asContextString()
+        )
+        appendMessage(summaryMsg, to: roomID)
+        scheduleSave()
+    }
+
+    /// 레거시 Plan 단계 재사용 (토론 + 브리핑 + 승인 + 계획)
+    private func executeLegacyPlanPhase(roomID: UUID, task: String) async {
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
+
+        // 분석가 방이면 관련 에이전트 자동 초대
+        autoInviteForAnalyst(roomID: roomID)
+
+        let agentCount = rooms[idx].assignedAgentIDs.count
+
+        // 토론 (2명 이상)
+        if agentCount > 1 {
+            await executeDiscussion(roomID: roomID, topic: task)
+            guard !Task.isCancelled,
+                  rooms.first(where: { $0.id == roomID })?.status == .planning else { return }
+
+            await generateBriefing(roomID: roomID, topic: task)
+            guard !Task.isCancelled else { return }
+
+            // 토론 후 사용자 승인
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.awaitingApproval)
+            }
+            let briefingSummary = rooms.first(where: { $0.id == roomID })?.briefing?.summary ?? "토론 결과"
+            let approvalMsg = ChatMessage(
+                role: .system,
+                content: "토론이 완료되었습니다.\n\n\(briefingSummary)\n\n이대로 진행하시겠습니까?",
+                messageType: .approvalRequest
+            )
+            appendMessage(approvalMsg, to: roomID)
+            scheduleSave()
+
+            let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                approvalContinuations[roomID] = continuation
+            }
+            approvalContinuations.removeValue(forKey: roomID)
+            guard !Task.isCancelled else { return }
+
+            if !approved {
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.failed)
+                    rooms[i].completedAt = Date()
+                }
+                let rejectMsg = ChatMessage(role: .system, content: "사용자가 실행을 거부했습니다.")
+                appendMessage(rejectMsg, to: roomID)
+                syncAgentStatuses()
+                scheduleSave()
+                return
+            }
+
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.planning)
+            }
+        }
+
+        // 계획 수립
+        let planResult = await requestPlan(roomID: roomID, task: task)
+        guard !Task.isCancelled else { return }
+
+        if let plan = planResult {
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].plan = plan
+            }
+        }
+        scheduleSave()
+    }
+
+    /// 레거시 Execute 단계 재사용
+    private func executeLegacyExecutePhase(roomID: UUID, task: String) async {
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
+
+        // 계획이 없으면 기본 계획 생성
+        if rooms[idx].plan == nil {
+            rooms[idx].plan = RoomPlan(summary: task, estimatedSeconds: 300, steps: [RoomStep(text: task)])
+        }
+
+        rooms[idx].timerDurationSeconds = rooms[idx].plan?.estimatedSeconds ?? 300
+        rooms[idx].timerStartedAt = Date()
+        rooms[idx].transitionTo(.inProgress)
+        scheduleSave()
+
+        await executeRoomWork(roomID: roomID, task: task)
+    }
+
+    // MARK: - Intake 헬퍼
+
+    /// 텍스트에서 URL 추출
+    private func extractURLs(from text: String) -> [String] {
+        let pattern = "https?://[^\\s]+"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+        return regex.matches(in: text, range: range).compactMap { match in
+            guard let r = Range(match.range, in: text) else { return nil }
+            return String(text[r])
+        }
+    }
+
+    /// Jira API에서 티켓 요약 fetch
+    private func fetchJiraTicketSummary(from task: String) async -> JiraTicketSummary? {
+        let jiraConfig = JiraConfig.shared
+
+        guard let urlRange = task.range(of: "https://[^\\s]+", options: .regularExpression),
+              let url = URL(string: String(task[urlRange])) else { return nil }
+
+        let apiURLString = jiraConfig.apiURL(from: url.absoluteString)
+        guard let apiURL = URL(string: apiURLString),
+              let auth = jiraConfig.authHeader() else { return nil }
+
+        var request = URLRequest(url: apiURL)
+        request.setValue(auth, forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 15
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(status) else { return nil }
+
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+
+            let fields = json["fields"] as? [String: Any] ?? [:]
+            let key = json["key"] as? String ?? ""
+            let summary = fields["summary"] as? String ?? ""
+            let issueType = (fields["issuetype"] as? [String: Any])?["name"] as? String ?? ""
+            let statusName = (fields["status"] as? [String: Any])?["name"] as? String ?? ""
+            let description = extractDescription(from: fields["description"])
+
+            return JiraTicketSummary(
+                key: key,
+                summary: summary,
+                issueType: issueType,
+                status: statusName,
+                description: description
+            )
+        } catch {
+            return nil
+        }
+    }
+
+    /// Jira ADF(Atlassian Document Format) 또는 일반 텍스트에서 설명 추출
+    private func extractDescription(from value: Any?) -> String {
+        if let text = value as? String { return text }
+        guard let adf = value as? [String: Any],
+              let content = adf["content"] as? [[String: Any]] else { return "" }
+        return content.compactMap { node -> String? in
+            guard let innerContent = node["content"] as? [[String: Any]] else { return nil }
+            return innerContent.compactMap { inner -> String? in
+                inner["text"] as? String
+            }.joined()
+        }.joined(separator: "\n")
     }
 
     /// 에이전트에게 계획 수립 요청

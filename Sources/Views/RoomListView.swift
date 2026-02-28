@@ -13,7 +13,7 @@ enum RoomFilter: String, CaseIterable {
     func matches(_ room: Room) -> Bool {
         switch self {
         case .all:       return true
-        case .active:    return room.status == .planning || room.status == .inProgress || room.status == .awaitingApproval
+        case .active:    return room.status == .planning || room.status == .inProgress || room.status == .awaitingApproval || room.status == .awaitingUserInput
         case .completed: return room.status == .completed
         case .failed:    return room.status == .failed
         }
@@ -501,6 +501,10 @@ struct RoomListItem: View {
         case .awaitingApproval:
             badgeView(text: DesignTokens.RoomStatusColor.label(for: .awaitingApproval),
                        color: DesignTokens.RoomStatusColor.color(for: .awaitingApproval))
+
+        case .awaitingUserInput:
+            badgeView(text: DesignTokens.RoomStatusColor.label(for: .awaitingUserInput),
+                       color: DesignTokens.RoomStatusColor.color(for: .awaitingUserInput))
 
         case .failed:
             badgeView(text: DesignTokens.RoomStatusColor.label(for: .failed),

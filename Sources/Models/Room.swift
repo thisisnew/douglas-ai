@@ -13,6 +13,7 @@ enum RoomStatus: String, Codable {
     case planning           // 에이전트가 계획 수립 중
     case inProgress         // 타이머 진행 중 (작업 중)
     case awaitingApproval   // 승인 대기 (Human-in-the-loop)
+    case awaitingUserInput  // 사용자 입력 대기 (ask_user 도구)
     case completed          // 작업 완료
     case failed             // 실패
 
@@ -23,12 +24,17 @@ enum RoomStatus: String, Codable {
              (.planning, .completed),
              (.planning, .failed),
              (.planning, .awaitingApproval),
+             (.planning, .awaitingUserInput),
              (.inProgress, .completed),
              (.inProgress, .failed),
              (.inProgress, .awaitingApproval),
+             (.inProgress, .awaitingUserInput),
              (.awaitingApproval, .inProgress),
              (.awaitingApproval, .planning),
-             (.awaitingApproval, .failed):
+             (.awaitingApproval, .failed),
+             (.awaitingUserInput, .planning),
+             (.awaitingUserInput, .inProgress),
+             (.awaitingUserInput, .failed):
             return true
         default:
             return false
@@ -234,7 +240,7 @@ struct Room: Identifiable, Codable {
     // 토론 브리핑 (컨텍스트 압축)
     var briefing: RoomBriefing?
     // 프로젝트 연동
-    var projectPath: String?
+    var projectPaths: [String]
     var buildCommand: String?
     // 빌드 루프
     var buildLoopStatus: BuildLoopStatus?
@@ -253,6 +259,13 @@ struct Room: Identifiable, Codable {
     var pendingAgentSuggestions: [RoomAgentSuggestion]
     // 작업일지
     var workLog: WorkLog?
+    // 워크플로우 (Phase E)
+    var intent: WorkflowIntent?
+    var currentPhase: WorkflowPhase?
+    var assumptions: [WorkflowAssumption]?
+    var userAnswers: [UserAnswer]?
+    var playbook: ProjectPlaybook?
+    var intakeData: IntakeData?
 
     /// 남은 시간 (초). 타이머 미시작 시 nil
     var remainingSeconds: Int? {
@@ -262,14 +275,18 @@ struct Room: Identifiable, Codable {
         return max(0, duration - elapsed)
     }
 
-    /// 활성 방 여부 (planning, inProgress, awaitingApproval)
+    /// 첫 번째 프로젝트 경로 (빌드/테스트/shell 기본 workDir)
+    var primaryProjectPath: String? { projectPaths.first }
+
+    /// 활성 방 여부 (planning, inProgress, awaitingApproval, awaitingUserInput)
     var isActive: Bool {
-        status == .planning || status == .inProgress || status == .awaitingApproval
+        status == .planning || status == .inProgress || status == .awaitingApproval || status == .awaitingUserInput
     }
 
-    /// 사용자 확인이 필요한 상태 (승인 대기 또는 에이전트 생성 제안 대기)
+    /// 사용자 확인이 필요한 상태 (승인 대기, 입력 대기, 에이전트 생성 제안 대기)
     var needsUserAttention: Bool {
         status == .awaitingApproval ||
+        status == .awaitingUserInput ||
         pendingAgentSuggestions.contains { $0.status == .pending }
     }
 
@@ -293,6 +310,8 @@ struct Room: Identifiable, Codable {
             return String(format: "%d:%02d", min, sec)
         case .awaitingApproval:
             return "승인 대기"
+        case .awaitingUserInput:
+            return "입력 대기"
         case .completed:
             return "완료"
         case .failed:
@@ -323,7 +342,7 @@ struct Room: Identifiable, Codable {
         status: RoomStatus = .planning,
         maxDiscussionRounds: Int = 10,
         createdAt: Date = Date(),
-        projectPath: String? = nil,
+        projectPaths: [String] = [],
         buildCommand: String? = nil,
         testCommand: String? = nil
     ) {
@@ -344,7 +363,7 @@ struct Room: Identifiable, Codable {
         self.currentRound = 0
         self.artifacts = []
         self.briefing = nil
-        self.projectPath = projectPath
+        self.projectPaths = projectPaths
         self.buildCommand = buildCommand
         self.buildLoopStatus = nil
         self.buildRetryCount = 0
@@ -358,6 +377,12 @@ struct Room: Identifiable, Codable {
         self.maxQARetries = 3
         self.lastQAResult = nil
         self.workLog = nil
+        self.intent = nil
+        self.currentPhase = nil
+        self.assumptions = nil
+        self.userAnswers = nil
+        self.playbook = nil
+        self.intakeData = nil
     }
 
     // 기존 저장 데이터 호환
@@ -380,7 +405,18 @@ struct Room: Identifiable, Codable {
         currentRound = try container.decodeIfPresent(Int.self, forKey: .currentRound) ?? 0
         artifacts = try container.decodeIfPresent([DiscussionArtifact].self, forKey: .artifacts) ?? []
         briefing = try container.decodeIfPresent(RoomBriefing.self, forKey: .briefing)
-        projectPath = try container.decodeIfPresent(String.self, forKey: .projectPath)
+        // 하위 호환: projectPaths 배열 우선, 없으면 기존 projectPath 단일 문자열 변환
+        if let paths = try container.decodeIfPresent([String].self, forKey: .projectPaths) {
+            projectPaths = paths
+        } else {
+            enum LegacyKeys: String, CodingKey { case projectPath }
+            let legacy = try decoder.container(keyedBy: LegacyKeys.self)
+            if let path = try legacy.decodeIfPresent(String.self, forKey: .projectPath) {
+                projectPaths = [path]
+            } else {
+                projectPaths = []
+            }
+        }
         buildCommand = try container.decodeIfPresent(String.self, forKey: .buildCommand)
         buildLoopStatus = try container.decodeIfPresent(BuildLoopStatus.self, forKey: .buildLoopStatus)
         buildRetryCount = try container.decodeIfPresent(Int.self, forKey: .buildRetryCount) ?? 0
@@ -394,5 +430,11 @@ struct Room: Identifiable, Codable {
         maxQARetries = try container.decodeIfPresent(Int.self, forKey: .maxQARetries) ?? 3
         lastQAResult = try container.decodeIfPresent(QAResult.self, forKey: .lastQAResult)
         workLog = try container.decodeIfPresent(WorkLog.self, forKey: .workLog)
+        intent = try container.decodeIfPresent(WorkflowIntent.self, forKey: .intent)
+        currentPhase = try container.decodeIfPresent(WorkflowPhase.self, forKey: .currentPhase)
+        assumptions = try container.decodeIfPresent([WorkflowAssumption].self, forKey: .assumptions)
+        userAnswers = try container.decodeIfPresent([UserAnswer].self, forKey: .userAnswers)
+        playbook = try container.decodeIfPresent(ProjectPlaybook.self, forKey: .playbook)
+        intakeData = try container.decodeIfPresent(IntakeData.self, forKey: .intakeData)
     }
 }

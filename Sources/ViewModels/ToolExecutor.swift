@@ -137,8 +137,8 @@ enum ToolExecutor {
 
     // MARK: - 경로 검증
 
-    /// 파일 접근이 허용된 경로인지 확인. $HOME, /tmp, 시스템 임시 디렉토리, projectPath 허용.
-    static func isPathAllowed(_ path: String, projectPath: String? = nil) -> Bool {
+    /// 파일 접근이 허용된 경로인지 확인. $HOME, /tmp, 시스템 임시 디렉토리, projectPaths 허용.
+    static func isPathAllowed(_ path: String, projectPaths: [String] = []) -> Bool {
         let expandedPath = NSString(string: path).expandingTildeInPath
         let url = URL(fileURLWithPath: expandedPath).standardized
         let resolved = url.path
@@ -146,7 +146,7 @@ enum ToolExecutor {
         let homePath = FileManager.default.homeDirectoryForCurrentUser.path
         let tempDir = NSTemporaryDirectory()
         var allowedPrefixes = [homePath, "/tmp", "/private/tmp", tempDir, "/var/folders"]
-        if let proj = projectPath {
+        for proj in projectPaths {
             let normalizedProj = URL(fileURLWithPath: proj).standardized.path
             allowedPrefixes.append(normalizedProj)
         }
@@ -169,10 +169,10 @@ enum ToolExecutor {
         return false
     }
 
-    /// 상대 경로를 projectPath 기준으로 절대 경로로 변환
-    static func resolvePath(_ path: String, projectPath: String?) -> String {
+    /// 상대 경로를 첫 번째 projectPath 기준으로 절대 경로로 변환
+    static func resolvePath(_ path: String, projectPaths: [String]) -> String {
         if path.hasPrefix("/") || path.hasPrefix("~") { return path }
-        guard let base = projectPath else { return path }
+        guard let base = projectPaths.first else { return path }
         return (base as NSString).appendingPathComponent(path)
     }
 
@@ -202,6 +202,8 @@ enum ToolExecutor {
             return await executeJiraUpdateStatus(call)
         case "jira_add_comment":
             return await executeJiraAddComment(call)
+        case "ask_user":
+            return await executeAskUser(call, context: context)
         default:
             return ToolResult(callID: call.id, content: "알 수 없는 도구: \(call.toolName)", isError: true)
         }
@@ -293,8 +295,8 @@ enum ToolExecutor {
         guard let rawPath = call.arguments["path"]?.stringValue else {
             return ToolResult(callID: call.id, content: "path 파라미터가 필요합니다.", isError: true)
         }
-        let path = resolvePath(rawPath, projectPath: context.projectPath)
-        guard isPathAllowed(path, projectPath: context.projectPath) else {
+        let path = resolvePath(rawPath, projectPaths: context.projectPaths)
+        guard isPathAllowed(path, projectPaths: context.projectPaths) else {
             return ToolResult(callID: call.id, content: "접근이 허용되지 않은 경로입니다: \(path)", isError: true)
         }
         do {
@@ -320,8 +322,8 @@ enum ToolExecutor {
         guard let rawPath = call.arguments["path"]?.stringValue else {
             return ToolResult(callID: call.id, content: "path 파라미터가 필요합니다.", isError: true)
         }
-        let path = resolvePath(rawPath, projectPath: context.projectPath)
-        guard isPathAllowed(path, projectPath: context.projectPath) else {
+        let path = resolvePath(rawPath, projectPaths: context.projectPaths)
+        guard isPathAllowed(path, projectPaths: context.projectPaths) else {
             return ToolResult(callID: call.id, content: "접근이 허용되지 않은 경로입니다: \(path)", isError: true)
         }
         guard let content = call.arguments["content"]?.stringValue else {
@@ -667,6 +669,32 @@ enum ToolExecutor {
         }
     }
 
+    // MARK: - ask_user
+
+    private static func executeAskUser(_ call: ToolCall, context: ToolExecutionContext = .empty) async -> ToolResult {
+        // Clarify 단계에서만 허용
+        guard context.currentPhase == .clarify else {
+            return ToolResult(
+                callID: call.id,
+                content: "ask_user 도구는 Clarify 단계에서만 사용할 수 있습니다. 현재 단계: \(context.currentPhase?.rawValue ?? "없음")",
+                isError: true
+            )
+        }
+
+        guard let question = call.arguments["question"]?.stringValue else {
+            return ToolResult(callID: call.id, content: "question 파라미터가 필요합니다.", isError: true)
+        }
+
+        let questionContext = call.arguments["context"]?.stringValue
+        let options: [String]? = call.arguments["options"]?.arrayValue
+
+        let answer = await context.askUser(question, questionContext, options)
+        if answer.isEmpty {
+            return ToolResult(callID: call.id, content: "(사용자가 응답하지 않았습니다. 이 항목에 대해 가정을 선언하세요.)", isError: false)
+        }
+        return ToolResult(callID: call.id, content: "사용자 답변: \(answer)", isError: false)
+    }
+
     // MARK: - shell_exec
 
     private static func executeShellExec(_ call: ToolCall, context: ToolExecutionContext = .empty) async -> ToolResult {
@@ -674,7 +702,7 @@ enum ToolExecutor {
             return ToolResult(callID: call.id, content: "command 파라미터가 필요합니다.", isError: true)
         }
         // working_directory 미지정 시 projectPath를 기본값으로 사용
-        let workDir = call.arguments["working_directory"]?.stringValue ?? context.projectPath
+        let workDir = call.arguments["working_directory"]?.stringValue ?? context.projectPaths.first
 
         // 환경 변수 구성
         var env = ProcessInfo.processInfo.environment

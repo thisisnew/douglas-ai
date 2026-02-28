@@ -44,6 +44,11 @@ struct RoomChatView: View {
                     ApprovalCard(roomID: room.id)
                 }
 
+                // 사용자 입력 카드 (ask_user 도구 활성 시)
+                if room.status == .awaitingUserInput {
+                    UserInputCard(roomID: room.id)
+                }
+
                 // 계획 카드 (계획 수립 후)
                 if let plan = room.plan {
                     PlanCard(plan: plan, currentStep: room.currentStepIndex, status: room.status)
@@ -259,6 +264,13 @@ struct RoomChatView: View {
                 Text("승인 대기")
                     .font(.caption2)
                     .foregroundColor(.yellow)
+            case .awaitingUserInput:
+                Image(systemName: "questionmark.circle.fill")
+                    .font(.system(size: 9))
+                    .foregroundColor(.cyan)
+                Text("입력 대기")
+                    .font(.caption2)
+                    .foregroundColor(.cyan)
             case .completed:
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 9))
@@ -632,6 +644,58 @@ struct ApprovalCard: View {
                 .continuousRadius(DesignTokens.Radius.md)
             }
         }
+    }
+}
+
+// MARK: - 사용자 입력 카드
+
+struct UserInputCard: View {
+    let roomID: UUID
+    @EnvironmentObject var roomManager: RoomManager
+    @State private var inputText = ""
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        CardContainer(accentColor: .cyan, opacity: 0.08) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "questionmark.circle.fill")
+                        .font(.caption)
+                        .foregroundColor(.cyan)
+                    Text("에이전트가 추가 정보를 요청합니다")
+                        .font(.caption2.bold())
+                        .foregroundColor(.primary)
+                }
+
+                HStack(spacing: 8) {
+                    TextField("답변을 입력하세요...", text: $inputText)
+                        .textFieldStyle(.plain)
+                        .font(.caption)
+                        .padding(6)
+                        .background(Color.primary.opacity(DesignTokens.Opacity.inputBg))
+                        .continuousRadius(DesignTokens.Radius.md)
+                        .focused($isFocused)
+                        .onSubmit { submit() }
+
+                    Button("전송") { submit() }
+                        .font(.caption2.bold())
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(inputText.trimmingCharacters(in: .whitespaces).isEmpty ? Color.gray : Color.cyan)
+                        .continuousRadius(DesignTokens.Radius.md)
+                        .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+        .onAppear { isFocused = true }
+    }
+
+    private func submit() {
+        let answer = inputText.trimmingCharacters(in: .whitespaces)
+        guard !answer.isEmpty else { return }
+        inputText = ""
+        roomManager.answerUserQuestion(roomID: roomID, answer: answer)
     }
 }
 

@@ -516,10 +516,11 @@ struct RoomTests {
 
     // MARK: - Phase B 필드
 
-    @Test("projectPath, buildCommand 기본값 nil")
+    @Test("projectPaths, buildCommand 기본값")
     func projectPathDefaults() {
         let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user)
-        #expect(room.projectPath == nil)
+        #expect(room.projectPaths.isEmpty)
+        #expect(room.primaryProjectPath == nil)
         #expect(room.buildCommand == nil)
         #expect(room.buildLoopStatus == nil)
         #expect(room.buildRetryCount == 0)
@@ -527,16 +528,17 @@ struct RoomTests {
         #expect(room.lastBuildResult == nil)
     }
 
-    @Test("projectPath, buildCommand 명시적 설정")
+    @Test("projectPaths 명시적 설정")
     func projectPathExplicit() {
         let room = Room(
             title: "Build Test",
             assignedAgentIDs: [],
             createdBy: .user,
-            projectPath: "/Users/test/project",
+            projectPaths: ["/Users/test/project", "/Users/test/other"],
             buildCommand: "swift build"
         )
-        #expect(room.projectPath == "/Users/test/project")
+        #expect(room.projectPaths == ["/Users/test/project", "/Users/test/other"])
+        #expect(room.primaryProjectPath == "/Users/test/project")
         #expect(room.buildCommand == "swift build")
     }
 
@@ -546,7 +548,7 @@ struct RoomTests {
             title: "Build",
             assignedAgentIDs: [],
             createdBy: .user,
-            projectPath: "/tmp/project",
+            projectPaths: ["/tmp/project"],
             buildCommand: "make"
         )
         room.buildLoopStatus = .building
@@ -557,7 +559,8 @@ struct RoomTests {
         let data = try JSONEncoder().encode(room)
         let decoded = try JSONDecoder().decode(Room.self, from: data)
 
-        #expect(decoded.projectPath == "/tmp/project")
+        #expect(decoded.projectPaths == ["/tmp/project"])
+        #expect(decoded.primaryProjectPath == "/tmp/project")
         #expect(decoded.buildCommand == "make")
         #expect(decoded.buildLoopStatus == .building)
         #expect(decoded.buildRetryCount == 2)
@@ -568,13 +571,12 @@ struct RoomTests {
 
     @Test("빌드 필드 없는 기존 데이터 역호환")
     func buildFieldsBackwardCompatible() throws {
-        // projectPath, buildCommand 등이 없는 기존 JSON으로 디코딩
         let room = Room(title: "Old Room", assignedAgentIDs: [], createdBy: .user)
         let data = try JSONEncoder().encode(room)
 
         // JSON에서 빌드 관련 키를 제거해 기존 데이터 시뮬레이션
         var json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-        json.removeValue(forKey: "projectPath")
+        json.removeValue(forKey: "projectPaths")
         json.removeValue(forKey: "buildCommand")
         json.removeValue(forKey: "buildLoopStatus")
         json.removeValue(forKey: "buildRetryCount")
@@ -583,12 +585,28 @@ struct RoomTests {
         let modifiedData = try JSONSerialization.data(withJSONObject: json)
 
         let decoded = try JSONDecoder().decode(Room.self, from: modifiedData)
-        #expect(decoded.projectPath == nil)
+        #expect(decoded.projectPaths.isEmpty)
+        #expect(decoded.primaryProjectPath == nil)
         #expect(decoded.buildCommand == nil)
         #expect(decoded.buildLoopStatus == nil)
         #expect(decoded.buildRetryCount == 0)
         #expect(decoded.maxBuildRetries == 3)
         #expect(decoded.lastBuildResult == nil)
+    }
+
+    @Test("기존 projectPath(단일) JSON → projectPaths 배열 하위 호환")
+    func projectPathLegacyMigration() throws {
+        // 기존 형식: "projectPath": "/old/path" (단일 문자열)
+        let room = Room(title: "Legacy", assignedAgentIDs: [], createdBy: .user)
+        let data = try JSONEncoder().encode(room)
+        var json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        json.removeValue(forKey: "projectPaths")
+        json["projectPath"] = "/old/single/path"
+        let modifiedData = try JSONSerialization.data(withJSONObject: json)
+
+        let decoded = try JSONDecoder().decode(Room.self, from: modifiedData)
+        #expect(decoded.projectPaths == ["/old/single/path"])
+        #expect(decoded.primaryProjectPath == "/old/single/path")
     }
 
     // MARK: - Phase C-2: 승인 게이트

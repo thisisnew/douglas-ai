@@ -71,6 +71,11 @@ enum ToolArgumentValue: Codable, Hashable {
         if case .string(let val) = self { return val }
         return nil
     }
+
+    var arrayValue: [String]? {
+        if case .array(let val) = self { return val }
+        return nil
+    }
 }
 
 /// 도구 실행 결과

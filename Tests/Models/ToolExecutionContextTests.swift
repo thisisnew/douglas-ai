@@ -84,7 +84,7 @@ struct ToolExecutionContextTests {
 
     // MARK: - Phase B 필드
 
-    @Test("projectPath 기본값 nil")
+    @Test("projectPaths 기본값 빈 배열")
     func projectPathDefault() {
         let context = ToolExecutionContext(
             roomID: UUID(),
@@ -92,12 +92,12 @@ struct ToolExecutionContextTests {
             agentListString: "",
             inviteAgent: { _ in false }
         )
-        #expect(context.projectPath == nil)
+        #expect(context.projectPaths.isEmpty)
         #expect(context.currentAgentID == nil)
         #expect(context.fileWriteTracker == nil)
     }
 
-    @Test("projectPath 명시적 설정")
+    @Test("projectPaths 명시적 설정")
     func projectPathExplicit() {
         let agentID = UUID()
         let context = ToolExecutionContext(
@@ -105,10 +105,10 @@ struct ToolExecutionContextTests {
             agentsByName: [:],
             agentListString: "",
             inviteAgent: { _ in false },
-            projectPath: "/Users/test/project",
+            projectPaths: ["/Users/test/project", "/Users/test/other"],
             currentAgentID: agentID
         )
-        #expect(context.projectPath == "/Users/test/project")
+        #expect(context.projectPaths == ["/Users/test/project", "/Users/test/other"])
         #expect(context.currentAgentID == agentID)
     }
 
