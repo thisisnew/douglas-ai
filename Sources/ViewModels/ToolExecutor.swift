@@ -21,11 +21,21 @@ enum ToolExecutor {
         // 도구 없거나 프로바이더가 도구 미지원 → 기존 경로
         guard !toolIDs.isEmpty, provider.supportsToolCalling else {
             onToolActivity?("API 요청: \(agent.providerName) (\(agent.modelName))")
-            let result = try await provider.sendMessage(
-                model: agent.modelName,
-                systemPrompt: systemPrompt,
-                messages: messages
-            )
+            let result: String
+            if let claudeProvider = provider as? ClaudeCodeProvider {
+                result = try await claudeProvider.sendMessage(
+                    model: agent.modelName,
+                    systemPrompt: systemPrompt,
+                    messages: messages,
+                    workingDirectory: context.projectPaths.first
+                )
+            } else {
+                result = try await provider.sendMessage(
+                    model: agent.modelName,
+                    systemPrompt: systemPrompt,
+                    messages: messages
+                )
+            }
             onToolActivity?("응답 수신 성공 (\(result.count)자)")
             return result
         }
@@ -72,11 +82,21 @@ enum ToolExecutor {
                 return (role: msg.role, content: content)
             }
             onToolActivity?("API 요청: \(agent.providerName) (\(agent.modelName))")
-            let result = try await provider.sendMessage(
-                model: agent.modelName,
-                systemPrompt: systemPrompt,
-                messages: simple
-            )
+            let result: String
+            if let claudeProvider = provider as? ClaudeCodeProvider {
+                result = try await claudeProvider.sendMessage(
+                    model: agent.modelName,
+                    systemPrompt: systemPrompt,
+                    messages: simple,
+                    workingDirectory: context.projectPaths.first
+                )
+            } else {
+                result = try await provider.sendMessage(
+                    model: agent.modelName,
+                    systemPrompt: systemPrompt,
+                    messages: simple
+                )
+            }
             onToolActivity?("응답 수신 성공 (\(result.count)자)")
             return result
         }

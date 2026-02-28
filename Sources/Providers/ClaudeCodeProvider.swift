@@ -68,6 +68,21 @@ class ClaudeCodeProvider: AIProvider {
         )
     }
 
+    /// 프로젝트 경로를 작업 디렉토리로 사용하는 sendMessage
+    func sendMessage(
+        model: String,
+        systemPrompt: String,
+        messages: [(role: String, content: String)],
+        workingDirectory: String?
+    ) async throws -> String {
+        let userPrompt = buildUserPrompt(from: messages)
+        return try await runClaude(
+            path: config.baseURL, prompt: userPrompt, model: model,
+            systemPrompt: systemPrompt, disallowedTools: ["WebFetch"],
+            workingDirectory: workingDirectory
+        )
+    }
+
     /// 이미지 첨부를 파일 경로로 변환하여 CLI에 전달
     func sendMessageWithTools(
         model: String,
@@ -124,7 +139,8 @@ class ClaudeCodeProvider: AIProvider {
     private func runClaude(
         path: String, prompt: String, model: String,
         systemPrompt: String = "", disableTools: Bool = false,
-        disallowedTools: [String] = []
+        disallowedTools: [String] = [],
+        workingDirectory: String? = nil
     ) async throws -> String {
         // claude CLI는 Node.js 스크립트 → 같은 디렉토리의 node를 직접 사용
         let executable: String
@@ -171,11 +187,13 @@ class ClaudeCodeProvider: AIProvider {
         let existingPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
         env["PATH"] = additionalPaths.joined(separator: ":") + ":" + existingPath
 
+        let effectiveWorkDir = workingDirectory ?? homePath
+
         let result = await ProcessRunner.run(
             executable: executable,
             args: args,
             env: env,
-            workDir: homePath
+            workDir: effectiveWorkDir
         )
 
         let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
