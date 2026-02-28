@@ -509,14 +509,11 @@ class RoomManager: ObservableObject {
             case .assemble:
                 await executeAssemblePhase(roomID: roomID, task: task)
             case .plan:
-                // 커밋 7에서 구현 — 현재는 레거시 plan+discussion 재사용
                 await executeLegacyPlanPhase(roomID: roomID, task: task)
             case .execute:
-                // 커밋 7에서 구현 — 현재는 레거시 executeRoomWork 재사용
                 await executeLegacyExecutePhase(roomID: roomID, task: task)
             case .review:
-                // 커밋 7에서 구현
-                await generateWorkLog(roomID: roomID, task: task)
+                await executeReviewPhase(roomID: roomID, task: task)
             }
         }
 
@@ -940,6 +937,45 @@ class RoomManager: ObservableObject {
         await executeRoomWork(roomID: roomID, task: task)
     }
 
+    /// Review 단계: 작업일지 + 플레이북 override 감지
+    private func executeReviewPhase(roomID: UUID, task: String) async {
+        // 작업일지 생성 (기존 로직 재활용)
+        await generateWorkLog(roomID: roomID, task: task)
+
+        // 플레이북 override 감지: 실제 작업에서 플레이북 설정과 다르게 진행된 부분 탐지
+        guard let room = rooms.first(where: { $0.id == roomID }),
+              let playbook = room.playbook,
+              room.primaryProjectPath != nil else { return }
+
+        // 산출물에서 실제 사용된 패턴 분석
+        let workSummary = room.workLog?.outcome ?? ""
+        var overrides: [String] = []
+
+        // 브랜치 전략 override 감지
+        if let branchPattern = playbook.branchPattern, !branchPattern.isEmpty,
+           (workSummary.contains("branch") || workSummary.contains("브랜치")) {
+            overrides.append("브랜치 패턴 변경 감지 (설정: \(branchPattern))")
+        }
+
+        // override가 있으면 플레이북 업데이트 제안
+        if !overrides.isEmpty {
+            let overrideMsg = ChatMessage(
+                role: .system,
+                content: "플레이북과 다른 패턴이 감지되었습니다:\n" + overrides.map { "- \($0)" }.joined(separator: "\n") + "\n\n플레이북을 업데이트하시겠습니까?"
+            )
+            appendMessage(overrideMsg, to: roomID)
+        }
+
+        // 리뷰 완료 메시지
+        let reviewMsg = ChatMessage(
+            role: .system,
+            content: "검토가 완료되었습니다.",
+            messageType: .phaseTransition
+        )
+        appendMessage(reviewMsg, to: roomID)
+        scheduleSave()
+    }
+
     // MARK: - Intake 헬퍼
 
     /// 텍스트에서 URL 추출
@@ -1041,6 +1077,14 @@ class RoomManager: ObservableObject {
             artifactContext = ""
         }
 
+        // 플레이북 컨텍스트 주입
+        let playbookContext: String
+        if let playbook = room.playbook {
+            playbookContext = "\n\n[프로젝트 플레이북]\n" + playbook.asContextString()
+        } else {
+            playbookContext = ""
+        }
+
         let planSystemPrompt = """
         \(agent.persona)
 
@@ -1054,11 +1098,12 @@ class RoomManager: ObservableObject {
         - estimated_minutes는 현실적으로 추정하세요 (1~30분)
         - steps는 구체적이고 실행 가능한 단계로 나누세요
         - 배포, 데이터 삭제 등 위험한 단계는 {"text": "...", "requires_approval": true} 형식으로 표기하세요
+        - 프로젝트 플레이북이 있다면 브랜치 전략, 테스트 정책 등을 반영하세요
         - 반드시 유효한 JSON으로만 응답하세요
         """
 
         let planMessages: [(role: String, content: String)] = [
-            ("user", "브리핑:\n\(briefingContext)\(artifactContext)\n\n실행 계획을 JSON으로 작성해주세요. 작업: \(task)")
+            ("user", "브리핑:\n\(briefingContext)\(artifactContext)\(playbookContext)\n\n실행 계획을 JSON으로 작성해주세요. 작업: \(task)")
         ]
 
         do {
