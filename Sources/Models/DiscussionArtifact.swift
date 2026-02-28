@@ -7,6 +7,8 @@ enum ArtifactType: String, Codable, CaseIterable {
     case testPlan             = "test_plan"
     case taskBreakdown        = "task_breakdown"
     case architectureDecision = "architecture_decision"
+    case assumptions          = "assumptions"
+    case roleRequirements     = "role_requirements"
     case generic              = "generic"
 
     var displayName: String {
@@ -15,6 +17,8 @@ enum ArtifactType: String, Codable, CaseIterable {
         case .testPlan:              return "테스트 계획"
         case .taskBreakdown:         return "작업 분해"
         case .architectureDecision:  return "아키텍처 결정"
+        case .assumptions:           return "가정 선언"
+        case .roleRequirements:      return "역할 요구사항"
         case .generic:               return "일반 산출물"
         }
     }
@@ -25,6 +29,8 @@ enum ArtifactType: String, Codable, CaseIterable {
         case .testPlan:              return "checklist"
         case .taskBreakdown:         return "list.bullet.indent"
         case .architectureDecision:  return "building.columns"
+        case .assumptions:           return "exclamationmark.triangle"
+        case .roleRequirements:      return "person.3"
         case .generic:               return "doc.richtext"
         }
     }

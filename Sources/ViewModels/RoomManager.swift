@@ -505,8 +505,7 @@ class RoomManager: ObservableObject {
                 // Intent는 이미 결정됨 (방 생성 시 설정)
                 break
             case .clarify:
-                // 커밋 5에서 구현
-                break
+                await executeClarifyPhase(roomID: roomID, task: task)
             case .assemble:
                 // 커밋 6에서 구현
                 break
@@ -587,6 +586,138 @@ class RoomManager: ObservableObject {
         )
         appendMessage(summaryMsg, to: roomID)
         scheduleSave()
+    }
+
+    /// Clarify 단계: 분석가가 ask_user로 결측치 질문 (최대 5회) → 미답 시 가정 선언
+    private func executeClarifyPhase(roomID: UUID, task: String) async {
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }),
+              let firstAgentID = rooms[idx].assignedAgentIDs.first,
+              let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
+              let provider = providerManager?.provider(named: agent.providerName) else { return }
+
+        // clarifyQuestionCount 초기화
+        rooms[idx].clarifyQuestionCount = 0
+
+        // 컨텍스트 구성: IntakeData + 플레이북
+        var contextParts: [String] = []
+        if let intakeData = rooms[idx].intakeData {
+            contextParts.append(intakeData.asContextString())
+        }
+        if let playbook = rooms[idx].playbook {
+            contextParts.append(playbook.asContextString())
+        }
+        let contextString = contextParts.joined(separator: "\n\n")
+
+        let clarifySystemPrompt = """
+        \(agent.persona)
+
+        당신은 Clarify(요건 확인) 단계를 수행하고 있습니다.
+        주어진 입력 데이터를 분석하고, 작업 수행에 필요하지만 누락된 핵심 정보를 파악하세요.
+
+        규칙:
+        1. ask_user 도구로 사용자에게 핵심 질문을 하세요 (최대 5개)
+        2. 한 번에 하나의 질문만 하세요
+        3. 질문에 options(선택지)를 제공하면 사용자가 더 쉽게 답변할 수 있습니다
+        4. 사용자가 응답하지 않거나 모호하게 답하면, 합리적인 가정을 선언하세요
+        5. 모든 질문이 끝나면, 가정을 포함하여 다음 형식의 산출물을 생성하세요:
+
+        ```artifact:assumptions title="작업 가정 선언"
+        - [위험:낮음] 가정 내용 1
+        - [위험:중간] 가정 내용 2
+        - [위험:높음] 가정 내용 3
+        ```
+
+        질문 예시:
+        - 브랜치 전략은 어떻게 되나요? (options: ["feature 브랜치", "trunk-based", "git-flow"])
+        - 테스트 작성이 필요한가요?
+        - 특정 코딩 컨벤션이 있나요?
+        """
+
+        let messages: [(role: String, content: String)] = [
+            ("user", "\(contextString)\n\n위 입력을 분석하고, 작업 수행 전 확인이 필요한 사항을 ask_user 도구로 질문하세요. 작업: \(task)")
+        ]
+
+        let context = makeToolContext(roomID: roomID, currentAgentID: firstAgentID)
+
+        do {
+            let response = try await ToolExecutor.smartSend(
+                provider: provider,
+                agent: agent,
+                systemPrompt: clarifySystemPrompt,
+                messages: messages,
+                context: context,
+                onToolActivity: { [weak self] activity in
+                    Task { @MainActor in
+                        let toolMsg = ChatMessage(role: .assistant, content: activity, agentName: agent.name, messageType: .toolActivity)
+                        self?.appendMessage(toolMsg, to: roomID)
+                    }
+                }
+            )
+
+            // 응답에서 산출물 추출
+            let artifacts = ArtifactParser.extractArtifacts(from: response, producedBy: agent.name)
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].artifacts.append(contentsOf: artifacts)
+
+                // assumptions 산출물에서 가정 파싱
+                for artifact in artifacts where artifact.type == .assumptions {
+                    let parsedAssumptions = parseAssumptions(from: artifact.content)
+                    if rooms[i].assumptions == nil { rooms[i].assumptions = [] }
+                    rooms[i].assumptions?.append(contentsOf: parsedAssumptions)
+                }
+            }
+
+            // 분석가 응답을 방에 추가
+            let strippedResponse = ArtifactParser.stripArtifactBlocks(from: response)
+            if !strippedResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let responseMsg = ChatMessage(role: .assistant, content: strippedResponse, agentName: agent.name)
+                appendMessage(responseMsg, to: roomID)
+            }
+
+            // 가정 요약 메시지
+            if let assumptions = rooms.first(where: { $0.id == roomID })?.assumptions, !assumptions.isEmpty {
+                let assumptionSummary = assumptions.map { "- [\($0.riskLevel.rawValue)] \($0.text)" }.joined(separator: "\n")
+                let assumptionMsg = ChatMessage(
+                    role: .system,
+                    content: "가정 선언 (\(assumptions.count)건):\n\(assumptionSummary)",
+                    messageType: .assumption
+                )
+                appendMessage(assumptionMsg, to: roomID)
+            }
+        } catch {
+            let errorMsg = ChatMessage(
+                role: .assistant,
+                content: "Clarify 단계 오류: \(error.localizedDescription)",
+                agentName: agent.name,
+                messageType: .error
+            )
+            appendMessage(errorMsg, to: roomID)
+        }
+        scheduleSave()
+    }
+
+    /// 가정 산출물 텍스트에서 WorkflowAssumption 파싱
+    private func parseAssumptions(from content: String) -> [WorkflowAssumption] {
+        // 형식: "- [위험:낮음] 가정 내용" 또는 "- [위험:중간] 가정 내용" 등
+        let lines = content.components(separatedBy: "\n")
+        return lines.compactMap { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("- [위험:") else { return nil }
+
+            var riskLevel: WorkflowAssumption.RiskLevel = .low
+            if trimmed.contains("[위험:높음]") {
+                riskLevel = .high
+            } else if trimmed.contains("[위험:중간]") {
+                riskLevel = .medium
+            }
+
+            // 텍스트 추출: "] " 이후
+            guard let bracketEnd = trimmed.range(of: "] ") else { return nil }
+            let text = String(trimmed[bracketEnd.upperBound...])
+            guard !text.isEmpty else { return nil }
+
+            return WorkflowAssumption(text: text, riskLevel: riskLevel)
+        }
     }
 
     /// 레거시 Plan 단계 재사용 (토론 + 브리핑 + 승인 + 계획)
