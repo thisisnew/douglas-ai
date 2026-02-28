@@ -116,7 +116,7 @@ class ChatViewModel: ObservableObject {
 
         let task = Task {
             if agent.isMaster {
-                await handleMasterMessage(text, agent: agent, agentStore: agentStore, providerManager: providerManager)
+                await handleMasterMessage(text, attachments: attachments, agent: agent, agentStore: agentStore, providerManager: providerManager)
             } else {
                 await handleAgentMessage(text, agent: agent, providerManager: providerManager)
             }
@@ -136,6 +136,7 @@ class ChatViewModel: ObservableObject {
 
     private func handleMasterMessage(
         _ text: String,
+        attachments: [ImageAttachment]? = nil,
         agent: Agent,
         agentStore: AgentStore,
         providerManager: ProviderManager
@@ -172,6 +173,7 @@ class ChatViewModel: ObservableObject {
             case .delegate(let agents, let task, let contextFrom):
                 await handleDelegation(
                     agentNames: agents, task: task, contextFrom: contextFrom,
+                    attachments: attachments,
                     masterAgent: agent, agentStore: agentStore, providerManager: providerManager
                 )
 
@@ -271,6 +273,7 @@ class ChatViewModel: ObservableObject {
         agentNames: [String],
         task: String,
         contextFrom: [String]?,
+        attachments: [ImageAttachment]? = nil,
         masterAgent: Agent,
         agentStore: AgentStore,
         providerManager: ProviderManager
@@ -313,6 +316,10 @@ class ChatViewModel: ObservableObject {
             )
             roomManager.selectedRoomID = room.id
             roomManager.pendingAutoOpenRoomID = room.id
+
+            // 사용자 메시지(이미지 포함)를 방에 추가
+            let userMsg = ChatMessage(role: .user, content: task, attachments: attachments)
+            roomManager.appendMessage(userMsg, to: room.id)
 
             roomManager.launchWorkflow(roomID: room.id, task: task)
         } else {
