@@ -329,8 +329,8 @@ struct RoomManagerTests {
         #expect(updated?.status == .working)
     }
 
-    @Test("syncAgentStatuses - busy (참여 방 2+개)")
-    func syncStatusBusy() {
+    @Test("syncAgentStatuses - working (참여 방 2개)")
+    func syncStatusWorking2Rooms() {
         let (manager, store, _) = makeConfiguredManager()
         let agent = makeTestAgent(name: "Worker")
         store.addAgent(agent)
@@ -339,7 +339,7 @@ struct RoomManagerTests {
 
         manager.syncAgentStatuses()
         let updated = store.agents.first(where: { $0.id == agent.id })
-        #expect(updated?.status == .busy)
+        #expect(updated?.status == .working) // 1~2개 방 = working
     }
 
     @Test("syncAgentStatuses - error 상태는 유지")

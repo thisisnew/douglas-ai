@@ -636,9 +636,9 @@ struct RoomTests {
         #expect(RoomStatus.awaitingApproval.canTransition(to: .completed) == false)
     }
 
-    @Test("canTransition - planning → awaitingApproval 불가")
+    @Test("canTransition - planning → awaitingApproval 허용")
     func canTransitionPlanningToAwaiting() {
-        #expect(RoomStatus.planning.canTransition(to: .awaitingApproval) == false)
+        #expect(RoomStatus.planning.canTransition(to: .awaitingApproval) == true)
     }
 
     @Test("Room isActive - awaitingApproval")
@@ -798,5 +798,130 @@ struct RoomTests {
 
         let decoded = try JSONDecoder().decode(Room.self, from: modifiedData)
         #expect(decoded.pendingAgentSuggestions.isEmpty)
+    }
+
+    // MARK: - Phase E: awaitingUserInput 상태 전이
+
+    @Test("RoomStatus awaitingUserInput rawValue")
+    func awaitingUserInputRawValue() {
+        #expect(RoomStatus.awaitingUserInput.rawValue == "awaitingUserInput")
+    }
+
+    @Test("canTransition - planning → awaitingUserInput 허용")
+    func canTransitionPlanningToAwaitingUserInput() {
+        #expect(RoomStatus.planning.canTransition(to: .awaitingUserInput) == true)
+    }
+
+    @Test("canTransition - inProgress → awaitingUserInput 허용")
+    func canTransitionInProgressToAwaitingUserInput() {
+        #expect(RoomStatus.inProgress.canTransition(to: .awaitingUserInput) == true)
+    }
+
+    @Test("canTransition - awaitingUserInput → inProgress 허용")
+    func canTransitionAwaitingUserInputToInProgress() {
+        #expect(RoomStatus.awaitingUserInput.canTransition(to: .inProgress) == true)
+    }
+
+    @Test("canTransition - awaitingUserInput → planning 허용")
+    func canTransitionAwaitingUserInputToPlanning() {
+        #expect(RoomStatus.awaitingUserInput.canTransition(to: .planning) == true)
+    }
+
+    @Test("canTransition - awaitingUserInput → failed 허용")
+    func canTransitionAwaitingUserInputToFailed() {
+        #expect(RoomStatus.awaitingUserInput.canTransition(to: .failed) == true)
+    }
+
+    @Test("canTransition - awaitingUserInput → completed 불가")
+    func canTransitionAwaitingUserInputToCompleted() {
+        #expect(RoomStatus.awaitingUserInput.canTransition(to: .completed) == false)
+    }
+
+    @Test("Room isActive - awaitingUserInput")
+    func roomIsActiveAwaitingUserInput() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user)
+        room.status = .awaitingUserInput
+        #expect(room.isActive == true)
+    }
+
+    @Test("Room timerDisplayText - awaitingUserInput")
+    func roomTimerDisplayTextAwaitingUserInput() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user)
+        room.status = .awaitingUserInput
+        #expect(room.timerDisplayText == "입력 대기")
+    }
+
+    @Test("Room needsUserAttention - awaitingUserInput → true")
+    func roomNeedsAttentionUserInput() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user)
+        room.status = .awaitingUserInput
+        #expect(room.needsUserAttention == true)
+    }
+
+    // MARK: - Phase E: 워크플로우 필드
+
+    @Test("Phase E 필드 기본값")
+    func phaseEDefaults() {
+        let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user)
+        #expect(room.intent == nil)
+        #expect(room.currentPhase == nil)
+        #expect(room.assumptions == nil)
+        #expect(room.userAnswers == nil)
+        #expect(room.playbook == nil)
+        #expect(room.intakeData == nil)
+        #expect(room.clarifyQuestionCount == 0)
+    }
+
+    @Test("Phase E 필드 Codable 라운드트립")
+    func phaseEFieldsCodable() throws {
+        var room = Room(title: "Workflow", assignedAgentIDs: [], createdBy: .user)
+        room.intent = .implementation
+        room.currentPhase = .clarify
+        room.assumptions = [
+            WorkflowAssumption(text: "Swift 5.9 사용", riskLevel: .low)
+        ]
+        room.userAnswers = [
+            UserAnswer(question: "DB?", answer: "PostgreSQL")
+        ]
+        room.playbook = ProjectPlaybook.team
+        room.intakeData = IntakeData(sourceType: .text, rawInput: "작업 내용")
+        room.clarifyQuestionCount = 3
+
+        let data = try JSONEncoder().encode(room)
+        let decoded = try JSONDecoder().decode(Room.self, from: data)
+
+        #expect(decoded.intent == .implementation)
+        #expect(decoded.currentPhase == .clarify)
+        #expect(decoded.assumptions?.count == 1)
+        #expect(decoded.assumptions?[0].text == "Swift 5.9 사용")
+        #expect(decoded.userAnswers?.count == 1)
+        #expect(decoded.userAnswers?[0].answer == "PostgreSQL")
+        #expect(decoded.playbook?.baseBranch == "develop")
+        #expect(decoded.intakeData?.sourceType == .text)
+        #expect(decoded.clarifyQuestionCount == 3)
+    }
+
+    @Test("Phase E 필드 없는 기존 데이터 역호환")
+    func phaseEFieldsBackwardCompatible() throws {
+        let room = Room(title: "Old", assignedAgentIDs: [], createdBy: .user)
+        let data = try JSONEncoder().encode(room)
+        var json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        json.removeValue(forKey: "intent")
+        json.removeValue(forKey: "currentPhase")
+        json.removeValue(forKey: "assumptions")
+        json.removeValue(forKey: "userAnswers")
+        json.removeValue(forKey: "playbook")
+        json.removeValue(forKey: "intakeData")
+        json.removeValue(forKey: "clarifyQuestionCount")
+        let modifiedData = try JSONSerialization.data(withJSONObject: json)
+
+        let decoded = try JSONDecoder().decode(Room.self, from: modifiedData)
+        #expect(decoded.intent == nil)
+        #expect(decoded.currentPhase == nil)
+        #expect(decoded.assumptions == nil)
+        #expect(decoded.userAnswers == nil)
+        #expect(decoded.playbook == nil)
+        #expect(decoded.intakeData == nil)
+        #expect(decoded.clarifyQuestionCount == 0)
     }
 }

@@ -124,4 +124,82 @@ struct ToolExecutionContextTests {
         )
         #expect(context.fileWriteTracker != nil)
     }
+
+    // MARK: - Phase E 필드
+
+    @Test("askUser 콜백 동작")
+    func askUserCallback() async {
+        var receivedQuestion: String?
+        let context = ToolExecutionContext(
+            roomID: UUID(),
+            agentsByName: [:],
+            agentListString: "",
+            inviteAgent: { _ in false },
+            askUser: { question, _, _ in
+                receivedQuestion = question
+                return "사용자 답변"
+            }
+        )
+        let answer = await context.askUser("DB 종류를 알려주세요", nil, nil)
+        #expect(answer == "사용자 답변")
+        #expect(receivedQuestion == "DB 종류를 알려주세요")
+    }
+
+    @Test("askUser 기본값 — 빈 문자열 반환")
+    func askUserDefault() async {
+        let context = ToolExecutionContext(
+            roomID: UUID(),
+            agentsByName: [:],
+            agentListString: "",
+            inviteAgent: { _ in false }
+        )
+        let answer = await context.askUser("질문", nil, nil)
+        #expect(answer == "")
+    }
+
+    @Test("currentPhase 기본값 nil")
+    func currentPhaseDefault() {
+        let context = ToolExecutionContext(
+            roomID: UUID(),
+            agentsByName: [:],
+            agentListString: "",
+            inviteAgent: { _ in false }
+        )
+        #expect(context.currentPhase == nil)
+    }
+
+    @Test("currentPhase 명시적 설정")
+    func currentPhaseExplicit() {
+        let context = ToolExecutionContext(
+            roomID: UUID(),
+            agentsByName: [:],
+            agentListString: "",
+            inviteAgent: { _ in false },
+            currentPhase: .clarify
+        )
+        #expect(context.currentPhase == .clarify)
+    }
+
+    @Test("currentAgentName 설정")
+    func currentAgentName() {
+        let context = ToolExecutionContext(
+            roomID: UUID(),
+            agentsByName: [:],
+            agentListString: "",
+            inviteAgent: { _ in false },
+            currentAgentName: "분석가"
+        )
+        #expect(context.currentAgentName == "분석가")
+    }
+
+    @Test("currentAgentName 기본값 nil")
+    func currentAgentNameDefault() {
+        let context = ToolExecutionContext(
+            roomID: UUID(),
+            agentsByName: [:],
+            agentListString: "",
+            inviteAgent: { _ in false }
+        )
+        #expect(context.currentAgentName == nil)
+    }
 }
