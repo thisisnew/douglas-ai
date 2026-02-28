@@ -410,41 +410,15 @@ class RoomManager: ObservableObject {
             // 매칭 성공 → 프로그래밍적 초대
             addAgent(matched.id, to: roomID)
         } else {
-            // 매칭 실패 → 에이전트 생성 제안
-            let suggestion = RoomAgentSuggestion(
+            // 매칭 실패 → 에이전트 자동 생성 (승인 없이 즉시)
+            let newAgent = Agent(
                 name: roleName,
                 persona: "당신은 \(roleName)입니다. 사용자의 요청을 전문적으로 수행하세요. 결과물을 직접 작성하여 제출하세요.",
-                reason: "분석 결과 \(roleName) 역할이 필요합니다.",
-                suggestedBy: analyst.name
+                providerName: analyst.providerName,
+                modelName: analyst.modelName
             )
-            addAgentSuggestion(suggestion, to: roomID)
-        }
-
-        // 에이전트 생성 제안이 있으면 사용자 승인 대기
-        if let currentRoom = rooms.first(where: { $0.id == roomID }),
-           currentRoom.pendingAgentSuggestions.contains(where: { $0.status == .pending }) {
-            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].transitionTo(.awaitingApproval)
-            }
-            let waitMsg = ChatMessage(
-                role: .system,
-                content: "에이전트 생성 제안을 확인해 주세요."
-            )
-            appendMessage(waitMsg, to: roomID)
-            syncAgentStatuses()
-            scheduleSave()
-
-            // 사용자가 모든 제안을 승인/거부할 때까지 대기
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                suggestionContinuations[roomID] = continuation
-            }
-
-            // 승인 후 planning으로 복귀
-            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].transitionTo(.planning)
-            }
-            syncAgentStatuses()
-            scheduleSave()
+            agentStore?.addAgent(newAgent)
+            addAgent(newAgent.id, to: roomID)
         }
 
         // 전문가 미초대 시 워크플로우 종료
@@ -1910,7 +1884,7 @@ class RoomManager: ObservableObject {
     /// 합의 기반 토론 실행 (합의 도달 시 자동 종료, 최대 10라운드)
     private func executeDiscussion(roomID: UUID, topic: String) async {
         guard let room = rooms.first(where: { $0.id == roomID }) else { return }
-        let maxSafetyRounds = 10
+        let maxSafetyRounds = min(room.maxDiscussionRounds, 3)
 
         for round in 0..<maxSafetyRounds {
             guard !Task.isCancelled,
@@ -1984,9 +1958,24 @@ class RoomManager: ObservableObject {
         guard let agent = agentStore?.agents.first(where: { $0.id == agentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return false }
 
-        let history = buildDiscussionHistory(roomID: roomID, currentAgentName: agent.name)
+        // 이미지 포함 히스토리 (ConversationMessage)
+        let roomRef = rooms.first(where: { $0.id == roomID })
+        var history: [ConversationMessage] = []
+        // 첫 사용자 메시지(이미지 첨부 포함)를 항상 포함
+        if let firstUserMsg = roomRef?.messages.first(where: { $0.role == .user && $0.messageType == .text }),
+           firstUserMsg.attachments != nil && !(firstUserMsg.attachments?.isEmpty ?? true) {
+            history.append(ConversationMessage(
+                role: "user", content: firstUserMsg.content,
+                toolCalls: nil, toolCallID: nil, attachments: firstUserMsg.attachments
+            ))
+        }
+        // 토론 히스토리 추가
+        let discussionMsgs = buildDiscussionHistory(roomID: roomID, currentAgentName: agent.name)
+        history.append(contentsOf: discussionMsgs.map { msg in
+            ConversationMessage(role: msg.role, content: msg.content, toolCalls: nil, toolCallID: nil, attachments: nil)
+        })
 
-        let otherNames = rooms.first(where: { $0.id == roomID })?
+        let otherNames = roomRef?
             .assignedAgentIDs
             .compactMap { id in agentStore?.agents.first(where: { $0.id == id })?.name }
             .filter { $0 != agent.name }
@@ -1999,37 +1988,33 @@ class RoomManager: ObservableObject {
         라운드 \(round + 1) | 동료: \(otherNames)
 
         당신은 팀 회의에 참석한 실무자입니다. 팀원으로서 자연스럽게 대화하세요.
+        첨부된 이미지나 파일이 있으면 내용을 확인하고 참고하세요.
 
         말투 규칙:
         - 실제 회의처럼 짧고 직접적으로 말할 것 (2-4문장)
-        - "~라고 생각합니다", "~하면 어떨까요" 같은 자연스러운 구어체
-        - AI 특유의 나열식/분석식 표현 절대 금지 (번호 매기기, "첫째/둘째", "다음과 같습니다" 등)
-        - 동료 이름을 자연스럽게 언급하며 대화
         - 핵심만 말하고, 반복하지 말 것
 
         중요: 발언 마지막 줄에 반드시 다음 중 하나를 태그로 붙이세요:
         [합의] — 현재 방향에 동의하고, 실행으로 넘어가도 된다고 판단할 때
         [계속] — 추가 논의가 필요하다고 판단할 때
-
-        태그는 반드시 발언 마지막 줄에 단독으로 적어주세요.
-
-        산출물 작성: 구체적 합의 내용(API 스펙, 테스트 계획 등)이 있으면 발언에 포함하세요:
-        ```artifact:<type> title="제목"
-        내용
-        ```
-        type: api_spec, test_plan, task_breakdown, architecture_decision, generic
-        산출물은 자동 보관되어 실행 단계에서 참조됩니다.
         """
 
         do {
             agentStore?.updateStatus(agentID: agentID, status: .working)
             speakingAgentIDByRoom[roomID] = agentID
 
-            let response = try await provider.sendMessage(
+            let responseContent = try await provider.sendMessageWithTools(
                 model: agent.modelName,
                 systemPrompt: discussionPrompt,
-                messages: history
+                messages: history,
+                tools: []
             )
+            let response: String
+            switch responseContent {
+            case .text(let t): response = t
+            case .toolCalls: response = "[합의]"
+            case .mixed(let t, _): response = t
+            }
 
             speakingAgentIDByRoom.removeValue(forKey: roomID)
 
@@ -2249,19 +2234,32 @@ class RoomManager: ObservableObject {
     /// 역할명과 기존 에이전트 이름을 비교하여 가장 유사한 에이전트 반환
     static func findMatchingAgent(roleName: String, among agents: [Agent]) -> Agent? {
         guard !agents.isEmpty else { return nil }
-        let roleWords = Set(roleName.lowercased().split(whereSeparator: { $0.isWhitespace || $0.isPunctuation }).map(String.init))
-        var bestMatch: (agent: Agent, score: Double) = (agents[0], 0.0)
+        let roleLower = roleName.lowercased()
+        var bestMatch: (agent: Agent, score: Int) = (agents[0], 0)
         for agent in agents {
-            let nameWords = Set(agent.name.lowercased().split(whereSeparator: { $0.isWhitespace || $0.isPunctuation }).map(String.init))
-            let intersection = roleWords.intersection(nameWords).count
-            let union = roleWords.union(nameWords).count
-            let score = union > 0 ? Double(intersection) / Double(union) : 0.0
+            let nameLower = agent.name.lowercased()
+            var score = 0
+            // 정확 일치
+            if roleLower == nameLower { return agent }
+            // 부분 문자열 포함 (한국어 대응: "번역가" ⊂ "번역 전문가", "번역" ⊂ "번역가")
+            if roleLower.contains(nameLower) || nameLower.contains(roleLower) {
+                score += 10
+            }
+            // 핵심 키워드 겹침 (2글자 이상 공통 부분문자열)
+            let roleWords = roleLower.split(whereSeparator: { $0.isWhitespace || $0.isPunctuation }).map(String.init)
+            let nameWords = nameLower.split(whereSeparator: { $0.isWhitespace || $0.isPunctuation }).map(String.init)
+            for rw in roleWords {
+                for nw in nameWords {
+                    if rw.count >= 2 && nw.count >= 2 && (rw.contains(nw) || nw.contains(rw)) {
+                        score += 5
+                    }
+                }
+            }
             if score > bestMatch.score {
                 bestMatch = (agent, score)
             }
         }
-        // 최소 유사도 0.2 (단어 1개 이상 겹침)
-        return bestMatch.score >= 0.2 ? bestMatch.agent : nil
+        return bestMatch.score >= 5 ? bestMatch.agent : nil
     }
 
     static func wordOverlapSimilarity(_ a: String, _ b: String) -> Double {
