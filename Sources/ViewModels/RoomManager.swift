@@ -423,10 +423,23 @@ class RoomManager: ObservableObject {
             }
         }
 
-        // ── Phase 2: 계획 수립 ──
+        // ── Phase 2: 계획 수립 (단일 에이전트는 건너뜀) ──
+        if agentCount == 1 {
+            // 단일 에이전트: 계획 없이 직접 실행
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].plan = RoomPlan(summary: task, estimatedSeconds: 300, steps: [RoomStep(text: task)])
+                rooms[i].timerDurationSeconds = 300
+                rooms[i].timerStartedAt = Date()
+                rooms[i].transitionTo(.inProgress)
+            }
+            scheduleSave()
+            await executeRoomWork(roomID: roomID, task: task)
+            return
+        }
+
         let planningMsg = ChatMessage(
             role: .system,
-            content: agentCount > 1 ? "토론 결과를 바탕으로 계획을 수립하는 중..." : "계획을 수립하는 중..."
+            content: "토론 결과를 바탕으로 계획을 수립하는 중..."
         )
         appendMessage(planningMsg, to: roomID)
 
@@ -1126,8 +1139,8 @@ class RoomManager: ObservableObject {
                 messages: planMessages
             )
 
-            // 계획 메시지를 방에 추가
-            let planMsg = ChatMessage(role: .assistant, content: response, agentName: agent.name)
+            // 계획 메시지를 방에 추가 (toolActivity로 표시하여 raw JSON이 일반 채팅으로 보이지 않게)
+            let planMsg = ChatMessage(role: .assistant, content: response, agentName: agent.name, messageType: .toolActivity)
             appendMessage(planMsg, to: roomID)
 
             // JSON 파싱

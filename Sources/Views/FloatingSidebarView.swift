@@ -152,6 +152,7 @@ struct FloatingSidebarView: View {
     @EnvironmentObject var roomManager: RoomManager
 
     @State private var inputText = ""
+    @State private var previousInputText = ""
     @State private var pendingAttachments: [ImageAttachment] = []
     @State private var showSlashMenu = false
     @State private var filteredCommands: [SlashCommand] = SlashCommand.all
@@ -611,8 +612,10 @@ struct FloatingSidebarView: View {
                                 // 드롭된 파일 경로 감지 → 이미지 첨부로 변환
                                 if let remaining = extractDroppedImagePath(from: newValue) {
                                     inputText = remaining
+                                    previousInputText = remaining
                                     return
                                 }
+                                previousInputText = newValue
 
                                 let matched = SlashCommand.filtered(by: newValue)
                                 let shouldShow = newValue.hasPrefix("/") && !matched.isEmpty
@@ -732,6 +735,7 @@ struct FloatingSidebarView: View {
         if text.lowercased() == "/clear" {
             chatVM.clearMessages(for: id)
             inputText = ""
+            previousInputText = ""
             pendingAttachments = []
             showSlashMenu = false
             slashMenu.stopMonitoring()
@@ -740,6 +744,7 @@ struct FloatingSidebarView: View {
 
         let attachments = pendingAttachments.isEmpty ? nil : pendingAttachments
         inputText = ""
+        previousInputText = ""
         pendingAttachments = []
         showSlashMenu = false
         slashMenu.stopMonitoring()
@@ -767,43 +772,47 @@ struct FloatingSidebarView: View {
         pendingAttachments.append(attachment)
     }
 
-    /// 텍스트에서 드롭된 이미지 파일 경로를 감지 → 첨부로 변환, 나머지 텍스트 반환
-    /// 경로가 없으면 nil 반환
+    /// 이전 텍스트와 비교하여 드롭으로 삽입된 이미지 경로를 감지 → 첨부로 변환
+    /// 성공 시 경로를 제거한 텍스트 반환, 실패 시 nil
     private func extractDroppedImagePath(from text: String) -> String? {
-        let imageExtensions = ["jpg", "jpeg", "png", "gif", "webp", "heic", "tiff", "bmp"]
+        let imageExtensions = Set(["jpg", "jpeg", "png", "gif", "webp", "heic", "tiff", "bmp"])
 
-        // file:// URL 또는 절대 경로 패턴 매칭
-        let pattern = #"(file:///[^\s]+|/(?:Users|Volumes|tmp|var|private)[^\s]+)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              let range = Range(match.range, in: text) else { return nil }
+        // 이전 텍스트와 비교하여 삽입된 부분 추출
+        let oldText = previousInputText
+        guard text.count > oldText.count + 3 else { return nil } // 최소 경로 길이
 
-        var pathString = String(text[range])
-
-        // file:// scheme 제거
-        if pathString.hasPrefix("file://") {
-            pathString = pathString.replacingOccurrences(of: "file://", with: "")
+        // 삽입된 텍스트 추출: 이전 텍스트를 제거하면 삽입된 부분만 남음
+        var inserted = text
+        for char in oldText {
+            if let idx = inserted.firstIndex(of: char) {
+                inserted.remove(at: idx)
+            }
         }
+        inserted = inserted.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // URL 디코딩 (%20 → 공백 등)
-        pathString = pathString.removingPercentEncoding ?? pathString
+        // 삽입된 텍스트에서 경로 추출 시도
+        var path = inserted
+
+        // file:// URL 처리
+        if path.hasPrefix("file://") {
+            path = path.replacingOccurrences(of: "file://", with: "")
+        }
+        path = path.removingPercentEncoding ?? path
 
         // 이미지 확장자 확인
-        let ext = (pathString as NSString).pathExtension.lowercased()
+        let ext = (path as NSString).pathExtension.lowercased()
         guard imageExtensions.contains(ext) else { return nil }
 
-        // 파일 로드 + 첨부 생성
-        let url = URL(fileURLWithPath: pathString)
-        guard let data = try? Data(contentsOf: url),
+        // 파일 존재 확인
+        guard path.hasPrefix("/"), FileManager.default.fileExists(atPath: path) else { return nil }
+
+        // 이미지 로드 + 첨부 생성
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
               let mime = ImageAttachment.mimeType(for: data),
               let attachment = try? ImageAttachment.save(data: data, mimeType: mime) else { return nil }
 
         pendingAttachments.append(attachment)
-
-        // 경로를 텍스트에서 제거하고 나머지 반환
-        var remaining = text
-        remaining.removeSubrange(range)
-        return remaining.trimmingCharacters(in: .whitespacesAndNewlines)
+        return oldText // 삽입 전 텍스트로 복원
     }
 
     private func handleImageDrop(_ providers: [NSItemProvider]) {
