@@ -11,14 +11,15 @@ struct ProgressActivityBubble: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 헤더 (항상 보임)
-            headerView
-                .onTapGesture {
-                    guard !activities.isEmpty else { return }
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isExpanded.toggle()
-                    }
+            // 헤더 (항상 보임) — Button으로 ScrollView 내 탭 보장
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isExpanded.toggle()
                 }
+            } label: {
+                headerView
+            }
+            .buttonStyle(.plain)
 
             // 확장 영역
             if isExpanded {
@@ -58,11 +59,11 @@ struct ProgressActivityBubble: View {
                     .padding(.vertical, 1)
                     .background(Color.secondary.opacity(0.08))
                     .clipShape(Capsule())
-
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 8, weight: .medium))
-                    .foregroundColor(.secondary.opacity(0.4))
             }
+
+            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                .font(.system(size: 8, weight: .medium))
+                .foregroundColor(.secondary.opacity(0.4))
 
             Spacer()
         }
@@ -77,12 +78,30 @@ struct ProgressActivityBubble: View {
 
     private var expandedView: some View {
         VStack(alignment: .leading, spacing: 2) {
+            if activities.isEmpty && isActive {
+                // 활동 로그가 아직 없을 때
+                HStack(spacing: 4) {
+                    ProgressView()
+                        .scaleEffect(0.4)
+                        .frame(width: 10, height: 10)
+                    Text("대기 중...")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary.opacity(0.5))
+                    Spacer()
+                    Text(elapsedLabel)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.secondary.opacity(0.4))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 2)
+            }
+
             ForEach(activities) { activity in
                 activityRow(activity)
             }
 
-            // 진행 중이면 경과 시간 표시
-            if isActive {
+            // 진행 중이고 활동이 있을 때 — 마지막 행 아래에 경과 시간
+            if isActive && !activities.isEmpty {
                 HStack(spacing: 4) {
                     ProgressView()
                         .scaleEffect(0.4)

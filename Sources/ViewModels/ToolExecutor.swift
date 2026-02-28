@@ -20,11 +20,14 @@ enum ToolExecutor {
 
         // 도구 없거나 프로바이더가 도구 미지원 → 기존 경로
         guard !toolIDs.isEmpty, provider.supportsToolCalling else {
-            return try await provider.sendMessage(
+            onToolActivity?("API 요청: \(agent.providerName) (\(agent.modelName))")
+            let result = try await provider.sendMessage(
                 model: agent.modelName,
                 systemPrompt: systemPrompt,
                 messages: messages
             )
+            onToolActivity?("응답 수신 성공 (\(result.count)자)")
+            return result
         }
 
         // 단순 메시지를 ConversationMessage로 변환
@@ -68,11 +71,14 @@ enum ToolExecutor {
                 guard let content = msg.content else { return nil }
                 return (role: msg.role, content: content)
             }
-            return try await provider.sendMessage(
+            onToolActivity?("API 요청: \(agent.providerName) (\(agent.modelName))")
+            let result = try await provider.sendMessage(
                 model: agent.modelName,
                 systemPrompt: systemPrompt,
                 messages: simple
             )
+            onToolActivity?("응답 수신 성공 (\(result.count)자)")
+            return result
         }
 
         let tools = ToolRegistry.tools(for: toolIDs)

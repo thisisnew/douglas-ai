@@ -37,49 +37,33 @@ struct RoomChatView: View {
                 // 에이전트 생성 제안 카드
                 ForEach(room.pendingAgentSuggestions.filter { $0.status == .pending }) { suggestion in
                     AgentSuggestionCard(suggestion: suggestion, roomID: room.id)
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .top).combined(with: .opacity),
+                            removal: .scale(scale: 0.95).combined(with: .opacity)
+                        ))
                 }
+                .animation(.easeInOut(duration: 0.3), value: room.pendingAgentSuggestions.filter { $0.status == .pending }.count)
 
                 // 승인 대기 카드 (승인 게이트 활성 시)
                 if room.status == .awaitingApproval {
                     ApprovalCard(roomID: room.id)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
                 // 사용자 입력 카드 (ask_user 도구 활성 시)
                 if room.status == .awaitingUserInput {
                     UserInputCard(roomID: room.id)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
                 // 계획 카드 (계획 수립 후)
                 if let plan = room.plan {
                     PlanCard(plan: plan, currentStep: room.currentStepIndex, status: room.status)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
                 // 메시지 목록
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 8) {
-                            ForEach(visibleMessages(room)) { message in
-                                if message.messageType == .progress {
-                                    ProgressActivityBubble(
-                                        message: message,
-                                        activities: activitiesForProgress(message.id, in: room),
-                                        isActive: isProgressActive(message, in: room)
-                                    )
-                                    .id(message.id)
-                                } else {
-                                    MessageBubble(message: message)
-                                        .id(message.id)
-                                }
-                            }
-                        }
-                        .padding(12)
-                    }
-                    .onChange(of: room.messages.count) { _, _ in
-                        if let last = visibleMessages(room).last {
-                            withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
-                        }
-                    }
-                }
+                messageListView(room)
 
                 Divider()
 
@@ -88,6 +72,53 @@ struct RoomChatView: View {
                     inputArea(room)
                 }
             }
+            .animation(.easeInOut(duration: 0.3), value: room.status)
+        }
+    }
+
+    // MARK: - 메시지 목록
+
+    @ViewBuilder
+    private func messageListView(_ room: Room) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(visibleMessages(room)) { message in
+                        messageRow(message, in: room)
+                    }
+
+                    // 작업 진행 중 타이핑 인디케이터
+                    if room.status == .planning || room.status == .inProgress {
+                        TypingIndicator(room: room, agentStore: agentStore)
+                            .id("typing-indicator")
+                    }
+                }
+                .padding(12)
+            }
+            .onChange(of: room.messages.count) { _, _ in
+                scrollToBottom(proxy: proxy, room: room)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func messageRow(_ message: ChatMessage, in room: Room) -> some View {
+        if message.messageType == .progress {
+            ProgressActivityBubble(
+                message: message,
+                activities: activitiesForProgress(message.id, in: room),
+                isActive: isProgressActive(message, in: room)
+            )
+            .id(message.id)
+        } else {
+            MessageBubble(message: message)
+                .id(message.id)
+        }
+    }
+
+    private func scrollToBottom(proxy: ScrollViewProxy, room: Room) {
+        if let last = visibleMessages(room).last {
+            withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
         }
     }
 
@@ -930,3 +961,4 @@ struct QAStatusCard: View {
         }
     }
 }
+

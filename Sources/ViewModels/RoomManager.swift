@@ -958,6 +958,14 @@ class RoomManager: ObservableObject {
 
         let context = makeToolContext(roomID: roomID, currentAgentID: firstAgentID)
 
+        // 계획 수립 진행 버블 추가
+        let progressMsg = ChatMessage(
+            role: .system,
+            content: "\(agent.name) 요건 분석 중...",
+            messageType: .progress
+        )
+        appendMessage(progressMsg, to: roomID)
+
         do {
             let response = try await ToolExecutor.smartSend(
                 provider: provider,
@@ -967,7 +975,13 @@ class RoomManager: ObservableObject {
                 context: context,
                 onToolActivity: { [weak self] activity in
                     Task { @MainActor in
-                        let toolMsg = ChatMessage(role: .assistant, content: activity, agentName: agent.name, messageType: .toolActivity)
+                        let toolMsg = ChatMessage(
+                            role: .assistant,
+                            content: activity,
+                            agentName: agent.name,
+                            messageType: .toolActivity,
+                            activityGroupID: progressMsg.id
+                        )
                         self?.appendMessage(toolMsg, to: roomID)
                     }
                 }
