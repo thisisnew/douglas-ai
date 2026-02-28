@@ -247,7 +247,7 @@ struct FloatingSidebarView: View {
                 }
             }
         }
-        .background(.ultraThinMaterial)
+        .background(Color(nsColor: .windowBackgroundColor))
         .continuousRadius(DesignTokens.Sidebar.cornerRadius)
         .shadow(color: .black.opacity(DesignTokens.Sidebar.shadowOpacity), radius: DesignTokens.Sidebar.shadowRadius, x: -4, y: 0)
         .padding(.leading, 4)
