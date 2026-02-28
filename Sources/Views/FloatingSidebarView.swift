@@ -607,6 +607,10 @@ struct FloatingSidebarView: View {
                             .lineLimit(1...5)
                             .focused($isInputFocused)
                             .onSubmit { sendToMaster() }
+                            .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
+                                handleImageDrop(providers)
+                                return true
+                            }
                             .onChange(of: inputText) { _, newValue in
                                 let matched = SlashCommand.filtered(by: newValue)
                                 let shouldShow = newValue.hasPrefix("/") && !matched.isEmpty
@@ -768,6 +772,17 @@ struct FloatingSidebarView: View {
                     guard let data = data,
                           let mime = ImageAttachment.mimeType(for: data),
                           let attachment = try? ImageAttachment.save(data: data, mimeType: mime) else { return }
+                    DispatchQueue.main.async {
+                        pendingAttachments.append(attachment)
+                    }
+                }
+            } else if provider.hasItemConformingToTypeIdentifier("public.file-url") {
+                provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, _ in
+                    guard let data = item as? Data,
+                          let url = URL(dataRepresentation: data, relativeTo: nil),
+                          let fileData = try? Data(contentsOf: url),
+                          let mime = ImageAttachment.mimeType(for: fileData),
+                          let attachment = try? ImageAttachment.save(data: fileData, mimeType: mime) else { return }
                     DispatchQueue.main.async {
                         pendingAttachments.append(attachment)
                     }
