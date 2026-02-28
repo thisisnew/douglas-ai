@@ -399,46 +399,117 @@ class RoomManager: ObservableObject {
             return
         }
 
-        // ── Step 1.5: 포괄적 분석가 → 사용자 컨펌 ──
+        // ── Step 1.5: 포괄적 분석가 → 사용자 컨펌 (거부 시 재분석 루프) ──
         let isGenericAnalyst = analyst.roleTemplateID == "requirements_analyst"
         if isGenericAnalyst {
-            // 분석 결과 확인 요청
-            let confirmMsg = ChatMessage(
-                role: .system,
-                content: "분석 결과를 확인해주세요. 맞으면 승인, 아니면 거부해주세요.",
-                messageType: .approvalRequest
-            )
-            appendMessage(confirmMsg, to: roomID)
+            var currentAnalysis = analysisText
+            let maxRetries = 3
 
-            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].transitionTo(.awaitingApproval)
-            }
-            scheduleSave()
-
-            let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                approvalContinuations[roomID] = continuation
-            }
-            approvalContinuations.removeValue(forKey: roomID)
-
-            if !approved {
-                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].transitionTo(.failed)
-                    rooms[i].completedAt = Date()
-                }
-                let rejectMsg = ChatMessage(
+            for attempt in 0..<maxRetries {
+                // 분석 결과 확인 요청
+                let confirmMsg = ChatMessage(
                     role: .system,
-                    content: "사용자가 분석을 거부하여 작업을 종료합니다.",
-                    messageType: .error
+                    content: "분석 결과를 확인해주세요. 맞으면 승인, 수정이 필요하면 거부해주세요.",
+                    messageType: .approvalRequest
                 )
-                appendMessage(rejectMsg, to: roomID)
-                syncAgentStatuses()
-                scheduleSave()
-                return
-            }
+                appendMessage(confirmMsg, to: roomID)
 
-            // 승인됨 → planning 복귀
-            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].transitionTo(.planning)
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.awaitingApproval)
+                }
+                scheduleSave()
+
+                let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                    approvalContinuations[roomID] = continuation
+                }
+                approvalContinuations.removeValue(forKey: roomID)
+
+                if approved {
+                    // 승인됨 → planning 복귀, 루프 탈출
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].transitionTo(.planning)
+                    }
+                    analysisText = currentAnalysis
+                    break
+                }
+
+                // 거부됨 → 사용자에게 구체적으로 질문
+                if attempt < maxRetries - 1 {
+                    let askMsg = ChatMessage(
+                        role: .system,
+                        content: "어떤 부분이 다른가요? 수정할 내용을 알려주세요.",
+                        messageType: .userQuestion
+                    )
+                    appendMessage(askMsg, to: roomID)
+
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].transitionTo(.awaitingUserInput)
+                    }
+                    scheduleSave()
+
+                    let userFeedback = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+                        userInputContinuations[roomID] = continuation
+                    }
+
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].transitionTo(.planning)
+                    }
+
+                    // 사용자 피드백으로 재분석
+                    let retryPrompt = """
+                    당신은 요청 분류기입니다. 이전 분석이 거부되었습니다.
+
+                    [이전 분석]
+                    \(currentAnalysis)
+
+                    [사용자 피드백]
+                    \(userFeedback)
+
+                    피드백을 반영하여 다시 3줄만 출력하세요:
+                    - 요청: (1문장 요약)
+                    - 전문가: (필요한 역할명)
+                    - 범위: (작업량)
+
+                    [절대 금지] 번역, 코딩, 문서 작성 등 실제 작업 수행
+                    """
+
+                    let retryMsg = ChatMessage(role: .system, content: "피드백을 반영하여 재분석하는 중...")
+                    appendMessage(retryMsg, to: roomID)
+
+                    do {
+                        let retryHistory = buildRoomHistory(roomID: roomID)
+                        let retryResponse = try await provider.sendMessageWithTools(
+                            model: analyst.modelName,
+                            systemPrompt: retryPrompt,
+                            messages: retryHistory,
+                            tools: []
+                        )
+                        switch retryResponse {
+                        case .text(let t): currentAnalysis = t
+                        case .toolCalls: currentAnalysis = "분석 완료"
+                        case .mixed(let t, _): currentAnalysis = t
+                        }
+                        let retryReply = ChatMessage(role: .assistant, content: currentAnalysis, agentName: analyst.name)
+                        appendMessage(retryReply, to: roomID)
+                    } catch {
+                        // 재분석 실패 → 이전 분석 유지
+                    }
+                } else {
+                    // 최대 재시도 초과 → 워크플로우 종료
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].transitionTo(.failed)
+                        rooms[i].completedAt = Date()
+                    }
+                    let failMsg = ChatMessage(
+                        role: .system,
+                        content: "분석이 승인되지 않아 작업을 종료합니다.",
+                        messageType: .error
+                    )
+                    appendMessage(failMsg, to: roomID)
+                    syncAgentStatuses()
+                    scheduleSave()
+                    return
+                }
             }
         }
 
