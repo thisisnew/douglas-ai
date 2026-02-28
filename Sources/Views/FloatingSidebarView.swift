@@ -158,8 +158,6 @@ struct FloatingSidebarView: View {
     @State private var filteredCommands: [SlashCommand] = SlashCommand.all
     @StateObject private var slashMenu = SlashMenuState()
     @FocusState private var isInputFocused: Bool
-    /// 채팅 영역 내부: 메시지 vs 입력 비율 (0.15 ~ 0.85)
-    @State private var chatHeightRatio: CGFloat = 0.55
     /// Room 목록 높이 (pt 단위, 드래그로 조절)
     @State private var roomListHeight: CGFloat = 160
     @State private var roomDragStartHeight: CGFloat = 160
@@ -168,6 +166,8 @@ struct FloatingSidebarView: View {
     @State private var isDraggingWindow = false
     /// 드래그 앤 드롭 재정렬
     @State private var draggingAgentID: UUID?
+    /// 아바타 확대 보기
+    @State private var enlargedAvatarAgent: Agent?
 
     private var masterAgent: Agent? { agentStore.masterAgent }
     private var masterID: UUID? { masterAgent?.id }
@@ -262,6 +262,9 @@ struct FloatingSidebarView: View {
                 openRoomChatWindow(roomID: roomID)
                 roomManager.pendingAutoOpenRoomID = nil
             }
+        }
+        .sheet(item: $enlargedAvatarAgent) { agent in
+            avatarEnlargedView(agent: agent)
         }
     }
 
@@ -427,6 +430,13 @@ struct FloatingSidebarView: View {
 
         return VStack(spacing: DesignTokens.Spacing.sm) {
             AgentAvatarView(agent: agent, size: DesignTokens.AvatarSize.lg)
+                .onTapGesture {
+                    if agent.hasImage {
+                        enlargedAvatarAgent = agent
+                    } else {
+                        openInfoWindow(for: agent)
+                    }
+                }
                 // 상태 표시등 (우하단)
                 .overlay(alignment: .bottomTrailing) {
                     Circle()
@@ -472,54 +482,29 @@ struct FloatingSidebarView: View {
         DesignTokens.StatusColor.color(for: agent.status)
     }
 
-    // MARK: - 리사이즈 핸들
-
-    @State private var resizeHandleHovered = false
-
-    private func resizeHandle(containerHeight: CGFloat) -> some View {
-        Rectangle()
-            .fill(Color.clear)
-            .frame(height: 16)
-            .overlay(
-                Capsule()
-                    .fill(Color.primary.opacity(resizeHandleHovered ? 0.3 : 0.12))
-                    .frame(width: 36, height: 4)
-                    .animation(.dgFast, value: resizeHandleHovered)
-            )
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(coordinateSpace: .named("chatArea"))
-                    .onChanged { value in
-                        // 커서의 절대 Y 위치 → 비율로 직접 변환
-                        // Y가 아래로 갈수록 커지므로 그대로 나누면 됨
-                        let ratio = value.location.y / containerHeight
-                        withAnimation(.interactiveSpring(response: 0.12, dampingFraction: 0.9)) {
-                            chatHeightRatio = min(0.85, max(0.15, ratio))
-                        }
-                    }
-            )
-            .onHover { hovering in
-                resizeHandleHovered = hovering
-                if hovering {
-                    NSCursor.resizeUpDown.push()
-                } else {
-                    NSCursor.pop()
-                }
+    /// 아바타 확대 보기 시트
+    private func avatarEnlargedView(agent: Agent) -> some View {
+        VStack(spacing: 16) {
+            if let data = agent.imageData, let nsImage = NSImage(data: data) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .scaledToFit()
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
-            .onDisappear {
-                if resizeHandleHovered {
-                    NSCursor.pop()
-                    resizeHandleHovered = false
-                }
-            }
+
+            Text(agent.name)
+                .font(.headline)
+
+            Button("닫기") { enlargedAvatarAgent = nil }
+                .keyboardShortcut(.cancelAction)
+        }
+        .padding(24)
+        .frame(width: 320, height: 380)
     }
 
     // MARK: - 마스터 채팅 영역
 
     private func masterChatArea(agentID: UUID) -> some View {
-        GeometryReader { geo in
-            let chatHeight = geo.size.height * chatHeightRatio
-
             VStack(spacing: 0) {
                 // 메시지 목록
                 ScrollViewReader { proxy in
@@ -565,7 +550,6 @@ struct FloatingSidebarView: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
                     }
-                    .frame(height: chatHeight)
                     .onChange(of: chatVM.messages(for: agentID).count) { _, _ in
                         if let last = chatVM.messages(for: agentID).last {
                             withAnimation {
@@ -574,9 +558,7 @@ struct FloatingSidebarView: View {
                         }
                     }
                 }
-
-                // 리사이즈 핸들
-                resizeHandle(containerHeight: geo.size.height)
+                .frame(maxHeight: .infinity)
 
                 separator
 
@@ -615,7 +597,7 @@ struct FloatingSidebarView: View {
 
                         TextField("Tell Don't Ask", text: $inputText, axis: .vertical)
                             .textFieldStyle(.plain)
-                            .lineLimit(1...5)
+                            .lineLimit(1...8)
                             .focused($isInputFocused)
                             .onSubmit { sendToMaster() }
                             .onChange(of: inputText) { _, newValue in
@@ -662,8 +644,6 @@ struct FloatingSidebarView: View {
                     return true
                 }
             }
-            .coordinateSpace(name: "chatArea")
-        }
     }
 
     // MARK: - 슬래시 커맨드 메뉴
