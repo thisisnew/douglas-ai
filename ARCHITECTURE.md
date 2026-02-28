@@ -840,7 +840,7 @@ executeWithTools() 루프 (최대 10회):
 
 - 마스터 라우터: 모든 요청을 분석가(`requirements_analyst`)에게 위임 (사용자가 에이전트를 명시 지정한 경우만 예외)
 - 분석가 자동 생성: 분석가가 없으면 빌트인 템플릿으로 자동 생성 (`ensureAnalystExists`)
-- **Triage 단계** (`executeTriagePhase`): 분석가가 `list_agents` + `invite_agent`로 팀 구성. 전문가 미초대 시 워크플로우 종료.
+- **Triage 단계** (`executeTriagePhase`): 분석가가 분석 → 포괄적 분석가(`requirements_analyst`)이면 사용자 컨펌 대기 → 전문가 초대/생성. 전문가 미초대 시 워크플로우 종료.
 - **실행 시 분석가 제외** (`executingAgentIDs`): `roleTemplateID`가 분석가 계열이면 실행 대상에서 제외
 - **단계별 에이전트 배정** (`RoomStep.assignedAgentID`): 계획 수립 시 각 단계에 담당 전문가 지정
 - **실행 순서 승인**: 전문가 2명+ 시 계획을 사용자에게 제시하여 승인 후 실행

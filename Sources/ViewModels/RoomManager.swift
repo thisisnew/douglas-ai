@@ -399,6 +399,49 @@ class RoomManager: ObservableObject {
             return
         }
 
+        // ── Step 1.5: 포괄적 분석가 → 사용자 컨펌 ──
+        let isGenericAnalyst = analyst.roleTemplateID == "requirements_analyst"
+        if isGenericAnalyst {
+            // 분석 결과 확인 요청
+            let confirmMsg = ChatMessage(
+                role: .system,
+                content: "분석 결과를 확인해주세요. 맞으면 승인, 아니면 거부해주세요.",
+                messageType: .approvalRequest
+            )
+            appendMessage(confirmMsg, to: roomID)
+
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.awaitingApproval)
+            }
+            scheduleSave()
+
+            let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                approvalContinuations[roomID] = continuation
+            }
+            approvalContinuations.removeValue(forKey: roomID)
+
+            if !approved {
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.failed)
+                    rooms[i].completedAt = Date()
+                }
+                let rejectMsg = ChatMessage(
+                    role: .system,
+                    content: "사용자가 분석을 거부하여 작업을 종료합니다.",
+                    messageType: .error
+                )
+                appendMessage(rejectMsg, to: roomID)
+                syncAgentStatuses()
+                scheduleSave()
+                return
+            }
+
+            // 승인됨 → planning 복귀
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.planning)
+            }
+        }
+
         // ── Step 2: 전문가 초대 (프로그래밍적 — LLM 의존 없음) ──
         let availableAgents = agentStore?.subAgents.filter { $0.id != analystID } ?? []
         let roleName = Self.extractRoleName(from: analysisText) ?? Self.extractRoleFromTask(task)
