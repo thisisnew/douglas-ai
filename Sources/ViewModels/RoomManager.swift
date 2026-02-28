@@ -323,45 +323,132 @@ class RoomManager: ObservableObject {
         return agent.roleTemplateID.map { analystIDs.contains($0) } ?? false
     }
 
-    /// Triage 단계: 분석가가 요청을 분석하고 필요한 전문가를 초대
+    /// Triage 단계: 분석 → 사용자 확인 → 전문가 초대
     private func executeTriagePhase(roomID: UUID, task: String) async {
         guard let room = rooms.first(where: { $0.id == roomID }),
               let analystID = room.assignedAgentIDs.first,
               let analyst = agentStore?.agents.first(where: { $0.id == analystID }),
               let provider = providerManager?.provider(named: analyst.providerName) else { return }
 
-        let triageMsg = ChatMessage(
+        // ── Step 1: 분석 (도구 없이 분석만) ──
+        let analyzeMsg = ChatMessage(
             role: .system,
-            content: "분석가가 요청을 분석하고 팀을 구성하는 중..."
+            content: "분석가가 요청을 분석하는 중..."
         )
-        appendMessage(triageMsg, to: roomID)
+        appendMessage(analyzeMsg, to: roomID)
 
-        let triageSystemPrompt = """
+        let analyzePrompt = """
         \(analyst.persona)
 
-        [Triage 단계] 사용자의 요청을 분석하고 필요한 전문가를 초대하세요.
+        [분석 단계] 사용자의 요청을 분석하세요. 아직 도구를 사용하지 마세요.
 
-        작업 흐름:
-        1. 요청의 핵심을 파악하고 간결하게 정리
-        2. list_agents로 사용 가능한 에이전트 확인
-        3. 필요한 에이전트를 invite_agent로 초대 (반드시 1명 이상)
-        4. 존재하지 않는 전문가가 필요하면 suggest_agent_creation으로 제안
+        다음을 간결하게 정리하세요:
+        1. 요청의 핵심 요약 (1~2문장)
+        2. 필요한 전문가 역할 (예: 번역가, 백엔드 개발자 등)
+        3. 예상 작업 범위
 
         규칙:
-        - 반드시 1명 이상의 전문가를 초대하세요
-        - 간결하게 분석 결과만 보고하세요
-        - 아직 작업을 시작하지 마세요 (분석과 팀 구성만)
+        - 도구를 사용하지 마세요 (분석만)
+        - 간결하게 작성하세요
         """
 
         let history = buildRoomHistory(roomID: roomID)
+
+        do {
+            // smartSend: 이미지 첨부가 있으면 자동으로 Vision 경로 사용
+            let analysisResponse = try await ToolExecutor.smartSend(
+                provider: provider,
+                agent: analyst,
+                systemPrompt: analyzePrompt,
+                conversationMessages: history
+            )
+
+            let analysisReply = ChatMessage(role: .assistant, content: analysisResponse, agentName: analyst.name)
+            appendMessage(analysisReply, to: roomID)
+        } catch {
+            let errorMsg = ChatMessage(
+                role: .assistant,
+                content: "분석 오류: \(error.localizedDescription)",
+                agentName: analyst.name,
+                messageType: .error
+            )
+            appendMessage(errorMsg, to: roomID)
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.failed)
+                rooms[i].completedAt = Date()
+            }
+            syncAgentStatuses()
+            scheduleSave()
+            return
+        }
+
+        // ── Step 2: 사용자 확인 ──
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].transitionTo(.awaitingApproval)
+        }
+        let confirmMsg = ChatMessage(
+            role: .system,
+            content: "분석 결과를 확인해주세요. 이대로 진행하시겠습니까?",
+            messageType: .approvalRequest
+        )
+        appendMessage(confirmMsg, to: roomID)
+        scheduleSave()
+
+        let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            approvalContinuations[roomID] = continuation
+        }
+        approvalContinuations.removeValue(forKey: roomID)
+
+        guard !Task.isCancelled else { return }
+
+        if !approved {
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.failed)
+                rooms[i].completedAt = Date()
+            }
+            let rejectMsg = ChatMessage(role: .system, content: "사용자가 분석을 거부하여 작업을 종료합니다.")
+            appendMessage(rejectMsg, to: roomID)
+            syncAgentStatuses()
+            scheduleSave()
+            return
+        }
+
+        // 승인 → planning 복귀
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].transitionTo(.planning)
+        }
+
+        // ── Step 3: 전문가 초대 (도구 사용) ──
+        let inviteMsg = ChatMessage(
+            role: .system,
+            content: "분석가가 전문가를 초대하는 중..."
+        )
+        appendMessage(inviteMsg, to: roomID)
+
+        let invitePrompt = """
+        \(analyst.persona)
+
+        [팀 구성 단계] 사용자가 분석 결과를 승인했습니다. 이제 필요한 전문가를 초대하세요.
+
+        작업:
+        1. list_agents로 사용 가능한 에이전트를 확인
+        2. 필요한 에이전트를 invite_agent로 초대 (반드시 1명 이상)
+        3. 존재하지 않는 전문가가 필요하면 suggest_agent_creation으로 제안
+
+        규칙:
+        - 반드시 1명 이상의 전문가를 초대하세요
+        - 초대 결과만 간결하게 보고하세요
+        """
+
+        let updatedHistory = buildRoomHistory(roomID: roomID)
         let context = makeToolContext(roomID: roomID, currentAgentID: analystID)
 
         do {
-            let response = try await ToolExecutor.smartSend(
+            let inviteResponse = try await ToolExecutor.smartSend(
                 provider: provider,
                 agent: analyst,
-                systemPrompt: triageSystemPrompt,
-                conversationMessages: history,
+                systemPrompt: invitePrompt,
+                conversationMessages: updatedHistory,
                 context: context,
                 onToolActivity: { [weak self] activity in
                     Task { @MainActor in
@@ -374,30 +461,29 @@ class RoomManager: ObservableObject {
                 }
             )
 
-            let reply = ChatMessage(role: .assistant, content: response, agentName: analyst.name)
-            appendMessage(reply, to: roomID)
+            let inviteReply = ChatMessage(role: .assistant, content: inviteResponse, agentName: analyst.name)
+            appendMessage(inviteReply, to: roomID)
         } catch {
             let errorMsg = ChatMessage(
                 role: .assistant,
-                content: "Triage 오류: \(error.localizedDescription)",
+                content: "팀 구성 오류: \(error.localizedDescription)",
                 agentName: analyst.name,
                 messageType: .error
             )
             appendMessage(errorMsg, to: roomID)
-            // Triage 실패 시 워크플로우 중단
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].transitionTo(.failed)
                 rooms[i].completedAt = Date()
             }
             syncAgentStatuses()
             scheduleSave()
+            return
         }
 
-        // suggest_agent_creation 후 사용자 취소 감지
+        // 전문가 미초대 시 워크플로우 종료
         if let currentRoom = rooms.first(where: { $0.id == roomID }),
            currentRoom.assignedAgentIDs.count <= 1,
            currentRoom.status == .planning {
-            // Triage 완료 후에도 전문가가 초대되지 않았으면 실패 처리
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].transitionTo(.failed)
                 rooms[i].completedAt = Date()
@@ -456,43 +542,6 @@ class RoomManager: ObservableObject {
             // 토론 브리핑 생성 (컨텍스트 압축)
             await generateBriefing(roomID: roomID, topic: task)
             guard !Task.isCancelled else { return }
-
-            // ── Phase 1.5: 토론 후 사용자 승인 ──
-            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].transitionTo(.awaitingApproval)
-            }
-            let briefingSummary = rooms.first(where: { $0.id == roomID })?.briefing?.summary ?? "토론 결과"
-            let approvalMsg = ChatMessage(
-                role: .system,
-                content: "토론이 완료되었습니다.\n\n\(briefingSummary)\n\n이대로 진행하시겠습니까?",
-                messageType: .approvalRequest
-            )
-            appendMessage(approvalMsg, to: roomID)
-            scheduleSave()
-
-            let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                approvalContinuations[roomID] = continuation
-            }
-            approvalContinuations.removeValue(forKey: roomID)
-
-            guard !Task.isCancelled else { return }
-
-            if !approved {
-                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].transitionTo(.failed)
-                    rooms[i].completedAt = Date()
-                }
-                let rejectMsg = ChatMessage(role: .system, content: "사용자가 실행을 거부했습니다.")
-                appendMessage(rejectMsg, to: roomID)
-                syncAgentStatuses()
-                scheduleSave()
-                return
-            }
-
-            // 승인 → planning 상태로 복귀
-            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].transitionTo(.planning)
-            }
         } else {
             // 단일 에이전트 (Triage 없이 직접 지정된 경우): 기본 계획으로 직접 실행
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {

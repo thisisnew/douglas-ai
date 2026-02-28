@@ -285,8 +285,12 @@ class ChatViewModel: ObservableObject {
             resolveAgent(name: name, in: agentStore)
         }
 
-        // 분석가 자동 생성: 분석가가 없으면 빌트인 템플릿으로 생성
-        if resolvedAgents.isEmpty {
+        // 분석가 주도 위임 강제: 분석가가 포함되지 않으면 분석가로 대체
+        let analystTemplateIDs: Set<String> = ["requirements_analyst", "jira_analyst"]
+        let hasAnalyst = resolvedAgents.contains { agent in
+            agent.roleTemplateID.map { analystTemplateIDs.contains($0) } ?? false
+        }
+        if !hasAnalyst {
             let analyst = ensureAnalystExists(masterAgent: masterAgent, agentStore: agentStore)
             resolvedAgents = [analyst]
         }
