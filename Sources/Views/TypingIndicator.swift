@@ -4,9 +4,24 @@ import SwiftUI
 struct TypingIndicator: View {
     let room: Room
     let agentStore: AgentStore
+    @EnvironmentObject var roomManager: RoomManager
     @State private var dotPhase = 0
 
     private var workingAgentName: String? {
+        // 1순위: speakingAgentIDByRoom (현재 발언 중인 에이전트)
+        if let speakingID = roomManager.speakingAgentIDByRoom[room.id],
+           let agent = agentStore.agents.first(where: { $0.id == speakingID }) {
+            return agent.name
+        }
+        // 2순위: 마스터가 아닌 working 에이전트 우선
+        for id in room.assignedAgentIDs {
+            if let agent = agentStore.agents.first(where: { $0.id == id }),
+               !agent.isMaster,
+               agent.status == .working || agent.status == .busy {
+                return agent.name
+            }
+        }
+        // 3순위: 마스터 포함
         for id in room.assignedAgentIDs {
             if let agent = agentStore.agents.first(where: { $0.id == id }),
                agent.status == .working || agent.status == .busy {

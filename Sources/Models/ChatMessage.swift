@@ -22,6 +22,7 @@ enum MessageType: String, Codable {
     case phaseTransition    // 워크플로우 단계 전환 알림
     case assumption         // 가정 선언
     case progress           // 실행 단계 진행 상태 ("~하는 중")
+    case discussion         // 토론 턴 발언 (메인 채팅에서 숨김)
 }
 
 struct ChatMessage: Identifiable, Codable {

@@ -125,7 +125,7 @@ struct RoomChatView: View {
 
     // MARK: - 메시지 필터링 (활동 그룹 숨김)
 
-    /// 메인 채팅에 보이는 메시지: activityGroupID가 있는 메시지는 숨김 (progress 버블에서 표시)
+    /// 메인 채팅에 보이는 메시지: activityGroupID 소속 메시지는 숨김 (progress 버블에서 표시)
     private func visibleMessages(_ room: Room) -> [ChatMessage] {
         room.messages.filter { $0.activityGroupID == nil }
     }
@@ -694,6 +694,29 @@ struct ApprovalCard: View {
     @EnvironmentObject var roomManager: RoomManager
     @State private var additionalInput: String = ""
 
+    /// 방의 최근 .approvalRequest 메시지에서 승인 제목과 내용을 추출
+    private var approvalInfo: (title: String, detail: String?) {
+        guard let room = roomManager.rooms.first(where: { $0.id == roomID }),
+              let msg = room.messages.last(where: { $0.messageType == .approvalRequest }) else {
+            return ("승인이 필요합니다", nil)
+        }
+        let content = msg.content
+        // 계획 승인: "실행 계획:\n\n..." 형태
+        if content.hasPrefix("실행 계획:") {
+            return ("실행 계획을 확인해주세요", String(content.dropFirst("실행 계획:".count)).trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        // 단계 승인: "[n/m] "..." — 이 단계는 승인이 필요합니다." 형태
+        if content.contains("이 단계는 승인이 필요합니다") {
+            return ("단계 승인이 필요합니다", content)
+        }
+        // 토론 후 승인: "토론이 완료되었습니다." 형태
+        if content.hasPrefix("토론이 완료되었습니다") {
+            return ("토론 결과를 확인해주세요", String(content.dropFirst("토론이 완료되었습니다.".count)).trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        // 기본 (Triage 분석 등)
+        return ("분석 결과를 확인해주세요", nil)
+    }
+
     var body: some View {
         CardContainer(accentColor: .yellow, opacity: 0.08) {
             VStack(alignment: .leading, spacing: 8) {
@@ -701,10 +724,22 @@ struct ApprovalCard: View {
                     Image(systemName: "hand.raised.fill")
                         .font(.caption)
                         .foregroundColor(.yellow)
-                    Text("분석 결과를 확인해주세요")
+                    Text(approvalInfo.title)
                         .font(.caption2.bold())
                         .foregroundColor(.primary)
                     Spacer()
+                }
+
+                // 승인 상세 내용 (계획 단계, 토론 요약 등)
+                if let detail = approvalInfo.detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(6)
+                        .padding(6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.primary.opacity(0.03))
+                        .continuousRadius(DesignTokens.Radius.sm)
                 }
 
                 TextEditor(text: $additionalInput)
@@ -966,6 +1001,39 @@ struct QAStatusCard: View {
                 .font(.caption)
                 .foregroundColor(.gray)
         }
+    }
+}
+
+// MARK: - 토론 발언 컴팩트 버블
+
+struct DiscussionTurnBubble: View {
+    let message: ChatMessage
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "quote.bubble")
+                .font(.system(size: 9))
+                .foregroundColor(.blue.opacity(0.5))
+                .padding(.top, 3)
+
+            VStack(alignment: .leading, spacing: 1) {
+                if let name = message.agentName {
+                    Text(name)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.blue.opacity(0.7))
+                }
+                Text(message.content)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .lineLimit(3)
+            }
+
+            Spacer(minLength: 48)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(Color.blue.opacity(0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 

@@ -431,8 +431,12 @@ class RoomManager: ObservableObject {
         }
 
         // ── Step 1.5: 작업 대상 누락 시 사용자에게 질문 ──
-        let codingKeywords = ["개발", "코딩", "수정", "버그", "구현", "리팩토", "배포", "빌드", "테스트", "코드"]
-        let needsTarget = codingKeywords.contains(where: { analysisText.contains($0) })
+        // 정보 조회성 요청은 파일/경로가 필요 없으므로 스킵
+        let isInfoRequest = Self.isInfoRequest(task)
+            || analysisText.contains("정보 조회") || analysisText.contains("조사") || analysisText.contains("정리")
+
+        let codingKeywords = ["코딩", "수정", "버그", "구현", "리팩토", "배포", "빌드", "테스트", "코드"]
+        let needsTarget = !isInfoRequest && codingKeywords.contains(where: { analysisText.contains($0) })
         let hasTarget = analysisText.contains("- 대상:")
         let taskHasPath = task.contains("/") || task.contains("\\") || task.contains(".swift") || task.contains(".ts") || task.contains(".js") || task.contains(".py")
 
@@ -582,45 +586,55 @@ class RoomManager: ObservableObject {
             }
         }
 
-        // ── Step 2: 전문가 초대 (프로그래밍적 — LLM 의존 없음) ──
+        // ── Step 2: 전문가 초대 (프로그래밍적 — LLM 의존 없음, 복수 역할 지원) ──
         let availableAgents = agentStore?.subAgents.filter { !$0.isMaster } ?? []
 
-        // 승인 전 사용자가 보낸 힌트 메시지 반영 (예: "프론트엔드 작업자가 필요할거야")
+        // 승인 전 사용자가 보낸 힌트 메시지 반영 (예: "백엔드, 프론트엔드 각각의 얘기를 듣고싶어")
         let userHints = rooms.first(where: { $0.id == roomID })?.messages
             .filter { $0.role == .user && $0.content != "승인" }
             .map(\.content)
             .joined(separator: " ") ?? ""
 
-        // 사용자 힌트 우선: 사용자가 구체적 역할을 언급했으면 분석 텍스트보다 우선
-        let userHintRole = Self.extractRoleFromTask(userHints)
-        let roleName: String
-        if !userHints.isEmpty && userHintRole != "전문가" {
-            // 사용자가 "프론트엔드", "백엔드" 등 구체적 역할 언급 → 우선 사용
-            roleName = userHintRole
-        } else {
-            // 사용자 힌트에 구체적 역할 없음 → 분석 텍스트에서 추출
-            roleName = Self.extractRoleName(from: analysisText) ?? Self.extractRoleFromTask(task)
+        // 역할 추출: 사용자 힌트에서 여러 역할 추출 → 분석 텍스트 → task 순 폴백
+        var roleNames: [String] = []
+        if !userHints.isEmpty {
+            roleNames = Self.extractRolesFromTask(userHints)
+        }
+        if roleNames.isEmpty {
+            if let analysisRole = Self.extractRoleName(from: analysisText) {
+                roleNames = [analysisRole]
+            } else {
+                roleNames = Self.extractRolesFromTask(task)
+            }
+        }
+        if roleNames.isEmpty {
+            roleNames = ["전문가"]
         }
 
-        // 기존 에이전트 중 이름이 유사한 에이전트 매칭
-        let matchedAgent = Self.findMatchingAgent(roleName: roleName, among: availableAgents)
+        // 각 역할에 대해 매칭 + 초대/제안
+        var usedAgentIDs: Set<UUID> = []
+        var hasSuggestion = false
+        for roleName in roleNames {
+            let available = availableAgents.filter { !usedAgentIDs.contains($0.id) }
+            if let matched = Self.findMatchingAgent(roleName: roleName, among: available) {
+                addAgent(matched.id, to: roomID)
+                usedAgentIDs.insert(matched.id)
+            } else {
+                let suggestion = RoomAgentSuggestion(
+                    name: roleName,
+                    persona: "당신은 \(roleName)입니다. 사용자의 요청을 전문적으로 수행하세요.",
+                    recommendedProvider: masterAgent.providerName,
+                    recommendedModel: masterAgent.modelName,
+                    reason: "작업에 필요한 '\(roleName)' 역할의 에이전트가 없습니다. 작업 규칙을 설정하여 추가해주세요.",
+                    suggestedBy: masterAgent.name
+                )
+                addAgentSuggestion(suggestion, to: roomID)
+                hasSuggestion = true
+            }
+        }
 
-        if let matched = matchedAgent {
-            // 매칭 성공 → 프로그래밍적 초대
-            addAgent(matched.id, to: roomID)
-        } else {
-            // 매칭 실패 → 에이전트 생성 제안 (사용자가 작업 규칙 설정 후 추가)
-            let suggestion = RoomAgentSuggestion(
-                name: roleName,
-                persona: "당신은 \(roleName)입니다. 사용자의 요청을 전문적으로 수행하세요.",
-                recommendedProvider: masterAgent.providerName,
-                recommendedModel: masterAgent.modelName,
-                reason: "작업에 필요한 '\(roleName)' 역할의 에이전트가 없습니다. 작업 규칙을 설정하여 추가해주세요.",
-                suggestedBy: masterAgent.name
-            )
-            addAgentSuggestion(suggestion, to: roomID)
-
-            // 사용자가 추가/건너뛰기를 누를 때까지 대기
+        // 제안이 있으면 사용자가 추가/건너뛰기를 누를 때까지 대기
+        if hasSuggestion {
             await waitForSuggestionResponse(roomID: roomID)
         }
 
@@ -725,9 +739,9 @@ class RoomManager: ObservableObject {
             return
         }
 
-        // ── Phase 2.5: 전문가 2명+ 시 계획 승인 ──
+        // ── Phase 2.5: 전문가 2명+ 시 계획 승인 (리서치 요청은 스킵) ──
         let specialistIDs = executingAgentIDs(in: roomID)
-        if specialistIDs.count >= 2 {
+        if specialistIDs.count >= 2 && !Self.isInfoRequest(task) {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].plan = plan
                 rooms[i].transitionTo(.awaitingApproval)
@@ -2268,11 +2282,14 @@ class RoomManager: ObservableObject {
             ConversationMessage(role: msg.role, content: msg.content, toolCalls: nil, toolCallID: nil, attachments: nil)
         })
 
-        let otherNames = roomRef?
-            .assignedAgentIDs
-            .compactMap { id in agentStore?.agents.first(where: { $0.id == id })?.name }
-            .filter { $0 != agent.name }
-            .joined(separator: ", ") ?? ""
+        // 동료 목록: 이름(역할) 형태로 구성, PM과 전문가 구분
+        let otherAgents = roomRef?.assignedAgentIDs
+            .compactMap { id in agentStore?.agents.first(where: { $0.id == id }) }
+            .filter { $0.id != agentID } ?? []
+        let pmName = otherAgents.first(where: { $0.isMaster })?.name
+        let specialists = otherAgents.filter { !$0.isMaster }
+        let specialistDesc = specialists.map { $0.name }.joined(separator: ", ")
+        let otherNames = otherAgents.map { $0.name }.joined(separator: ", ")
 
         // 마스터(오케스트레이터) 여부 판별
         let isMasterAgent = agent.isMaster
@@ -2290,18 +2307,20 @@ class RoomManager: ObservableObject {
             [절대 금지] 전문가의 업무를 대신 수행
 
             [회의실] \(topic)
-            라운드 \(round + 1) | 동료: \(otherNames)
+            라운드 \(round + 1) | 전문가: \(specialistDesc)
 
             2문장 이내로 발언하세요.
             발언 마지막 줄에 [합의] 또는 [계속] 태그를 붙이세요.
             """
         } else {
             // 전문가: 자기 역할에 맞는 작업
+            let pmNote = pmName != nil ? "\(pmName!)은 PM입니다. 전문적인 질문은 다른 전문가에게 직접 하세요." : ""
             discussionPrompt = """
             \(agent.resolvedSystemPrompt)
 
             [회의실] \(topic)
             라운드 \(round + 1) | 동료: \(otherNames)
+            \(pmNote)
 
             첨부된 이미지나 파일이 있으면 내용을 확인하고 참고하세요.
             2-4문장으로 핵심만 말하세요.
@@ -2352,7 +2371,7 @@ class RoomManager: ObservableObject {
             }
             let displayResponse = ArtifactParser.stripArtifactBlocks(from: cleanResponse)
 
-            let reply = ChatMessage(role: .assistant, content: displayResponse.isEmpty ? cleanResponse : displayResponse, agentName: agent.name)
+            let reply = ChatMessage(role: .assistant, content: displayResponse.isEmpty ? cleanResponse : displayResponse, agentName: agent.name, messageType: .discussion)
             appendMessage(reply, to: roomID)
 
             return agreed
@@ -2470,7 +2489,7 @@ class RoomManager: ObservableObject {
     private func buildDiscussionHistory(roomID: UUID, currentAgentName: String?) -> [(role: String, content: String)] {
         guard let room = rooms.first(where: { $0.id == roomID }) else { return [] }
         return room.messages
-            .filter { $0.messageType == .text || $0.messageType == .discussionRound }
+            .filter { $0.messageType == .text || $0.messageType == .discussion || $0.messageType == .discussionRound }
             .suffix(40)
             .map { msg in
                 let role: String
@@ -2515,8 +2534,19 @@ class RoomManager: ObservableObject {
         return nil
     }
 
-    /// 태스크 텍스트에서 역할 키워드 추출
+    /// 태스크 텍스트에서 역할 키워드 추출 (단일 — 레거시 호환)
     static func extractRoleFromTask(_ task: String) -> String {
+        return extractRolesFromTask(task).first ?? "전문가"
+    }
+
+    /// 정보 조회/리서치성 요청인지 판별 (계획 승인 스킵 등에 사용)
+    static func isInfoRequest(_ task: String) -> Bool {
+        let infoKeywords = ["트렌드", "알려", "듣고", "설명", "비교", "추천", "조사", "정리", "요약", "조회", "정보", "알고싶", "궁금", "찾아"]
+        return infoKeywords.contains(where: { task.contains($0) })
+    }
+
+    /// 태스크 텍스트에서 모든 역할 키워드 추출 (복수)
+    static func extractRolesFromTask(_ task: String) -> [String] {
         let keywords: [(pattern: String, role: String)] = [
             // 더 구체적인 키워드를 먼저 매칭 (프론트엔드/백엔드 구분)
             ("프론트엔드", "프론트엔드 개발자"),
@@ -2540,12 +2570,20 @@ class RoomManager: ObservableObject {
             ("배포", "DevOps 엔지니어"),
         ]
         let lowered = task.lowercased()
+        var roles: [String] = []
+        var seen: Set<String> = []
         for kw in keywords {
-            if lowered.contains(kw.pattern) {
-                return kw.role
+            if lowered.contains(kw.pattern) && !seen.contains(kw.role) {
+                roles.append(kw.role)
+                seen.insert(kw.role)
             }
         }
-        return "전문가"
+        // 구체적 역할이 있으면 범용 "개발자" 제거 (예: 프론트엔드 + 백엔드 → "개발자" 불필요)
+        let specificDevRoles = roles.filter { $0 != "개발자" && $0.contains("개발자") }
+        if !specificDevRoles.isEmpty {
+            roles.removeAll { $0 == "개발자" }
+        }
+        return roles
     }
 
     /// 역할명과 기존 에이전트 이름을 비교하여 가장 유사한 에이전트 반환

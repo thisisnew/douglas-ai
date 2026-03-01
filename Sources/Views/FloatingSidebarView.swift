@@ -8,12 +8,15 @@ final class UtilityWindowManager {
     static let shared = UtilityWindowManager()
     private(set) var windows: [NSWindow] = []
     private var observers: [NSWindow: Any] = [:]
+    /// 윈도우 식별자 (title 대신 고유 ID로 중복 판별)
+    private var windowIdentifiers: [NSWindow: String] = [:]
 
     /// 열려있는 유틸리티 윈도우가 있는지
     var hasOpenWindows: Bool { !windows.isEmpty }
 
     func open<Content: View>(
         title: String,
+        identifier: String? = nil,
         width: CGFloat,
         height: CGFloat,
         agentStore: AgentStore,
@@ -22,8 +25,9 @@ final class UtilityWindowManager {
         roomManager: RoomManager? = nil,
         @ViewBuilder content: () -> Content
     ) {
-        // 같은 title의 윈도우가 이미 열려 있으면 포커스만
-        if let existing = windows.first(where: { $0.title == title }) {
+        // 같은 identifier의 윈도우가 이미 열려 있으면 포커스만
+        let windowID = identifier ?? title
+        if let existing = windows.first(where: { windowIdentifiers[$0] == windowID }) {
             existing.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
@@ -58,6 +62,7 @@ final class UtilityWindowManager {
             Task { @MainActor [weak self] in self?.cleanup(closedWindow) }
         }
         observers[window] = observer
+        windowIdentifiers[window] = windowID
         windows.append(window)
 
         // 사이드바보다 높은 레벨로 표시 (사이드바 조작 없이)
@@ -66,13 +71,22 @@ final class UtilityWindowManager {
         // → 유틸리티 윈도우가 열릴 때 .regular로 전환해서 TextField 입력 가능하게
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+
+        // 페이드인 애니메이션
+        window.alphaValue = 0
         window.makeKeyAndOrderFront(nil)
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.25
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            window.animator().alphaValue = 1
+        }
     }
 
     private func cleanup(_ window: NSWindow) {
         if let observer = observers.removeValue(forKey: window) {
             NotificationCenter.default.removeObserver(observer)
         }
+        windowIdentifiers.removeValue(forKey: window)
         windows.removeAll { $0 === window }
         // 모든 유틸리티 윈도우가 닫히면 다시 accessory로 복원 (Dock 아이콘 숨김)
         if windows.isEmpty {
@@ -190,6 +204,9 @@ struct FloatingSidebarView: View {
     }
 
     @State private var sectionHandleHovered = false
+    /// 방 열기 프로그레스 (nil이면 비활성)
+    @State private var roomOpenProgress: CGFloat?
+    @State private var pendingRoomToOpen: UUID?
 
     /// 상단 드래그 핸들 — AppKit performDrag가 실제 이동을 처리
     private var dragHandle: some View {
@@ -262,8 +279,28 @@ struct FloatingSidebarView: View {
         .animation(.dgSlow, value: chatVM.showToast)
         .onChange(of: roomManager.pendingAutoOpenRoomID) { _, newID in
             if let roomID = newID {
-                openRoomChatWindow(roomID: roomID)
                 roomManager.pendingAutoOpenRoomID = nil
+                pendingRoomToOpen = roomID
+                roomOpenProgress = 0
+                // 타이머로 0→1 점진 증가 (1.5초 동안 ~60 프레임)
+                let totalDuration: Double = 1.5
+                let interval: Double = 1.0 / 60.0
+                let step: CGFloat = CGFloat(interval / totalDuration)
+                Task {
+                    while let current = roomOpenProgress, current < 1.0 {
+                        try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+                        await MainActor.run {
+                            if roomOpenProgress != nil {
+                                roomOpenProgress = min((roomOpenProgress ?? 0) + step, 1.0)
+                            }
+                        }
+                    }
+                    await MainActor.run {
+                        openRoomChatWindow(roomID: roomID)
+                        roomOpenProgress = nil
+                        pendingRoomToOpen = nil
+                    }
+                }
             }
         }
         .sheet(item: $enlargedAvatarAgent) { agent in
@@ -557,9 +594,18 @@ struct FloatingSidebarView: View {
                                 .frame(maxWidth: .infinity)
                             }
 
+                            let lastDelegationID = chatVM.messages(for: agentID).last(where: { $0.messageType == .delegation })?.id
                             ForEach(chatVM.messages(for: agentID)) { message in
-                                MessageBubble(message: message)
+                                if message.id == lastDelegationID && pendingRoomToOpen != nil {
+                                    HStack(alignment: .center, spacing: 8) {
+                                        MessageBubble(message: message)
+                                        RoomOpenProgressRing(progress: roomOpenProgress ?? 0)
+                                    }
                                     .id(message.id)
+                                } else {
+                                    MessageBubble(message: message)
+                                        .id(message.id)
+                                }
                             }
 
                             if chatVM.loadingAgentIDs.contains(agentID) {
@@ -903,7 +949,7 @@ struct FloatingSidebarView: View {
 
     private func openRoomChatWindow(roomID: UUID) {
         let title = roomManager.rooms.first(where: { $0.id == roomID })?.title ?? "방"
-        UtilityWindowManager.shared.open(title: title,
+        UtilityWindowManager.shared.open(title: title, identifier: roomID.uuidString,
             width: DesignTokens.WindowSize.roomChat.width, height: DesignTokens.WindowSize.roomChat.height,
             agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, roomManager: roomManager) {
             RoomChatView(roomID: roomID)
@@ -1103,5 +1149,28 @@ struct AgentReorderDropDelegate: DropDelegate {
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
         DropProposal(operation: .move)
+    }
+}
+
+// MARK: - 방 열기 원형 프로그레스 (숫자 + 링)
+
+struct RoomOpenProgressRing: View {
+    let progress: CGFloat
+    private let size: CGFloat = 30
+    private let lineWidth: CGFloat = 3
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.accentColor.opacity(0.15), lineWidth: lineWidth)
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            Text("\(Int(progress * 100))")
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(.accentColor)
+        }
+        .frame(width: size, height: size)
     }
 }
