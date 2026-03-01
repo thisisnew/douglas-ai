@@ -67,8 +67,8 @@ struct RoomChatView: View {
 
                 Divider()
 
-                // 입력 영역
-                if room.isActive {
+                // 입력 영역 (완료 후 또는 대기 상태에서만 표시)
+                if room.status == .completed || room.status == .failed {
                     inputArea(room)
                 }
             }

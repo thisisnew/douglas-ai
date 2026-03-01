@@ -715,9 +715,10 @@ class RoomManager: ObservableObject {
         }
 
         // ── Phase 2: 계획 수립 ──
+        let hadDiscussion = specialistCount >= 2
         let planningMsg = ChatMessage(
             role: .system,
-            content: "토론 결과를 바탕으로 계획을 수립하는 중..."
+            content: hadDiscussion ? "토론 결과를 바탕으로 계획을 수립하는 중..." : "계획을 수립하는 중..."
         )
         appendMessage(planningMsg, to: roomID)
 
