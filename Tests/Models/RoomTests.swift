@@ -325,17 +325,17 @@ struct RoomTests {
         #expect(RoomStatus.inProgress.canTransition(to: .failed) == true)
     }
 
-    @Test("canTransition - completed → 어디든 불가")
-    func canTransitionCompletedToAny() {
+    @Test("canTransition - completed → inProgress 허용 (후속 메시지)")
+    func canTransitionCompletedToInProgress() {
+        #expect(RoomStatus.completed.canTransition(to: .inProgress) == true)
         #expect(RoomStatus.completed.canTransition(to: .planning) == false)
-        #expect(RoomStatus.completed.canTransition(to: .inProgress) == false)
         #expect(RoomStatus.completed.canTransition(to: .failed) == false)
     }
 
-    @Test("canTransition - failed → 어디든 불가")
-    func canTransitionFailedToAny() {
+    @Test("canTransition - failed → inProgress 허용 (재활성화)")
+    func canTransitionFailedToInProgress() {
+        #expect(RoomStatus.failed.canTransition(to: .inProgress) == true)
         #expect(RoomStatus.failed.canTransition(to: .planning) == false)
-        #expect(RoomStatus.failed.canTransition(to: .inProgress) == false)
         #expect(RoomStatus.failed.canTransition(to: .completed) == false)
     }
 
@@ -631,9 +631,9 @@ struct RoomTests {
         #expect(RoomStatus.awaitingApproval.canTransition(to: .failed) == true)
     }
 
-    @Test("canTransition - awaitingApproval → completed 불가")
+    @Test("canTransition - awaitingApproval → completed 허용")
     func canTransitionAwaitingToCompleted() {
-        #expect(RoomStatus.awaitingApproval.canTransition(to: .completed) == false)
+        #expect(RoomStatus.awaitingApproval.canTransition(to: .completed) == true)
     }
 
     @Test("canTransition - planning → awaitingApproval 허용")
@@ -832,9 +832,9 @@ struct RoomTests {
         #expect(RoomStatus.awaitingUserInput.canTransition(to: .failed) == true)
     }
 
-    @Test("canTransition - awaitingUserInput → completed 불가")
+    @Test("canTransition - awaitingUserInput → completed 허용")
     func canTransitionAwaitingUserInputToCompleted() {
-        #expect(RoomStatus.awaitingUserInput.canTransition(to: .completed) == false)
+        #expect(RoomStatus.awaitingUserInput.canTransition(to: .completed) == true)
     }
 
     @Test("Room isActive - awaitingUserInput")

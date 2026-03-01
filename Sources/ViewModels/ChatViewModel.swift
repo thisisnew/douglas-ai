@@ -134,7 +134,21 @@ class ChatViewModel: ObservableObject {
             return
         }
 
-        // 마스터가 직접 방 생성 (LLM 라우팅 없음)
+        // Intent 분류 (규칙 → LLM 폴백)
+        var intent: WorkflowIntent
+        if let quick = IntentClassifier.quickClassify(task) {
+            intent = quick
+        } else if let provider = providerManager?.provider(named: agent.providerName) {
+            intent = await IntentClassifier.classifyWithLLM(
+                task: task,
+                provider: provider,
+                model: agent.modelName
+            )
+        } else {
+            intent = .implementation
+        }
+
+        // 마스터가 직접 방 생성 + Intent 기반 워크플로우
         let delegationMsg = ChatMessage(
             role: .assistant,
             content: "작업을 시작합니다: \(task)",
@@ -146,7 +160,8 @@ class ChatViewModel: ObservableObject {
         let room = roomManager.createRoom(
             title: task,
             agentIDs: [agent.id],
-            createdBy: .master(agentID: agent.id)
+            createdBy: .master(agentID: agent.id),
+            intent: intent
         )
         roomManager.selectedRoomID = room.id
         roomManager.pendingAutoOpenRoomID = room.id

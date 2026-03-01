@@ -43,7 +43,9 @@ DOUGLAS/
 │   │   ├── BuildResult.swift         # 빌드 결과 모델 + BuildLoopStatus + QAResult + QALoopStatus
 │   │   ├── FileWriteTracker.swift   # 병렬 실행 파일 쓰기 충돌 감지 (actor)
 │   │   ├── ToolExecutionContext.swift # 도구 실행 컨텍스트 (방/에이전트/프로젝트 정보 스냅샷, askUser, currentPhase)
-│   │   ├── WorkflowIntent.swift    # 워크플로우 의도 (7단계 상태기계: WorkflowPhase, WorkflowIntent)
+│   │   ├── WorkflowIntent.swift    # 워크플로우 의도 (WorkflowPhase, WorkflowIntent 8종, PlanMode)
+│   │   ├── IntentClassifier.swift # Intent 분류기 (규칙 기반 + LLM 폴백)
+│   │   ├── DecisionLog.swift      # 토론 결정 로그 (DecisionEntry)
 │   │   ├── WorkflowAssumption.swift # 가정 선언 (RiskLevel: low/medium/high) + UserAnswer
 │   │   ├── ProjectPlaybook.swift   # 프로젝트 플레이북 (브랜치 전략, 테스트 정책, 프리셋 3종)
 │   │   ├── IntakeData.swift        # Intake 입력 데이터 (InputSourceType, JiraTicketSummary)
@@ -811,32 +813,30 @@ executeWithTools() 루프 (최대 10회):
 | `ChatViewModel.swift` | `handleAgentMessage` → `ToolExecutor.smartSend()` (이미지 포함 시 conversationMessages 오버로드) |
 | `RoomManager.swift` | `sendUserMessage`, `executeStep` → `ToolExecutor.smartSend()` + `ToolExecutionContext` 전달 (invite_agent/list_agents 지원) |
 
-**방 워크플로우** (`startRoomWorkflow`): `room.intent` 유무에 따라 분기.
+**방 워크플로우** (`startRoomWorkflow`): 항상 Intent 기반 `executePhaseWorkflow` 실행. `room.intent == nil`이면 `.implementation` 폴백.
 
-**공통 프로세스 (마스터 PM 주도)**:
+**범용 워크플로우 (Intent 기반 적응형)**:
 ```
-사용자 입력 → 마스터가 즉시 방 생성 (LLM 호출 없음)
-  → Triage: 마스터가 분석 + 사용자 컨펌 + 전문가 초대/생성
-  → 토론: 마스터(오케스트레이터) + 전문가가 요구사항 협의
-  → 계획 수립: 실행 순서 결정 (전문가 2명+ 시 사용자 확인)
-  → 실행: 전문가만 순차 실행 (마스터 제외)
-  → 리뷰: 작업일지 생성
+사용자 입력 → Intent 분류 (규칙 + LLM) → 방 생성
+  → ① Intake: 입력 파싱 (Jira fetch, URL 감지)
+  → ② Intent: 작업 유형 표시
+  → ③ Clarify: 복명복창 (DOUGLAS가 이해한 내용 요약 → 사용자 컨펌까지 무한 루프)
+  → ④ Assemble: 전문가 초대 (역할 매칭 + 생성 제안)
+  → ⑤~⑦: Intent별 분기 (PlanMode에 따라)
 ```
 
-- 마스터 PM: 사용자 메시지 → 즉시 방 생성 (LLM 라우팅 없음). 방 안에서 트리아지 수행.
-- **Triage 단계** (`executeTriagePhase`): 마스터가 분석 → `isMaster`이면 사용자 컨펌 대기 → 전문가 초대/생성. 전문가 미초대 시 워크플로우 종료.
+- **Intent 분류** (`IntentClassifier`): 규칙 기반 즉시 분류 (`quickClassify`) → 실패 시 LLM 분류 (`classifyWithLLM`). `ChatViewModel.handleMasterMessage`에서 방 생성 전 호출.
+- **복명복창 Clarify** (`executeClarifyPhase`): DOUGLAS가 요청을 요약 → 사용자 승인/거부 → 거부 시 피드백 반영 재요약 → 승인까지 무한 반복.
+- **PlanMode 분기** (`executePlanPhase`):
+  - `.skip`: Plan 단계 건너뜀 (quickAnswer)
+  - `.lite`: 토론(필요 시) + 산출물 정리만 (brainstorm, 요건 분석 등)
+  - `.exec`: 토론(필요 시) + 계획 수립 + 승인(implementation만) (implementation, research, documentation)
+- **quickAnswer** (`executeQuickAnswer`): 전문가 1명이 도구 포함 즉답
 - **실행 시 마스터 제외** (`executingAgentIDs`): `agent.isMaster`이면 실행 대상에서 제외
-- **단계별 에이전트 배정** (`RoomStep.assignedAgentID`): 계획 수립 시 각 단계에 담당 전문가 지정
-- **실행 순서 승인**: 전문가 2명+ 시 계획을 사용자에게 제시하여 승인 후 실행
-- **계획 수립**: 전문가가 생성 (마스터 제외). 계획 JSON은 사용자에게 숨김. 마스터에게 단계 배정 금지.
-- **진행 메시지 간결화** (`shortenStepLabel`): 실행 단계 진행률을 `"~하는 중…"` 스타일로 축약 표시. `MessageType.progress`로 분류.
+- **계획 수립**: 전문가가 생성 (마스터 제외). 계획 JSON은 사용자에게 숨김.
+- **DecisionLog**: 토론 중 `[합의: 내용]` 태그 파싱 → `Room.decisionLog`에 기록
 - **에이전트 참조 프로젝트** (`Agent.referenceProjectPaths`): 에이전트별로 참조 프로젝트 디렉토리를 여러 건 등록. 방에 초대 시 `addAgent(_:to:)`에서 방의 `projectPaths`에 자동 병합.
-
-- **레거시** (`intent == nil`): Triage → 토론 → 승인 → 계획 → (순서 확인) → 실행
-- **새 워크플로우** (`intent != nil`): `executePhaseWorkflow` → intent.requiredPhases 순회 디스패치
-  - Intake → Clarify(ask_user) → Assemble(AgentMatcher) → Plan(플레이북 주입) → Execute → Review
-- **토론 후 승인**: 토론 완료 시 브리핑 생성 → `.awaitingApproval` → 사용자 승인 후 계획 수립
-- **CLI WebFetch 차단**: `ClaudeCodeProvider.sendMessage()`에서 `--disallowed-tools WebFetch` 적용 (바이브코딩 유지, URL 직접 접근만 차단)
+- **CLI WebFetch 차단**: `ClaudeCodeProvider.sendMessage()`에서 `--disallowed-tools WebFetch` 적용
 
 **승인 게이트** (`executeRoomWork`): `step.requiresApproval == true`이면 `.awaitingApproval` 상태 전환 + `CheckedContinuation`으로 비동기 일시 정지. `approveStep(roomID:)` / `rejectStep(roomID:)` 호출 시 continuation resume. 거부 시 재분석 루프 (최대 3회).
 
@@ -914,38 +914,42 @@ executeWithTools() 루프 (최대 10회):
 | H-5 | **시스템 프롬프트 주입 변경**: RoomManager/ChatViewModel 6+ 위치에서 `agent.persona` → `agent.resolvedSystemPrompt`. | ✅ |
 | H-6 | **트리아지 자동 생성 → 제안**: 매칭 실패 시 에이전트 자동 생성 대신 `RoomAgentSuggestion` 생성. AgentSuggestionCard 승인 시 AddAgentSheet 열기. | ✅ |
 
-### Phase E — Intent 기반 7단계 워크플로우 ✅ 완료
+### Phase E — Intent 기반 범용 워크플로우 ✅ 완료 (v2 리팩토링)
 
 | 항목 | 내용 | 상태 |
 |------|------|------|
-| E-1 | **상태기계 + WorkflowIntent 모델**: `WorkflowPhase` 7단계 enum, `WorkflowIntent` 4종 (implementation, requirementsAnalysis, testPlanning, taskDecomposition). Intent별 필요 단계 매핑. `RoomStatus.awaitingUserInput` 추가. | ✅ |
-| E-2 | **ProjectPlaybook**: 프로젝트별 워크플로우 설정 (`{projectPath}/.douglas/playbook.json`). UserRole→defaultIntent 매핑. 브랜치 전략, 테스트 정책, 배포 프로세스. 프리셋 3종 (startup/team/enterprise). Override 추적 + 영구 변경 제안. | ✅ |
-| E-3 | **ask_user 도구 + UserInput 게이트**: Clarify 단계에서만 사용 가능한 사용자 질문 도구. `CheckedContinuation` 기반 블로킹. `UserInputCard` UI. | ✅ |
-| E-4 | **Intake + Intent 단계**: 입력 파싱 (URL/Jira 감지), Jira API fetch → `IntakeData` 구조화 저장, 플레이북 로드. `room.intent` 유무로 레거시/새 워크플로우 분기. | ✅ |
-| E-5 | **Clarify 단계 + 가정 선언**: 마스터가 `ask_user`로 결측치 질문 (최대 5개). 미답 시 `artifact:assumptions`로 가정 선언 (위험도: 낮음/중간/높음). `WorkflowAssumption` 파싱. | ✅ |
-| E-6 | **시스템 주도 Assembly**: 마스터가 `artifact:role_requirements` 산출 → `AgentMatcher`가 자동 매칭 (이름 + persona + workingRules 키워드). 매칭된 에이전트 자동 초대, 미매칭은 생성 제안. 필수 역할 50%+ 커버리지 게이트. | ✅ |
-| E-7 | **Plan/Execute/Review + 플레이북 주입**: 계획 수립 프롬프트에 플레이북 컨텍스트 주입. Review 단계에서 플레이북 override 감지. 레거시 메서드 재사용으로 점진적 전환. | ✅ |
+| E-1 | **WorkflowIntent 8종 + PlanMode**: quickAnswer, research, brainstorm, documentation, implementation, requirementsAnalysis, testPlanning, taskDecomposition. `PlanMode` (skip/lite/exec)로 Plan 단계 동작 분기. | ✅ |
+| E-2 | **IntentClassifier**: 규칙 기반 키워드 즉시 분류 → LLM 폴백. `ChatViewModel.handleMasterMessage`에서 방 생성 전 호출. | ✅ |
+| E-3 | **복명복창 Clarify**: DOUGLAS가 이해한 내용 요약 → 사용자 승인까지 무한 루프. 거부 시 피드백 반영 재요약. | ✅ |
+| E-4 | **DecisionLog**: 토론 중 `[합의: 내용]` 파싱 → `DecisionEntry` 기록. `Room.decisionLog` 저장. | ✅ |
+| E-5 | **PlanMode 분기**: `.skip`(quickAnswer), `.lite`(brainstorm 등 산출물형), `.exec`(implementation 등 실행형). | ✅ |
+| E-6 | **레거시 제거**: `legacyStartRoomWorkflow` 삭제. `intent == nil` → `.implementation` 폴백. | ✅ |
+| E-7 | **ArtifactType 확장**: `researchReport`, `brainstormResult`, `document` 추가. | ✅ |
 
-**7단계 워크플로우 상태기계**:
+**7단계 워크플로우 (모든 Intent 공통 프리픽스)**:
 ```
 ① Intake ── 입력 파싱 (Jira fetch, URL 감지, IntakeData 저장, 플레이북 로드)
-② Intent ── 작업 목적 확인 (방 생성 시 설정, 플레이북 기본값)
-③ Clarify ─ 결측치 질문 (ask_user 최대 5개) + 미답 시 가정 선언
-④ Assemble ─ 마스터 역할 산출 → 시스템 매칭/초대 (커버리지 게이트)
-⑤ Plan ──── 토론 + 브리핑 + 승인 + 계획 수립 (플레이북 주입)
-⑥ Execute ── 단계별 병렬 실행
+② Intent ── 작업 유형 표시 (방 생성 시 IntentClassifier가 분류)
+③ Clarify ─ 복명복창 (DOUGLAS 요약 → 사용자 컨펌까지 무한 루프)
+④ Assemble ─ 전문가 초대 (AgentMatcher → 미매칭 시 생성 제안)
+⑤ Plan ──── PlanMode 분기: skip / lite(토론→정리) / exec(토론→계획→승인)
+⑥ Execute ── quickAnswer(즉답) / 표준 실행(단계별)
 ⑦ Review ─── 작업일지 + 플레이북 override 감지
 ```
 
-**Intent별 단계 분기**:
-| Intent | 포함 단계 |
-|--------|----------|
-| implementation | ①②③④⑤⑥⑦ (전체) |
-| requirementsAnalysis | ①②③⑤⑦ |
-| testPlanning | ①②③⑤⑦ |
-| taskDecomposition | ①②③⑤⑦ |
+**Intent별 경로**:
+| Intent | PlanMode | 토론 | 승인 | 실행 |
+|--------|----------|------|------|------|
+| quickAnswer | skip | - | - | 즉답 |
+| research | exec | - | - | O |
+| brainstorm | lite | O | - | - |
+| documentation | exec | - | - | O |
+| implementation | exec | O | O | O |
+| requirementsAnalysis | lite | - | - | - |
+| testPlanning | lite | - | - | - |
+| taskDecomposition | lite | - | - | - |
 
-**역호환**: `room.intent == nil` → 기존 레거시 워크플로우 (`legacyStartRoomWorkflow`). 모든 새 Room 필드는 `decodeIfPresent` + nil 기본값.
+**역호환**: `room.intent == nil` → `.implementation` 자동 폴백. 모든 새 Room 필드는 `decodeIfPresent` + 기본값.
 
 ---
 

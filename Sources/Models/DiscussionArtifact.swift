@@ -9,6 +9,9 @@ enum ArtifactType: String, Codable, CaseIterable {
     case architectureDecision = "architecture_decision"
     case assumptions          = "assumptions"
     case roleRequirements     = "role_requirements"
+    case researchReport       = "research_report"
+    case brainstormResult     = "brainstorm_result"
+    case document             = "document"
     case generic              = "generic"
 
     var displayName: String {
@@ -19,6 +22,9 @@ enum ArtifactType: String, Codable, CaseIterable {
         case .architectureDecision:  return "아키텍처 결정"
         case .assumptions:           return "가정 선언"
         case .roleRequirements:      return "역할 요구사항"
+        case .researchReport:        return "리서치 보고서"
+        case .brainstormResult:      return "브레인스토밍 결과"
+        case .document:              return "문서"
         case .generic:               return "일반 산출물"
         }
     }
@@ -31,6 +37,9 @@ enum ArtifactType: String, Codable, CaseIterable {
         case .architectureDecision:  return "building.columns"
         case .assumptions:           return "exclamationmark.triangle"
         case .roleRequirements:      return "person.3"
+        case .researchReport:        return "magnifyingglass.circle"
+        case .brainstormResult:      return "lightbulb"
+        case .document:              return "doc.fill"
         case .generic:               return "doc.richtext"
         }
     }

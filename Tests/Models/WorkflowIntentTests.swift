@@ -49,10 +49,14 @@ struct WorkflowIntentTests {
 
     // MARK: - WorkflowIntent
 
-    @Test("WorkflowIntent — 전체 케이스 존재")
+    @Test("WorkflowIntent — 전체 케이스 존재 (8종)")
     func workflowIntentAllCases() {
         let all = WorkflowIntent.allCases
-        #expect(all.count == 4)
+        #expect(all.count == 8)
+        #expect(all.contains(.quickAnswer))
+        #expect(all.contains(.research))
+        #expect(all.contains(.brainstorm))
+        #expect(all.contains(.documentation))
         #expect(all.contains(.implementation))
         #expect(all.contains(.requirementsAnalysis))
         #expect(all.contains(.testPlanning))
@@ -61,6 +65,10 @@ struct WorkflowIntentTests {
 
     @Test("WorkflowIntent rawValue")
     func workflowIntentRawValues() {
+        #expect(WorkflowIntent.quickAnswer.rawValue == "quickAnswer")
+        #expect(WorkflowIntent.research.rawValue == "research")
+        #expect(WorkflowIntent.brainstorm.rawValue == "brainstorm")
+        #expect(WorkflowIntent.documentation.rawValue == "documentation")
         #expect(WorkflowIntent.implementation.rawValue == "implementation")
         #expect(WorkflowIntent.requirementsAnalysis.rawValue == "requirementsAnalysis")
         #expect(WorkflowIntent.testPlanning.rawValue == "testPlanning")
@@ -83,55 +91,111 @@ struct WorkflowIntentTests {
         }
     }
 
-    // MARK: - requiredPhases
+    // MARK: - requiredPhases: 모든 Intent에 공통 프리픽스 확인
+
+    @Test("모든 Intent에 intake, intent, clarify, assemble 공통 포함")
+    func allIntentsShareCommonPrefix() {
+        for intent in WorkflowIntent.allCases {
+            let phases = intent.requiredPhases
+            #expect(phases.contains(.intake))
+            #expect(phases.contains(.intent))
+            #expect(phases.contains(.clarify))
+            #expect(phases.contains(.assemble))
+            #expect(phases.contains(.review))
+        }
+    }
 
     @Test("implementation — 전체 7단계 포함")
     func implementationPhases() {
         let phases = WorkflowIntent.implementation.requiredPhases
         #expect(phases.count == 7)
-        #expect(phases.contains(.assemble))
+        #expect(phases.contains(.plan))
         #expect(phases.contains(.execute))
     }
 
-    @Test("requirementsAnalysis — assemble/execute 미포함")
+    @Test("quickAnswer — Plan 스킵, Execute 포함")
+    func quickAnswerPhases() {
+        let phases = WorkflowIntent.quickAnswer.requiredPhases
+        #expect(!phases.contains(.plan))
+        #expect(phases.contains(.execute))
+        #expect(phases.count == 6) // intake, intent, clarify, assemble, execute, review
+    }
+
+    @Test("brainstorm — Plan 포함, Execute 미포함")
+    func brainstormPhases() {
+        let phases = WorkflowIntent.brainstorm.requiredPhases
+        #expect(phases.contains(.plan))
+        #expect(!phases.contains(.execute))
+    }
+
+    @Test("research — Plan + Execute 포함")
+    func researchPhases() {
+        let phases = WorkflowIntent.research.requiredPhases
+        #expect(phases.contains(.plan))
+        #expect(phases.contains(.execute))
+    }
+
+    @Test("requirementsAnalysis — Plan 포함, Execute 미포함")
     func requirementsAnalysisPhases() {
         let phases = WorkflowIntent.requirementsAnalysis.requiredPhases
-        #expect(!phases.contains(.assemble))
-        #expect(!phases.contains(.execute))
-        #expect(phases.contains(.intake))
-        #expect(phases.contains(.clarify))
         #expect(phases.contains(.plan))
-        #expect(phases.contains(.review))
-    }
-
-    @Test("testPlanning — assemble/execute 미포함")
-    func testPlanningPhases() {
-        let phases = WorkflowIntent.testPlanning.requiredPhases
-        #expect(!phases.contains(.assemble))
         #expect(!phases.contains(.execute))
     }
 
-    @Test("taskDecomposition — assemble/execute 미포함")
-    func taskDecompositionPhases() {
-        let phases = WorkflowIntent.taskDecomposition.requiredPhases
-        #expect(!phases.contains(.assemble))
-        #expect(!phases.contains(.execute))
+    // MARK: - PlanMode
+
+    @Test("PlanMode 분기 올바름")
+    func planModeMapping() {
+        #expect(WorkflowIntent.quickAnswer.planMode == .skip)
+        #expect(WorkflowIntent.brainstorm.planMode == .lite)
+        #expect(WorkflowIntent.requirementsAnalysis.planMode == .lite)
+        #expect(WorkflowIntent.testPlanning.planMode == .lite)
+        #expect(WorkflowIntent.taskDecomposition.planMode == .lite)
+        #expect(WorkflowIntent.research.planMode == .exec)
+        #expect(WorkflowIntent.documentation.planMode == .exec)
+        #expect(WorkflowIntent.implementation.planMode == .exec)
+    }
+
+    // MARK: - requiresDiscussion / requiresApproval
+
+    @Test("토론 필요: brainstorm, implementation만")
+    func requiresDiscussion() {
+        #expect(WorkflowIntent.brainstorm.requiresDiscussion == true)
+        #expect(WorkflowIntent.implementation.requiresDiscussion == true)
+        #expect(WorkflowIntent.quickAnswer.requiresDiscussion == false)
+        #expect(WorkflowIntent.research.requiresDiscussion == false)
+        #expect(WorkflowIntent.documentation.requiresDiscussion == false)
+    }
+
+    @Test("승인 필요: implementation만")
+    func requiresApproval() {
+        #expect(WorkflowIntent.implementation.requiresApproval == true)
+        #expect(WorkflowIntent.quickAnswer.requiresApproval == false)
+        #expect(WorkflowIntent.brainstorm.requiresApproval == false)
+        #expect(WorkflowIntent.research.requiresApproval == false)
     }
 
     // MARK: - includesExecution / includesAssembly
 
-    @Test("implementation만 실행/팀구성 포함")
-    func onlyImplementationIncludesAll() {
+    @Test("모든 Intent가 assembly 포함")
+    func allIncludeAssembly() {
+        for intent in WorkflowIntent.allCases {
+            #expect(intent.includesAssembly == true)
+        }
+    }
+
+    @Test("실행 포함 여부")
+    func includesExecution() {
+        // Execute 포함
+        #expect(WorkflowIntent.quickAnswer.includesExecution == true)
+        #expect(WorkflowIntent.research.includesExecution == true)
+        #expect(WorkflowIntent.documentation.includesExecution == true)
         #expect(WorkflowIntent.implementation.includesExecution == true)
-        #expect(WorkflowIntent.implementation.includesAssembly == true)
 
+        // Execute 미포함
+        #expect(WorkflowIntent.brainstorm.includesExecution == false)
         #expect(WorkflowIntent.requirementsAnalysis.includesExecution == false)
-        #expect(WorkflowIntent.requirementsAnalysis.includesAssembly == false)
-
         #expect(WorkflowIntent.testPlanning.includesExecution == false)
-        #expect(WorkflowIntent.testPlanning.includesAssembly == false)
-
         #expect(WorkflowIntent.taskDecomposition.includesExecution == false)
-        #expect(WorkflowIntent.taskDecomposition.includesAssembly == false)
     }
 }

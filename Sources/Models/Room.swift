@@ -277,6 +277,8 @@ struct Room: Identifiable, Codable {
     var playbook: ProjectPlaybook?
     var intakeData: IntakeData?
     var clarifyQuestionCount: Int
+    // 토론 결정 로그
+    var decisionLog: [DecisionEntry]
 
     /// 남은 시간 (초). 타이머 미시작 시 nil
     var remainingSeconds: Int? {
@@ -395,6 +397,7 @@ struct Room: Identifiable, Codable {
         self.playbook = nil
         self.intakeData = nil
         self.clarifyQuestionCount = 0
+        self.decisionLog = []
     }
 
     // 기존 저장 데이터 호환
@@ -449,5 +452,6 @@ struct Room: Identifiable, Codable {
         playbook = try container.decodeIfPresent(ProjectPlaybook.self, forKey: .playbook)
         intakeData = try container.decodeIfPresent(IntakeData.self, forKey: .intakeData)
         clarifyQuestionCount = try container.decodeIfPresent(Int.self, forKey: .clarifyQuestionCount) ?? 0
+        decisionLog = try container.decodeIfPresent([DecisionEntry].self, forKey: .decisionLog) ?? []
     }
 }
