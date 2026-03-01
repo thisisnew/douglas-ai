@@ -610,9 +610,13 @@ struct FloatingSidebarView: View {
                                 } else if message.id == lastDelegationID && showCancelledMark {
                                     HStack(alignment: .center, spacing: 8) {
                                         MessageBubble(message: message)
-                                        Image(systemName: "xmark.circle.fill")
-                                            .font(.system(size: 18))
-                                            .foregroundColor(.red.opacity(0.6))
+                                        Text("취소됨")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundColor(.red.opacity(0.7))
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 3)
+                                            .background(Color.red.opacity(0.08))
+                                            .clipShape(Capsule())
                                             .transition(.scale.combined(with: .opacity))
                                     }
                                     .id(message.id)
