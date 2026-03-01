@@ -296,6 +296,7 @@ struct FloatingSidebarView: View {
                         }
                     }
                     await MainActor.run {
+                        guard pendingRoomToOpen != nil else { return }
                         openRoomChatWindow(roomID: roomID)
                         roomOpenProgress = nil
                         pendingRoomToOpen = nil

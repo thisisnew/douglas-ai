@@ -148,32 +148,46 @@ class RoomManager: ObservableObject {
 
         guard let room = rooms.first(where: { $0.id == roomID }) else { return }
 
-        // 방의 에이전트들에게 추가 지시
-        let context = makeToolContext(roomID: roomID)
-        for agentID in room.assignedAgentIDs {
-            guard let agent = agentStore?.agents.first(where: { $0.id == agentID }),
-                  let provider = providerManager?.provider(named: agent.providerName) else { continue }
+        // 작업 진행 중: 추가 요건으로만 삽입 (현재 에이전트가 다음 호출에서 자연스럽게 참고)
+        if room.isActive {
+            let noteMsg = ChatMessage(
+                role: .system,
+                content: "추가 요건이 반영되었습니다."
+            )
+            appendMessage(noteMsg, to: roomID)
+            scheduleSave()
+            return
+        }
 
-            let history = buildRoomHistory(roomID: roomID)
-            do {
-                let response = try await ToolExecutor.smartSend(
-                    provider: provider,
-                    agent: agent,
-                    systemPrompt: agent.resolvedSystemPrompt,
-                    conversationMessages: history,
-                    context: context
-                )
-                let reply = ChatMessage(role: .assistant, content: response, agentName: agent.name)
-                appendMessage(reply, to: roomID)
-            } catch {
-                let errorMsg = ChatMessage(
-                    role: .assistant,
-                    content: "오류: \(error.localizedDescription)",
-                    agentName: agent.name,
-                    messageType: .error
-                )
-                appendMessage(errorMsg, to: roomID)
-            }
+        // 완료/실패 상태: 첫 번째 전문가에게만 대화 (중복 응답 방지)
+        let targetID = room.assignedAgentIDs.first(where: { id in
+            agentStore?.agents.first(where: { $0.id == id })?.isMaster == false
+        }) ?? room.assignedAgentIDs.first
+
+        guard let agentID = targetID,
+              let agent = agentStore?.agents.first(where: { $0.id == agentID }),
+              let provider = providerManager?.provider(named: agent.providerName) else { return }
+
+        let context = makeToolContext(roomID: roomID)
+        let history = buildRoomHistory(roomID: roomID)
+        do {
+            let response = try await ToolExecutor.smartSend(
+                provider: provider,
+                agent: agent,
+                systemPrompt: agent.resolvedSystemPrompt,
+                conversationMessages: history,
+                context: context
+            )
+            let reply = ChatMessage(role: .assistant, content: response, agentName: agent.name)
+            appendMessage(reply, to: roomID)
+        } catch {
+            let errorMsg = ChatMessage(
+                role: .assistant,
+                content: "오류: \(error.localizedDescription)",
+                agentName: agent.name,
+                messageType: .error
+            )
+            appendMessage(errorMsg, to: roomID)
         }
     }
 

@@ -67,8 +67,8 @@ struct RoomChatView: View {
 
                 Divider()
 
-                // 입력 영역 (완료 후 또는 대기 상태에서만 표시)
-                if room.status == .completed || room.status == .failed {
+                // 입력 영역 (진행 중 = 추가 요건, 완료 후 = 일반 대화)
+                if room.status == .inProgress || room.status == .completed || room.status == .failed {
                     inputArea(room)
                 }
             }
@@ -254,7 +254,7 @@ struct RoomChatView: View {
                 .buttonStyle(.plain)
                 .help("이미지 첨부")
 
-                TextField("메시지를 입력하세요...", text: $inputText, axis: .vertical)
+                TextField(room.status == .inProgress ? "추가 요건을 입력하세요..." : "메시지를 입력하세요...", text: $inputText, axis: .vertical)
                     .textFieldStyle(.plain)
                     .lineLimit(1...3)
                     .focused($isInputFocused)
