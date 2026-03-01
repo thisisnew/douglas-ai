@@ -1603,13 +1603,16 @@ class RoomManager: ObservableObject {
 
     /// JSON 추출 (ChatViewModel.extractJSON과 동일 로직)
     private func extractJSON(from text: String) -> String {
+        // 뒤에서부터 검색하여 중첩 코드블록(```json 안의 ```) 잘림 방지
         if let startRange = text.range(of: "```json"),
-           let endRange = text.range(of: "```", range: startRange.upperBound..<text.endIndex) {
+           let endRange = text.range(of: "```", options: .backwards, range: startRange.upperBound..<text.endIndex),
+           endRange.lowerBound > startRange.upperBound {
             return String(text[startRange.upperBound..<endRange.lowerBound])
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
         if let startRange = text.range(of: "```\n"),
-           let endRange = text.range(of: "\n```", range: startRange.upperBound..<text.endIndex) {
+           let endRange = text.range(of: "\n```", options: .backwards, range: startRange.upperBound..<text.endIndex),
+           endRange.lowerBound > startRange.upperBound {
             return String(text[startRange.upperBound..<endRange.lowerBound])
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -1876,7 +1879,8 @@ class RoomManager: ObservableObject {
            !recentHistory.contains(where: { $0.attachments != nil && !($0.attachments?.isEmpty ?? true) }) {
             history.append(ConversationMessage(
                 role: "user", content: firstUserMsg.content,
-                toolCalls: nil, toolCallID: nil, attachments: firstUserMsg.attachments
+                toolCalls: nil, toolCallID: nil, attachments: firstUserMsg.attachments,
+                isError: false
             ))
         }
         history.append(contentsOf: recentHistory)
@@ -2313,7 +2317,7 @@ class RoomManager: ObservableObject {
         // 토론 히스토리 추가
         let discussionMsgs = buildDiscussionHistory(roomID: roomID, currentAgentName: agent.name)
         history.append(contentsOf: discussionMsgs.map { msg in
-            ConversationMessage(role: msg.role, content: msg.content, toolCalls: nil, toolCallID: nil, attachments: nil)
+            ConversationMessage(role: msg.role, content: msg.content, toolCalls: nil, toolCallID: nil, attachments: nil, isError: false)
         })
 
         // 동료 목록: 이름(역할) 형태로 구성, PM과 전문가 구분
@@ -2836,8 +2840,14 @@ class RoomManager: ObservableObject {
         roomTasks[roomID]?.cancel()
         roomTasks.removeValue(forKey: roomID)
         speakingAgentIDByRoom.removeValue(forKey: roomID)
-        // 대기 중인 승인 continuation 해제
+        // 대기 중인 모든 continuation 해제 (누수 방지)
         if let cont = approvalContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: false)
+        }
+        if let cont = userInputContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: "")
+        }
+        if let cont = suggestionContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: false)
         }
 
@@ -2940,7 +2950,8 @@ class RoomManager: ObservableObject {
                     content: msg.content,
                     toolCalls: nil,
                     toolCallID: nil,
-                    attachments: msg.attachments
+                    attachments: msg.attachments,
+                    isError: false
                 )
             }
     }
@@ -2964,7 +2975,7 @@ class RoomManager: ObservableObject {
         }
     }
 
-    private func saveRooms() {
+    func saveRooms() {
         let dir = Self.roomDirectory
         for room in rooms {
             let file = dir.appendingPathComponent("\(room.id.uuidString).json")

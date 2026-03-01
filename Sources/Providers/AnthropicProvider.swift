@@ -92,7 +92,7 @@ class AnthropicProvider: AIProvider {
             } else if msg.role == "tool", let callID = msg.toolCallID {
                 // tool_result는 user role로 전송 (Anthropic 규칙)
                 let content = msg.content ?? ""
-                let isError = content.hasPrefix("[오류]")
+                let isError = msg.isError
                 let resultBlock = ToolFormatConverter.anthropicToolResultBlock(
                     callID: callID, content: content, isError: isError
                 )

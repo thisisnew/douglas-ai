@@ -23,6 +23,7 @@ enum ProcessRunner {
     }
 
     /// 실제 Process 실행 (프로덕션 코드 경로)
+    /// stdout/stderr를 별도 스레드에서 동시 읽기하여 파이프 버퍼(64KB) 데드락 방지.
     private static func defaultRun(
         executable: String,
         args: [String],
@@ -49,12 +50,30 @@ enum ProcessRunner {
 
                 do {
                     try process.run()
+
+                    // 파이프를 별도 스레드에서 동시 읽기 — waitUntilExit 전에 드레인해야
+                    // 서브프로세스가 64KB 이상 출력 시 파이프 버퍼 가득 참 → 데드락 방지
+                    var stdoutData = Data()
+                    var stderrData = Data()
+                    let group = DispatchGroup()
+
+                    group.enter()
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        stdoutData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                        group.leave()
+                    }
+
+                    group.enter()
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        stderrData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                        group.leave()
+                    }
+
+                    group.wait()
                     process.waitUntilExit()
 
-                    let outData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-                    let errData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                    let stdout = String(data: outData, encoding: .utf8) ?? ""
-                    let stderr = String(data: errData, encoding: .utf8) ?? ""
+                    let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+                    let stderr = String(data: stderrData, encoding: .utf8) ?? ""
 
                     continuation.resume(returning: (process.terminationStatus, stdout, stderr))
                 } catch {

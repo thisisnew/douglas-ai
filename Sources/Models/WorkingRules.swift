@@ -17,8 +17,15 @@ struct WorkingRulesSource: Codable, Equatable {
             parts.append(inlineText)
         }
 
+        let maxFileBytes = 100_000  // 100KB 제한 — 시스템 프롬프트 폭증 방지
         for path in filePaths {
             let expandedPath = NSString(string: path).expandingTildeInPath
+            // 파일 크기 확인 — 대용량 파일 로드 방지
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: expandedPath),
+               let size = attrs[.size] as? Int, size > maxFileBytes {
+                parts.append("[경고: 규칙 파일이 너무 큽니다 (\(size / 1024)KB > \(maxFileBytes / 1024)KB) — \(path)]")
+                continue
+            }
             guard FileManager.default.fileExists(atPath: expandedPath),
                   let content = try? String(contentsOfFile: expandedPath, encoding: .utf8),
                   !content.isEmpty else {

@@ -92,10 +92,14 @@ struct JiraConfigTests {
         #expect(config.isJiraURL("https://anything.com") == false)
     }
 
-    @Test("isJiraURL - 도메인이 URL 중간에 포함")
-    func isJiraURLContains() {
+    @Test("isJiraURL - 서브도메인 URL도 매칭")
+    func isJiraURLSubdomain() {
         let config = JiraConfig(domain: "myteam.atlassian.net", email: "a@b.com")
-        #expect(config.isJiraURL("text with myteam.atlassian.net inside") == true)
+        #expect(config.isJiraURL("https://myteam.atlassian.net/browse/PROJ-1") == true)
+        // URL이 아닌 일반 텍스트는 매칭하지 않음 (보안: 인증 헤더 유출 방지)
+        #expect(config.isJiraURL("text with myteam.atlassian.net inside") == false)
+        // 악의적 URL의 쿼리 파라미터에 도메인 포함 시 매칭하지 않음
+        #expect(config.isJiraURL("https://evil.com/?r=myteam.atlassian.net") == false)
     }
 
     // MARK: - apiURL 변환

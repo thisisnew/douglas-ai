@@ -97,7 +97,7 @@ class GoogleProvider: AIProvider {
                 // functionResponse
                 let toolName = msg.toolCallID ?? "unknown"
                 let part = ToolFormatConverter.googleFunctionResponsePart(name: toolName, content: msg.content ?? "")
-                contents.append(["role": "function", "parts": [part]])
+                contents.append(["role": "user", "parts": [part]])
             } else if let attachments = msg.attachments, !attachments.isEmpty {
                 // 이미지 첨부 메시지 → inlineData parts
                 let parts = ToolFormatConverter.googleParts(text: msg.content, attachments: attachments)

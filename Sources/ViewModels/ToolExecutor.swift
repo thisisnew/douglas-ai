@@ -166,14 +166,14 @@ enum ToolExecutor {
     /// 파일 접근이 허용된 경로인지 확인. $HOME, /tmp, 시스템 임시 디렉토리, projectPaths 허용.
     static func isPathAllowed(_ path: String, projectPaths: [String] = []) -> Bool {
         let expandedPath = NSString(string: path).expandingTildeInPath
-        let url = URL(fileURLWithPath: expandedPath).standardized
+        let url = URL(fileURLWithPath: expandedPath).resolvingSymlinksInPath()
         let resolved = url.path
 
-        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+        let homePath = FileManager.default.homeDirectoryForCurrentUser.resolvingSymlinksInPath().path
         let tempDir = NSTemporaryDirectory()
         var allowedPrefixes = [homePath, "/tmp", "/private/tmp", tempDir, "/var/folders"]
         for proj in projectPaths {
-            let normalizedProj = URL(fileURLWithPath: proj).standardized.path
+            let normalizedProj = URL(fileURLWithPath: proj).resolvingSymlinksInPath().path
             allowedPrefixes.append(normalizedProj)
         }
         let blockedPrefixes = [
@@ -182,14 +182,16 @@ enum ToolExecutor {
             "\(homePath)/.gnupg"
         ]
 
-        // 차단 목록 먼저 확인
+        // 차단 목록 먼저 확인 (디렉토리 단위 매칭)
         for blocked in blockedPrefixes {
-            if resolved.hasPrefix(blocked) { return false }
+            let prefix = blocked.hasSuffix("/") ? blocked : blocked + "/"
+            if resolved == blocked || resolved.hasPrefix(prefix) { return false }
         }
 
-        // 허용 목록 확인
+        // 허용 목록 확인 (디렉토리 단위 매칭)
         for allowed in allowedPrefixes {
-            if resolved.hasPrefix(allowed) { return true }
+            let prefix = allowed.hasSuffix("/") ? allowed : allowed + "/"
+            if resolved == allowed || resolved.hasPrefix(prefix) { return true }
         }
 
         return false

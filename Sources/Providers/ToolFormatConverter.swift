@@ -254,10 +254,11 @@ enum ToolFormatConverter {
         for (key, value) in dict {
             if let str = value as? String {
                 result[key] = .string(str)
+            } else if let num = value as? NSNumber, CFGetTypeID(num) == CFBooleanGetTypeID() {
+                // Bool을 Int보다 먼저 판별 — NSNumber 브릿지에서 true/false가 Int 1/0으로 캐스팅되는 것 방지
+                result[key] = .boolean(num.boolValue)
             } else if let num = value as? Int {
                 result[key] = .integer(num)
-            } else if let bool = value as? Bool {
-                result[key] = .boolean(bool)
             } else if let arr = value as? [String] {
                 result[key] = .array(arr)
             } else if let anyStr = value as? CustomStringConvertible {

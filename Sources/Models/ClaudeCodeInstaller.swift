@@ -167,10 +167,26 @@ class ClaudeCodeInstaller: ObservableObject {
 
     // MARK: - 인증 확인
 
-    /// ~/.claude/ 디렉토리의 존재로 인증 여부 추정
+    /// Claude Code 인증 여부 확인 — 디렉토리가 아닌 실제 자격증명 파일 또는 환경변수 확인
     func checkAuthStatus() -> Bool {
         let claudeDir = NSHomeDirectory() + "/.claude"
-        return FileManager.default.fileExists(atPath: claudeDir)
+        // 실제 인증 토큰 파일 확인 (claude auth login 후 생성됨)
+        let credentialFiles = [
+            claudeDir + "/.credentials.json",
+            claudeDir + "/credentials.json",
+            claudeDir + "/settings.json"
+        ]
+        for file in credentialFiles {
+            if FileManager.default.fileExists(atPath: file) {
+                return true
+            }
+        }
+        // 환경변수를 통한 인증
+        if ProcessInfo.processInfo.environment["CLAUDE_API_KEY"] != nil ||
+           ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"] != nil {
+            return true
+        }
+        return false
     }
 
     /// 인증 완료로 전환 (수동 확인 후)

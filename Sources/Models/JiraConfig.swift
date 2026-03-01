@@ -38,8 +38,8 @@ struct JiraConfig: Codable {
 
     /// URL이 설정된 Jira 도메인에 해당하는지
     func isJiraURL(_ url: String) -> Bool {
-        guard !domain.isEmpty else { return false }
-        return url.contains(domain)
+        guard !domain.isEmpty, let parsed = URL(string: url), let host = parsed.host else { return false }
+        return host == domain || host.hasSuffix(".\(domain)")
     }
 
     /// Jira 브라우저 URL을 REST API URL로 변환

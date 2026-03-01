@@ -218,6 +218,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         onboardingWindow = window
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        // 강제 종료 시 디바운스 대기 중인 데이터 손실 방지 — 동기 저장
+        roomManager.saveRooms()
+        chatVM.saveMessages()
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
     }

@@ -988,7 +988,7 @@ struct ToolExecutorTests {
         let msg1 = ConversationMessage.user("hello")
         let msg2 = ConversationMessage.assistant("response")
         // tool role message에는 content가 nil일 수 있음
-        let msg3 = ConversationMessage(role: "tool", content: nil, toolCalls: nil, toolCallID: "tc1", attachments: nil)
+        let msg3 = ConversationMessage(role: "tool", content: nil, toolCalls: nil, toolCallID: "tc1", attachments: nil, isError: false)
         let messages = [msg1, msg2, msg3]
 
         let result = try await ToolExecutor.smartSend(

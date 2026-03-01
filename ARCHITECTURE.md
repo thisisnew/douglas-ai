@@ -446,6 +446,7 @@ struct ToolExecutionContext: Sendable {
 - **ChaChaPoly 암호화**: CryptoKit 기반 대칭키 암호화로 API 키 보호
   - 디바이스별 고유 대칭키 자동 생성 (`SymmetricKey(size: .bits256)`)
   - 키 파일 권한 0o600 (소유자만 읽기/쓰기)
+  - 키 파일 쓰기 실패 시 `throws` 전파 (사일런트 키 손실 방지)
 - **하위 호환**: 기존 Base64 인코딩 파일 자동 감지 → 암호화 형식으로 마이그레이션
 - **레거시 Keychain 마이그레이션**: macOS Keychain에서 파일 기반으로 자동 이전
 - `ProviderConfig.apiKey`가 computed property로 작동 (get → 복호화 / set → 암호화)
@@ -793,7 +794,7 @@ executeWithTools() 루프 (최대 10회):
 
 - 두 가지 `smartSend` 오버로드: 단순 텍스트 `[(role, content)]` + 이미지 가능 `[ConversationMessage]`
 - `onToolActivity` 콜백으로 도구 사용 상태를 채팅에 표시 (`.toolActivity` 메시지)
-- **경로 검증**: `isPathAllowed()` — `$HOME`, `/tmp`, 시스템 임시 디렉토리만 허용. `.ssh`, `.gnupg`, `Library/Keychains` 차단
+- **경로 검증**: `isPathAllowed()` — `$HOME`, `/tmp`, 시스템 임시 디렉토리만 허용. `.ssh`, `.gnupg`, `Library/Keychains` 차단. 심링크 해석(`resolvingSymlinksInPath`)으로 우회 방지. 디렉토리 단위 프리픽스 매칭(`/` 슬래시 구분).
 - **shell_exec**: nvm 버전 동적 탐색 (하드코딩 아님)
 - **web_fetch**: URL → HTTP GET, Jira URL 감지 시 JiraConfig 인증 + REST API 자동 변환
 - **invite_agent**: `ToolExecutionContext.inviteAgent` 클로저 호출로 방에 에이전트 초대

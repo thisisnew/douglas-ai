@@ -43,12 +43,14 @@ enum ToolArgumentValue: Codable, Hashable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
-        if let val = try? container.decode(String.self) {
-            self = .string(val)
+        // Bool을 Int보다 먼저 시도 — JSONDecoder가 JSON true/false를 NSNumber로 디코딩하므로
+        // Int를 먼저 시도하면 true→1, false→0으로 잘못 디코딩됨
+        if let val = try? container.decode(Bool.self) {
+            self = .boolean(val)
         } else if let val = try? container.decode(Int.self) {
             self = .integer(val)
-        } else if let val = try? container.decode(Bool.self) {
-            self = .boolean(val)
+        } else if let val = try? container.decode(String.self) {
+            self = .string(val)
         } else if let val = try? container.decode([String].self) {
             self = .array(val)
         } else {
@@ -103,26 +105,27 @@ struct ConversationMessage {
     let toolCalls: [ToolCall]?
     let toolCallID: String?     // role == "tool"일 때 참조하는 ToolCall.id
     let attachments: [ImageAttachment]?
+    let isError: Bool           // tool result 에러 여부 (프로바이더에 전달)
 
     static func user(_ content: String, attachments: [ImageAttachment]? = nil) -> ConversationMessage {
-        ConversationMessage(role: "user", content: content, toolCalls: nil, toolCallID: nil, attachments: attachments)
+        ConversationMessage(role: "user", content: content, toolCalls: nil, toolCallID: nil, attachments: attachments, isError: false)
     }
 
     static func assistant(_ content: String) -> ConversationMessage {
-        ConversationMessage(role: "assistant", content: content, toolCalls: nil, toolCallID: nil, attachments: nil)
+        ConversationMessage(role: "assistant", content: content, toolCalls: nil, toolCallID: nil, attachments: nil, isError: false)
     }
 
     static func system(_ content: String) -> ConversationMessage {
-        ConversationMessage(role: "system", content: content, toolCalls: nil, toolCallID: nil, attachments: nil)
+        ConversationMessage(role: "system", content: content, toolCalls: nil, toolCallID: nil, attachments: nil, isError: false)
     }
 
     static func assistantToolCalls(_ calls: [ToolCall], text: String? = nil) -> ConversationMessage {
-        ConversationMessage(role: "assistant", content: text, toolCalls: calls, toolCallID: nil, attachments: nil)
+        ConversationMessage(role: "assistant", content: text, toolCalls: calls, toolCallID: nil, attachments: nil, isError: false)
     }
 
     static func toolResult(callID: String, content: String, isError: Bool = false) -> ConversationMessage {
         let prefix = isError ? "[오류] " : ""
-        return ConversationMessage(role: "tool", content: prefix + content, toolCalls: nil, toolCallID: callID, attachments: nil)
+        return ConversationMessage(role: "tool", content: prefix + content, toolCalls: nil, toolCallID: callID, attachments: nil, isError: isError)
     }
 }
 

@@ -255,7 +255,7 @@ class ChatViewModel: ObservableObject {
         try? FileManager.default.removeItem(at: file)
     }
 
-    private func saveMessages() {
+    func saveMessages() {
         let dir = Self.chatDirectory
         for (agentID, messages) in messagesByAgent {
             let file = dir.appendingPathComponent("\(agentID.uuidString).json")
@@ -311,7 +311,8 @@ class ChatViewModel: ObservableObject {
                     content: msg.content,
                     toolCalls: nil,
                     toolCallID: nil,
-                    attachments: msg.attachments
+                    attachments: msg.attachments,
+                    isError: false
                 )
             }
     }

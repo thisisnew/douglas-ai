@@ -54,21 +54,22 @@ enum KeychainHelper {
         keysDirectory.appendingPathComponent(".encryption_key")
     }
 
-    /// 대칭키 로드 또는 생성
-    private static func getEncryptionKey() -> SymmetricKey {
+    /// 대칭키 로드 또는 생성. 키 파일 쓰기 실패 시 throws.
+    private static func getEncryptionKey() throws -> SymmetricKey {
         let url = encryptionKeyURL
         if let keyData = try? Data(contentsOf: url), keyData.count == 32 {
             return SymmetricKey(data: keyData)
         }
-        // 새 키 생성 후 저장
+        // 새 키 생성 후 저장 — 실패 시 반드시 에러 전파 (키 손실 방지)
         let newKey = SymmetricKey(size: .bits256)
         let keyData = newKey.withUnsafeBytes { Data($0) }
-        try? keyData.write(to: url)
+        try keyData.write(to: url)
         // 파일 권한 제한 (소유자만 읽기/쓰기)
         try? FileManager.default.setAttributes(
             [.posixPermissions: 0o600],
             ofItemAtPath: url.path
         )
+        logger.info("New encryption key generated and saved")
         return newKey
     }
 
@@ -80,7 +81,7 @@ enum KeychainHelper {
             throw KeychainError.dataConversionFailed
         }
         do {
-            let symmetricKey = getEncryptionKey()
+            let symmetricKey = try getEncryptionKey()
             let sealedBox = try ChaChaPoly.seal(data, using: symmetricKey)
             let combined = sealedBox.combined
             try combined.write(to: fileURL(for: key))
@@ -99,8 +100,8 @@ enum KeychainHelper {
         // 암호화된 파일에서 로드 시도
         if let fileData = try? Data(contentsOf: url) {
             // 먼저 ChaChaPoly 복호화 시도
-            if let sealedBox = try? ChaChaPoly.SealedBox(combined: fileData) {
-                let symmetricKey = getEncryptionKey()
+            if let sealedBox = try? ChaChaPoly.SealedBox(combined: fileData),
+               let symmetricKey = try? getEncryptionKey() {
                 if let decrypted = try? ChaChaPoly.open(sealedBox, using: symmetricKey),
                    let value = String(data: decrypted, encoding: .utf8) {
                     return value
