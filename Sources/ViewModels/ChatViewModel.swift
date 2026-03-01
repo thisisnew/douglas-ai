@@ -243,6 +243,12 @@ class ChatViewModel: ObservableObject {
     }
 
     func clearMessages(for agentID: UUID) {
+        // 첨부 이미지 파일 삭제
+        if let messages = messagesByAgent[agentID] {
+            for msg in messages {
+                msg.attachments?.forEach { $0.delete() }
+            }
+        }
         messagesByAgent[agentID] = []
         // 저장 파일도 삭제
         let file = Self.chatDirectory.appendingPathComponent("\(agentID.uuidString).json")

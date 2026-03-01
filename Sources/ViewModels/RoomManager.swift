@@ -2777,6 +2777,29 @@ class RoomManager: ObservableObject {
         scheduleSave()
     }
 
+    /// 사용자가 승인 카드에서 취소 → 작업 종료
+    func cancelRoom(roomID: UUID) {
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
+        roomTasks[roomID]?.cancel()
+        roomTasks.removeValue(forKey: roomID)
+        speakingAgentIDByRoom.removeValue(forKey: roomID)
+        if let cont = approvalContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: false)
+        }
+        if let cont = userInputContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: "")
+        }
+        if let cont = suggestionContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: false)
+        }
+        rooms[idx].transitionTo(.failed)
+        rooms[idx].completedAt = Date()
+        let msg = ChatMessage(role: .system, content: "사용자가 작업을 취소했습니다.", messageType: .error)
+        appendMessage(msg, to: roomID)
+        syncAgentStatuses()
+        scheduleSave()
+    }
+
     func completeRooms(_ roomIDs: Set<UUID>) {
         for roomID in roomIDs {
             completeRoom(roomID)
@@ -2797,6 +2820,13 @@ class RoomManager: ObservableObject {
         // 대기 중인 승인 continuation 해제
         if let cont = approvalContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: false)
+        }
+
+        // 첨부 이미지 파일 삭제
+        if let room = rooms.first(where: { $0.id == roomID }) {
+            for msg in room.messages {
+                msg.attachments?.forEach { $0.delete() }
+            }
         }
 
         rooms.removeAll { $0.id == roomID }

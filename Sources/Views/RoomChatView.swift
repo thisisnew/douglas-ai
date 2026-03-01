@@ -765,13 +765,13 @@ struct ApprovalCard: View {
                 HStack(spacing: 8) {
                     Spacer()
                     Button("취소") {
-                        roomManager.rejectStep(roomID: roomID)
+                        roomManager.cancelRoom(roomID: roomID)
                     }
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(.red.opacity(0.8))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
-                    .background(DesignTokens.Colors.inputBackground)
+                    .background(Color.red.opacity(0.08))
                     .continuousRadius(DesignTokens.Radius.md)
 
                     Button(additionalInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "승인" : "추가 후 승인") {

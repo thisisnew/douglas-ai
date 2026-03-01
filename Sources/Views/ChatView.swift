@@ -41,6 +41,7 @@ struct ChatView: View {
 struct MessageBubble: View {
     let message: ChatMessage
     @EnvironmentObject var agentStore: AgentStore
+    @State private var enlargedImage: NSImage?
 
     private var agent: Agent? {
         guard let name = message.agentName else { return nil }
@@ -98,7 +99,24 @@ struct MessageBubble: View {
                                         .aspectRatio(contentMode: .fit)
                                         .frame(maxWidth: 180, maxHeight: 120)
                                         .clipShape(RoundedRectangle(cornerRadius: 8))
+                                        .onTapGesture { enlargedImage = nsImage }
+                                        .onHover { hovering in
+                                            if hovering { NSCursor.pointingHand.push() }
+                                            else { NSCursor.pop() }
+                                        }
                                 }
+                            }
+                        }
+                        .popover(isPresented: Binding(
+                            get: { enlargedImage != nil },
+                            set: { if !$0 { enlargedImage = nil } }
+                        )) {
+                            if let img = enlargedImage {
+                                Image(nsImage: img)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(maxWidth: 500, maxHeight: 400)
+                                    .padding(8)
                             }
                         }
                     }
