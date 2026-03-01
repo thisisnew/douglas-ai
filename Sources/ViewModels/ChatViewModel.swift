@@ -134,19 +134,8 @@ class ChatViewModel: ObservableObject {
             return
         }
 
-        // Intent 분류 (규칙 → LLM 폴백)
-        var intent: WorkflowIntent
-        if let quick = IntentClassifier.quickClassify(task) {
-            intent = quick
-        } else if let provider = providerManager?.provider(named: agent.providerName) {
-            intent = await IntentClassifier.classifyWithLLM(
-                task: task,
-                provider: provider,
-                model: agent.modelName
-            )
-        } else {
-            intent = .implementation
-        }
+        // Intent 분류 (키워드 즉시 판별 — LLM 호출 없이 즉시 반환)
+        let intent = IntentClassifier.quickClassify(task) ?? .implementation
 
         // 마스터가 직접 방 생성 + Intent 기반 워크플로우
         let delegationMsg = ChatMessage(

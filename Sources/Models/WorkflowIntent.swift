@@ -75,10 +75,10 @@ enum WorkflowIntent: String, Codable, CaseIterable {
     /// 토론 필요 여부 (전문가 2명+ 시)
     var requiresDiscussion: Bool {
         switch self {
-        case .brainstorm, .implementation:
-            return true
-        default:
+        case .quickAnswer:
             return false
+        default:
+            return true
         }
     }
 

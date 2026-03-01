@@ -158,13 +158,17 @@ struct WorkflowIntentTests {
 
     // MARK: - requiresDiscussion / requiresApproval
 
-    @Test("토론 필요: brainstorm, implementation만")
+    @Test("토론 필요: quickAnswer만 제외")
     func requiresDiscussion() {
+        #expect(WorkflowIntent.quickAnswer.requiresDiscussion == false)
+        // 나머지 모두 true
         #expect(WorkflowIntent.brainstorm.requiresDiscussion == true)
         #expect(WorkflowIntent.implementation.requiresDiscussion == true)
-        #expect(WorkflowIntent.quickAnswer.requiresDiscussion == false)
-        #expect(WorkflowIntent.research.requiresDiscussion == false)
-        #expect(WorkflowIntent.documentation.requiresDiscussion == false)
+        #expect(WorkflowIntent.research.requiresDiscussion == true)
+        #expect(WorkflowIntent.documentation.requiresDiscussion == true)
+        #expect(WorkflowIntent.requirementsAnalysis.requiresDiscussion == true)
+        #expect(WorkflowIntent.testPlanning.requiresDiscussion == true)
+        #expect(WorkflowIntent.taskDecomposition.requiresDiscussion == true)
     }
 
     @Test("승인 필요: implementation만")

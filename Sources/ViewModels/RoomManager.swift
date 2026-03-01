@@ -708,62 +708,53 @@ class RoomManager: ObservableObject {
 
     // MARK: - Phase 워크플로우 (새 7단계)
 
-    /// 새 워크플로우: intent.requiredPhases 순회 디스패치
+    /// 새 워크플로우: intent.requiredPhases 동적 순회
+    /// intent 단계에서 LLM 재분류 후 남은 단계가 자동으로 재계산됨
     private func executePhaseWorkflow(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }),
-              let intent = rooms[idx].intent else { return }
+              rooms[idx].intent != nil else { return }
 
         rooms[idx].status = .planning
         syncAgentStatuses()
 
-        let phases = intent.requiredPhases
+        var completedPhases: Set<WorkflowPhase> = []
 
-        let phaseStartMsg = ChatMessage(
-            role: .system,
-            content: "[\(intent.displayName)] 워크플로우를 시작합니다. 단계: \(phases.map { $0.displayName }.joined(separator: " → "))",
-            messageType: .phaseTransition
-        )
-        appendMessage(phaseStartMsg, to: roomID)
-
-        for phase in phases {
+        while true {
             guard !Task.isCancelled,
                   let currentRoom = rooms.first(where: { $0.id == roomID }),
-                  currentRoom.isActive else { break }
+                  currentRoom.isActive,
+                  let currentIntent = currentRoom.intent else { break }
 
-            // 현재 단계 기록
+            // 현재 intent 기준으로 다음 미완료 phase 찾기
+            let phases = currentIntent.requiredPhases
+            guard let nextPhase = phases.first(where: { !completedPhases.contains($0) }) else { break }
+
+            // 현재 단계 기록 (내부 상태만, UI 메시지 없음)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].currentPhase = phase
+                rooms[i].currentPhase = nextPhase
             }
             scheduleSave()
 
-            let transitionMsg = ChatMessage(
-                role: .system,
-                content: "── \(phase.displayName) 단계 ──",
-                messageType: .phaseTransition
-            )
-            appendMessage(transitionMsg, to: roomID)
-
-            switch phase {
+            switch nextPhase {
             case .intake:
                 await executeIntakePhase(roomID: roomID, task: task)
             case .intent:
-                // Intent는 이미 결정됨 (방 생성 시 설정) — 표시만
-                let intentMsg = ChatMessage(
-                    role: .system,
-                    content: "작업 유형: \(intent.displayName)"
-                )
-                appendMessage(intentMsg, to: roomID)
+                await executeIntentPhase(roomID: roomID, task: task)
             case .clarify:
                 await executeClarifyPhase(roomID: roomID, task: task)
             case .assemble:
                 await executeAssemblePhase(roomID: roomID, task: task)
             case .plan:
+                let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .implementation
                 await executePlanPhase(roomID: roomID, task: task, intent: intent)
             case .execute:
+                let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .implementation
                 await executeExecutePhase(roomID: roomID, task: task, intent: intent)
             case .review:
                 await executeReviewPhase(roomID: roomID, task: task)
             }
+
+            completedPhases.insert(nextPhase)
         }
 
         // 워크플로우 완료
@@ -774,6 +765,33 @@ class RoomManager: ObservableObject {
             rooms[i].completedAt = Date()
         }
         syncAgentStatuses()
+        scheduleSave()
+    }
+
+    /// Intent 단계: quickClassify가 기본값(implementation)을 반환한 경우 LLM으로 재분류
+    private func executeIntentPhase(roomID: UUID, task: String) async {
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
+
+        let currentIntent = rooms[idx].intent ?? .implementation
+
+        // quickClassify가 정확한 결과를 반환한 경우 (implementation이 아닌 경우) 재분류 불필요
+        guard currentIntent == .implementation else { return }
+
+        // LLM으로 재분류 시도
+        guard let firstAgentID = rooms[idx].assignedAgentIDs.first,
+              let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
+              let provider = providerManager?.provider(named: agent.providerName) else { return }
+
+        let newIntent = await IntentClassifier.classifyWithLLM(
+            task: task,
+            provider: provider,
+            model: agent.modelName
+        )
+
+        // intent가 변경되면 업데이트 → while 루프가 새 requiredPhases로 재계산
+        if newIntent != currentIntent {
+            rooms[idx].intent = newIntent
+        }
         scheduleSave()
     }
 
@@ -812,24 +830,12 @@ class RoomManager: ObservableObject {
         )
         rooms[idx].intakeData = intakeData
 
-        // 4) 플레이북 로드
+        // 4) 플레이북 로드 (내부 데이터만, UI 메시지 없음)
         if let projectPath = rooms[idx].primaryProjectPath {
             if let playbook = PlaybookManager.load(from: projectPath) {
                 rooms[idx].playbook = playbook
-                let playbookMsg = ChatMessage(
-                    role: .system,
-                    content: "프로젝트 플레이북을 로드했습니다: \(playbook.userRole?.displayName ?? "역할 미설정")"
-                )
-                appendMessage(playbookMsg, to: roomID)
             }
         }
-
-        // 5) 요약 메시지
-        let summaryMsg = ChatMessage(
-            role: .system,
-            content: intakeData.asContextString()
-        )
-        appendMessage(summaryMsg, to: roomID)
         scheduleSave()
     }
 
@@ -1079,22 +1085,7 @@ class RoomManager: ObservableObject {
                 await waitForSuggestionResponse(roomID: roomID)
             }
 
-            // 5) 매칭 결과 메시지
-            let matchedCount = matched.filter { $0.status == .matched }.count
-            let unmatchedCount = matched.filter { $0.status == .unmatched }.count
-            let coverage = AgentMatcher.coverageRatio(matched)
-
-            var resultParts: [String] = ["팀 구성 결과:"]
-            resultParts.append("- 매칭: \(matchedCount)명, 미매칭: \(unmatchedCount)명")
-            resultParts.append("- 커버리지: \(Int(coverage * 100))%")
-            if !invitedNames.isEmpty {
-                resultParts.append("- 초대됨: \(invitedNames.joined(separator: ", "))")
-            }
-
-            let resultMsg = ChatMessage(role: .system, content: resultParts.joined(separator: "\n"))
-            appendMessage(resultMsg, to: roomID)
-
-            // 6) 커버리지 게이트
+            // 5) 커버리지 게이트
             if !AgentMatcher.checkMinimumCoverage(matched) {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                     rooms[i].transitionTo(.awaitingUserInput)
