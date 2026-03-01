@@ -127,14 +127,16 @@ class AgentStore: ObservableObject {
               var loaded = try? JSONDecoder().decode([Agent].self, from: data) else {
             return
         }
-        // 마이그레이션: "마스터" → "DOUGLAS" 리네이밍
-        for i in loaded.indices where loaded[i].isMaster && loaded[i].name == "마스터" {
+        // 마이그레이션: 마스터 에이전트 이름/페르소나 최신화
+        for i in loaded.indices where loaded[i].isMaster {
             let master = Agent.createMaster(
                 providerName: loaded[i].providerName,
                 modelName: loaded[i].modelName
             )
-            loaded[i].name = master.name
-            loaded[i].persona = master.persona
+            if loaded[i].name == "마스터" || !loaded[i].persona.contains("## 정체성") {
+                loaded[i].name = master.name
+                loaded[i].persona = master.persona
+            }
         }
         agents = loaded
     }
