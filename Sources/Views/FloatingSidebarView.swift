@@ -622,7 +622,7 @@ struct FloatingSidebarView: View {
                                 HStack(spacing: 8) {
                                     ProgressView()
                                         .scaleEffect(0.7)
-                                    Text("처리 중...")
+                                    Text("분석 중...")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                     Spacer()

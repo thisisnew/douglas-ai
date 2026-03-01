@@ -7,28 +7,46 @@ struct TypingIndicator: View {
     @EnvironmentObject var roomManager: RoomManager
     @State private var dotPhase = 0
 
-    private var workingAgentName: String? {
-        // 1순위: speakingAgentIDByRoom (현재 발언 중인 에이전트)
+    /// 현재 발언 중인 에이전트 (토론 턴)
+    private var speakingAgent: Agent? {
         if let speakingID = roomManager.speakingAgentIDByRoom[room.id],
            let agent = agentStore.agents.first(where: { $0.id == speakingID }) {
-            return agent.name
+            return agent
         }
-        // 2순위: 마스터가 아닌 working 에이전트 우선
+        return nil
+    }
+
+    /// 작업 중인 에이전트 (발언자가 아닌 경우)
+    private var workingAgent: Agent? {
+        // 마스터가 아닌 working 에이전트 우선
         for id in room.assignedAgentIDs {
             if let agent = agentStore.agents.first(where: { $0.id == id }),
                !agent.isMaster,
                agent.status == .working || agent.status == .busy {
-                return agent.name
+                return agent
             }
         }
-        // 3순위: 마스터 포함
+        // 마스터 포함
         for id in room.assignedAgentIDs {
             if let agent = agentStore.agents.first(where: { $0.id == id }),
                agent.status == .working || agent.status == .busy {
-                return agent.name
+                return agent
             }
         }
         return nil
+    }
+
+    private var statusText: String {
+        // 1순위: 토론 발언 중
+        if let agent = speakingAgent {
+            return "\(agent.name) 발언 중"
+        }
+        // 2순위: 에이전트 작업 중
+        if let agent = workingAgent {
+            return agent.isMaster ? "DOUGLAS 분석 중" : "\(agent.name) 작업 중"
+        }
+        // 기본
+        return "DOUGLAS 분석 중"
     }
 
     var body: some View {
@@ -50,15 +68,9 @@ struct TypingIndicator: View {
                 }
             }
 
-            if let name = workingAgentName {
-                Text("\(name) 작업 중")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary.opacity(0.6))
-            } else {
-                Text("처리 중")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary.opacity(0.6))
-            }
+            Text(statusText)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary.opacity(0.6))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
