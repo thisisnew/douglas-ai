@@ -598,18 +598,14 @@ struct FloatingSidebarView: View {
 
                             let lastDelegationID = chatVM.messages(for: agentID).last(where: { $0.messageType == .delegation })?.id
                             ForEach(chatVM.messages(for: agentID)) { message in
-                                if message.id == lastDelegationID && pendingRoomToOpen != nil {
-                                    HStack(alignment: .center, spacing: 8) {
-                                        MessageBubble(message: message)
+                                HStack(alignment: .center, spacing: 8) {
+                                    MessageBubble(message: message)
+                                    if message.id == lastDelegationID && pendingRoomToOpen != nil {
                                         RoomOpenProgressRing(
                                             progress: roomOpenProgress ?? 0,
                                             onCancel: { cancelPendingRoomOpen() }
                                         )
-                                    }
-                                    .id(message.id)
-                                } else if message.id == lastDelegationID && showCancelledMark {
-                                    HStack(alignment: .center, spacing: 8) {
-                                        MessageBubble(message: message)
+                                    } else if message.id == lastDelegationID && showCancelledMark {
                                         Text("취소됨")
                                             .font(.system(size: 11, weight: .medium))
                                             .foregroundColor(.red.opacity(0.7))
@@ -617,13 +613,9 @@ struct FloatingSidebarView: View {
                                             .padding(.vertical, 3)
                                             .background(Color.red.opacity(0.08))
                                             .clipShape(Capsule())
-                                            .transition(.scale.combined(with: .opacity))
                                     }
-                                    .id(message.id)
-                                } else {
-                                    MessageBubble(message: message)
-                                        .id(message.id)
                                 }
+                                .id(message.id)
                             }
 
                             if chatVM.loadingAgentIDs.contains(agentID) {
@@ -976,9 +968,11 @@ struct FloatingSidebarView: View {
     }
 
     private func cancelPendingRoomOpen() {
-        pendingRoomToOpen = nil
-        roomOpenProgress = nil
-        showCancelledMark = true
+        withAnimation(.easeInOut(duration: 0.3)) {
+            pendingRoomToOpen = nil
+            roomOpenProgress = nil
+            showCancelledMark = true
+        }
         Task {
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             await MainActor.run {
