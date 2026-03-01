@@ -1007,11 +1007,15 @@ class RoomManager: ObservableObject {
             contextParts.append("[가정]\n" + assumptions.map { "- \($0.text)" }.joined(separator: "\n"))
         }
 
+        let intentName = rooms[idx].intent?.displayName ?? "구현"
         let assembleSystemPrompt = """
         \(agent.resolvedSystemPrompt)
 
         당신은 Assemble(팀 구성) 단계를 수행하고 있습니다.
-        작업 수행에 필요한 역할을 분석하고 산출물로 제출하세요.
+        작업 유형은 **\(intentName)**입니다.
+
+        작업에 **직접적으로** 필요한 역할만 최소한으로 요청하세요.
+        작업과 무관한 역할은 절대 포함하지 마세요.
 
         반드시 아래 형식으로 산출물을 생성하세요:
 
@@ -1020,7 +1024,9 @@ class RoomManager: ObservableObject {
         - [선택] 역할이름: 이 역할이 필요한 이유
         ```
 
-        역할 이름 예시: 백엔드 개발자, 프론트엔드 개발자, QA 테스트 자동화, DevOps 엔지니어, 기술 문서 작성자
+        주의:
+        - 역할 이름은 기존 에이전트 이름과 정확히 일치해야 매칭됩니다
+        - 불확실하면 적게 요청하세요 (1~2명이면 충분한 경우가 많습니다)
         """
 
         let messages: [(role: String, content: String)] = [

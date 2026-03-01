@@ -111,14 +111,6 @@ class ChatViewModel: ObservableObject {
     ) async {
         agentStore.updateStatus(agentID: agent.id, status: .working)
 
-        let progressMsg = ChatMessage(
-            role: .assistant,
-            content: "방을 생성하는 중...",
-            agentName: agent.name,
-            messageType: .toolActivity
-        )
-        appendMessage(progressMsg, for: agent.id)
-
         // Jira URL 사전 조회
         let task = await enrichTaskWithJira(text)
 
@@ -137,14 +129,14 @@ class ChatViewModel: ObservableObject {
         // Intent 분류 (키워드 즉시 판별 — LLM 호출 없이 즉시 반환)
         let intent = IntentClassifier.quickClassify(task) ?? .implementation
 
-        // 마스터가 직접 방 생성 + Intent 기반 워크플로우
-        let delegationMsg = ChatMessage(
+        // 방 생성 + 워크플로우 시작 알림 (단일 메시지)
+        let startMsg = ChatMessage(
             role: .assistant,
             content: "작업을 시작합니다: \(task)",
             agentName: agent.name,
             messageType: .delegation
         )
-        appendMessage(delegationMsg, for: agent.id)
+        appendMessage(startMsg, for: agent.id)
 
         let room = roomManager.createRoom(
             title: task,

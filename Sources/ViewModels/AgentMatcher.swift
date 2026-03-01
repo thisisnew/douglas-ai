@@ -94,7 +94,8 @@ enum AgentMatcher {
                 if lowerRules.contains(keyword) { score += 1 }
             }
 
-            if score > 0, score > (bestMatch?.score ?? 0) {
+            // 최소 점수 3 이상 (이름 매칭 1회 이상 필요, 페르소나만으로는 부족)
+            if score >= 3, score > (bestMatch?.score ?? 0) {
                 bestMatch = (agent, score)
             }
         }
