@@ -159,7 +159,7 @@ class RoomManager: ObservableObject {
             return
         }
 
-        // 완료/실패 상태: 첫 번째 전문가에게만 대화 (중복 응답 방지)
+        // 완료/실패 상태: 전문가에게 위임하여 응답
         let targetID = room.assignedAgentIDs.first(where: { id in
             agentStore?.agents.first(where: { $0.id == id })?.isMaster == false
         }) ?? room.assignedAgentIDs.first
@@ -167,6 +167,12 @@ class RoomManager: ObservableObject {
         guard let agentID = targetID,
               let agent = agentStore?.agents.first(where: { $0.id == agentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return }
+
+        // 방을 활성화하고 작업 중 표시
+        if let idx = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[idx].transitionTo(.inProgress)
+        }
+        speakingAgentIDByRoom[roomID] = agentID
 
         let context = makeToolContext(roomID: roomID)
         let history = buildRoomHistory(roomID: roomID)
@@ -189,6 +195,14 @@ class RoomManager: ObservableObject {
             )
             appendMessage(errorMsg, to: roomID)
         }
+
+        // 작업 완료 → 방 상태 복귀
+        speakingAgentIDByRoom.removeValue(forKey: roomID)
+        if let idx = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[idx].transitionTo(.completed)
+            rooms[idx].completedAt = Date()
+        }
+        scheduleSave()
     }
 
     // MARK: - 도구 실행 컨텍스트
@@ -505,6 +519,7 @@ class RoomManager: ObservableObject {
                     approvalContinuations[roomID] = continuation
                 }
                 approvalContinuations.removeValue(forKey: roomID)
+                guard !Task.isCancelled else { return }
 
                 if approved {
                     // 승인됨 → planning 복귀, 루프 탈출
