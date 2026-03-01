@@ -207,6 +207,7 @@ struct FloatingSidebarView: View {
     /// 방 열기 프로그레스 (nil이면 비활성)
     @State private var roomOpenProgress: CGFloat?
     @State private var pendingRoomToOpen: UUID?
+    @State private var showCancelledMark = false
 
     /// 상단 드래그 핸들 — AppKit performDrag가 실제 이동을 처리
     private var dragHandle: some View {
@@ -606,6 +607,15 @@ struct FloatingSidebarView: View {
                                         )
                                     }
                                     .id(message.id)
+                                } else if message.id == lastDelegationID && showCancelledMark {
+                                    HStack(alignment: .center, spacing: 8) {
+                                        MessageBubble(message: message)
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.system(size: 18))
+                                            .foregroundColor(.red.opacity(0.6))
+                                            .transition(.scale.combined(with: .opacity))
+                                    }
+                                    .id(message.id)
                                 } else {
                                     MessageBubble(message: message)
                                         .id(message.id)
@@ -836,11 +846,13 @@ struct FloatingSidebarView: View {
     // MARK: - 이미지 첨부
 
     private func pickImage() {
+        NSApp.activate(ignoringOtherApps: true)
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.jpeg, .png, .gif, .webP]
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.message = "첨부할 이미지를 선택하세요"
+        panel.level = .modalPanel
         guard panel.runModal() == .OK else { return }
         for url in panel.urls {
             addImageFromURL(url)
@@ -962,6 +974,13 @@ struct FloatingSidebarView: View {
     private func cancelPendingRoomOpen() {
         pendingRoomToOpen = nil
         roomOpenProgress = nil
+        showCancelledMark = true
+        Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            await MainActor.run {
+                withAnimation(.easeOut(duration: 0.3)) { showCancelledMark = false }
+            }
+        }
     }
 
     private func openRoomChatWindow(roomID: UUID) {
