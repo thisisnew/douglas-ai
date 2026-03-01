@@ -282,8 +282,8 @@ struct FloatingSidebarView: View {
                 roomManager.pendingAutoOpenRoomID = nil
                 pendingRoomToOpen = roomID
                 roomOpenProgress = 0
-                // 타이머로 0→1 점진 증가 (1.5초 동안 ~60 프레임)
-                let totalDuration: Double = 1.5
+                // 타이머로 0→1 점진 증가 (2.5초 동안 ~60 프레임)
+                let totalDuration: Double = 2.5
                 let interval: Double = 1.0 / 60.0
                 let step: CGFloat = CGFloat(interval / totalDuration)
                 Task {
@@ -599,7 +599,10 @@ struct FloatingSidebarView: View {
                                 if message.id == lastDelegationID && pendingRoomToOpen != nil {
                                     HStack(alignment: .center, spacing: 8) {
                                         MessageBubble(message: message)
-                                        RoomOpenProgressRing(progress: roomOpenProgress ?? 0)
+                                        RoomOpenProgressRing(
+                                            progress: roomOpenProgress ?? 0,
+                                            onCancel: { cancelPendingRoomOpen() }
+                                        )
                                     }
                                     .id(message.id)
                                 } else {
@@ -679,7 +682,13 @@ struct FloatingSidebarView: View {
                             .textFieldStyle(.plain)
                             .lineLimit(1...5)
                             .focused($isInputFocused)
-                            .onSubmit { sendToMaster() }
+                            .onSubmit {
+                                if NSEvent.modifierFlags.contains(.shift) {
+                                    inputText += "\n"
+                                } else {
+                                    sendToMaster()
+                                }
+                            }
                             .onChange(of: inputText) { _, newValue in
                                 // 드롭된 파일 경로 감지 → 이미지 첨부로 변환
                                 if let remaining = extractDroppedImagePath(from: newValue) {
@@ -719,6 +728,8 @@ struct FloatingSidebarView: View {
                 .continuousRadius(DesignTokens.Radius.lg)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
+                .disabled(pendingRoomToOpen != nil)
+                .opacity(pendingRoomToOpen != nil ? 0.5 : 1.0)
                 .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
                     handleImageDrop(providers)
                     return true
@@ -947,6 +958,11 @@ struct FloatingSidebarView: View {
         }
     }
 
+    private func cancelPendingRoomOpen() {
+        pendingRoomToOpen = nil
+        roomOpenProgress = nil
+    }
+
     private func openRoomChatWindow(roomID: UUID) {
         let title = roomManager.rooms.first(where: { $0.id == roomID })?.title ?? "방"
         UtilityWindowManager.shared.open(title: title, identifier: roomID.uuidString,
@@ -1152,25 +1168,41 @@ struct AgentReorderDropDelegate: DropDelegate {
     }
 }
 
-// MARK: - 방 열기 원형 프로그레스 (숫자 + 링)
+// MARK: - 방 열기 원형 프로그레스 (숫자 + 링, hover 시 정지 버튼)
 
 struct RoomOpenProgressRing: View {
     let progress: CGFloat
+    var onCancel: (() -> Void)?
     private let size: CGFloat = 30
     private let lineWidth: CGFloat = 3
+    @State private var isHovered = false
 
     var body: some View {
         ZStack {
-            Circle()
-                .stroke(Color.accentColor.opacity(0.15), lineWidth: lineWidth)
-            Circle()
-                .trim(from: 0, to: progress)
-                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-            Text("\(Int(progress * 100))")
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundColor(.accentColor)
+            if isHovered {
+                // hover 시: 정지 버튼
+                Circle()
+                    .fill(Color.red.opacity(0.12))
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.red)
+            } else {
+                // 기본: 프로그레스 링 + 숫자
+                Circle()
+                    .stroke(Color.accentColor.opacity(0.15), lineWidth: lineWidth)
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Text("\(Int(progress * 100))")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(.accentColor)
+            }
         }
         .frame(width: size, height: size)
+        .contentShape(Circle())
+        .onHover { isHovered = $0 }
+        .onTapGesture { onCancel?() }
+        .help(isHovered ? "작업 취소" : "")
     }
 }
