@@ -1792,20 +1792,24 @@ class RoomManager: ObservableObject {
             // 빌드/QA 루프는 에이전트 주도로 실행 (계획 단계에서 에이전트가 직접 shell_exec으로 처리)
         }
 
-        // 완료: 작업일지를 먼저 생성한 후 상태 변경
+        // 완료: 먼저 상태 변경 후 작업일지 생성 (상태가 inProgress인 동안 추가 메시지가 묻히는 문제 방지)
         if rooms.first(where: { $0.id == roomID })?.status == .inProgress {
-            await generateWorkLog(roomID: roomID, task: task)
-
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].transitionTo(.completed)
                 rooms[i].completedAt = Date()
             }
+            syncAgentStatuses()
 
             let doneMsg = ChatMessage(role: .system, content: "모든 작업이 완료되었습니다.")
             appendMessage(doneMsg, to: roomID)
+            scheduleSave()
+
+            // 작업일지는 방 상태 확정 후 비동기 생성
+            await generateWorkLog(roomID: roomID, task: task)
+        } else {
+            syncAgentStatuses()
+            scheduleSave()
         }
-        syncAgentStatuses()
-        scheduleSave()
     }
 
     /// step 텍스트를 짧은 "~하는 중" 스타일로 변환

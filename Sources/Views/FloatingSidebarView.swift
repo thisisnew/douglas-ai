@@ -976,7 +976,7 @@ struct FloatingSidebarView: View {
         roomOpenProgress = nil
         showCancelledMark = true
         Task {
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
             await MainActor.run {
                 withAnimation(.easeOut(duration: 0.3)) { showCancelledMark = false }
             }
@@ -1198,31 +1198,33 @@ struct RoomOpenProgressRing: View {
     @State private var isHovered = false
 
     var body: some View {
-        ZStack {
-            if isHovered {
-                // hover 시: 정지 버튼
-                Circle()
-                    .fill(Color.red.opacity(0.12))
-                Image(systemName: "stop.fill")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.red)
-            } else {
-                // 기본: 프로그레스 링 + 숫자
-                Circle()
-                    .stroke(Color.accentColor.opacity(0.15), lineWidth: lineWidth)
-                Circle()
-                    .trim(from: 0, to: progress)
-                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                Text("\(Int(progress * 100))")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundColor(.accentColor)
+        Button {
+            onCancel?()
+        } label: {
+            ZStack {
+                if isHovered {
+                    Circle()
+                        .fill(Color.red.opacity(0.12))
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.red)
+                } else {
+                    Circle()
+                        .stroke(Color.accentColor.opacity(0.15), lineWidth: lineWidth)
+                    Circle()
+                        .trim(from: 0, to: progress)
+                        .stroke(Color.accentColor, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                    Text("\(Int(progress * 100))")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundColor(.accentColor)
+                }
             }
+            .frame(width: size, height: size)
+            .contentShape(Circle())
         }
-        .frame(width: size, height: size)
-        .contentShape(Circle())
+        .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .onTapGesture { onCancel?() }
-        .help(isHovered ? "작업 취소" : "")
+        .help("클릭하여 취소")
     }
 }
