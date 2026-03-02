@@ -283,14 +283,28 @@ struct RoomChatView: View {
     // MARK: - 이미지 첨부
 
     private func pickImage() {
+        // accessory 앱은 활성화 불가 → 임시로 regular 전환
+        let wasAccessory = NSApp.activationPolicy() == .accessory
+        if wasAccessory {
+            NSApp.setActivationPolicy(.regular)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.jpeg, .png, .gif, .webP]
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.message = "첨부할 이미지를 선택하세요"
-        guard panel.runModal() == .OK else { return }
-        for url in panel.urls {
-            addImageFromURL(url)
+
+        panel.begin { response in
+            // 정책 복원
+            if wasAccessory && UtilityWindowManager.shared.windows.isEmpty {
+                NSApp.setActivationPolicy(.accessory)
+            }
+            guard response == .OK else { return }
+            for url in panel.urls {
+                self.addImageFromURL(url)
+            }
         }
     }
 

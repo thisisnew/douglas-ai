@@ -283,8 +283,8 @@ struct FloatingSidebarView: View {
                 roomManager.pendingAutoOpenRoomID = nil
                 pendingRoomToOpen = roomID
                 roomOpenProgress = 0
-                // 타이머로 0→1 점진 증가 (1.8초 동안 ~60 프레임)
-                let totalDuration: Double = 1.8
+                // 타이머로 0→1 점진 증가 (1.3초 동안 ~60 프레임)
+                let totalDuration: Double = 1.3
                 let interval: Double = 1.0 / 60.0
                 let step: CGFloat = CGFloat(interval / totalDuration)
                 Task {
@@ -843,16 +843,24 @@ struct FloatingSidebarView: View {
 
     private func pickImage() {
         NSApp.activate(ignoringOtherApps: true)
+        // 사이드바 윈도우 레벨을 임시로 낮춰서 NSOpenPanel 클릭 가능하게
+        let sidebarWindow = NSApp.windows.first { $0.level.rawValue > NSWindow.Level.floating.rawValue }
+        let originalLevel = sidebarWindow?.level
+        sidebarWindow?.level = .normal
+
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.jpeg, .png, .gif, .webP]
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.message = "첨부할 이미지를 선택하세요"
-        panel.level = .modalPanel
-        guard panel.runModal() == .OK else { return }
+        guard panel.runModal() == .OK else {
+            if let level = originalLevel { sidebarWindow?.level = level }
+            return
+        }
         for url in panel.urls {
             addImageFromURL(url)
         }
+        if let level = originalLevel { sidebarWindow?.level = level }
     }
 
     private func addImageFromURL(_ url: URL) {

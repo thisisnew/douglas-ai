@@ -881,6 +881,11 @@ class RoomManager: ObservableObject {
         // Intent 정보
         let intentName = rooms[idx].intent?.displayName ?? "구현"
 
+        // 이미지 첨부 파일 수집 (LLM에 직접 전달)
+        let imageAttachments = rooms[idx].messages
+            .compactMap { $0.attachments }
+            .flatMap { $0 }
+
         let clarifySystemPrompt = """
         \(agent.resolvedSystemPrompt)
 
@@ -893,6 +898,7 @@ class RoomManager: ObservableObject {
         - 핵심 요구사항: (불릿 포인트)
         - 예상 산출물: (무엇이 나와야 하는지)
 
+        이미지가 첨부된 경우 이미지 내용을 확인하고 요약에 반영하세요.
         반드시 이 형식만 출력하세요. 질문하거나 작업을 수행하지 마세요.
         """
 
@@ -903,25 +909,34 @@ class RoomManager: ObservableObject {
             guard !Task.isCancelled,
                   rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
-            // 1) DOUGLAS가 이해한 내용 요약 생성
-            let messages: [(role: String, content: String)]
+            // 1) DOUGLAS가 이해한 내용 요약 생성 (이미지 포함)
+            let clarifyMessages: [ConversationMessage]
             if currentSummary.isEmpty {
-                messages = [("user", "\(contextString)\n\n위 요청을 분석하고, 이해한 내용을 정리해주세요. 작업: \(task)")]
+                let userContent = "\(contextString)\n\n위 요청을 분석하고, 이해한 내용을 정리해주세요. 작업: \(task)"
+                clarifyMessages = [ConversationMessage.user(userContent, attachments: imageAttachments.isEmpty ? nil : imageAttachments)]
             } else {
                 // 사용자 피드백 반영 재요약
                 let history = buildRoomHistory(roomID: roomID)
                     .map { "\($0.role): \($0.content ?? "")" }
                     .suffix(5)
                     .joined(separator: "\n")
-                messages = [("user", "이전 요약:\n\(currentSummary)\n\n사용자 피드백:\n\(history)\n\n피드백을 반영하여 다시 요약하세요.")]
+                let feedbackContent = "이전 요약:\n\(currentSummary)\n\n사용자 피드백:\n\(history)\n\n피드백을 반영하여 다시 요약하세요."
+                clarifyMessages = [ConversationMessage.user(feedbackContent, attachments: imageAttachments.isEmpty ? nil : imageAttachments)]
             }
 
             do {
-                let response = try await provider.sendMessage(
+                let responseContent = try await provider.sendMessageWithTools(
                     model: agent.modelName,
                     systemPrompt: clarifySystemPrompt,
-                    messages: messages
+                    messages: clarifyMessages,
+                    tools: []
                 )
+                let response: String
+                switch responseContent {
+                case .text(let t): response = t
+                case .mixed(let t, _): response = t
+                case .toolCalls: response = "(요약 생성 실패)"
+                }
                 currentSummary = response
 
                 let summaryMsg = ChatMessage(role: .assistant, content: response, agentName: agent.name)
@@ -937,14 +952,7 @@ class RoomManager: ObservableObject {
                 return
             }
 
-            // 2) 사용자에게 컨펌 요청
-            let confirmMsg = ChatMessage(
-                role: .system,
-                content: "제가 이해한 내용이 맞는지 확인해주세요.",
-                messageType: .approvalRequest
-            )
-            appendMessage(confirmMsg, to: roomID)
-
+            // 2) 사용자에게 컨펌 요청 (복명복창 요약 자체가 확인 요청)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].transitionTo(.awaitingApproval)
             }
@@ -1030,6 +1038,10 @@ class RoomManager: ObservableObject {
         }
 
         let intentName = rooms[idx].intent?.displayName ?? "구현"
+        // 기존 에이전트 목록 구성
+        let subAgents = agentStore?.subAgents ?? []
+        let agentRoster = subAgents.isEmpty ? "(없음)" : subAgents.map { "- \($0.name)" }.joined(separator: "\n")
+
         let assembleSystemPrompt = """
         \(agent.resolvedSystemPrompt)
 
@@ -1039,6 +1051,9 @@ class RoomManager: ObservableObject {
         작업에 **직접적으로** 필요한 역할만 최소한으로 요청하세요.
         작업과 무관한 역할은 절대 포함하지 마세요.
 
+        현재 사용 가능한 에이전트:
+        \(agentRoster)
+
         반드시 아래 형식으로 산출물을 생성하세요:
 
         ```artifact:role_requirements title="역할 요구사항"
@@ -1047,7 +1062,8 @@ class RoomManager: ObservableObject {
         ```
 
         주의:
-        - 역할 이름은 기존 에이전트 이름과 정확히 일치해야 매칭됩니다
+        - 기존 에이전트가 있으면 반드시 위 목록의 **정확한 이름**을 사용하세요
+        - 목록에 적합한 에이전트가 없을 때만 새 이름을 사용하세요
         - 불확실하면 적게 요청하세요 (1~2명이면 충분한 경우가 많습니다)
         """
 
@@ -1122,12 +1138,13 @@ class RoomManager: ObservableObject {
             }
 
             // 4.5) 미매칭 제안이 있으면 사용자가 추가/건너뛰기할 때까지 대기
-            if matched.contains(where: { $0.status == .unmatched }) {
+            let hadUnmatched = matched.contains(where: { $0.status == .unmatched })
+            if hadUnmatched {
                 await waitForSuggestionResponse(roomID: roomID)
             }
 
-            // 5) 커버리지 게이트
-            if !AgentMatcher.checkMinimumCoverage(matched) {
+            // 5) 커버리지 게이트 (생성 제안이 처리된 경우 스킵 — 사용자가 이미 결정함)
+            if !hadUnmatched, !AgentMatcher.checkMinimumCoverage(matched) {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                     rooms[i].transitionTo(.awaitingUserInput)
                 }
@@ -1612,7 +1629,7 @@ class RoomManager: ObservableObject {
         - 여러 단계로 쪼개야 하는 경우는 "서로 다른 전문가가 순서대로" 작업할 때뿐입니다.
         - estimated_minutes는 현실적으로 추정하세요 (1~30분)
         - 각 step에 "agent" 필드로 담당 전문가를 지정하세요 (위 목록에서 정확한 이름 사용)
-        - 마스터(PM/오케스트레이터)는 실행 대상이 아닙니다. 마스터에게 step을 배정하지 마세요.
+        - 마스터(진행자/오케스트레이터)는 실행 대상이 아닙니다. 마스터에게 step을 배정하지 마세요.
         - 배포, 데이터 삭제 등 위험한 단계는 "requires_approval": true 추가
         - 반드시 유효한 JSON으로만 응답하세요
         """
@@ -2369,6 +2386,7 @@ class RoomManager: ObservableObject {
             var agreedCount = 0
             let agentIDs = room.assignedAgentIDs
 
+            var earlyConsensus = false
             for agentID in agentIDs {
                 guard !Task.isCancelled,
                       let current = rooms.first(where: { $0.id == roomID }),
@@ -2381,10 +2399,17 @@ class RoomManager: ObservableObject {
                     round: round
                 )
                 if agreed { agreedCount += 1 }
+
+                // 진행자가 합의 선언 + 2라운드 이상 → 나머지 발언 스킵 (반복 방지)
+                let isMaster = agentStore?.agents.first(where: { $0.id == agentID })?.isMaster ?? false
+                if isMaster && agreed && round >= 1 {
+                    earlyConsensus = true
+                    break
+                }
             }
 
-            // 전원 합의 → 토론 종료
-            if agreedCount == agentIDs.count && agentIDs.count > 0 {
+            // 전원 합의 또는 진행자 조기 종료 → 토론 종료
+            if earlyConsensus || (agreedCount == agentIDs.count && agentIDs.count > 0) {
                 let consensusMsg = ChatMessage(
                     role: .system,
                     content: "전원 합의 도달. 토론을 마무리합니다."
@@ -2437,11 +2462,11 @@ class RoomManager: ObservableObject {
             ConversationMessage(role: msg.role, content: msg.content, toolCalls: nil, toolCallID: nil, attachments: nil, isError: false)
         })
 
-        // 동료 목록: 이름(역할) 형태로 구성, PM과 전문가 구분
+        // 동료 목록: 이름(역할) 형태로 구성, 진행자와 전문가 구분
         let otherAgents = roomRef?.assignedAgentIDs
             .compactMap { id in agentStore?.agents.first(where: { $0.id == id }) }
             .filter { $0.id != agentID } ?? []
-        let pmName = otherAgents.first(where: { $0.isMaster })?.name
+        let masterAgent = otherAgents.first(where: { $0.isMaster })
         let specialists = otherAgents.filter { !$0.isMaster }
         let specialistDesc = specialists.map { $0.name }.joined(separator: ", ")
         let otherNames = otherAgents.map { $0.name }.joined(separator: ", ")
@@ -2453,32 +2478,35 @@ class RoomManager: ObservableObject {
         if isMasterAgent {
             // 마스터: 요구사항 전달만, 직접 작업 금지
             discussionPrompt = """
-            당신은 PM/오케스트레이터입니다. 토론에서의 역할:
+            당신은 \(agent.name)입니다. 이 토론의 진행자 역할을 합니다:
             - 전문가에게 사용자의 요구사항을 간결하게 전달
             - 전문가의 질문에 답변
             - 작업 방향이 맞는지 확인하고, 전문가의 업무를 대신 수행하지 않습니다
 
+            [절대 금지] 다른 에이전트(\(specialistDesc)) 역할로 발언하거나, 그들의 발언을 대신 작성
+            [절대 금지] **[백엔드 개발자]** 등 다른 이름으로 발언 — 반드시 \(agent.name)으로만 발언
             [절대 금지] 번역, 코딩, 문서 작성 등 실제 작업 수행
-            [절대 금지] 전문가의 업무를 대신 수행
 
             [회의실] \(topic)
             라운드 \(round + 1) | 전문가: \(specialistDesc)
 
-            2문장 이내로 발언하세요.
+            \(agent.name)으로서 2문장 이내로 발언하세요. 전문가들은 별도로 자기 차례에 발언합니다.
+            이름 헤더(**[이름]** 등)를 붙이지 마세요. UI가 화자를 표시합니다.
             발언 마지막 줄에 [합의] 또는 [계속] 태그를 붙이세요.
             """
         } else {
             // 전문가: 자기 역할에 맞는 작업
-            let pmNote = pmName != nil ? "\(pmName!)은 PM입니다. 전문적인 질문은 다른 전문가에게 직접 하세요." : ""
+            let masterNote = masterAgent != nil ? "\(masterAgent!.name)은 진행자입니다. 전문적인 질문은 다른 전문가에게 직접 하세요." : ""
             discussionPrompt = """
             \(agent.resolvedSystemPrompt)
 
             [회의실] \(topic)
             라운드 \(round + 1) | 동료: \(otherNames)
-            \(pmNote)
+            \(masterNote)
 
             첨부된 이미지나 파일이 있으면 내용을 확인하고 참고하세요.
             2-4문장으로 핵심만 말하세요.
+            이름 헤더(**[이름]** 등)를 붙이지 마세요. UI가 화자를 표시합니다.
             발언 마지막 줄에 [합의] 또는 [계속] 태그를 붙이세요.
             """
         }
