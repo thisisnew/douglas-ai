@@ -72,11 +72,17 @@ enum AgentMatcher {
 
     // MARK: - Private
 
+    /// 매칭에서 제외할 범용 접미사 (false positive 방지)
+    private static let genericSuffixes: Set<String> = [
+        "전문가", "개발자", "엔지니어", "담당자", "관리자", "분석가", "설계자", "디자이너",
+        "expert", "developer", "engineer", "manager", "analyst", "designer"
+    ]
+
     /// 이름 + 페르소나 + 작업 규칙 키워드 기반 매칭
     private static func findByKeyword(roleName: String, agents: [Agent], excluding used: Set<UUID>) -> Agent? {
         let keywords = roleName.lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { $0.count >= 2 }
+            .filter { $0.count >= 2 && !genericSuffixes.contains($0) }
 
         guard !keywords.isEmpty else { return nil }
 

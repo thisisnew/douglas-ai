@@ -216,9 +216,9 @@ class RoomManager: ObservableObject {
             completedPhases.insert(nextPhase)
         }
 
-        // 완료
+        // 완료 (review 단계에서 이미 완료 처리된 경우 스킵)
         if let i = rooms.firstIndex(where: { $0.id == roomID }),
-           rooms[i].status != .failed {
+           rooms[i].status != .failed && rooms[i].status != .completed {
             rooms[i].currentPhase = nil
             rooms[i].status = .completed
             rooms[i].completedAt = Date()
@@ -1449,27 +1449,34 @@ class RoomManager: ObservableObject {
         speakingAgentIDByRoom.removeValue(forKey: roomID)
     }
 
-    /// Review 단계: 작업일지 + 플레이북 override 감지
+    /// Review 단계: 방 완료 후 작업일지 비동기 생성 (TypingIndicator 노출 방지)
     private func executeReviewPhase(roomID: UUID, task: String) async {
-        // 작업일지 생성 (기존 로직 재활용)
+        // 먼저 방 완료 처리 → TypingIndicator 숨김
+        if let i = rooms.firstIndex(where: { $0.id == roomID }),
+           rooms[i].status != .failed {
+            rooms[i].currentPhase = nil
+            rooms[i].status = .completed
+            rooms[i].completedAt = Date()
+        }
+        syncAgentStatuses()
+        scheduleSave()
+
+        // 완료 후 작업일지 비동기 생성 (UI에 "발언 중" 안 뜸)
         await generateWorkLog(roomID: roomID, task: task)
 
-        // 플레이북 override 감지: 실제 작업에서 플레이북 설정과 다르게 진행된 부분 탐지
+        // 플레이북 override 감지
         guard let room = rooms.first(where: { $0.id == roomID }),
               let playbook = room.playbook,
               room.primaryProjectPath != nil else { return }
 
-        // 산출물에서 실제 사용된 패턴 분석
         let workSummary = room.workLog?.outcome ?? ""
         var overrides: [String] = []
 
-        // 브랜치 전략 override 감지
         if let branchPattern = playbook.branchPattern, !branchPattern.isEmpty,
            (workSummary.contains("branch") || workSummary.contains("브랜치")) {
             overrides.append("브랜치 패턴 변경 감지 (설정: \(branchPattern))")
         }
 
-        // override가 있으면 플레이북 업데이트 제안
         if !overrides.isEmpty {
             let overrideMsg = ChatMessage(
                 role: .system,
@@ -1477,14 +1484,6 @@ class RoomManager: ObservableObject {
             )
             appendMessage(overrideMsg, to: roomID)
         }
-
-        // 리뷰 완료 메시지
-        let reviewMsg = ChatMessage(
-            role: .system,
-            content: "검토가 완료되었습니다.",
-            messageType: .phaseTransition
-        )
-        appendMessage(reviewMsg, to: roomID)
         scheduleSave()
     }
 
