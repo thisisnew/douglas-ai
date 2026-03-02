@@ -61,7 +61,7 @@ struct RoomChatView: View {
 
                 // 계획 카드 (계획 수립 후)
                 if let plan = room.plan {
-                    PlanCard(plan: plan, currentStep: room.currentStepIndex, status: room.status)
+                    PlanCard(plan: plan, currentStep: room.currentStepIndex, status: room.status, agentStore: agentStore)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
@@ -99,7 +99,19 @@ struct RoomChatView: View {
                 }
                 .padding(12)
             }
+            .onAppear {
+                scrollToBottom(proxy: proxy, room: room)
+            }
             .onChange(of: room.messages.count) { _, _ in
+                scrollToBottom(proxy: proxy, room: room)
+            }
+            .onChange(of: room.messages.last?.id) { _, _ in
+                scrollToBottom(proxy: proxy, room: room)
+            }
+            .onChange(of: room.status) { _, _ in
+                scrollToBottom(proxy: proxy, room: room)
+            }
+            .onChange(of: room.currentPhase) { _, _ in
                 scrollToBottom(proxy: proxy, room: room)
             }
         }
@@ -130,7 +142,7 @@ struct RoomChatView: View {
 
     /// 메인 채팅에 보이는 메시지: activityGroupID 소속 메시지는 숨김 (progress 버블에서 표시)
     private func visibleMessages(_ room: Room) -> [ChatMessage] {
-        room.messages.filter { $0.activityGroupID == nil }
+        room.messages.filter { $0.activityGroupID == nil && $0.messageType != .approvalRequest }
     }
 
     /// 특정 progress 메시지에 소속된 활동 메시지들
@@ -447,6 +459,7 @@ struct PlanCard: View {
     let plan: RoomPlan
     let currentStep: Int
     let status: RoomStatus
+    var agentStore: AgentStore?
 
     @State private var isExpanded = true
 
@@ -465,6 +478,9 @@ struct PlanCard: View {
                             .font(.caption2.bold())
                             .foregroundColor(.purple)
                         Spacer()
+                        Text("\(completedStepCount)/\(plan.steps.count)")
+                            .font(DesignTokens.Typography.mono(DesignTokens.FontSize.nano))
+                            .foregroundColor(.secondary)
                         Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                             .font(.system(size: DesignTokens.FontSize.nano))
                             .foregroundColor(.secondary)
@@ -490,11 +506,29 @@ struct PlanCard: View {
                                 .font(.caption2)
                                 .foregroundColor(stepColor(index: index))
                                 .lineLimit(1)
+                            Spacer()
+                            if let name = agentName(for: step) {
+                                Text(name)
+                                    .font(.system(size: 9))
+                                    .foregroundColor(index == currentStep && status == .inProgress ? .orange : .secondary.opacity(0.6))
+                                    .lineLimit(1)
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    private var completedStepCount: Int {
+        if status == .completed { return plan.steps.count }
+        return currentStep
+    }
+
+    private func agentName(for step: RoomStep) -> String? {
+        guard let id = step.assignedAgentID,
+              let agent = agentStore?.agents.first(where: { $0.id == id }) else { return nil }
+        return agent.name
     }
 
     @ViewBuilder
@@ -748,6 +782,7 @@ struct ApprovalCard: View {
                                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                                     .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5)
                             )
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .onHover { hovering in
@@ -773,6 +808,7 @@ struct ApprovalCard: View {
                                     )
                             )
                             .shadow(color: .accentColor.opacity(0.2), radius: 4, y: 2)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .onHover { hovering in

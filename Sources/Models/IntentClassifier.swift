@@ -11,10 +11,16 @@ enum IntentClassifier {
     static func quickClassify(_ task: String) -> WorkflowIntent? {
         let lowered = task.lowercased()
 
+        // Jira/외부 URL만 넣은 경우: 의도를 알 수 없으므로 사용자에게 선택하게 함
+        if containsTicketURL(lowered) && !hasExplicitUserIntent(lowered) {
+            return nil
+        }
+
         // quickAnswer: 단순 질문/번역
         let quickKeywords = ["뭐야", "뭐에요", "뭔가요", "알려줘", "알려주세요",
                              "번역", "translate", "翻訳",
-                             "몇 ", "어디", "언제", "누가", "왜 "]
+                             "몇 ", "어디", "언제", "누가", "왜 ",
+                             "어떻게", "어떤", "차이가", "차이점"]
         if quickKeywords.contains(where: { lowered.contains($0) })
             && task.count < 100
             && !containsActionKeywords(lowered) {
@@ -136,5 +142,30 @@ enum IntentClassifier {
     private static func containsCodingKeywords(_ text: String) -> Bool {
         let codingWords = ["코드", "코딩", "구현", "개발", "빌드", ".swift", ".ts", ".py"]
         return codingWords.contains(where: { text.contains($0) })
+    }
+
+    /// Jira/이슈 트래커 URL 포함 여부
+    private static func containsTicketURL(_ text: String) -> Bool {
+        let patterns = ["atlassian.net/browse/", "jira.", "github.com/", "/issues/", "/pull/"]
+        return patterns.contains(where: { text.contains($0) })
+    }
+
+    /// 사용자가 URL 외에 명시적 의도를 작성했는지 (ex: "이거 구현해", "분석해줘")
+    private static func hasExplicitUserIntent(_ text: String) -> Bool {
+        // Jira 첨부 데이터(--- Jira 티켓 내용 ... --- 끝 ---) 제거 후 사용자 입력만 확인
+        let userText: String
+        if let jiraStart = text.range(of: "--- jira") {
+            userText = String(text[text.startIndex..<jiraStart.lowerBound])
+        } else {
+            userText = text
+        }
+        let trimmed = userText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // URL만 있고 다른 텍스트가 거의 없으면 명시적 의도 없음
+        let withoutURLs = trimmed.replacingOccurrences(
+            of: "https?://[^\\s]+",
+            with: "",
+            options: .regularExpression
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        return withoutURLs.count > 5
     }
 }

@@ -6,6 +6,7 @@ struct TypingIndicator: View {
     let agentStore: AgentStore
     @EnvironmentObject var roomManager: RoomManager
     @State private var dotPhase = 0
+    @State private var now = Date()
 
     /// 현재 발언 중인 에이전트 (토론 턴)
     private var speakingAgent: Agent? {
@@ -59,16 +60,12 @@ struct TypingIndicator: View {
         if let agent = speakingAgent {
             return "\(agent.name) 발언 중"
         }
-        // 2순위: 에이전트 작업 중
+        // 2순위: 에이전트 활동 중
         if let agent = workingAgent {
             if agent.isMaster {
                 return "DOUGLAS 분석 중"
             }
-            // 토론 단계에서는 "발언 중"
-            if room.currentPhase == .plan {
-                return "\(agent.name) 발언 중"
-            }
-            return "\(agent.name) 작업 중"
+            return "\(agent.name) 발언 중"
         }
         // 기본
         return "DOUGLAS 분석 중"
@@ -96,11 +93,35 @@ struct TypingIndicator: View {
             Text(statusText)
                 .font(.system(size: 11))
                 .foregroundColor(.secondary.opacity(0.6))
+
+            if elapsedSeconds >= 3 {
+                Text(elapsedLabel)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.secondary.opacity(0.35))
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(DesignTokens.Colors.systemMessageBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+            now = Date()
+        }
+    }
+
+    /// 마지막 메시지 이후 경과 시간
+    private var elapsedSeconds: Int {
+        let lastMessageTime = room.messages.last?.timestamp ?? room.createdAt
+        return max(0, Int(now.timeIntervalSince(lastMessageTime)))
+    }
+
+    private var elapsedLabel: String {
+        if elapsedSeconds < 60 {
+            return "\(elapsedSeconds)초"
+        }
+        let min = elapsedSeconds / 60
+        let sec = elapsedSeconds % 60
+        return "\(min)분 \(sec)초"
     }
 }

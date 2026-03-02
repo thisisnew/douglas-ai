@@ -75,18 +75,27 @@ struct MessageBubble: View {
                 }
 
                 VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 2) {
-                    // 에이전트 이름 + 타입 아이콘
-                    if let name = message.agentName, message.role == .assistant {
+                    // 에이전트 이름 + 타입 아이콘 + 시간
+                    if message.role == .assistant {
                         HStack(spacing: 4) {
-                            Text(name)
-                                .font(.system(size: DesignTokens.FontSize.sm, weight: .semibold))
-                                .foregroundColor(.primary.opacity(0.7))
+                            if let name = message.agentName {
+                                Text(name)
+                                    .font(.system(size: DesignTokens.FontSize.sm, weight: .semibold))
+                                    .foregroundColor(.primary.opacity(0.7))
+                            }
                             if let icon = typeIcon {
                                 Image(systemName: icon)
                                     .font(.system(size: DesignTokens.FontSize.nano))
                                     .foregroundColor(typeColor)
                             }
+                            Text(timeLabel)
+                                .font(.system(size: 9))
+                                .foregroundColor(.secondary.opacity(0.4))
                         }
+                    } else if message.role == .user {
+                        Text(timeLabel)
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary.opacity(0.4))
                     }
 
                     // 첨부 이미지
@@ -155,6 +164,12 @@ struct MessageBubble: View {
             Spacer()
         }
         .padding(.vertical, 2)
+    }
+
+    private var timeLabel: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: message.timestamp)
     }
 
     private var bubbleBackground: Color {

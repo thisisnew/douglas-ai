@@ -126,8 +126,8 @@ class ChatViewModel: ObservableObject {
             return
         }
 
-        // Intent 분류 (키워드 즉시 판별 — LLM 호출 없이 즉시 반환)
-        let intent = IntentClassifier.quickClassify(task) ?? .implementation
+        // Intent 분류 (키워드 즉시 판별 — nil이면 워크플로우에서 사용자 선택)
+        let intent = IntentClassifier.quickClassify(task)
 
         // 방 생성 + 워크플로우 시작 알림 (단일 메시지)
         let startMsg = ChatMessage(

@@ -1158,8 +1158,18 @@ class RoomManager: ObservableObject {
         }
 
         if !directMatches.isEmpty {
+            // quickAnswer: 가장 관련성 높은 1명만 초대
+            let limitedMatches: [Agent]
+            if intent == .quickAnswer {
+                limitedMatches = Array(directMatches.prefix(1))
+            } else if intent == .research || intent == .brainstorm || intent == .documentation {
+                limitedMatches = Array(directMatches.prefix(2))
+            } else {
+                limitedMatches = directMatches
+            }
+
             var invitedNames: [String] = []
-            for sub in directMatches {
+            for sub in limitedMatches {
                 if let room = rooms.first(where: { $0.id == roomID }),
                    !room.assignedAgentIDs.contains(sub.id) {
                     addAgent(sub.id, to: roomID, silent: true)
@@ -1350,13 +1360,7 @@ class RoomManager: ObservableObject {
             guard !Task.isCancelled else { return }
         }
 
-        // 계획 수립
-        let planningMsg = ChatMessage(
-            role: .system,
-            content: "계획을 수립하는 중..."
-        )
-        appendMessage(planningMsg, to: roomID)
-
+        // 계획 수립 (PlanCard UI로 표시되므로 별도 메시지 불필요)
         var currentPlan = await requestPlan(roomID: roomID, task: task)
         guard !Task.isCancelled else { return }
 
