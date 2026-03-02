@@ -484,6 +484,7 @@ struct FloatingSidebarView: View {
     /// 개별 에이전트 로스터 아이템: 아바타 + 상태 표시등 + 이름 + 방 수 뱃지
     private func rosterItem(_ agent: Agent) -> some View {
         let roomCount = roomManager.activeRoomCount(for: agent.id)
+        let isBusy = agent.status == .busy
 
         return VStack(spacing: DesignTokens.Spacing.sm) {
             AgentAvatarView(agent: agent, size: DesignTokens.AvatarSize.lg)
@@ -512,27 +513,41 @@ struct FloatingSidebarView: View {
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(.white)
                             .frame(width: 16, height: 16)
-                            .background(Color.accentColor)
+                            .background(isBusy ? Color.red : Color.accentColor)
                             .clipShape(Circle())
                             .offset(x: 4, y: -4)
                     }
                 }
-                // 작업중 테두리
+                // 작업중/바쁨 테두리
                 .overlay {
-                    if agent.status == .working || agent.status == .busy {
+                    if agent.status == .working || isBusy {
                         Circle().stroke(
-                            DesignTokens.StatusColor.color(for: agent.status).opacity(0.5),
-                            lineWidth: 2
+                            DesignTokens.StatusColor.color(for: agent.status).opacity(isBusy ? 0.7 : 0.5),
+                            lineWidth: isBusy ? 2.5 : 2
                         )
                     }
                 }
+                // 바쁨 그림자 (pulse 효과)
+                .shadow(color: isBusy ? Color.red.opacity(0.4) : .clear, radius: 4)
 
-            Text(agent.name)
-                .font(.caption2)
-                .foregroundColor(.primary)
-                .lineLimit(1)
-                .frame(width: DesignTokens.Layout.rosterItemWidth)
-                .onTapGesture { openInfoWindow(for: agent) }
+            VStack(spacing: 1) {
+                Text(agent.name)
+                    .font(.caption2)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .frame(width: DesignTokens.Layout.rosterItemWidth)
+                    .onTapGesture { openInfoWindow(for: agent) }
+
+                if isBusy {
+                    Text("바쁨 \(roomCount)건")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.red.opacity(0.85))
+                        .clipShape(Capsule())
+                }
+            }
         }
     }
 

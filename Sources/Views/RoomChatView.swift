@@ -44,6 +44,12 @@ struct RoomChatView: View {
                 }
                 .animation(.easeInOut(duration: 0.3), value: room.pendingAgentSuggestions.filter { $0.status == .pending }.count)
 
+                // Intent 선택 카드 (quickClassify 실패 시)
+                if let suggestedIntent = roomManager.pendingIntentSelection[room.id] {
+                    IntentSelectionCard(roomID: room.id, suggestedIntent: suggestedIntent)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
                 // 승인 대기 카드 (승인 게이트 활성 시)
                 if room.status == .awaitingApproval {
                     ApprovalCard(roomID: room.id)
@@ -384,6 +390,12 @@ struct RoomChatView: View {
             Text("·")
                 .foregroundColor(.secondary.opacity(0.4))
             ElapsedTimeLabel(room: room)
+
+            Text("·")
+                .foregroundColor(.secondary.opacity(0.4))
+            Text(room.shortID)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(.secondary.opacity(0.5))
         }
     }
 }
@@ -852,6 +864,76 @@ struct UserInputCard: View {
     }
 }
 
+// MARK: - Intent 선택 카드
+
+struct IntentSelectionCard: View {
+    let roomID: UUID
+    let suggestedIntent: WorkflowIntent
+    @EnvironmentObject var roomManager: RoomManager
+
+    var body: some View {
+        CardContainer(accentColor: .teal, opacity: 0.08) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.caption)
+                        .foregroundColor(.teal)
+                    Text("작업 유형을 선택해주세요")
+                        .font(.caption2.bold())
+                        .foregroundColor(.primary)
+                    Spacer()
+                }
+
+                // Intent 버튼 그리드 (2열)
+                let intents = WorkflowIntent.allCases
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
+                    ForEach(intents, id: \.self) { intent in
+                        Button {
+                            roomManager.selectIntent(roomID: roomID, intent: intent)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: intentIcon(intent))
+                                    .font(.system(size: 10))
+                                Text(intent.displayName)
+                                    .font(.caption2)
+                                if intent == suggestedIntent {
+                                    Text("추천")
+                                        .font(.system(size: 8, weight: .bold))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 1)
+                                        .background(Color.teal)
+                                        .clipShape(Capsule())
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                            .padding(.horizontal, 8)
+                            .background(intent == suggestedIntent ? Color.teal.opacity(0.12) : Color.primary.opacity(0.04))
+                            .foregroundColor(intent == suggestedIntent ? .teal : .primary)
+                            .continuousRadius(DesignTokens.Radius.sm)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    private func intentIcon(_ intent: WorkflowIntent) -> String {
+        switch intent {
+        case .quickAnswer:          return "bolt"
+        case .research:             return "magnifyingglass"
+        case .brainstorm:           return "lightbulb"
+        case .documentation:        return "doc.text"
+        case .implementation:       return "hammer"
+        case .requirementsAnalysis: return "checklist"
+        case .testPlanning:         return "checkmark.shield"
+        case .taskDecomposition:    return "rectangle.3.group"
+        }
+    }
+}
+
 // MARK: - 에이전트 생성 제안 카드
 
 struct AgentSuggestionCard: View {
@@ -926,7 +1008,7 @@ struct AgentSuggestionCard: View {
                        let sugIdx = roomManager.rooms[roomIdx].pendingAgentSuggestions.firstIndex(where: { $0.id == suggestion.id }) {
                         roomManager.rooms[roomIdx].pendingAgentSuggestions[sugIdx].status = .approved
                     }
-                    roomManager.addAgent(newAgent.id, to: roomID)
+                    roomManager.addAgent(newAgent.id, to: roomID, silent: true)
                     let msg = ChatMessage(
                         role: .system,
                         content: "'\(newAgent.name)' 에이전트가 생성되어 방에 참여했습니다."

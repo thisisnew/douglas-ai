@@ -8,6 +8,8 @@ class RoomManager: ObservableObject {
     @Published var pendingAutoOpenRoomID: UUID?
     /// 방별 현재 발언 중인 에이전트 (UI 표시용, 영속화 안 함)
     @Published var speakingAgentIDByRoom: [UUID: UUID] = [:]
+    /// Intent 선택 대기 중인 방 (방 ID → LLM 추천 intent)
+    @Published var pendingIntentSelection: [UUID: WorkflowIntent] = [:]
 
     private(set) var agentStore: AgentStore?
     private(set) var providerManager: ProviderManager?
@@ -21,6 +23,8 @@ class RoomManager: ObservableObject {
     private var userInputContinuations: [UUID: CheckedContinuation<String, Never>] = [:]
     /// 에이전트 생성 제안 승인 대기 continuation (방 ID → continuation, Bool = 사용자 응답 여부)
     private var suggestionContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
+    /// Intent 선택 대기 중인 continuation (방 ID → continuation)
+    private var intentContinuations: [UUID: CheckedContinuation<WorkflowIntent, Never>] = [:]
 
     // MARK: - 계산 프로퍼티
 
@@ -123,6 +127,20 @@ class RoomManager: ObservableObject {
     func appendAdditionalInput(roomID: UUID, text: String) {
         let msg = ChatMessage(role: .user, content: text)
         appendMessage(msg, to: roomID)
+    }
+
+    // MARK: - Intent 선택 게이트
+
+    /// 사용자가 Intent를 선택
+    func selectIntent(roomID: UUID, intent: WorkflowIntent) {
+        pendingIntentSelection.removeValue(forKey: roomID)
+        guard let cont = intentContinuations.removeValue(forKey: roomID) else { return }
+        let msg = ChatMessage(role: .user, content: "\(intent.displayName) 선택")
+        appendMessage(msg, to: roomID)
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].transitionTo(.planning)
+        }
+        cont.resume(returning: intent)
     }
 
     // MARK: - 사용자 입력 게이트
@@ -332,7 +350,7 @@ class RoomManager: ObservableObject {
             modelName: modelName
         )
         agentStore?.addAgent(newAgent)
-        addAgent(newAgent.id, to: roomID)
+        addAgent(newAgent.id, to: roomID, silent: true)
 
         let msg = ChatMessage(
             role: .system,
@@ -383,7 +401,7 @@ class RoomManager: ObservableObject {
 
     // MARK: - 방에 에이전트 추가
 
-    func addAgent(_ agentID: UUID, to roomID: UUID) {
+    func addAgent(_ agentID: UUID, to roomID: UUID, silent: Bool = false) {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
         guard !rooms[idx].assignedAgentIDs.contains(agentID) else { return }
         rooms[idx].assignedAgentIDs.append(agentID)
@@ -400,7 +418,7 @@ class RoomManager: ObservableObject {
         syncAgentStatuses()
         scheduleSave()
 
-        if let agentName = agentStore?.agents.first(where: { $0.id == agentID })?.name {
+        if !silent, let agentName = agentStore?.agents.first(where: { $0.id == agentID })?.name {
             let systemMsg = ChatMessage(role: .system, content: "\(agentName)이(가) 방에 참여했습니다.")
             appendMessage(systemMsg, to: roomID)
         }
@@ -710,9 +728,10 @@ class RoomManager: ObservableObject {
 
     /// 워크플로우 진입점: 항상 Intent 기반 Phase 워크플로우
     func startRoomWorkflow(roomID: UUID, task: String) async {
-        // 레거시 방 (intent=nil) → implementation 폴백
+        // intent 미설정 → quickClassify 시도 (nil이면 executeIntentPhase에서 사용자 선택)
         if let idx = rooms.firstIndex(where: { $0.id == roomID }), rooms[idx].intent == nil {
-            rooms[idx].intent = .implementation
+            rooms[idx].intent = IntentClassifier.quickClassify(task)
+            // quickClassify 실패 시 nil 유지 → executeIntentPhase에서 처리
         }
         await executePhaseWorkflow(roomID: roomID, task: task)
     }
@@ -733,8 +752,9 @@ class RoomManager: ObservableObject {
     /// 새 워크플로우: intent.requiredPhases 동적 순회
     /// intent 단계에서 LLM 재분류 후 남은 단계가 자동으로 재계산됨
     private func executePhaseWorkflow(roomID: UUID, task: String) async {
-        guard let idx = rooms.firstIndex(where: { $0.id == roomID }),
-              rooms[idx].intent != nil else { return }
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
+        // intent가 nil이면 .implementation 기본 phase로 시작
+        // (executeIntentPhase에서 사용자 선택을 받아 intent가 설정됨)
 
         rooms[idx].status = .planning
         syncAgentStatuses()
@@ -744,9 +764,9 @@ class RoomManager: ObservableObject {
         while true {
             guard !Task.isCancelled,
                   let currentRoom = rooms.first(where: { $0.id == roomID }),
-                  currentRoom.isActive,
-                  let currentIntent = currentRoom.intent else { break }
+                  currentRoom.isActive else { break }
 
+            let currentIntent = currentRoom.intent ?? .implementation
             // 현재 intent 기준으로 다음 미완료 phase 찾기
             let phases = currentIntent.requiredPhases
             guard let nextPhase = phases.first(where: { !completedPhases.contains($0) }) else { break }
@@ -790,16 +810,43 @@ class RoomManager: ObservableObject {
         scheduleSave()
     }
 
-    /// Intent 단계: quickClassify가 기본값(implementation)을 반환한 경우 LLM으로 재분류
+    /// Intent 단계: quickClassify 결과에 따라 LLM 재분류 또는 사용자 선택
     private func executeIntentPhase(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
-        let currentIntent = rooms[idx].intent ?? .implementation
+        let currentIntent = rooms[idx].intent
 
-        // quickClassify가 정확한 결과를 반환한 경우 (implementation이 아닌 경우) 재분류 불필요
+        // 1) quickClassify가 nil → LLM 추천 후 사용자에게 선택 카드 표시
+        if currentIntent == nil {
+            guard let firstAgentID = rooms[idx].assignedAgentIDs.first,
+                  let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
+                  let provider = providerManager?.provider(named: agent.providerName) else {
+                rooms[idx].intent = .implementation
+                return
+            }
+
+            let suggested = await IntentClassifier.classifyWithLLM(
+                task: task,
+                provider: provider,
+                model: agent.modelName
+            )
+
+            // 사용자 선택 UI 표시
+            pendingIntentSelection[roomID] = suggested
+
+            let selectedIntent = await withCheckedContinuation { (cont: CheckedContinuation<WorkflowIntent, Never>) in
+                intentContinuations[roomID] = cont
+            }
+
+            rooms[idx].intent = selectedIntent
+            scheduleSave()
+            return
+        }
+
+        // 2) quickClassify가 정확한 결과를 반환한 경우 (implementation이 아닌 경우) 재분류 불필요
         guard currentIntent == .implementation else { return }
 
-        // LLM으로 재분류 시도
+        // 3) implementation → LLM으로 재분류 시도
         guard let firstAgentID = rooms[idx].assignedAgentIDs.first,
               let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return }
@@ -1081,7 +1128,7 @@ class RoomManager: ObservableObject {
             for sub in directMatches {
                 if let room = rooms.first(where: { $0.id == roomID }),
                    !room.assignedAgentIDs.contains(sub.id) {
-                    addAgent(sub.id, to: roomID)
+                    addAgent(sub.id, to: roomID, silent: true)
                     invitedNames.append(sub.name)
                 }
             }

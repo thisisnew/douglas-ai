@@ -121,7 +121,7 @@ struct MessageBubble: View {
                         }
                     }
 
-                    Text(message.content)
+                    markdownText(message.content, isUser: message.role == .user)
                         .font(.system(size: DesignTokens.FontSize.bodyMd))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
@@ -222,5 +222,71 @@ struct MessageBubble: View {
         case .summary: return 1
         default:       return 0
         }
+    }
+
+    // MARK: - 마크다운 렌더링
+
+    /// 마크다운을 AttributedString으로 렌더링 (실패 시 plain text 폴백)
+    private func markdownText(_ raw: String, isUser: Bool) -> Text {
+        // 사용자 메시지는 정규화 불필요
+        if isUser {
+            return Text(raw)
+        }
+        let normalized = Self.normalizeMarkdown(raw)
+        if let attr = try? AttributedString(markdown: normalized, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+            return Text(attr)
+        }
+        return Text(normalized)
+    }
+
+    /// 채팅용 마크다운 정규화 (후처리)
+    static func normalizeMarkdown(_ text: String) -> String {
+        var lines = text.components(separatedBy: "\n")
+
+        lines = lines.map { line in
+            var l = line
+            // ### 헤더 → **볼드** (채팅에서 헤더 레벨은 과함)
+            if let range = l.range(of: #"^#{1,4}\s+"#, options: .regularExpression) {
+                let content = String(l[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+                l = "**\(content)**"
+            }
+            return l
+        }
+
+        var result: [String] = []
+        var prevEmpty = false
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            // --- 구분선 제거
+            if trimmed.range(of: #"^-{3,}$"#, options: .regularExpression) != nil {
+                continue
+            }
+            // === 구분선 제거
+            if trimmed.range(of: #"^={3,}$"#, options: .regularExpression) != nil {
+                continue
+            }
+
+            // 연속 빈 줄 1개로 축소
+            if trimmed.isEmpty {
+                if !prevEmpty { result.append("") }
+                prevEmpty = true
+                continue
+            }
+            prevEmpty = false
+
+            // **[이름]** 패턴 제거 (단독 줄)
+            if trimmed.range(of: #"^\*\*\[.+\]\*\*$"#, options: .regularExpression) != nil {
+                continue
+            }
+
+            result.append(line)
+        }
+
+        // 앞뒤 빈 줄 제거
+        while result.first?.trimmingCharacters(in: .whitespaces).isEmpty == true { result.removeFirst() }
+        while result.last?.trimmingCharacters(in: .whitespaces).isEmpty == true { result.removeLast() }
+
+        return result.joined(separator: "\n")
     }
 }

@@ -407,11 +407,16 @@ struct RoomListItem: View {
 
             Spacer(minLength: 4)
 
-            // 우측: 시간 + 상태 뱃지 + 확인 필요 플래그
+            // 우측: 시간 + ID + 상태 뱃지 + 확인 필요 플래그
             VStack(alignment: .trailing, spacing: 4) {
-                Text(timeText)
-                    .font(.system(size: 9))
-                    .foregroundColor(.secondary)
+                HStack(spacing: 4) {
+                    Text(room.shortID)
+                        .font(.system(size: 8, design: .monospaced))
+                        .foregroundColor(.secondary.opacity(0.4))
+                    Text(timeText)
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                }
 
                 HStack(spacing: 4) {
                     statusBadge

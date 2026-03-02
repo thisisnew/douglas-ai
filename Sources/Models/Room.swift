@@ -290,6 +290,11 @@ struct Room: Identifiable, Codable {
         return max(0, duration - elapsed)
     }
 
+    /// 짧은 ID (UUID 앞 6자리, 대화에서 참조용)
+    var shortID: String {
+        String(id.uuidString.prefix(6)).lowercased()
+    }
+
     /// 첫 번째 프로젝트 경로 (빌드/테스트/shell 기본 workDir)
     var primaryProjectPath: String? { projectPaths.first }
 
