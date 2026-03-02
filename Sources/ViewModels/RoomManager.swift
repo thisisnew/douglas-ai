@@ -194,8 +194,18 @@ class RoomManager: ObservableObject {
         rooms[idx].completedAt = nil
 
         // Intent 재분류 (새 질문 기준)
-        let newIntent = IntentClassifier.quickClassify(task) ?? .implementation
-        rooms[idx].intent = newIntent
+        // quickClassify 실패 시 LLM 분류 시도, 최종 폴백은 .quickAnswer (후속 질문은 보통 가벼움)
+        var newIntent = IntentClassifier.quickClassify(task)
+        if newIntent == nil {
+            if let firstAgentID = rooms[idx].assignedAgentIDs.first,
+               let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
+               let provider = providerManager?.provider(named: agent.providerName) {
+                newIntent = await IntentClassifier.classifyWithLLM(
+                    task: task, provider: provider, model: agent.modelName
+                )
+            }
+        }
+        rooms[idx].intent = newIntent ?? .quickAnswer
 
         syncAgentStatuses()
 
@@ -553,6 +563,7 @@ class RoomManager: ObservableObject {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                     rooms[i].transitionTo(.awaitingApproval)
                 }
+                syncAgentStatuses()
                 scheduleSave()
 
                 let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
@@ -1003,6 +1014,7 @@ class RoomManager: ObservableObject {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].transitionTo(.awaitingApproval)
             }
+            syncAgentStatuses()
             scheduleSave()
 
             let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
@@ -1343,6 +1355,7 @@ class RoomManager: ObservableObject {
                       rooms[idx].isActive else { return }
 
                 rooms[idx].transitionTo(.awaitingApproval)
+                syncAgentStatuses()
 
                 let plan = currentPlan!
                 let stepsDesc = plan.steps.enumerated().map { "\($0.offset + 1). \($0.element.text)" }.joined(separator: "\n")
@@ -1854,6 +1867,7 @@ class RoomManager: ObservableObject {
                     rooms[i].transitionTo(.awaitingApproval)
                     rooms[i].pendingApprovalStepIndex = stepIndex
                 }
+                syncAgentStatuses()
                 let approvalMsg = ChatMessage(
                     role: .system,
                     content: "[\(stepIndex + 1)/\(plan.steps.count)] \"\(step.text)\" — 이 단계는 승인이 필요합니다.",
@@ -3127,7 +3141,7 @@ class RoomManager: ObservableObject {
             switch activeCount {
             case 0: newStatus = .idle
             case 1...2: newStatus = .working
-            default: newStatus = .busy   // 3개+ 방 참여 시 바쁨
+            default: newStatus = .busy   // 3개+ 활성 방 참여 시 바쁨
             }
 
             if agent.status != .error {
@@ -3139,6 +3153,11 @@ class RoomManager: ObservableObject {
     /// 에이전트가 참여 중인 활성 방 수
     func activeRoomCount(for agentID: UUID) -> Int {
         rooms.filter { $0.isActive && $0.assignedAgentIDs.contains(agentID) }.count
+    }
+
+    /// 에이전트가 속한 전체 방 수 (완료 포함)
+    func totalRoomCount(for agentID: UUID) -> Int {
+        rooms.filter { $0.assignedAgentIDs.contains(agentID) }.count
     }
 
     // MARK: - 타이머
@@ -3239,5 +3258,6 @@ class RoomManager: ObservableObject {
             loaded.append(room)
         }
         rooms = loaded.sorted { $0.createdAt > $1.createdAt }
+        syncAgentStatuses()
     }
 }

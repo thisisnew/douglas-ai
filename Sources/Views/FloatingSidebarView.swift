@@ -483,7 +483,7 @@ struct FloatingSidebarView: View {
 
     /// 개별 에이전트 로스터 아이템: 아바타 + 상태 표시등 + 이름 + 방 수 뱃지
     private func rosterItem(_ agent: Agent) -> some View {
-        let roomCount = roomManager.activeRoomCount(for: agent.id)
+        let activeCount = roomManager.activeRoomCount(for: agent.id)
         let isBusy = agent.status == .busy
 
         return VStack(spacing: DesignTokens.Spacing.sm) {
@@ -506,10 +506,10 @@ struct FloatingSidebarView: View {
                         )
                         .offset(x: 2, y: 2)
                 }
-                // 방 수 뱃지 (우상단, 1개 이상)
+                // 방 수 뱃지 (우상단 — 활성 방 수)
                 .overlay(alignment: .topTrailing) {
-                    if roomCount >= 1 {
-                        Text("\(roomCount)")
+                    if activeCount >= 1 {
+                        Text("\(activeCount)")
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(.white)
                             .frame(width: 16, height: 16)
@@ -527,7 +527,7 @@ struct FloatingSidebarView: View {
                         )
                     }
                 }
-                // 바쁨 그림자 (pulse 효과)
+                // 바쁨 그림자
                 .shadow(color: isBusy ? Color.red.opacity(0.4) : .clear, radius: 4)
 
             VStack(spacing: 1) {
@@ -539,7 +539,7 @@ struct FloatingSidebarView: View {
                     .onTapGesture { openInfoWindow(for: agent) }
 
                 if isBusy {
-                    Text("바쁨 \(roomCount)건")
+                    Text("바쁨 \(activeCount)건 진행")
                         .font(.system(size: 8, weight: .bold))
                         .foregroundColor(.white)
                         .padding(.horizontal, 5)

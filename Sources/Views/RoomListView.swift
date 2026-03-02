@@ -191,7 +191,8 @@ struct RoomListView: View {
                 if isAllSelected {
                     selectedIDs.removeAll()
                 } else {
-                    selectedIDs = Set(filteredRooms.map(\.id))
+                    // 작업 중인 방은 전체 선택에서 제외
+                    selectedIDs = Set(filteredRooms.filter { !$0.isActive }.map(\.id))
                 }
             } label: {
                 HStack(spacing: 6) {
@@ -331,6 +332,8 @@ struct RoomListView: View {
     // MARK: - Helpers
 
     private func toggleSelection(_ id: UUID) {
+        // 작업 중인 방은 선택 불가
+        if let room = roomManager.rooms.first(where: { $0.id == id }), room.isActive { return }
         if selectedIDs.contains(id) {
             selectedIDs.remove(id)
         } else {
@@ -359,9 +362,15 @@ struct RoomRow: View {
         Button(action: onTap) {
             HStack(spacing: 8) {
                 if isEditMode {
-                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 16))
-                        .foregroundColor(isSelected ? .accentColor : .secondary.opacity(0.4))
+                    if room.isActive {
+                        Image(systemName: "lock.circle")
+                            .font(.system(size: 16))
+                            .foregroundColor(.secondary.opacity(0.25))
+                    } else {
+                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 16))
+                            .foregroundColor(isSelected ? .accentColor : .secondary.opacity(0.4))
+                    }
                 }
                 RoomListItem(room: room)
             }
