@@ -559,13 +559,6 @@ class RoomManager: ObservableObject {
             }
 
             completedPhases.insert(nextPhase)
-
-            // assemble 완료 직후 → DOUGLAS 위임 브리핑
-            if nextPhase == .assemble {
-                await executeDelegationBriefing(roomID: roomID, task: task)
-                guard !Task.isCancelled,
-                      rooms.first(where: { $0.id == roomID })?.isActive == true else { break }
-            }
         }
 
         // 워크플로우 완료
@@ -1068,62 +1061,6 @@ class RoomManager: ObservableObject {
         scheduleSave()
     }
 
-    /// Delegation Briefing: assemble 후 DOUGLAS가 에이전트에게 작업을 전달하는 메시지
-    private func executeDelegationBriefing(roomID: UUID, task: String) async {
-        guard let room = rooms.first(where: { $0.id == roomID }),
-              let masterAgent = agentStore?.masterAgent,
-              let provider = providerManager?.provider(named: masterAgent.providerName) else { return }
-
-        let intent = room.intent ?? .implementation
-
-        // 배정된 전문가 이름 수집
-        let specialistNames = executingAgentIDs(in: roomID).compactMap { agentID in
-            agentStore?.agents.first(where: { $0.id == agentID })?.name
-        }
-        guard !specialistNames.isEmpty else { return }
-
-        let teamList = specialistNames.joined(separator: ", ")
-
-        // clarify 피드백 포함 (사용자가 요건 확인 시 추가한 내용)
-        let userFeedback = room.messages
-            .filter { $0.role == .user }
-            .suffix(3)
-            .map { $0.content }
-            .joined(separator: "\n")
-
-        let delegationPrompt = """
-        \(masterAgent.resolvedSystemPrompt)
-
-        팀 구성이 완료되었습니다. 배정된 전문가에게 작업을 전달하는 짧은 위임 메시지를 생성하세요.
-
-        규칙:
-        - 2~3문장으로 간결하게
-        - 팀 구성원 이름을 언급하고, 작업 방향을 제시
-        - 작업 유형(\(intent.displayName))에 맞는 톤
-        - 도구 호출이나 산출물 블록 없이 순수 텍스트만
-        """
-
-        let userMessage = "팀: \(teamList)\n사용자 요청: \(userFeedback)"
-
-        do {
-            let response = try await provider.sendMessage(
-                model: masterAgent.modelName,
-                systemPrompt: delegationPrompt,
-                messages: [("user", userMessage)]
-            )
-            let msg = ChatMessage(role: .assistant, content: response, agentName: masterAgent.name)
-            appendMessage(msg, to: roomID)
-        } catch {
-            // LLM 실패 시 템플릿 폴백
-            let fallback = ChatMessage(
-                role: .assistant,
-                content: "\(teamList)에게 작업을 전달합니다.",
-                agentName: masterAgent.name
-            )
-            appendMessage(fallback, to: roomID)
-        }
-        scheduleSave()
-    }
 
     /// Plan 단계: Intent의 planMode에 따라 분기
     private func executePlanPhase(roomID: UUID, task: String, intent: WorkflowIntent) async {
