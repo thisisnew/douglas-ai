@@ -711,6 +711,9 @@ struct ApprovalCard: View {
     let roomID: UUID
     @EnvironmentObject var roomManager: RoomManager
     @State private var hoveredButton: String?
+    @State private var showFeedbackInput = false
+    @State private var feedbackText = ""
+    @FocusState private var isFeedbackFocused: Bool
 
     /// 방의 최근 .approvalRequest 메시지에서 승인 제목과 내용을 추출
     private var approvalInfo: (title: String, detail: String?) {
@@ -763,57 +766,123 @@ struct ApprovalCard: View {
                         .continuousRadius(8)
                 }
 
-                // 버튼
-                HStack(spacing: 10) {
-                    Spacer()
-                    Button {
-                        roomManager.rejectStep(roomID: roomID)
-                    } label: {
-                        Text("수정 요청")
+                // 피드백 입력 영역 (수정 요청 클릭 시 표시)
+                if showFeedbackInput {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("어떤 부분을 수정해야 하나요?")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.secondary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 6)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(hoveredButton == "reject" ? Color.primary.opacity(0.08) : Color.primary.opacity(0.04))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5)
-                            )
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .onHover { hovering in
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            hoveredButton = hovering ? "reject" : (hoveredButton == "reject" ? nil : hoveredButton)
+
+                        TextField("수정 사항을 입력하세요...", text: $feedbackText, axis: .vertical)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 11))
+                            .lineLimit(1...4)
+                            .padding(8)
+                            .background(Color.primary.opacity(0.04))
+                            .continuousRadius(8)
+                            .focused($isFeedbackFocused)
+                            .onSubmit {
+                                submitFeedback()
+                            }
+
+                        HStack(spacing: 8) {
+                            Spacer()
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    showFeedbackInput = false
+                                    feedbackText = ""
+                                }
+                            } label: {
+                                Text("취소")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 4)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+
+                            Button {
+                                submitFeedback()
+                            } label: {
+                                Text("전송")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 4)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                            .fill(feedbackText.trimmingCharacters(in: .whitespaces).isEmpty
+                                                  ? Color.accentColor.opacity(0.4)
+                                                  : Color.accentColor)
+                                    )
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(feedbackText.trimmingCharacters(in: .whitespaces).isEmpty)
                         }
                     }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
 
-                    Button {
-                        roomManager.approveStep(roomID: roomID)
-                    } label: {
-                        Text("승인")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 6)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(
-                                        hoveredButton == "approve"
-                                            ? Color.accentColor.opacity(0.9)
-                                            : Color.accentColor
-                                    )
-                            )
-                            .shadow(color: .accentColor.opacity(0.2), radius: 4, y: 2)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .onHover { hovering in
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            hoveredButton = hovering ? "approve" : (hoveredButton == "approve" ? nil : hoveredButton)
+                // 버튼 (피드백 입력 중이 아닐 때만 표시)
+                if !showFeedbackInput {
+                    HStack(spacing: 10) {
+                        Spacer()
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showFeedbackInput = true
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                isFeedbackFocused = true
+                            }
+                        } label: {
+                            Text("수정 요청")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 6)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .fill(hoveredButton == "reject" ? Color.primary.opacity(0.08) : Color.primary.opacity(0.04))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5)
+                                )
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { hovering in
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                hoveredButton = hovering ? "reject" : (hoveredButton == "reject" ? nil : hoveredButton)
+                            }
+                        }
+
+                        Button {
+                            roomManager.approveStep(roomID: roomID)
+                        } label: {
+                            Text("승인")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 6)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .fill(
+                                            hoveredButton == "approve"
+                                                ? Color.accentColor.opacity(0.9)
+                                                : Color.accentColor
+                                        )
+                                )
+                                .shadow(color: .accentColor.opacity(0.2), radius: 4, y: 2)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { hovering in
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                hoveredButton = hovering ? "approve" : (hoveredButton == "approve" ? nil : hoveredButton)
+                            }
                         }
                     }
                 }
@@ -821,16 +890,25 @@ struct ApprovalCard: View {
             .padding(14)
         }
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .shadow(color: .black.opacity(0.06), radius: 8, y: 2)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .shadow(color: .black.opacity(0.06), radius: 8, y: 2)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+            }
         )
         .padding(.horizontal, DesignTokens.Spacing.lg)
         .padding(.vertical, DesignTokens.Spacing.sm)
+        .animation(.easeInOut(duration: 0.2), value: showFeedbackInput)
+    }
+
+    private func submitFeedback() {
+        let text = feedbackText.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return }
+        // 피드백을 사용자 메시지로 추가 후 거부
+        roomManager.appendAdditionalInput(roomID: roomID, text: text)
+        roomManager.rejectStep(roomID: roomID)
     }
 }
 

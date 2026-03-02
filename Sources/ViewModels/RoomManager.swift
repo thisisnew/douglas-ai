@@ -111,21 +111,34 @@ class RoomManager: ObservableObject {
 
     /// 승인 대기 중인 단계를 승인
     func approveStep(roomID: UUID) {
-        guard let cont = approvalContinuations.removeValue(forKey: roomID) else { return }
         let msg = ChatMessage(role: .user, content: "승인")
         appendMessage(msg, to: roomID)
-        cont.resume(returning: true)
+
+        if let cont = approvalContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: true)
+        } else {
+            // 워크플로우 없음 (예전 방/앱 재시작) → 워크플로우 재시작
+            guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
+            let task = rooms[idx].title
+            rooms[idx].transitionTo(.planning)
+            launchWorkflow(roomID: roomID, task: task)
+        }
     }
 
     /// 승인 대기 중인 단계를 거부 (수정 요청)
     func rejectStep(roomID: UUID) {
-        guard let cont = approvalContinuations.removeValue(forKey: roomID) else { return }
         let msg = ChatMessage(role: .system, content: "수정 요청")
         appendMessage(msg, to: roomID)
-        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].transitionTo(.planning)
+
+        if let cont = approvalContinuations.removeValue(forKey: roomID) {
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.planning)
+            }
+            cont.resume(returning: false)
+        } else {
+            // 워크플로우 없음 (예전 방/앱 재시작) → 방 취소
+            cancelRoom(roomID: roomID)
         }
-        cont.resume(returning: false)
     }
 
     /// 승인 카드에서 추가 요구사항 입력 시 방 메시지에 추가
@@ -1095,6 +1108,12 @@ class RoomManager: ObservableObject {
               let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return }
 
+        // clarify 피드백을 포함한 확장 task (directMatches + LLM에 사용)
+        let userMessages = rooms[idx].messages
+            .filter { $0.role == .user }
+            .map { $0.content }
+        let enrichedTask = ([task] + userMessages).joined(separator: " ")
+
         // 1) 마스터에게 역할 요구사항 산출 요청
         var contextParts: [String] = []
         if let intakeData = rooms[idx].intakeData {
@@ -1150,26 +1169,27 @@ class RoomManager: ObservableObject {
 
         // 사전 매칭: 사용자 요청에서 기존 에이전트 이름 키워드 직접 탐색
         // "QA에게 자문" → "QA 전문가" 직접 매칭 (LLM 우회)
+        // "프론트" → "프론트엔드 개발자" 접두어 매칭도 지원
+        let taskLowered = enrichedTask.lowercased()
+        let taskWords = taskLowered
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { $0.count >= 2 }
         let directMatches = subAgents.filter { sub in
             let nameKeywords = sub.name.lowercased()
                 .components(separatedBy: CharacterSet.alphanumerics.inverted)
                 .filter { $0.count >= 2 && !AgentMatcher.isGenericSuffix($0) }
-            return nameKeywords.contains(where: { task.lowercased().contains($0) })
+            return nameKeywords.contains(where: { keyword in
+                // 정확 매칭: task에 키워드 포함 (ex: "백엔드" in task)
+                taskLowered.contains(keyword) ||
+                // 접두어 매칭: task 단어가 키워드의 접두어 (ex: "프론트" → "프론트엔드")
+                taskWords.contains(where: { word in keyword.hasPrefix(word) && word.count >= 2 })
+            })
         }
 
         if !directMatches.isEmpty {
-            // quickAnswer: 가장 관련성 높은 1명만 초대
-            let limitedMatches: [Agent]
-            if intent == .quickAnswer {
-                limitedMatches = Array(directMatches.prefix(1))
-            } else if intent == .research || intent == .brainstorm || intent == .documentation {
-                limitedMatches = Array(directMatches.prefix(2))
-            } else {
-                limitedMatches = directMatches
-            }
-
+            // directMatches: 사용자가 이름을 직접 언급한 에이전트 → 제한 없이 전부 초대
             var invitedNames: [String] = []
-            for sub in limitedMatches {
+            for sub in directMatches {
                 if let room = rooms.first(where: { $0.id == roomID }),
                    !room.assignedAgentIDs.contains(sub.id) {
                     addAgent(sub.id, to: roomID, silent: true)

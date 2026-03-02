@@ -1,78 +1,97 @@
 import Foundation
 
 /// 사용자 요청의 의도를 분류하는 2단계 분류기
-/// 1단계: 규칙 기반 즉시 판별 (키워드 매칭)
+/// 1단계: 규칙 기반 즉시 판별 (정규식 패턴 매칭)
 /// 2단계: LLM 분류 (규칙 판별 실패 시)
 enum IntentClassifier {
 
+    // MARK: - 정규식 패턴 (어간 기반, 한국어 어미 변형 자동 커버)
+
+    /// (패턴, intent) 튜플 — 순서대로 평가, 먼저 매칭된 것이 승리
+    private static let rules: [(pattern: String, intent: WorkflowIntent, maxLength: Int?, excludeAction: Bool)] = [
+        // quickAnswer: 단순 질문 / 번역 / 정보 확인
+        // 어간 "뭐/뭘/뭔" + 임의 어미, 의문 어미 "까|지|냐|나|가|야" 등
+        (
+            "뭐[야냐지임에요가는데니까란]|뭘[까]?|뭔[가데지]|"
+            + "알려[줘주달]|설명[해좀]|"
+            + "번역|translate|翻訳|"
+            + "몇[개번째]?\\s|어디[서에]?\\s|언제|누가|왜\\s|"
+            + "어떻[게던]|어떤|차이[가점]|"
+            + "[이건뭔]가[요]?|[일될건]까",
+            .quickAnswer, 100, true
+        ),
+        // brainstorm
+        (
+            "브레인스토밍|아이디어|brainstorm|"
+            + "토론[하을]|회의[하을]|의견[을이]?\\s|같이\\s?생각",
+            .brainstorm, nil, false
+        ),
+        // research (자문/상담/조언/궁금 포함)
+        (
+            "조사[해하]?|리서치|research|트렌드|"
+            + "비교[해하]|분석[해하]|찾아[봐보]|서베이|survey|"
+            + "자문|상담|조언|컨설팅|consulting|"
+            + "알고\\s?싶|궁금",
+            .research, nil, true
+        ),
+        // documentation
+        (
+            "기획서|문서\\s?작성|문서화|prd|스펙|"
+            + "제안서|보고서|정리[해하]|작성[해하]",
+            .documentation, nil, false  // excludeCoding은 별도 체크
+        ),
+        // implementation (강한 코딩 신호)
+        (
+            "구현[해하]?|개발[해하]\\s|코딩|만들어[줘봐]?|빌드[해하]?|"
+            + "수정[해하]|버그|리팩토[링]?|배포[해하]?|"
+            + "fix|implement|deploy|refactor",
+            .implementation, nil, false
+        ),
+        // testPlanning
+        ("테스트\\s?계획|test\\s?plan", .testPlanning, nil, false),
+        // requirementsAnalysis
+        ("요건\\s?분석|요구\\s?사항|requirements", .requirementsAnalysis, nil, false),
+        // taskDecomposition
+        ("작업\\s?분[해해]|task\\s?breakdown|쪼개", .taskDecomposition, nil, false),
+    ]
+
+    /// 컴파일된 정규식 캐시 (앱 생명주기 동안 1회만 생성)
+    private static let compiledRules: [(regex: NSRegularExpression, intent: WorkflowIntent, maxLength: Int?, excludeAction: Bool)] = {
+        rules.compactMap { rule in
+            guard let regex = try? NSRegularExpression(pattern: rule.pattern, options: [.caseInsensitive]) else {
+                return nil
+            }
+            return (regex, rule.intent, rule.maxLength, rule.excludeAction)
+        }
+    }()
+
     // MARK: - 규칙 기반 즉시 분류
 
-    /// 키워드 매칭으로 즉시 분류. 판별 불가 시 nil 반환
+    /// 정규식 패턴 매칭으로 즉시 분류. 판별 불가 시 nil 반환
     static func quickClassify(_ task: String) -> WorkflowIntent? {
-        let lowered = task.lowercased()
+        let text = task.lowercased()
 
         // Jira/외부 URL만 넣은 경우: 의도를 알 수 없으므로 사용자에게 선택하게 함
-        if containsTicketURL(lowered) && !hasExplicitUserIntent(lowered) {
+        if containsTicketURL(text) && !hasExplicitUserIntent(text) {
             return nil
         }
 
-        // quickAnswer: 단순 질문/번역
-        let quickKeywords = ["뭐야", "뭐에요", "뭔가요", "알려줘", "알려주세요",
-                             "번역", "translate", "翻訳",
-                             "몇 ", "어디", "언제", "누가", "왜 ",
-                             "어떻게", "어떤", "차이가", "차이점"]
-        if quickKeywords.contains(where: { lowered.contains($0) })
-            && task.count < 100
-            && !containsActionKeywords(lowered) {
-            return .quickAnswer
-        }
+        let range = NSRange(text.startIndex..., in: text)
 
-        // brainstorm
-        let brainstormKeywords = ["브레인스토밍", "아이디어", "brainstorm",
-                                  "토론하자", "회의하자", "의견", "같이 생각"]
-        if brainstormKeywords.contains(where: { lowered.contains($0) }) {
-            return .brainstorm
-        }
+        for rule in compiledRules {
+            // 글자 수 제한 체크
+            if let maxLen = rule.maxLength, task.count >= maxLen { continue }
 
-        // research (자문/상담/조언도 리서치 계열)
-        let researchKeywords = ["조사", "리서치", "research", "트렌드",
-                                "비교해", "분석해", "찾아봐", "서베이", "survey",
-                                "자문", "상담", "조언", "컨설팅", "consulting",
-                                "알고싶", "알고 싶", "궁금"]
-        if researchKeywords.contains(where: { lowered.contains($0) })
-            && !containsActionKeywords(lowered) {
-            return .research
-        }
+            // 정규식 매칭
+            guard rule.regex.firstMatch(in: text, range: range) != nil else { continue }
 
-        // documentation
-        let docKeywords = ["기획서", "문서 작성", "문서화", "PRD", "스펙",
-                           "제안서", "보고서", "정리해", "작성해"]
-        if docKeywords.contains(where: { lowered.contains($0) })
-            && !containsCodingKeywords(lowered) {
-            return .documentation
-        }
+            // action 키워드 제외 조건
+            if rule.excludeAction && matchesPattern(text, pattern: actionPattern) { continue }
 
-        // implementation (강한 코딩 신호)
-        let implKeywords = ["구현", "개발해", "코딩", "만들어", "빌드",
-                            "수정해", "버그", "리팩토", "배포", "fix",
-                            "implement", "deploy", "refactor"]
-        if implKeywords.contains(where: { lowered.contains($0) }) {
-            return .implementation
-        }
+            // documentation은 코딩 키워드와 겹치면 스킵
+            if rule.intent == .documentation && matchesPattern(text, pattern: codingPattern) { continue }
 
-        // 테스트 계획
-        if lowered.contains("테스트 계획") || lowered.contains("test plan") {
-            return .testPlanning
-        }
-
-        // 요건 분석
-        if lowered.contains("요건 분석") || lowered.contains("requirements") {
-            return .requirementsAnalysis
-        }
-
-        // 작업 분해
-        if lowered.contains("작업 분해") || lowered.contains("task breakdown") || lowered.contains("쪼개") {
-            return .taskDecomposition
+            return rule.intent
         }
 
         return nil
@@ -134,14 +153,18 @@ enum IntentClassifier {
         }
     }
 
-    private static func containsActionKeywords(_ text: String) -> Bool {
-        let actionWords = ["구현", "개발해", "개발하자", "개발 해", "만들어", "코딩", "수정", "빌드", "배포"]
-        return actionWords.contains(where: { text.contains($0) })
-    }
+    // MARK: - 제외 조건 패턴 (컴파일 캐시)
 
-    private static func containsCodingKeywords(_ text: String) -> Bool {
-        let codingWords = ["코드", "코딩", "구현", "개발", "빌드", ".swift", ".ts", ".py"]
-        return codingWords.contains(where: { text.contains($0) })
+    private static let actionPattern: NSRegularExpression? =
+        try? NSRegularExpression(pattern: "구현[해하]?|개발[해하]\\s|만들어|코딩|수정[해하]|빌드|배포", options: .caseInsensitive)
+
+    private static let codingPattern: NSRegularExpression? =
+        try? NSRegularExpression(pattern: "코[드딩]|구현|개발|빌드|\\.swift|\\.ts|\\.py", options: .caseInsensitive)
+
+    private static func matchesPattern(_ text: String, pattern: NSRegularExpression?) -> Bool {
+        guard let pattern = pattern else { return false }
+        let range = NSRange(text.startIndex..., in: text)
+        return pattern.firstMatch(in: text, range: range) != nil
     }
 
     /// Jira/이슈 트래커 URL 포함 여부
