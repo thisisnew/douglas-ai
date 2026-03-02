@@ -512,14 +512,24 @@ struct ProviderConfig: Identifiable, Codable {
 
 방의 워크플로우 상태. 허용된 전이만 가능 (`canTransition(to:)` 검증).
 
-| 상태 | 표시 텍스트 | 색상 | 설명 |
-|------|-----------|------|------|
-| `planning` | 계획 중 | 보라 | 토론 + 계획 수립 단계 |
-| `inProgress` | 진행중 | 주황 | 계획에 따라 작업 실행 중 |
-| `awaitingApproval` | 승인 대기 | 노랑 | Human-in-the-loop 승인 게이트 |
-| `awaitingUserInput` | 입력 대기 | 시안 | ask_user 도구로 사용자 질문 대기 |
-| `completed` | 완료 | 초록 | 모든 단계 완료 |
-| `failed` | 실패 | 빨강 | 오류 또는 승인 거부로 중단 |
+| 상태 | 색상 | 설명 |
+|------|------|------|
+| `planning` | 보라 | 실행 전 모든 준비 단계 (intake~plan). UI 라벨은 `currentPhase` 기반 동적 표시 |
+| `inProgress` | 주황 | 계획에 따라 작업 실행 중 |
+| `awaitingApproval` | 노랑 | Human-in-the-loop 승인 게이트 |
+| `awaitingUserInput` | 시안 | ask_user 도구로 사용자 질문 대기 |
+| `completed` | 초록 | 모든 단계 완료 |
+| `failed` | 빨강 | 오류 또는 승인 거부로 중단 |
+
+`planning` 상태의 동적 라벨 (`Room.phaseLabel`, `currentPhase` 기반):
+| currentPhase | 라벨 |
+|---|---|
+| intake/intent/assemble | 준비 중 |
+| clarify | 요건 확인 |
+| plan (토론 라운드 > 0) | 토론 중 (NR) |
+| plan (계획 수립) | 계획 중 |
+| execute | 실행 중 |
+| review | 검토 중 |
 
 상태 전이:
 ```
@@ -944,16 +954,16 @@ executeWithTools() 루프 (최대 10회):
 ```
 
 **Intent별 경로**:
-| Intent | PlanMode | 토론 | 승인 | 실행 |
-|--------|----------|------|------|------|
-| quickAnswer | skip | - | - | 즉답 |
-| research | exec | - | - | O |
-| brainstorm | lite | O | - | - |
-| documentation | exec | - | - | O |
-| implementation | exec | O | O | O |
-| requirementsAnalysis | lite | - | - | - |
-| testPlanning | lite | - | - | - |
-| taskDecomposition | lite | - | - | - |
+| Intent | PlanMode | clarify | 토론 | 승인 | 실행 |
+|--------|----------|---------|------|------|------|
+| quickAnswer | skip | - | - | - | 즉답 |
+| research | lite | - | O | - | O |
+| brainstorm | lite | O | O | - | - |
+| documentation | exec | O | - | - | O |
+| implementation | exec | O | O | O | O |
+| requirementsAnalysis | lite | O | - | - | - |
+| testPlanning | lite | O | - | - | - |
+| taskDecomposition | lite | O | - | - | - |
 
 **역호환**: `room.intent == nil` → `.implementation` 자동 폴백. 모든 새 Room 필드는 `decodeIfPresent` + 기본값.
 

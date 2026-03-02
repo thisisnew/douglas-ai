@@ -486,7 +486,7 @@ struct RoomListItem: View {
     private var statusBadge: some View {
         switch room.status {
         case .planning:
-            badgeView(text: room.plan == nil ? room.discussionProgressText : "계획 중",
+            badgeView(text: room.phaseLabel,
                        color: DesignTokens.RoomStatusColor.color(for: .planning))
 
         case .inProgress:

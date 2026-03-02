@@ -65,9 +65,9 @@ enum WorkflowIntent: String, Codable, CaseIterable {
         switch self {
         case .quickAnswer:
             return .skip
-        case .brainstorm, .requirementsAnalysis, .testPlanning, .taskDecomposition:
+        case .brainstorm, .research, .requirementsAnalysis, .testPlanning, .taskDecomposition:
             return .lite
-        case .research, .documentation, .implementation:
+        case .documentation, .implementation:
             return .exec
         }
     }
@@ -96,25 +96,23 @@ enum WorkflowIntent: String, Codable, CaseIterable {
     /// 공통: intake → intent → clarify → assemble
     /// 분기: planMode에 따라 plan/execute/review 조합
     var requiredPhases: [WorkflowPhase] {
-        // 공통 프리픽스: 방생성 → 요구사항 컨펌 → 전문가 초대
-        var phases: [WorkflowPhase] = [.intake, .intent, .clarify, .assemble]
-
         switch self {
         case .quickAnswer:
-            // Plan 스킵 → 바로 실행
-            phases += [.execute, .review]
+            // Clarify 스킵 → 바로 실행 (즉답은 확인 불필요)
+            return [.intake, .intent, .assemble, .execute, .review]
         case .brainstorm, .requirementsAnalysis, .testPlanning, .taskDecomposition:
             // Plan-lite → 토론/정리만, 실행 없음
-            phases += [.plan, .review]
-        case .research, .documentation:
+            return [.intake, .intent, .clarify, .assemble, .plan, .review]
+        case .research:
+            // 리서치: 토론이 산출물 → Plan-lite + 실행
+            return [.intake, .intent, .assemble, .plan, .execute, .review]
+        case .documentation:
             // Plan-exec → 계획 수립 + 실행
-            phases += [.plan, .execute, .review]
+            return [.intake, .intent, .clarify, .assemble, .plan, .execute, .review]
         case .implementation:
             // 풀 워크플로우: 토론 + 계획 + 승인 + 실행
-            phases += [.plan, .execute, .review]
+            return [.intake, .intent, .clarify, .assemble, .plan, .execute, .review]
         }
-
-        return phases
     }
 
     /// 실행 단계를 포함하는지

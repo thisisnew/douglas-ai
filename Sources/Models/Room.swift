@@ -305,18 +305,38 @@ struct Room: Identifiable, Codable {
         pendingAgentSuggestions.contains { $0.status == .pending }
     }
 
-    /// 작업 진행률 텍스트
-    var discussionProgressText: String {
-        if status != .planning { return "분석 완료" }
-        if currentRound == 0 { return "준비 중" }
-        return "분석 중 (\(currentRound)단계)"
+    /// currentPhase 기반 활동 라벨
+    var phaseLabel: String {
+        guard status == .planning else {
+            switch status {
+            case .inProgress: return "진행 중"
+            case .completed:  return "완료"
+            case .failed:     return "실패"
+            default:          return ""
+            }
+        }
+        switch currentPhase {
+        case .intake, .intent, .assemble:
+            return "준비 중"
+        case .clarify:
+            return "요건 확인"
+        case .plan:
+            if currentRound > 0 { return "토론 중 (\(currentRound)R)" }
+            return plan != nil ? "계획 중" : "분석 중"
+        case .execute:
+            return "실행 중"
+        case .review:
+            return "검토 중"
+        case nil:
+            return "준비 중"
+        }
     }
 
     /// 남은 시간 포맷 문자열
     var timerDisplayText: String {
         switch status {
         case .planning:
-            return "계획 중..."
+            return phaseLabel
         case .inProgress:
             guard let remaining = remainingSeconds else { return "진행 중" }
             if remaining <= 0 { return "시간 초과" }

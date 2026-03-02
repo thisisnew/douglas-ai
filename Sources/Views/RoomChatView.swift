@@ -327,7 +327,7 @@ struct RoomChatView: View {
             case .planning:
                 ProgressView().scaleEffect(0.4)
                     .frame(width: 12, height: 12)
-                Text(room.discussionProgressText)
+                Text(room.phaseLabel)
                     .font(.caption2)
                     .foregroundColor(DesignTokens.RoomStatusColor.color(for: .planning))
             case .inProgress:
@@ -491,7 +491,7 @@ struct DiscussionProgressBar: View {
                         .font(.caption2.bold())
                         .foregroundColor(.blue)
                     Spacer()
-                    Text(room.discussionProgressText)
+                    Text(room.phaseLabel)
                         .font(DesignTokens.Typography.monoBadge)
                         .foregroundColor(.secondary)
                 }
