@@ -70,7 +70,12 @@ enum AgentMatcher {
         }
     }
 
-    // MARK: - Private
+    // MARK: - 키워드 필터
+
+    /// 범용 접미사 여부 확인 (외부에서 사전 매칭 시 사용)
+    static func isGenericSuffix(_ keyword: String) -> Bool {
+        genericSuffixes.contains(keyword)
+    }
 
     /// 매칭에서 제외할 범용 접미사 (false positive 방지)
     private static let genericSuffixes: Set<String> = [

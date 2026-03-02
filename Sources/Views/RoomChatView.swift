@@ -383,18 +383,9 @@ struct RoomChatView: View {
 
             Text("·")
                 .foregroundColor(.secondary.opacity(0.4))
-            Text(Self.shortDateFormatter.string(from: room.createdAt))
-                .font(.system(size: 10))
-                .foregroundColor(.secondary)
+            ElapsedTimeLabel(room: room)
         }
     }
-
-    private static let shortDateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "ko_KR")
-        f.dateFormat = "M/d HH:mm"
-        return f
-    }()
 }
 
 // MARK: - 계획 카드
@@ -1051,6 +1042,42 @@ struct DiscussionTurnBubble: View {
         .padding(.vertical, 4)
         .background(Color.blue.opacity(0.03))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+// MARK: - 경과 시간 타이머
+
+/// 활성 방: 1초마다 갱신되는 경과 시간 / 완료 방: 총 소요 시간
+private struct ElapsedTimeLabel: View {
+    let room: Room
+    @State private var now = Date()
+
+    private var isActive: Bool {
+        room.status != .completed && room.status != .failed
+    }
+
+    private var elapsed: TimeInterval {
+        let end = room.completedAt ?? now
+        return max(0, end.timeIntervalSince(room.createdAt))
+    }
+
+    private var formattedTime: String {
+        let total = Int(elapsed)
+        let minutes = total / 60
+        let seconds = total % 60
+        if minutes > 0 {
+            return "\(minutes)분 \(seconds)초"
+        }
+        return "\(seconds)초"
+    }
+
+    var body: some View {
+        Text(formattedTime)
+            .font(.system(size: 10, design: .monospaced))
+            .foregroundColor(.secondary)
+            .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { time in
+                if isActive { now = time }
+            }
     }
 }
 

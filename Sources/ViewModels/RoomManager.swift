@@ -1067,6 +1067,35 @@ class RoomManager: ObservableObject {
         - 불확실하면 적게 요청하세요 (1~2명이면 충분한 경우가 많습니다)
         """
 
+        // 사전 매칭: 사용자 요청에서 기존 에이전트 이름 키워드 직접 탐색
+        // "QA에게 자문" → "QA 전문가" 직접 매칭 (LLM 우회)
+        let directMatches = subAgents.filter { sub in
+            let nameKeywords = sub.name.lowercased()
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { $0.count >= 2 && !AgentMatcher.isGenericSuffix($0) }
+            return nameKeywords.contains(where: { task.lowercased().contains($0) })
+        }
+
+        if !directMatches.isEmpty {
+            var invitedNames: [String] = []
+            for sub in directMatches {
+                if let room = rooms.first(where: { $0.id == roomID }),
+                   !room.assignedAgentIDs.contains(sub.id) {
+                    addAgent(sub.id, to: roomID)
+                    invitedNames.append(sub.name)
+                }
+            }
+            if !invitedNames.isEmpty {
+                let joinMsg = ChatMessage(
+                    role: .system,
+                    content: "\(invitedNames.joined(separator: ", "))이(가) 방에 참여했습니다."
+                )
+                appendMessage(joinMsg, to: roomID)
+            }
+            scheduleSave()
+            return
+        }
+
         let messages: [(role: String, content: String)] = [
             ("user", "\(contextParts.joined(separator: "\n\n"))\n\n위 작업에 필요한 역할을 분석하세요. 작업: \(task)")
         ]
