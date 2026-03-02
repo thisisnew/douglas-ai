@@ -129,7 +129,7 @@ enum IntentClassifier {
     }
 
     private static func containsActionKeywords(_ text: String) -> Bool {
-        let actionWords = ["구현", "개발", "만들어", "코딩", "수정", "빌드", "배포"]
+        let actionWords = ["구현", "개발해", "개발하자", "개발 해", "만들어", "코딩", "수정", "빌드", "배포"]
         return actionWords.contains(where: { text.contains($0) })
     }
 

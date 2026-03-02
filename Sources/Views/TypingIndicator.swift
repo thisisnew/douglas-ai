@@ -16,9 +16,28 @@ struct TypingIndicator: View {
         return nil
     }
 
+    /// 초기 단계(intake~assemble)에서는 마스터 우선, 실행 단계부터는 서브 에이전트 우선
+    private var isMasterPhase: Bool {
+        guard let phase = room.currentPhase else { return true }
+        switch phase {
+        case .intake, .intent, .clarify, .assemble:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// 작업 중인 에이전트 (발언자가 아닌 경우)
     private var workingAgent: Agent? {
-        // 마스터가 아닌 working 에이전트 우선
+        if isMasterPhase {
+            // 초기 단계: 마스터를 바로 반환 (status 체크 불필요 — syncAgentStatuses가 마스터를 건너뜀)
+            if let master = room.assignedAgentIDs.lazy.compactMap({ id in
+                agentStore.agents.first(where: { $0.id == id && $0.isMaster })
+            }).first {
+                return master
+            }
+        }
+        // 실행 단계 또는 마스터 없음: 서브 에이전트 우선
         for id in room.assignedAgentIDs {
             if let agent = agentStore.agents.first(where: { $0.id == id }),
                !agent.isMaster,
@@ -26,7 +45,6 @@ struct TypingIndicator: View {
                 return agent
             }
         }
-        // 마스터 포함
         for id in room.assignedAgentIDs {
             if let agent = agentStore.agents.first(where: { $0.id == id }),
                agent.status == .working || agent.status == .busy {
