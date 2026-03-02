@@ -840,7 +840,13 @@ executeWithTools() 루프 (최대 10회):
 
 **승인 게이트** (`executeRoomWork`): `step.requiresApproval == true`이면 `.awaitingApproval` 상태 전환 + `CheckedContinuation`으로 비동기 일시 정지. `approveStep(roomID:)` / `rejectStep(roomID:)` 호출 시 continuation resume. 거부 시 재분석 루프 (최대 3회).
 
-**승인 카드 UI** (`ApprovalCard`): 분석 결과 확인 + 추가 요구사항 입력 TextEditor + "승인"/"취소" 버튼. 추가 입력이 있으면 "추가 후 승인" 표시. `appendAdditionalInput()`으로 방 메시지에 추가 후 승인.
+**Plan 승인 루프** (`executePlanExec`): implementation Plan 승인 시 거부 → 피드백 추출 → `requestPlan(previousPlan:feedback:)`로 재계획 → 다시 승인 카드 표시 (최대 3회). 이전 계획과 사용자 피드백이 재계획 프롬프트에 주입됨.
+
+**승인 카드 UI** (`ApprovalCard`): 분석 결과 확인 + 추가 요구사항 입력 TextEditor + "승인"/"수정 요청" 버튼. 추가 입력이 있으면 "추가 후 승인" 표시. "수정 요청" 클릭 시 피드백이 방 메시지에 기록된 후 `rejectStep()`으로 재계획 트리거.
+
+**전문가 Solo 분석** (`executeSoloAnalysis`): 전문가 1명만 배정된 방에서 토론 대신 혼자 분석하여 결과 공유. `executePlanLite`/`executePlanExec`에서 `specialistCount == 1`일 때 자동 호출.
+
+**후속 사이클** (`launchFollowUpCycle`): 완료/실패 방에서 사용자 후속 질문 시 방 재활성화 → Intent 재분류 → assemble부터 경량 워크플로우 재실행. intake/intent/clarify 스킵. assemble이 증분 방식이므로 기존 팀원 유지 + 필요 시 추가. `roomTasks`에 등록되어 취소 가능.
 
 **대상 경로 감지**: 코딩 관련 키워드가 포함된 요청에 파일 경로가 없으면 → `.awaitingUserInput`으로 전환 → 사용자에게 대상 파일/경로 질문 → 답변을 분석 결과에 추가.
 
@@ -950,6 +956,13 @@ executeWithTools() 루프 (최대 10회):
 | taskDecomposition | lite | - | - | - |
 
 **역호환**: `room.intent == nil` → `.implementation` 자동 폴백. 모든 새 Room 필드는 `decodeIfPresent` + 기본값.
+
+**Plan 승인 피드백 루프** (E-8~E-11):
+- `requestPlan(previousPlan:feedback:)`: 거부된 이전 계획과 사용자 피드백을 재계획 프롬프트에 주입.
+- `executePlanExec` 승인 while 루프: 거부 → 피드백 추출 → 재계획 → 다시 승인 카드 (최대 3회).
+- `executeSoloAnalysis`: 전문가 1명 Solo 분석 (토론 대신). plan-lite/plan-exec에서 `specialistCount == 1`일 때 자동 호출.
+- `launchFollowUpCycle`: 완료/실패 방 후속 질문 → 방 재활성화 → assemble부터 경량 워크플로우.
+- `Room.canTransition`: `.completed → .planning`, `.failed → .planning` 전이 추가.
 
 ---
 

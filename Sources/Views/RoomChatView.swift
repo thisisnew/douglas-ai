@@ -764,14 +764,17 @@ struct ApprovalCard: View {
 
                 HStack(spacing: 8) {
                     Spacer()
-                    Button("취소") {
-                        roomManager.cancelRoom(roomID: roomID)
+                    Button("수정 요청") {
+                        if !additionalInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            roomManager.appendAdditionalInput(roomID: roomID, text: additionalInput.trimmingCharacters(in: .whitespacesAndNewlines))
+                        }
+                        roomManager.rejectStep(roomID: roomID)
                     }
                     .font(.caption2)
-                    .foregroundColor(.red.opacity(0.8))
+                    .foregroundColor(.orange.opacity(0.9))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
-                    .background(Color.red.opacity(0.08))
+                    .background(Color.orange.opacity(0.08))
                     .continuousRadius(DesignTokens.Radius.md)
 
                     Button(additionalInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "승인" : "추가 후 승인") {
