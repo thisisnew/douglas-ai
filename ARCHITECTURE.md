@@ -197,6 +197,12 @@ DOUGLAS/
 **메시지 영속화**:
 - `~/Library/Application Support/DOUGLAS/chats/` 디렉토리에 에이전트별 JSON 저장
 - `saveMessages()` / `loadMessages()`로 앱 재시작 시 복원
+- `pruneOrphanedChats()`: 존재하지 않는 에이전트의 채팅 기록 자동 정리
+
+**데이터 정리 정책** (AppDelegate 시작 시 실행):
+- 에이전트 삭제 시: 아바타 이미지 + 채팅 기록 + 첨부 파일 일괄 삭제 (`onAgentRemoved` 콜백)
+- 완료된 방 프루닝: 최근 30개만 유지, 초과분은 첨부 파일과 함께 삭제 (`pruneCompletedRooms`)
+- 고아 파일 정리: 디코드 실패 JSON, 미참조 첨부 이미지 자동 삭제 (`cleanupOrphanedData`)
 
 **알림 시스템**:
 - `UNUserNotificationCenter`로 macOS 알림 발송

@@ -98,8 +98,8 @@ enum WorkflowIntent: String, Codable, CaseIterable {
     var requiredPhases: [WorkflowPhase] {
         switch self {
         case .quickAnswer:
-            // 즉답도 복명복창 필수 → clarify 후 바로 실행
-            return [.intake, .intent, .clarify, .assemble, .execute, .review]
+            // 즉답은 복명복창 스킵 → 바로 전문가 배정 후 실행
+            return [.intake, .intent, .assemble, .execute, .review]
         case .brainstorm, .requirementsAnalysis, .testPlanning, .taskDecomposition:
             // Plan-lite → 토론/정리만, 실행 없음
             return [.intake, .intent, .clarify, .assemble, .plan, .review]

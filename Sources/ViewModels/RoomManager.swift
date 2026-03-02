@@ -152,20 +152,27 @@ class RoomManager: ObservableObject {
     /// 사용자가 Intent를 선택
     func selectIntent(roomID: UUID, intent: WorkflowIntent) {
         pendingIntentSelection.removeValue(forKey: roomID)
-        guard let cont = intentContinuations.removeValue(forKey: roomID) else { return }
         let msg = ChatMessage(role: .user, content: "\(intent.displayName) 선택")
         appendMessage(msg, to: roomID)
-        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].transitionTo(.planning)
+
+        if let cont = intentContinuations.removeValue(forKey: roomID) {
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.planning)
+            }
+            cont.resume(returning: intent)
+        } else {
+            // 워크플로우 없음 (앱 재시작 등) → intent 설정 후 워크플로우 재시작
+            guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
+            rooms[idx].intent = intent
+            rooms[idx].transitionTo(.planning)
+            launchWorkflow(roomID: roomID, task: rooms[idx].title)
         }
-        cont.resume(returning: intent)
     }
 
     // MARK: - 사용자 입력 게이트
 
     /// ask_user 도구에 대한 사용자 답변 제출
     func answerUserQuestion(roomID: UUID, answer: String) {
-        guard let cont = userInputContinuations.removeValue(forKey: roomID) else { return }
         let msg = ChatMessage(role: .user, content: answer)
         appendMessage(msg, to: roomID)
         // userAnswers에 저장 (질문은 메시지에서 역추적)
@@ -174,7 +181,16 @@ class RoomManager: ObservableObject {
             if rooms[idx].userAnswers == nil { rooms[idx].userAnswers = [] }
             rooms[idx].userAnswers?.append(userAnswer)
         }
-        cont.resume(returning: answer)
+
+        if let cont = userInputContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: answer)
+        } else {
+            // 워크플로우 없음 (앱 재시작 등) → 워크플로우 재시작
+            guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
+            let task = rooms[idx].title
+            rooms[idx].transitionTo(.planning)
+            launchWorkflow(roomID: roomID, task: task)
+        }
     }
 
     /// 사용자가 방에 메시지 보내기
@@ -3104,6 +3120,10 @@ class RoomManager: ObservableObject {
         if let cont = suggestionContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: false)
         }
+        if let cont = intentContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: .implementation)
+        }
+        pendingIntentSelection.removeValue(forKey: roomID)
         guard rooms[idx].transitionTo(.completed) else { return }
         rooms[idx].completedAt = Date()
 
@@ -3130,6 +3150,10 @@ class RoomManager: ObservableObject {
         if let cont = suggestionContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: false)
         }
+        if let cont = intentContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: .implementation)
+        }
+        pendingIntentSelection.removeValue(forKey: roomID)
         rooms[idx].transitionTo(.failed)
         rooms[idx].completedAt = Date()
         let msg = ChatMessage(role: .system, content: "사용자가 작업을 취소했습니다.", messageType: .error)
@@ -3165,6 +3189,10 @@ class RoomManager: ObservableObject {
         if let cont = suggestionContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: false)
         }
+        if let cont = intentContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: .implementation)
+        }
+        pendingIntentSelection.removeValue(forKey: roomID)
 
         // 첨부 이미지 파일 삭제
         if let room = rooms.first(where: { $0.id == roomID }) {
@@ -3309,12 +3337,43 @@ class RoomManager: ObservableObject {
         let dir = Self.roomDirectory
         guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }
         var loaded: [Room] = []
+        var failedFiles: [URL] = []
         for file in files where file.pathExtension == "json" {
-            guard let data = try? Data(contentsOf: file),
-                  let room = try? JSONDecoder().decode(Room.self, from: data) else { continue }
-            loaded.append(room)
+            if let data = try? Data(contentsOf: file),
+               let room = try? JSONDecoder().decode(Room.self, from: data) {
+                loaded.append(room)
+            } else {
+                failedFiles.append(file)
+            }
+        }
+        // 디코드 실패한 고아 JSON 파일 삭제
+        for file in failedFiles {
+            try? FileManager.default.removeItem(at: file)
         }
         rooms = loaded.sorted { $0.createdAt > $1.createdAt }
+        // 완료된 방 프루닝 — 최근 30개만 유지
+        pruneCompletedRooms(maxKeep: 30)
         syncAgentStatuses()
+    }
+
+    /// 완료된 방이 maxKeep 개를 초과하면 오래된 순서대로 삭제
+    private func pruneCompletedRooms(maxKeep: Int) {
+        let completed = rooms
+            .filter { !$0.isActive }
+            .sorted { ($0.completedAt ?? $0.createdAt) > ($1.completedAt ?? $1.createdAt) }
+        guard completed.count > maxKeep else { return }
+        let toRemove = completed.suffix(from: maxKeep)
+        let dir = Self.roomDirectory
+        for room in toRemove {
+            // 첨부 이미지 파일 삭제
+            for msg in room.messages {
+                msg.attachments?.forEach { $0.delete() }
+            }
+            // JSON 파일 삭제
+            let file = dir.appendingPathComponent("\(room.id.uuidString).json")
+            try? FileManager.default.removeItem(at: file)
+        }
+        let removeIDs = Set(toRemove.map { $0.id })
+        rooms.removeAll { removeIDs.contains($0.id) }
     }
 }

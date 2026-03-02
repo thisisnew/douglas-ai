@@ -266,10 +266,22 @@ class ChatViewModel: ObservableObject {
         guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }
         for file in files where file.pathExtension == "json" {
             let uuidString = file.deletingPathExtension().lastPathComponent
-            guard let uuid = UUID(uuidString: uuidString),
-                  let data = try? Data(contentsOf: file),
-                  let msgs = try? JSONDecoder().decode([ChatMessage].self, from: data) else { continue }
-            messagesByAgent[uuid] = msgs
+            if let uuid = UUID(uuidString: uuidString),
+               let data = try? Data(contentsOf: file),
+               let msgs = try? JSONDecoder().decode([ChatMessage].self, from: data) {
+                messagesByAgent[uuid] = msgs
+            } else {
+                // 디코드 실패한 고아 파일 삭제
+                try? FileManager.default.removeItem(at: file)
+            }
+        }
+    }
+
+    /// 존재하지 않는 에이전트의 채팅 기록 정리
+    func pruneOrphanedChats(validAgentIDs: Set<UUID>) {
+        let orphanIDs = Set(messagesByAgent.keys).subtracting(validAgentIDs)
+        for agentID in orphanIDs {
+            clearMessages(for: agentID)
         }
     }
 

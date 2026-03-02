@@ -9,6 +9,9 @@ class AgentStore: ObservableObject {
     private let saveKey = "savedAgents"
     private let defaults: UserDefaults
 
+    /// 에이전트 삭제 시 외부 정리 콜백 (채팅 기록 삭제 등)
+    var onAgentRemoved: ((UUID) -> Void)?
+
     var masterAgent: Agent? {
         agents.first { $0.isMaster }
     }
@@ -50,10 +53,15 @@ class AgentStore: ObservableObject {
 
     func removeAgent(_ agent: Agent) {
         guard !agent.isMaster else { return } // 마스터는 삭제 불가
-        agents.removeAll { $0.id == agent.id }
-        if selectedAgentID == agent.id {
+        let agentID = agent.id
+        agents.removeAll { $0.id == agentID }
+        if selectedAgentID == agentID {
             selectedAgentID = masterAgent?.id
         }
+        // 아바타 이미지 파일 삭제
+        Agent.cleanupFiles(for: agentID)
+        // 채팅 기록 + 첨부 파일 삭제 (ChatViewModel에서 처리)
+        onAgentRemoved?(agentID)
         saveAgents()
     }
 

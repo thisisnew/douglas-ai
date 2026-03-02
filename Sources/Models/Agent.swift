@@ -207,4 +207,9 @@ struct Agent: Identifiable, Codable, Hashable {
     private static func deleteImage(for id: UUID) {
         try? FileManager.default.removeItem(at: imagePath(for: id))
     }
+
+    /// 에이전트 삭제 시 디스크에 남은 이미지 파일 정리
+    static func cleanupFiles(for id: UUID) {
+        deleteImage(for: id)
+    }
 }

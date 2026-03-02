@@ -64,6 +64,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         chatVM.configure(agentStore: agentStore, providerManager: providerManager, roomManager: roomManager)
         chatVM.loadMessages()
 
+        // 에이전트 삭제 시 채팅 기록 + 첨부 파일 정리
+        agentStore.onAgentRemoved = { [weak self] agentID in
+            self?.chatVM.clearMessages(for: agentID)
+        }
+
+        // 고아 데이터 정리 (존재하지 않는 에이전트의 채팅 + 미참조 첨부 파일)
+        cleanupOrphanedData()
+
         // 기존 사용자 감지: 이미 프로바이더가 설정되어 있으면 온보딩 스킵
         if !OnboardingViewModel.isCompleted {
             let hasConfigured = providerManager.configs.contains { config in
@@ -226,6 +234,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
+    }
+
+    // MARK: - 고아 데이터 정리
+
+    /// 앱 시작 시 미참조 채팅 기록 및 첨부 이미지 파일 삭제
+    private func cleanupOrphanedData() {
+        // 1) 존재하지 않는 에이전트의 채팅 기록 삭제
+        let validAgentIDs = Set(agentStore.agents.map { $0.id })
+        chatVM.pruneOrphanedChats(validAgentIDs: validAgentIDs)
+
+        // 2) 어디에도 참조되지 않는 첨부 이미지 파일 삭제
+        var referencedFilenames: Set<String> = []
+        // 채팅 메시지의 첨부
+        for (_, messages) in chatVM.messagesByAgent {
+            for msg in messages {
+                msg.attachments?.forEach { referencedFilenames.insert($0.filename) }
+            }
+        }
+        // 방 메시지의 첨부
+        for room in roomManager.rooms {
+            for msg in room.messages {
+                msg.attachments?.forEach { referencedFilenames.insert($0.filename) }
+            }
+        }
+
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        guard let attachDir = appSupport?.appendingPathComponent("DOUGLAS/attachments") else { return }
+        guard let files = try? FileManager.default.contentsOfDirectory(at: attachDir, includingPropertiesForKeys: nil) else { return }
+        for file in files {
+            if !referencedFilenames.contains(file.lastPathComponent) {
+                try? FileManager.default.removeItem(at: file)
+            }
+        }
     }
 
     // MARK: - UserDefaults 마이그레이션
