@@ -588,6 +588,7 @@ planning → awaitingApproval (토론 후 사용자 승인)
 - 서브 에이전트를 원형 아바타 + 이름 + 상태 표시등으로 표시
 - 상태 표시등 색상: 대기(회색) / 작업중(주황) / 바쁨(빨강) / 오류(빨강)
 - 작업중/바쁨 에이전트는 테두리로 시각적 강조 (주황/빨강)
+- **바쁨 표시 강화**: 빨간 그림자 + 굵은 테두리(2.5pt) + 이름 아래 "바쁨 N건" 캡슐 뱃지 + 방 수 뱃지 빨간색
 - 에이전트 클릭 → 별도 채팅 윈도우 열기 (직접 대화)
 - 우클릭 컨텍스트 메뉴: 편집/정보/삭제
 - 20개 이상 에이전트도 가로 스크롤로 수용
@@ -646,6 +647,8 @@ MessageType에 따른 시각 차별화:
 | approvalRequest | 노랑 10% | hand.raised | - |
 
 사용자 메시지: accentColor 배경, 흰색 텍스트, 오른쪽 정렬
+
+**마크다운 렌더링**: 에이전트 응답은 `AttributedString(markdown:, options: .inlineOnlyPreservingWhitespace)`로 렌더링. `normalizeMarkdown()` 후처리: 헤더(`###`)→볼드(`**`), 구분선(`---`/`===`) 제거, `**[이름]**` 단독줄 제거, 연속 빈 줄 축소. 사용자 메시지는 plain text 유지.
 
 이미지 첨부가 있는 메시지: 텍스트 위에 이미지 썸네일 그리드 표시 (최대 180x120pt)
 
@@ -823,7 +826,7 @@ executeWithTools() 루프 (최대 10회):
 | `ChatViewModel.swift` | `handleAgentMessage` → `ToolExecutor.smartSend()` (이미지 포함 시 conversationMessages 오버로드) |
 | `RoomManager.swift` | `sendUserMessage`, `executeStep` → `ToolExecutor.smartSend()` + `ToolExecutionContext` 전달 (invite_agent/list_agents 지원) |
 
-**방 워크플로우** (`startRoomWorkflow`): 항상 Intent 기반 `executePhaseWorkflow` 실행. `room.intent == nil`이면 `.implementation` 폴백.
+**방 워크플로우** (`startRoomWorkflow`): 항상 Intent 기반 `executePhaseWorkflow` 실행. `room.intent == nil`이면 `.implementation`을 phase 계산 기본값으로 사용하되, `executeIntentPhase`에서 사용자 선택으로 교체됨.
 
 **범용 워크플로우 (Intent 기반 적응형)**:
 ```
@@ -835,7 +838,7 @@ executeWithTools() 루프 (최대 10회):
   → ⑤~⑦: Intent별 분기 (PlanMode에 따라)
 ```
 
-- **Intent 분류** (`IntentClassifier`): 규칙 기반 즉시 분류 (`quickClassify`) → 실패 시 LLM 분류 (`classifyWithLLM`). `ChatViewModel.handleMasterMessage`에서 방 생성 전 호출.
+- **Intent 분류** (`IntentClassifier`): 규칙 기반 즉시 분류 (`quickClassify`) → 실패 시 LLM 분류 (`classifyWithLLM`). `quickClassify`가 nil(판단 불가)이면 `executeIntentPhase`에서 LLM 추천 intent와 함께 **IntentSelectionCard** UI를 표시하여 사용자가 8종 intent 중 선택. `pendingIntentSelection` + `intentContinuations`으로 비동기 게이트 구현.
 - **복명복창 Clarify** (`executeClarifyPhase`): DOUGLAS가 요청을 요약 → 사용자 승인/거부 → 거부 시 피드백 반영 재요약 → 승인까지 무한 반복.
 - **PlanMode 분기** (`executePlanPhase`):
   - `.skip`: Plan 단계 건너뜀 (quickAnswer)
@@ -845,7 +848,8 @@ executeWithTools() 루프 (최대 10회):
 - **실행 시 마스터 제외** (`executingAgentIDs`): `agent.isMaster`이면 실행 대상에서 제외
 - **계획 수립**: 전문가가 생성 (마스터 제외). 계획 JSON은 사용자에게 숨김.
 - **DecisionLog**: 토론 중 `[합의: 내용]` 태그 파싱 → `Room.decisionLog`에 기록
-- **에이전트 참조 프로젝트** (`Agent.referenceProjectPaths`): 에이전트별로 참조 프로젝트 디렉토리를 여러 건 등록. 방에 초대 시 `addAgent(_:to:)`에서 방의 `projectPaths`에 자동 병합.
+- **에이전트 참조 프로젝트** (`Agent.referenceProjectPaths`): 에이전트별로 참조 프로젝트 디렉토리를 여러 건 등록. 방에 초대 시 `addAgent(_:to:silent:)`에서 방의 `projectPaths`에 자동 병합. `silent: true` 시 참여 시스템 메시지 생략 (호출부에서 커스텀 메시지 표시 시 중복 방지).
+- **방 shortID** (`Room.shortID`): UUID 앞 6자 소문자. 방 헤더(`RoomChatView`)와 방 목록(`RoomListView`)에 표시.
 - **CLI WebFetch 차단**: `ClaudeCodeProvider.sendMessage()`에서 `--disallowed-tools WebFetch` 적용
 
 **승인 게이트** (`executeRoomWork`): `step.requiresApproval == true`이면 `.awaitingApproval` 상태 전환 + `CheckedContinuation`으로 비동기 일시 정지. `approveStep(roomID:)` / `rejectStep(roomID:)` 호출 시 continuation resume. 거부 시 재분석 루프 (최대 3회).
