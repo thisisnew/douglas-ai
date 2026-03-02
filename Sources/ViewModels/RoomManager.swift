@@ -1074,9 +1074,22 @@ class RoomManager: ObservableObject {
                 requirements.append(contentsOf: AgentMatcher.parseRoleRequirements(from: artifact.content))
             }
 
-            guard !requirements.isEmpty else {
-                let noReqMsg = ChatMessage(role: .system, content: "역할 요구사항이 감지되지 않았습니다. 기존 에이전트로 진행합니다.")
-                appendMessage(noReqMsg, to: roomID)
+            if requirements.isEmpty {
+                // 기존 전문가가 있으면 그대로 진행
+                let existingSpecialists = executingAgentIDs(in: roomID)
+                if !existingSpecialists.isEmpty {
+                    return
+                }
+
+                // 전문가 없음 → 생성 제안 (후속 질문 대응을 위해 모든 intent 공통)
+                let suggestion = RoomAgentSuggestion(
+                    name: "\(intentName) 전문가",
+                    persona: "'\(intentName)' 작업을 수행하는 전문가입니다. 작업: \(task)",
+                    reason: "작업 수행에 전문가가 필요합니다.",
+                    suggestedBy: agent.name
+                )
+                addAgentSuggestion(suggestion, to: roomID)
+                await waitForSuggestionResponse(roomID: roomID)
                 return
             }
 
@@ -1334,10 +1347,13 @@ class RoomManager: ObservableObject {
         }
     }
 
-    /// quickAnswer 실행: 전문가 1명이 도구 포함 즉답
+    /// quickAnswer 실행: 전문가 1명이 도구 포함 즉답 (전문가 없으면 마스터 폴백)
     private func executeQuickAnswer(roomID: UUID, task: String) async {
         let specialistIDs = executingAgentIDs(in: roomID)
-        guard let agentID = specialistIDs.first,
+        let room = rooms.first(where: { $0.id == roomID })
+        // 전문가 우선, 없으면 마스터 포함 아무나
+        let candidateID = specialistIDs.first ?? room?.assignedAgentIDs.first
+        guard let agentID = candidateID,
               let agent = agentStore?.agents.first(where: { $0.id == agentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return }
 
@@ -1372,10 +1388,12 @@ class RoomManager: ObservableObject {
         speakingAgentIDByRoom.removeValue(forKey: roomID)
     }
 
-    /// 전문가 1명 Solo 분석: 토론 없이 혼자 분석하여 결과 공유
+    /// 전문가 1명 Solo 분석: 토론 없이 혼자 분석하여 결과 공유 (전문가 없으면 마스터 폴백)
     private func executeSoloAnalysis(roomID: UUID, task: String) async {
         let specialistIDs = executingAgentIDs(in: roomID)
-        guard let agentID = specialistIDs.first,
+        let room = rooms.first(where: { $0.id == roomID })
+        let candidateID = specialistIDs.first ?? room?.assignedAgentIDs.first
+        guard let agentID = candidateID,
               let agent = agentStore?.agents.first(where: { $0.id == agentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return }
 

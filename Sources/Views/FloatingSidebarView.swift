@@ -283,8 +283,8 @@ struct FloatingSidebarView: View {
                 roomManager.pendingAutoOpenRoomID = nil
                 pendingRoomToOpen = roomID
                 roomOpenProgress = 0
-                // 타이머로 0→1 점진 증가 (2.5초 동안 ~60 프레임)
-                let totalDuration: Double = 2.5
+                // 타이머로 0→1 점진 증가 (1.8초 동안 ~60 프레임)
+                let totalDuration: Double = 1.8
                 let interval: Double = 1.0 / 60.0
                 let step: CGFloat = CGFloat(interval / totalDuration)
                 Task {
