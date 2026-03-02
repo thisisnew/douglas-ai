@@ -53,13 +53,12 @@ class RoomManager: ObservableObject {
 
     /// 마스터 위임 또는 사용자가 방 생성
     @discardableResult
-    func createRoom(title: String, agentIDs: [UUID], createdBy: RoomCreator, mode: RoomMode = .task, maxDiscussionRounds: Int = 3, projectPaths: [String] = [], buildCommand: String? = nil, testCommand: String? = nil, intent: WorkflowIntent? = nil) -> Room {
+    func createRoom(title: String, agentIDs: [UUID], createdBy: RoomCreator, mode: RoomMode = .task, projectPaths: [String] = [], buildCommand: String? = nil, testCommand: String? = nil, intent: WorkflowIntent? = nil) -> Room {
         var room = Room(
             title: title,
             assignedAgentIDs: agentIDs,
             createdBy: createdBy,
             mode: mode,
-            maxDiscussionRounds: maxDiscussionRounds,
             projectPaths: projectPaths,
             buildCommand: buildCommand,
             testCommand: testCommand
@@ -495,20 +494,39 @@ class RoomManager: ObservableObject {
 
     /// 새 워크플로우: intent.requiredPhases 동적 순회
     /// intent 단계에서 LLM 재분류 후 남은 단계가 자동으로 재계산됨
+    /// 워크플로우 전체 타임아웃 (초)
+    private static let workflowTimeoutSeconds: TimeInterval = 600 // 10분
+
     private func executePhaseWorkflow(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
-        // intent가 nil이면 .implementation 기본 phase로 시작
-        // (executeIntentPhase에서 사용자 선택을 받아 intent가 설정됨)
 
         rooms[idx].status = .planning
         syncAgentStatuses()
 
+        let workflowStart = Date()
         var completedPhases: Set<WorkflowPhase> = []
 
         while true {
             guard !Task.isCancelled,
                   let currentRoom = rooms.first(where: { $0.id == roomID }),
                   currentRoom.isActive else { break }
+
+            // 타임아웃 체크
+            if Date().timeIntervalSince(workflowStart) > Self.workflowTimeoutSeconds {
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.failed)
+                    rooms[i].completedAt = Date()
+                }
+                let timeoutMsg = ChatMessage(
+                    role: .system,
+                    content: "워크플로우가 제한 시간(10분)을 초과하여 자동 종료되었습니다.",
+                    messageType: .error
+                )
+                appendMessage(timeoutMsg, to: roomID)
+                syncAgentStatuses()
+                scheduleSave()
+                return
+            }
 
             let currentIntent = currentRoom.intent ?? .implementation
             // 현재 intent 기준으로 다음 미완료 phase 찾기
@@ -2221,10 +2239,10 @@ class RoomManager: ObservableObject {
 
     // MARK: - 토론 실행
 
-    /// 합의 기반 토론 실행 (합의 도달 시 자동 종료, 최대 10라운드)
+    /// 합의 기반 토론 실행 (합의 도달 시 자동 종료, 최대 3라운드)
     private func executeDiscussion(roomID: UUID, topic: String) async {
         guard let room = rooms.first(where: { $0.id == roomID }) else { return }
-        let maxSafetyRounds = min(room.maxDiscussionRounds, 3)
+        let maxSafetyRounds = 3
 
         for round in 0..<maxSafetyRounds {
             guard !Task.isCancelled,

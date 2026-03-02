@@ -622,8 +622,8 @@ struct DiscussionProgressBar: View {
     }
 
     private var progressRatio: CGFloat {
-        guard room.maxDiscussionRounds > 0 else { return 0 }
-        return CGFloat(room.currentRound) / CGFloat(room.maxDiscussionRounds)
+        let maxRounds = 3
+        return CGFloat(min(room.currentRound, maxRounds)) / CGFloat(maxRounds)
     }
 
     private var speakingAgentName: String? {

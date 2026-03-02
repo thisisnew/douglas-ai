@@ -245,7 +245,6 @@ struct Room: Identifiable, Codable {
     let createdBy: RoomCreator
     var currentStepIndex: Int
     // 토론 관련
-    var maxDiscussionRounds: Int
     var currentRound: Int
     // 토론 산출물
     var artifacts: [DiscussionArtifact]
@@ -380,7 +379,6 @@ struct Room: Identifiable, Codable {
         createdBy: RoomCreator,
         mode: RoomMode = .task,
         status: RoomStatus = .planning,
-        maxDiscussionRounds: Int = 10,
         createdAt: Date = Date(),
         projectPaths: [String] = [],
         buildCommand: String? = nil,
@@ -399,7 +397,6 @@ struct Room: Identifiable, Codable {
         self.completedAt = nil
         self.createdBy = createdBy
         self.currentStepIndex = 0
-        self.maxDiscussionRounds = max(1, maxDiscussionRounds)
         self.currentRound = 0
         self.artifacts = []
         self.briefing = nil
@@ -443,7 +440,7 @@ struct Room: Identifiable, Codable {
         completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
         createdBy = try container.decode(RoomCreator.self, forKey: .createdBy)
         currentStepIndex = try container.decodeIfPresent(Int.self, forKey: .currentStepIndex) ?? 0
-        maxDiscussionRounds = max(1, try container.decodeIfPresent(Int.self, forKey: .maxDiscussionRounds) ?? 3)
+        // maxDiscussionRounds 제거됨 — 레거시 JSON의 해당 키는 자동 무시
         currentRound = try container.decodeIfPresent(Int.self, forKey: .currentRound) ?? 0
         artifacts = try container.decodeIfPresent([DiscussionArtifact].self, forKey: .artifacts) ?? []
         briefing = try container.decodeIfPresent(RoomBriefing.self, forKey: .briefing)
