@@ -137,7 +137,7 @@ struct RoomListView: View {
                 exitEditModeIfEmpty()
             }
         } message: {
-            Text("진행 중인 작업이 있으면 즉시 중단됩니다.")
+            Text("완료된 방 \(selectedIDs.count)개가 삭제됩니다.")
         }
     }
 
