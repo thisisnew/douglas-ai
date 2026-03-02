@@ -28,9 +28,11 @@ enum IntentClassifier {
             return .brainstorm
         }
 
-        // research
+        // research (자문/상담/조언도 리서치 계열)
         let researchKeywords = ["조사", "리서치", "research", "트렌드",
-                                "비교해", "분석해", "찾아봐", "서베이", "survey"]
+                                "비교해", "분석해", "찾아봐", "서베이", "survey",
+                                "자문", "상담", "조언", "컨설팅", "consulting",
+                                "알고싶", "알고 싶", "궁금"]
         if researchKeywords.contains(where: { lowered.contains($0) })
             && !containsActionKeywords(lowered) {
             return .research
@@ -83,7 +85,7 @@ enum IntentClassifier {
 
         카테고리:
         - quickAnswer: 단순 질문, 번역, 정보 확인 (짧은 답변으로 끝나는 것)
-        - research: 조사, 리서치, 트렌드 분석, 비교 분석
+        - research: 조사, 리서치, 트렌드 분석, 비교 분석, 자문, 상담, 조언, 전문가 의견
         - brainstorm: 브레인스토밍, 아이디어 회의, 자유 토론
         - documentation: 기획서, 문서 작성, PRD, 보고서
         - implementation: 코딩, 개발, 버그 수정, 구현, 배포
