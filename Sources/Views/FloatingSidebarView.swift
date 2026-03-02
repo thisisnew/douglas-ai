@@ -182,6 +182,8 @@ struct FloatingSidebarView: View {
     @State private var draggingAgentID: UUID?
     @State private var dropTargetAgentID: UUID?
     @State private var hoveredAgentID: UUID?
+    /// 에이전트 방 목록 팝오버
+    @State private var popoverAgentID: UUID?
     /// 아바타 확대 보기
     @State private var enlargedAvatarAgent: Agent?
     @State private var showEnlargedProfile = false
@@ -284,7 +286,7 @@ struct FloatingSidebarView: View {
                 pendingRoomToOpen = roomID
                 roomOpenProgress = 0
                 // 타이머로 0→1 점진 증가 (1.3초 동안 ~60 프레임)
-                let totalDuration: Double = 1.3
+                let totalDuration: Double = 0.8
                 let interval: Double = 1.0 / 60.0
                 let step: CGFloat = CGFloat(interval / totalDuration)
                 Task {
@@ -384,6 +386,7 @@ struct FloatingSidebarView: View {
             }
             .buttonStyle(.plain)
             .help("API 설정")
+
 
             // 사이드바 숨기기
             Button(action: {
@@ -489,11 +492,7 @@ struct FloatingSidebarView: View {
         return VStack(spacing: DesignTokens.Spacing.sm) {
             AgentAvatarView(agent: agent, size: DesignTokens.AvatarSize.lg)
                 .onTapGesture {
-                    if agent.hasImage {
-                        enlargedAvatarAgent = agent
-                    } else {
-                        openInfoWindow(for: agent)
-                    }
+                    popoverAgentID = (popoverAgentID == agent.id) ? nil : agent.id
                 }
                 // 상태 표시등 (우하단)
                 .overlay(alignment: .bottomTrailing) {
@@ -529,6 +528,31 @@ struct FloatingSidebarView: View {
                 }
                 // 바쁨 그림자
                 .shadow(color: isBusy ? Color.red.opacity(0.4) : .clear, radius: 4)
+                // 에이전트-방 팝오버
+                .popover(isPresented: Binding(
+                    get: { popoverAgentID == agent.id },
+                    set: { if !$0 { popoverAgentID = nil } }
+                ), arrowEdge: .bottom) {
+                    AgentRoomPopover(
+                        agent: agent,
+                        onOpenRoom: { roomID in
+                            popoverAgentID = nil
+                            openRoomChatWindow(roomID: roomID)
+                        },
+                        onInfo: {
+                            popoverAgentID = nil
+                            openInfoWindow(for: agent)
+                        },
+                        onEdit: {
+                            popoverAgentID = nil
+                            openEditWindow(for: agent)
+                        },
+                        onShowAvatar: agent.hasImage ? {
+                            popoverAgentID = nil
+                            enlargedAvatarAgent = agent
+                        } : nil
+                    )
+                }
 
             VStack(spacing: 1) {
                 Text(agent.name)
@@ -536,7 +560,9 @@ struct FloatingSidebarView: View {
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .frame(width: DesignTokens.Layout.rosterItemWidth)
-                    .onTapGesture { openInfoWindow(for: agent) }
+                    .onTapGesture {
+                        popoverAgentID = (popoverAgentID == agent.id) ? nil : agent.id
+                    }
 
                 if isBusy {
                     Text("바쁨 \(activeCount)건 진행")
@@ -974,6 +1000,7 @@ struct FloatingSidebarView: View {
         }
     }
 
+
     private func openEditWindow(for agent: Agent) {
         UtilityWindowManager.shared.open(title: "\(agent.name) 편집",
             width: DesignTokens.WindowSize.agentSheet.width, height: DesignTokens.WindowSize.agentSheet.height,
@@ -1247,5 +1274,120 @@ struct RoomOpenProgressRing: View {
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
         .help("클릭하여 취소")
+    }
+}
+
+// MARK: - 에이전트-방 매핑 팝오버
+
+struct AgentRoomPopover: View {
+    let agent: Agent
+    var onOpenRoom: ((UUID) -> Void)?
+    var onInfo: (() -> Void)?
+    var onEdit: (() -> Void)?
+    var onShowAvatar: (() -> Void)?
+    @EnvironmentObject var roomManager: RoomManager
+
+    private var agentRooms: [Room] {
+        roomManager.rooms
+            .filter { $0.assignedAgentIDs.contains(agent.id) }
+            .sorted { a, b in
+                if a.isActive != b.isActive { return a.isActive }
+                return a.createdAt > b.createdAt
+            }
+    }
+
+    private var activeCount: Int { agentRooms.filter(\.isActive).count }
+    private var completedCount: Int { agentRooms.filter { !$0.isActive }.count }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // 헤더
+            HStack(spacing: 8) {
+                AgentAvatarView(agent: agent, size: 24)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(agent.name)
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("활성 \(activeCount) · 완료 \(completedCount)")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
+
+            Divider().padding(.horizontal, 8)
+
+            // 방 목록
+            if agentRooms.isEmpty {
+                Text("참여 중인 방이 없습니다")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(12)
+            } else {
+                ScrollView {
+                    VStack(spacing: 2) {
+                        ForEach(agentRooms) { room in
+                            Button {
+                                onOpenRoom?(room.id)
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Circle()
+                                        .fill(DesignTokens.RoomStatusColor.color(for: room.status))
+                                        .frame(width: 7, height: 7)
+                                    Text(room.title)
+                                        .font(.system(size: 11))
+                                        .lineLimit(1)
+                                        .foregroundColor(room.isActive ? .primary : .secondary)
+                                    Spacer()
+                                    Text(room.shortID)
+                                        .font(.system(size: 9, design: .monospaced))
+                                        .foregroundColor(.secondary.opacity(0.6))
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .background(Color.primary.opacity(0.001)) // hit area
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .frame(maxHeight: 180)
+            }
+
+            Divider().padding(.horizontal, 8)
+
+            // 하단 버튼
+            HStack(spacing: 8) {
+                if let onShowAvatar {
+                    Button { onShowAvatar() } label: {
+                        Image(systemName: "photo")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.secondary)
+                }
+                Spacer()
+                Button { onInfo?() } label: {
+                    Text("정보")
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.secondary)
+
+                Button { onEdit?() } label: {
+                    Text("편집")
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.accentColor)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+        .frame(width: 220)
     }
 }

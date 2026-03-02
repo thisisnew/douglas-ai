@@ -16,6 +16,7 @@ struct AddProviderSheet: View {
     @State private var jiraTestResult: String?
     @State private var isTestingJira = false
 
+
     var body: some View {
         VStack(spacing: 0) {
             SheetNavHeader(title: "API 설정") {
@@ -139,9 +140,19 @@ struct AddProviderSheet: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("Jira Cloud")
                                         .font(.body.weight(.medium))
-                                    Text("티켓 조회 · web_fetch 자동 인증")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
+                                    if JiraConfig.shared.isConfigured {
+                                        Text(JiraConfig.shared.domain)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                            .lineLimit(1)
+                                        Label("연동됨", systemImage: "checkmark.circle.fill")
+                                            .font(.caption)
+                                            .foregroundColor(.green)
+                                    } else {
+                                        Text("티켓 조회 · web_fetch 자동 인증")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
                                 }
                                 Spacer()
                                 jiraTestBadge

@@ -74,7 +74,13 @@ class RoomManager: ObservableObject {
 
     /// 사용자 수동 방 생성 + 바로 작업 시작
     func createManualRoom(title: String, agentIDs: [UUID], task: String, projectPaths: [String] = [], buildCommand: String? = nil, testCommand: String? = nil, intent: WorkflowIntent? = nil) {
-        let room = createRoom(title: title, agentIDs: agentIDs, createdBy: .user, projectPaths: projectPaths, buildCommand: buildCommand, testCommand: testCommand, intent: intent)
+        // 마스터를 첫 번째로 배치 (intake/clarify는 항상 마스터가 수행)
+        var orderedIDs = agentIDs
+        if let masterID = agentStore?.masterAgent?.id {
+            orderedIDs.removeAll { $0 == masterID }
+            orderedIDs.insert(masterID, at: 0)
+        }
+        let room = createRoom(title: title, agentIDs: orderedIDs, createdBy: .user, projectPaths: projectPaths, buildCommand: buildCommand, testCommand: testCommand, intent: intent)
 
         // 사용자 메시지 추가
         let userMsg = ChatMessage(role: .user, content: task)
@@ -111,12 +117,11 @@ class RoomManager: ObservableObject {
         cont.resume(returning: true)
     }
 
-    /// 승인 대기 중인 단계를 거부
+    /// 승인 대기 중인 단계를 거부 (수정 요청)
     func rejectStep(roomID: UUID) {
         guard let cont = approvalContinuations.removeValue(forKey: roomID) else { return }
-        let msg = ChatMessage(role: .user, content: "거부")
+        let msg = ChatMessage(role: .system, content: "수정 요청")
         appendMessage(msg, to: roomID)
-        // 즉시 planning으로 전환하여 승인 카드 숨김
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
             rooms[i].transitionTo(.planning)
         }
@@ -948,16 +953,19 @@ class RoomManager: ObservableObject {
         \(agent.resolvedSystemPrompt)
 
         당신은 요건 확인(Clarify) 단계를 수행하고 있습니다.
-        사용자의 요청을 정확히 이해했는지 복명복창(확인)합니다.
+        사용자의 요청을 정확히 이해했는지 복명복창(확인)만 합니다.
 
         아래 형식으로 이해한 내용을 요약하세요:
-        - 작업 유형: (\(intentName))
+        - 작업 유형: \(intentName)
         - 요청 내용: (1-2문장 요약)
         - 핵심 요구사항: (불릿 포인트)
         - 예상 산출물: (무엇이 나와야 하는지)
 
-        이미지가 첨부된 경우 이미지 내용을 확인하고 요약에 반영하세요.
-        반드시 이 형식만 출력하세요. 질문하거나 작업을 수행하지 마세요.
+        [절대 금지]
+        - 위 4개 항목 외의 내용을 출력하지 마세요.
+        - 질문에 대한 답변, 개념 설명, 해결책을 작성하지 마세요.
+        - 작업을 수행하지 마세요. 이 단계는 확인만 합니다.
+        - 위 형식 이후에 추가 텍스트를 붙이지 마세요.
         """
 
         var currentSummary = ""
@@ -1101,6 +1109,17 @@ class RoomManager: ObservableObject {
         let subAgents = agentStore?.subAgents ?? []
         let agentRoster = subAgents.isEmpty ? "(없음)" : subAgents.map { "- \($0.name)" }.joined(separator: "\n")
 
+        let intent = rooms[idx].intent
+        let maxAgentHint: String
+        switch intent {
+        case .quickAnswer:
+            maxAgentHint = "이 작업은 즉답(quickAnswer)이므로 **반드시 1명만** 요청하세요. 가장 적합한 전문가 1명만 선택하세요."
+        case .research, .brainstorm, .documentation:
+            maxAgentHint = "이 작업은 **최대 2명**이면 충분합니다."
+        default:
+            maxAgentHint = "불확실하면 적게 요청하세요 (1~2명이면 충분한 경우가 많습니다)."
+        }
+
         let assembleSystemPrompt = """
         \(agent.resolvedSystemPrompt)
 
@@ -1109,6 +1128,10 @@ class RoomManager: ObservableObject {
 
         작업에 **직접적으로** 필요한 역할만 최소한으로 요청하세요.
         작업과 무관한 역할은 절대 포함하지 마세요.
+        \(maxAgentHint)
+
+        사용자의 요청을 정확히 읽고, 요청된 관점의 전문가만 초대하세요.
+        예: "프론트엔드 관점에서" → 프론트엔드 전문가만. 백엔드 전문가는 불필요.
 
         현재 사용 가능한 에이전트:
         \(agentRoster)
@@ -1123,7 +1146,6 @@ class RoomManager: ObservableObject {
         주의:
         - 기존 에이전트가 있으면 반드시 위 목록의 **정확한 이름**을 사용하세요
         - 목록에 적합한 에이전트가 없을 때만 새 이름을 사용하세요
-        - 불확실하면 적게 요청하세요 (1~2명이면 충분한 경우가 많습니다)
         """
 
         // 사전 매칭: 사용자 요청에서 기존 에이전트 이름 키워드 직접 탐색
