@@ -30,10 +30,6 @@ struct RoomChatView: View {
                     DiscussionProgressBar(room: room)
                 }
 
-                // 산출물 바 (산출물이 있을 때)
-                if !room.artifacts.isEmpty {
-                    ArtifactListBar(artifacts: room.artifacts)
-                }
 
                 // 에이전트 생성 제안 카드
                 ForEach(room.pendingAgentSuggestions.filter { $0.status == .pending }) { suggestion in
@@ -602,80 +598,6 @@ struct DiscussionProgressBar: View {
     }
 }
 
-// MARK: - 산출물 목록 바
-
-struct ArtifactListBar: View {
-    let artifacts: [DiscussionArtifact]
-    @State private var isExpanded = true
-    @State private var expandedArtifactID: UUID?
-
-    var body: some View {
-        CardContainer(accentColor: .indigo) {
-            VStack(alignment: .leading, spacing: 4) {
-                // 헤더 (접이식)
-                Button {
-                    withAnimation(.dgStandard) { isExpanded.toggle() }
-                } label: {
-                HStack {
-                    Image(systemName: "doc.on.doc.fill")
-                        .font(.caption2)
-                        .foregroundColor(.indigo)
-                    Text("산출물 (\(artifacts.count))")
-                        .font(.caption2.bold())
-                        .foregroundColor(.indigo)
-                    Spacer()
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 8))
-                        .foregroundColor(.secondary)
-                }
-            }
-            .buttonStyle(.plain)
-
-            if isExpanded {
-                ForEach(artifacts) { artifact in
-                    Button {
-                        withAnimation(.dgStandard) {
-                            if expandedArtifactID == artifact.id {
-                                expandedArtifactID = nil
-                            } else {
-                                expandedArtifactID = artifact.id
-                            }
-                        }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 4) {
-                                Image(systemName: artifact.type.icon)
-                                    .font(.system(size: 9))
-                                    .foregroundColor(.indigo)
-                                Text(artifact.title)
-                                    .font(.caption2.bold())
-                                    .foregroundColor(.primary)
-                                    .lineLimit(1)
-                                Text("v\(artifact.version)")
-                                    .font(DesignTokens.Typography.mono(DesignTokens.FontSize.nano))
-                                    .foregroundColor(.secondary)
-                                Spacer()
-                                Text(artifact.producedBy)
-                                    .font(.system(size: 9))
-                                    .foregroundColor(.secondary)
-                            }
-
-                            if expandedArtifactID == artifact.id {
-                                Text(artifact.content)
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                                    .padding(.top, 2)
-                                    .textSelection(.enabled)
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            }
-        }
-    }
-}
 
 // MARK: - 빌드 상태 카드
 

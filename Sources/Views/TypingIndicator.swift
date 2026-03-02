@@ -61,7 +61,14 @@ struct TypingIndicator: View {
         }
         // 2순위: 에이전트 작업 중
         if let agent = workingAgent {
-            return agent.isMaster ? "DOUGLAS 분석 중" : "\(agent.name) 작업 중"
+            if agent.isMaster {
+                return "DOUGLAS 분석 중"
+            }
+            // 토론 단계에서는 "발언 중"
+            if room.currentPhase == .plan {
+                return "\(agent.name) 발언 중"
+            }
+            return "\(agent.name) 작업 중"
         }
         // 기본
         return "DOUGLAS 분석 중"
