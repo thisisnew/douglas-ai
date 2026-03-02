@@ -1052,21 +1052,32 @@ class RoomManager: ObservableObject {
                 break
             }
 
-            // 3) 거부됨 → 어떤 부분이 다른지 질문
-            let askMsg = ChatMessage(
-                role: .system,
-                content: "어떤 부분을 수정해야 하나요?",
-                messageType: .userQuestion
-            )
-            appendMessage(askMsg, to: roomID)
+            // 3) 거부됨 → ApprovalCard에서 이미 피드백 입력된 경우 스킵
+            let hasInlineFeedback: Bool = {
+                guard let room = rooms.first(where: { $0.id == roomID }) else { return false }
+                // "수정 요청" 직전 메시지가 사용자 메시지이면 인라인 피드백 있음
+                guard let rejectIdx = room.messages.lastIndex(where: { $0.content == "수정 요청" && $0.role == .system }) else { return false }
+                let prevIdx = rejectIdx - 1
+                guard prevIdx >= 0 else { return false }
+                return room.messages[prevIdx].role == .user
+            }()
 
-            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].transitionTo(.awaitingUserInput)
-            }
-            scheduleSave()
+            if !hasInlineFeedback {
+                let askMsg = ChatMessage(
+                    role: .system,
+                    content: "어떤 부분을 수정해야 하나요?",
+                    messageType: .userQuestion
+                )
+                appendMessage(askMsg, to: roomID)
 
-            let _ = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
-                userInputContinuations[roomID] = continuation
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.awaitingUserInput)
+                }
+                scheduleSave()
+
+                let _ = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+                    userInputContinuations[roomID] = continuation
+                }
             }
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
