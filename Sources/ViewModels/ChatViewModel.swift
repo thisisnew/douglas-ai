@@ -111,9 +111,6 @@ class ChatViewModel: ObservableObject {
     ) async {
         agentStore.updateStatus(agentID: agent.id, status: .working)
 
-        // Jira URL 사전 조회
-        let task = await enrichTaskWithJira(text)
-
         guard let roomManager = roomManager else {
             let errorReply = ChatMessage(
                 role: .assistant,
@@ -126,20 +123,23 @@ class ChatViewModel: ObservableObject {
             return
         }
 
+        // 방 제목: Jira URL이면 키만 추출, 아니면 원본 텍스트 (Jira 상세 데이터는 intakePhase에서 조회)
+        let roomTitle = Self.extractRoomTitle(from: text)
+
         // Intent 분류 (키워드 즉시 판별 — nil이면 워크플로우에서 사용자 선택)
-        let intent = IntentClassifier.quickClassify(task)
+        let intent = IntentClassifier.quickClassify(text)
 
         // 방 생성 + 워크플로우 시작 알림 (단일 메시지)
         let startMsg = ChatMessage(
             role: .assistant,
-            content: "작업을 시작합니다: \(task)",
+            content: "작업을 시작합니다: \(roomTitle)",
             agentName: agent.name,
             messageType: .delegation
         )
         appendMessage(startMsg, for: agent.id)
 
         let room = roomManager.createRoom(
-            title: task,
+            title: roomTitle,
             agentIDs: [agent.id],
             createdBy: .master(agentID: agent.id),
             intent: intent
@@ -147,11 +147,11 @@ class ChatViewModel: ObservableObject {
         roomManager.selectedRoomID = room.id
         roomManager.pendingAutoOpenRoomID = room.id
 
-        // 사용자 메시지(이미지 포함)를 방에 추가
-        let userMsg = ChatMessage(role: .user, content: task, attachments: attachments)
+        // 사용자 메시지(이미지 포함)를 방에 추가 — 원본 텍스트 전달 (Jira URL 포함)
+        let userMsg = ChatMessage(role: .user, content: text, attachments: attachments)
         roomManager.appendMessage(userMsg, to: room.id)
 
-        roomManager.launchWorkflow(roomID: room.id, task: task)
+        roomManager.launchWorkflow(roomID: room.id, task: text)
 
         agentStore.updateStatus(agentID: agent.id, status: .idle)
         sendNotification(agentName: agent.name, message: "작업 시작")
@@ -372,93 +372,27 @@ class ChatViewModel: ObservableObject {
         UNUserNotificationCenter.current().add(request)
     }
 
-    // MARK: - Jira URL 사전 조회
+    // MARK: - 방 제목 추출
 
-    /// task 텍스트에서 Jira URL을 감지하고, 인증된 API로 티켓 내용을 조회하여 task에 포함
-    private func enrichTaskWithJira(_ task: String) async -> String {
-        let jiraConfig = JiraConfig.shared
-        guard jiraConfig.isConfigured, jiraConfig.isJiraURL(task) else {
-            return task
+    /// Jira URL이면 키(PROJ-123)만 추출하여 간결한 제목 생성, 아닌 경우 원본 텍스트 사용
+    /// Jira 상세 데이터는 executeIntakePhase에서 단 1회만 조회
+    static func extractRoomTitle(from text: String) -> String {
+        // Jira 키 추출 (PROJ-123 패턴)
+        if let keyRange = text.range(of: "[A-Z][A-Z0-9]+-\\d+", options: .regularExpression) {
+            let jiraKey = String(text[keyRange])
+            // URL만 입력된 경우 → Jira 키를 제목으로
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("http") && !trimmed.contains(" ") {
+                return jiraKey
+            }
+            // URL + 설명이 있으면 → URL 제거 후 설명만 사용
+            let withoutURL = text.replacingOccurrences(of: "https?://[^\\s]+", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if withoutURL.isEmpty {
+                return jiraKey
+            }
+            return "[\(jiraKey)] \(withoutURL)"
         }
-
-        // URL 추출 (https://domain/browse/PROJ-123 패턴)
-        guard let urlRange = task.range(of: "https://[^\\s]+", options: .regularExpression),
-              let url = URL(string: String(task[urlRange])) else {
-            return task
-        }
-
-        let apiURLString = jiraConfig.apiURL(from: url.absoluteString)
-        guard let apiURL = URL(string: apiURLString),
-              let auth = jiraConfig.authHeader() else {
-            return task
-        }
-
-        var request = URLRequest(url: apiURL)
-        request.setValue(auth, forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 15
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            guard (200..<300).contains(status) else { return task }
-
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                return task
-            }
-
-            // 핵심 필드 추출
-            let fields = json["fields"] as? [String: Any] ?? [:]
-            let summary = fields["summary"] as? String ?? ""
-            let description = extractDescription(from: fields["description"])
-            let status_ = (fields["status"] as? [String: Any])?["name"] as? String ?? ""
-            let priority = (fields["priority"] as? [String: Any])?["name"] as? String ?? ""
-            let issueType = (fields["issuetype"] as? [String: Any])?["name"] as? String ?? ""
-            let labels = (fields["labels"] as? [String]) ?? []
-            let key = json["key"] as? String ?? ""
-
-            // 댓글 추출
-            let commentBody = fields["comment"] as? [String: Any]
-            let comments = (commentBody?["comments"] as? [[String: Any]])?.suffix(5) ?? []
-            let commentTexts = comments.compactMap { comment -> String? in
-                let author = (comment["author"] as? [String: Any])?["displayName"] as? String ?? "?"
-                let body = extractDescription(from: comment["body"])
-                guard !body.isEmpty else { return nil }
-                return "  - \(author): \(body.prefix(200))"
-            }
-
-            var enriched = task
-            enriched += "\n\n--- Jira 티켓 내용 [\(key)] ---"
-            enriched += "\n제목: \(summary)"
-            enriched += "\n유형: \(issueType) | 상태: \(status_) | 우선순위: \(priority)"
-            if !labels.isEmpty {
-                enriched += "\n레이블: \(labels.joined(separator: ", "))"
-            }
-            if !description.isEmpty {
-                enriched += "\n\n설명:\n\(String(description.prefix(2000)))"
-            }
-            if !commentTexts.isEmpty {
-                enriched += "\n\n최근 댓글:\n\(commentTexts.joined(separator: "\n"))"
-            }
-            enriched += "\n--- 끝 ---"
-
-            return enriched
-        } catch {
-            return task
-        }
-    }
-
-    /// Jira ADF(Atlassian Document Format) 또는 일반 텍스트에서 설명 추출
-    private func extractDescription(from value: Any?) -> String {
-        if let text = value as? String { return text }
-        guard let adf = value as? [String: Any],
-              let content = adf["content"] as? [[String: Any]] else { return "" }
-
-        return content.compactMap { node -> String? in
-            guard let innerContent = node["content"] as? [[String: Any]] else { return nil }
-            return innerContent.compactMap { inner -> String? in
-                inner["text"] as? String
-            }.joined()
-        }.joined(separator: "\n")
+        return text
     }
 }
