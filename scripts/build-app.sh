@@ -8,8 +8,9 @@ APP_BUNDLE="$PROJECT_DIR/dist/${APP_NAME}.app"
 DMG_OUTPUT="$PROJECT_DIR/dist/${APP_NAME}.dmg"
 
 echo "=== 1/4: Release 빌드 ==="
+echo "(첫 빌드는 수 분 걸릴 수 있습니다)"
 cd "$PROJECT_DIR"
-swift build -c release 2>&1
+swift build -c release
 
 EXECUTABLE="$BUILD_DIR/$APP_NAME"
 if [ ! -f "$EXECUTABLE" ]; then
