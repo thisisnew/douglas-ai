@@ -10,6 +10,7 @@ class ClickThroughPanel: NSPanel {
     private let dragZoneHeight: CGFloat = 24
 
     override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
 
     override func sendEvent(_ event: NSEvent) {
         // 상단 드래그 영역에서 좌클릭 → 윈도우 드래그
@@ -310,7 +311,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         sidebarPanel = ClickThroughPanel(
             contentRect: panelFrame,
-            styleMask: [.nonactivatingPanel, .utilityWindow, .resizable],
+            styleMask: [.utilityWindow, .resizable],
             backing: .buffered,
             defer: false
         )

@@ -11,6 +11,7 @@ struct RoomChatView: View {
     @State private var pendingAttachments: [ImageAttachment] = []
     @State private var showDeleteConfirm = false
     @State private var showCopiedFeedback = false
+    @State private var selectedAgent: Agent?
     @FocusState private var isInputFocused: Bool
 
     private var room: Room? {
@@ -275,9 +276,18 @@ struct RoomChatView: View {
                                 )
                             )
                             .opacity(isSpeaking ? 1.0 : 0.7)
+                            .onTapGesture { selectedAgent = agent }
+                            .help(agent.name)
                     }
                 }
                 Spacer()
+            }
+            .sheet(item: $selectedAgent) { agent in
+                AgentInfoSheet(agent: agent)
+                    .frame(
+                        width: DesignTokens.WindowSize.agentInfoSheet.width,
+                        height: DesignTokens.WindowSize.agentInfoSheet.height
+                    )
             }
         }
         .padding(.horizontal, 12)
