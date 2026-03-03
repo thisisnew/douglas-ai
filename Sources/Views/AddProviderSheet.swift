@@ -311,18 +311,31 @@ struct AddProviderSheet: View {
             .replacingOccurrences(of: "https://", with: "")
             .replacingOccurrences(of: "http://", with: "")
             .trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        let cleanEmail = jiraEmail.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanToken = jiraToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        var config = JiraConfig(domain: cleanDomain, email: jiraEmail.trimmingCharacters(in: .whitespacesAndNewlines))
+
+        var config = JiraConfig(domain: cleanDomain, email: cleanEmail)
         config.apiToken = cleanToken
         JiraConfig.shared = config
-        jiraTestResult = "저장 완료"
+
+        // 저장 확인 — 다시 읽어서 검증
+        let saved = JiraConfig.shared
+        if saved.domain == cleanDomain && saved.email == cleanEmail && saved.apiToken == cleanToken {
+            jiraTestResult = "저장 완료"
+        } else if saved.apiToken != cleanToken {
+            jiraTestResult = "저장 실패 (토큰 저장 오류)"
+        } else {
+            jiraTestResult = "저장 실패"
+        }
     }
 
     private func testJira() {
+        // 먼저 저장
+        saveJira()
+
         isTestingJira = true
         jiraTestResult = nil
 
-        // 도메인 정규화: https://, http://, 후행 슬래시 제거
         let cleanDomain = jiraDomain
             .replacingOccurrences(of: "https://", with: "")
             .replacingOccurrences(of: "http://", with: "")
@@ -337,7 +350,7 @@ struct AddProviderSheet: View {
         let urlString = "https://\(cleanDomain)/rest/api/3/myself"
 
         guard let url = URL(string: urlString) else {
-            jiraTestResult = "잘못된 도메인"
+            jiraTestResult = "잘못된 도메인: \(cleanDomain)"
             isTestingJira = false
             return
         }
@@ -345,7 +358,7 @@ struct AddProviderSheet: View {
         var request = URLRequest(url: url)
         request.setValue(auth, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 10
+        request.timeoutInterval = 15
 
         Task {
             do {
@@ -356,10 +369,11 @@ struct AddProviderSheet: View {
                    let displayName = json["displayName"] as? String {
                     jiraTestResult = "성공 · \(displayName)"
                 } else {
-                    jiraTestResult = "실패 (HTTP \(status))"
+                    let body = String(data: data.prefix(200), encoding: .utf8) ?? ""
+                    jiraTestResult = "실패 (HTTP \(status)) \(body.prefix(60))"
                 }
             } catch {
-                jiraTestResult = "실패"
+                jiraTestResult = "연결 실패: \(error.localizedDescription.prefix(50))"
             }
             isTestingJira = false
         }

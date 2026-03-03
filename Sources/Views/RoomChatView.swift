@@ -381,7 +381,7 @@ struct RoomChatView: View {
                 }
             }
 
-            // /@멘션 자동완성 팝오버
+            // @멘션 자동완성 팝오버
             if !mentionCandidates.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(mentionCandidates) { agent in
@@ -466,18 +466,27 @@ struct RoomChatView: View {
         Task { await roomManager.sendUserMessage(text.isEmpty ? "[이미지]" : text, to: roomID, attachments: attachments) }
     }
 
-    // MARK: - /@멘션 자동완성
+    // MARK: - @멘션 자동완성
 
-    /// 입력 텍스트에서 마지막 `/@` 이후 쿼리를 추출하여 후보 목록 갱신
+    /// 입력 텍스트에서 마지막 `@` 이후 쿼리를 추출하여 후보 목록 갱신
     private func updateMentionCandidates(_ text: String) {
-        // 마지막 /@ 찾기
-        guard let atRange = text.range(of: "/@", options: .backwards) else {
+        // 마지막 @ 찾기
+        guard let atRange = text.range(of: "@", options: .backwards) else {
             mentionCandidates = []
             return
         }
 
+        // @ 앞이 공백이거나 문장 시작인 경우만 멘션으로 인식 (이메일 오탐 방지)
+        if atRange.lowerBound != text.startIndex {
+            let charBefore = text[text.index(before: atRange.lowerBound)]
+            if !charBefore.isWhitespace {
+                mentionCandidates = []
+                return
+            }
+        }
+
         let afterAt = text[atRange.upperBound...]
-        // /@ 뒤에 공백이 있으면 멘션 입력 완료 간주
+        // @ 뒤에 공백이 있으면 멘션 입력 완료 간주
         if afterAt.contains(" ") {
             mentionCandidates = []
             return
@@ -486,7 +495,7 @@ struct RoomChatView: View {
         let query = String(afterAt).lowercased()
         let subAgents = agentStore.subAgents
         if query.isEmpty {
-            // /@ 만 입력 → 전체 서브 에이전트 목록 (최대 6명)
+            // @ 만 입력 → 전체 서브 에이전트 목록 (최대 6명)
             mentionCandidates = Array(subAgents.prefix(6))
         } else {
             // 쿼리로 필터
@@ -498,10 +507,10 @@ struct RoomChatView: View {
 
     /// 자동완성에서 에이전트 선택 시 입력 필드에 멘션 삽입
     private func insertMention(_ agent: Agent) {
-        // 마지막 /@ 위치 찾아서 교체
-        if let atRange = inputText.range(of: "/@", options: .backwards) {
+        // 마지막 @ 위치 찾아서 교체
+        if let atRange = inputText.range(of: "@", options: .backwards) {
             inputText = String(inputText[inputText.startIndex..<atRange.lowerBound])
-                + "/@\(agent.name) "
+                + "@\(agent.name) "
         }
         mentionCandidates = []
     }

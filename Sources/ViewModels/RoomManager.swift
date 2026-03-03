@@ -201,7 +201,7 @@ class RoomManager: ObservableObject {
 
     /// 사용자가 방에 메시지 보내기
     func sendUserMessage(_ text: String, to roomID: UUID, attachments: [ImageAttachment]? = nil) async {
-        // /@멘션 파싱: 에이전트 초대 + 순수 텍스트 분리
+        // @멘션 파싱: 에이전트 초대 + 순수 텍스트 분리
         let allSubAgents = agentStore?.subAgents ?? []
         let parsed = MentionParser.parse(text, agents: allSubAgents)
         for agent in parsed.mentions {
@@ -214,8 +214,8 @@ class RoomManager: ObservableObject {
 
         guard let room = rooms.first(where: { $0.id == roomID }) else { return }
 
-        // 작업 진행 중: 추가 요건으로만 삽입 (현재 에이전트가 다음 호출에서 자연스럽게 참고)
-        if room.isActive {
+        // 작업 진행 중이고 초기 워크플로우(사용자 입력 대기)인 경우: 추가 요건 주입만
+        if room.isActive && userInputContinuations[roomID] != nil {
             let noteMsg = ChatMessage(
                 role: .system,
                 content: "추가 요건이 반영되었습니다."
@@ -225,7 +225,7 @@ class RoomManager: ObservableObject {
             return
         }
 
-        // 완료/실패 상태: 후속 사이클 시작
+        // 완료/실패 또는 후속 사이클 진행 중: 현재 작업 취소 후 새 후속 사이클 시작
         let task = cleanText.isEmpty ? text : cleanText
         roomTasks[roomID]?.cancel()
         roomTasks[roomID] = Task {
@@ -238,14 +238,8 @@ class RoomManager: ObservableObject {
     private func launchFollowUpCycle(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
-        // 이전 작업 컨텍스트 주입 (방 재활성화 전에 workLog 캡처)
-        if let workLog = rooms[idx].workLog {
-            let contextMsg = ChatMessage(
-                role: .system,
-                content: workLog.asContextString()
-            )
-            appendMessage(contextMsg, to: roomID)
-        }
+        // 이전 작업 컨텍스트는 LLM에 직접 전달 (executeFollowUpAgentTurn에서 workLog 주입)
+        // UI에는 표시하지 않음
 
         // 방 재활성화
         rooms[idx].transitionTo(.planning)
@@ -677,10 +671,11 @@ class RoomManager: ObservableObject {
         scheduleSave()
     }
 
-    /// Intent 확정 후 사용자에게 워크플로우 설명 메시지 표시
+    /// Intent 확정 후 사용자에게 워크플로우 설명 메시지 표시 (quickAnswer는 생략)
     private func postIntentExplanation(roomID: UUID) {
         guard let room = rooms.first(where: { $0.id == roomID }),
-              let intent = room.intent else { return }
+              let intent = room.intent,
+              intent != .quickAnswer else { return }
 
         let msg = ChatMessage(
             role: .system,
@@ -766,13 +761,12 @@ class RoomManager: ObservableObject {
         사용자의 요청을 정확히 이해했는지 복명복창(확인)만 합니다.
 
         아래 형식으로 이해한 내용을 요약하세요:
-        - 작업 유형: \(intentName)
         - 요청 내용: (1-2문장 요약)
         - 핵심 요구사항: (불릿 포인트)
         - 예상 산출물: (무엇이 나와야 하는지)
 
         [절대 금지]
-        - 위 4개 항목 외의 내용을 출력하지 마세요.
+        - 위 3개 항목 외의 내용을 출력하지 마세요.
         - 질문에 대한 답변, 개념 설명, 해결책을 작성하지 마세요.
         - 작업을 수행하지 마세요. 이 단계는 확인만 합니다.
         - 위 형식 이후에 추가 텍스트를 붙이지 마세요.

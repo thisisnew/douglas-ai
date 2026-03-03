@@ -41,6 +41,7 @@ struct EditAgentSheet: View {
             SheetNavHeader(title: "에이전트 수정") {
                 Button("취소") { dismiss() }
                     .keyboardShortcut(.cancelAction)
+                    .buttonStyle(CozyButtonStyle(.cream))
             } trailing: {
                 Button("저장") { save() }
                     .keyboardShortcut(.defaultAction)

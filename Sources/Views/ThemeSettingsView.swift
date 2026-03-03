@@ -16,22 +16,21 @@ struct ThemeSettingsView: View {
                         .foregroundColor(palette.textPrimary)
                 }
 
-                // 프리셋 선택
+                // 전체 테마 (프리셋 + 커스텀) 한 줄 배치
                 themeGrid
 
-                Rectangle()
-                    .fill(LinearGradient(colors: [.clear, palette.separator.opacity(0.3), .clear], startPoint: .leading, endPoint: .trailing))
-                    .frame(height: 1)
-
-                // 커스텀 섹션
-                HStack(spacing: 12) {
-                    themeCard(.custom)
-
-                    if themeManager.currentThemeID == .custom {
+                // 커스텀 컬러 피커 (커스텀 선택 시에만)
+                if themeManager.currentThemeID == .custom {
+                    HStack {
+                        Text("액센트 컬러")
+                            .font(.system(size: DesignTokens.FontSize.body, weight: .medium, design: .rounded))
+                            .foregroundColor(palette.textSecondary)
+                        Spacer()
                         ColorPicker("", selection: $themeManager.customAccentColor, supportsOpacity: false)
                             .labelsHidden()
                             .frame(width: 28, height: 28)
                     }
+                    .padding(.horizontal, 4)
                 }
             }
             .padding(isEmbedded ? 24 : 16)
@@ -41,11 +40,12 @@ struct ThemeSettingsView: View {
     }
 
     private var themeGrid: some View {
-        let columns = isEmbedded
-            ? [GridItem(.adaptive(minimum: 80, maximum: 100), spacing: 12)]
+        let allThemes = ThemeID.allCases
+        let columns: [GridItem] = isEmbedded
+            ? Array(repeating: GridItem(.flexible(), spacing: 10), count: allThemes.count)
             : [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
         return LazyVGrid(columns: columns, spacing: 12) {
-            ForEach(ThemeID.allCases.filter { $0 != .custom }, id: \.self) { themeID in
+            ForEach(allThemes, id: \.self) { themeID in
                 themeCard(themeID)
             }
         }

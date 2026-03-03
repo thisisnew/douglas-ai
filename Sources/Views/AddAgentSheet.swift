@@ -30,6 +30,7 @@ struct AddAgentSheet: View {
             SheetNavHeader(title: "새 에이전트") {
                 Button("취소") { dismiss() }
                     .keyboardShortcut(.cancelAction)
+                    .buttonStyle(CozyButtonStyle(.cream))
             } trailing: {
                 Button("추가") { addAgent() }
                     .keyboardShortcut(.defaultAction)

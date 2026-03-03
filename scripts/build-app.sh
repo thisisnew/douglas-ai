@@ -89,8 +89,15 @@ echo ""
 echo "=== 2.5/4: 코드 서명 ==="
 # 확장 속성 제거 (코드 서명 오류 방지)
 xattr -cr "$APP_BUNDLE" 2>/dev/null || true
-codesign --force --deep --sign - "$APP_BUNDLE"
-echo "코드 서명 완료"
+# Entitlements 파일 복사 및 서명 시 포함
+ENTITLEMENTS_FILE="$PROJECT_DIR/Sources/Resources/DOUGLAS.entitlements"
+if [ -f "$ENTITLEMENTS_FILE" ]; then
+    codesign --force --deep --sign - --entitlements "$ENTITLEMENTS_FILE" "$APP_BUNDLE"
+    echo "코드 서명 완료 (entitlements 포함)"
+else
+    codesign --force --deep --sign - "$APP_BUNDLE"
+    echo "코드 서명 완료"
+fi
 
 echo ""
 echo "=== 3/4: DMG 생성 ==="

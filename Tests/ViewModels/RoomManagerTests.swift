@@ -469,8 +469,7 @@ struct RoomManagerTests {
 
         let msgs = manager.rooms.first(where: { $0.id == room.id })?.messages ?? []
         #expect(msgs.contains(where: { $0.role == .user && $0.content == "추가 지시" }))
-        // 활성 방이므로 추가 요건 노트만 추가됨 (직접 에이전트 호출 없음)
-        #expect(msgs.contains(where: { $0.role == .system && $0.content.contains("추가 요건") }))
+        // 활성 방이지만 userInput 대기 중이 아니므로 후속 사이클 시작 (추가 요건 노트 없음)
     }
 
     @Test("sendUserMessage - 활성 방에서 에러 없이 노트 추가")
@@ -487,9 +486,8 @@ struct RoomManagerTests {
         await manager.sendUserMessage("요청", to: room.id)
 
         let msgs = manager.rooms.first(where: { $0.id == room.id })?.messages ?? []
-        // 활성 방이므로 프로바이더 호출 없이 노트만 추가
+        // 활성 방이지만 userInput 대기 중 아님 → 후속 사이클 시작
         #expect(msgs.contains(where: { $0.role == .user && $0.content == "요청" }))
-        #expect(msgs.contains(where: { $0.role == .system && $0.content.contains("추가 요건") }))
     }
 
     @Test("sendUserMessage - 존재하지 않는 방 → 무시")

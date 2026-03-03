@@ -1,6 +1,6 @@
 import Foundation
 
-/// 채팅 입력에서 `/@에이전트이름` 멘션을 파싱하는 유틸리티
+/// 채팅 입력에서 `@에이전트이름` 멘션을 파싱하는 유틸리티
 enum MentionParser {
 
     /// 파싱 결과: 매칭된 에이전트 목록 + 멘션 제거된 순수 텍스트
@@ -9,13 +9,13 @@ enum MentionParser {
         let cleanText: String
     }
 
-    /// `/@이름` 패턴 (문장 시작 또는 공백 뒤에서만 매칭 — 이메일 등 오탐 방지)
+    /// `@이름` 패턴 (문장 시작 또는 공백 뒤에서만 매칭 — 이메일 등 오탐 방지)
     private static let mentionPattern = try! NSRegularExpression(
-        pattern: "(?:^|\\s)/@(\\S+)",
+        pattern: "(?:^|\\s)@(\\S+)",
         options: []
     )
 
-    /// 텍스트에서 `/@이름` 멘션을 추출하고, 매칭된 멘션만 제거한 순수 텍스트 반환
+    /// 텍스트에서 `@이름` 멘션을 추출하고, 매칭된 멘션만 제거한 순수 텍스트 반환
     /// - Parameters:
     ///   - text: 사용자 입력 원문
     ///   - agents: 매칭 대상 에이전트 목록 (보통 subAgents)
