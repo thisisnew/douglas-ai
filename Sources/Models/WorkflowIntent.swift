@@ -60,6 +60,20 @@ enum WorkflowIntent: String, Codable, CaseIterable {
         }
     }
 
+    /// 사용자에게 보여줄 한 줄 설명
+    var subtitle: String {
+        switch self {
+        case .quickAnswer:          return "단순 질문에 바로 답변"
+        case .research:             return "정보 조사·비교 분석"
+        case .brainstorm:           return "아이디어 발산·토론"
+        case .documentation:        return "기획서·문서 작성"
+        case .implementation:       return "코드 구현·수정"
+        case .requirementsAnalysis: return "요건 정리·분석"
+        case .testPlanning:         return "테스트 전략·계획"
+        case .taskDecomposition:    return "작업 분해·일감 정리"
+        }
+    }
+
     /// Plan 단계 동작 방식
     var planMode: PlanMode {
         switch self {

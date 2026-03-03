@@ -1041,18 +1041,19 @@ struct IntentSelectionCard: View {
                     Spacer()
                 }
 
-                // Intent 버튼 그리드 (2열)
+                // Intent 버튼 리스트 (설명 포함)
                 let intents = WorkflowIntent.allCases
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
+                VStack(spacing: 4) {
                     ForEach(intents, id: \.self) { intent in
                         Button {
                             roomManager.selectIntent(roomID: roomID, intent: intent)
                         } label: {
-                            HStack(spacing: 4) {
+                            HStack(spacing: 6) {
                                 Image(systemName: intentIcon(intent))
                                     .font(.system(size: 10))
+                                    .frame(width: 14)
                                 Text(intent.displayName)
-                                    .font(.caption2)
+                                    .font(.caption2.bold())
                                 if intent == suggestedIntent {
                                     Text("추천")
                                         .font(.system(size: 8, weight: .bold))
@@ -1062,8 +1063,11 @@ struct IntentSelectionCard: View {
                                         .background(Color.teal.opacity(0.7))
                                         .clipShape(Capsule())
                                 }
+                                Spacer()
+                                Text(intent.subtitle)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
                             }
-                            .frame(maxWidth: .infinity)
                             .padding(.vertical, 6)
                             .padding(.horizontal, 8)
                             .background(intent == suggestedIntent ? Color.teal.opacity(0.08) : Color.primary.opacity(0.04))
