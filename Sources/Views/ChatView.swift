@@ -54,6 +54,7 @@ struct MessageBubble: View {
     @EnvironmentObject var agentStore: AgentStore
     @State private var enlargedImage: NSImage?
     @State private var showAgentInfo = false
+    @State private var tappedMentionAgent: Agent?
 
     private var agent: Agent? {
         guard let name = message.agentName else { return nil }
@@ -135,16 +136,21 @@ struct MessageBubble: View {
                         HStack(spacing: 6) {
                             ForEach(attachments) { att in
                                 if let data = try? att.loadData(), let nsImage = NSImage(data: data) {
+                                    let maxW: CGFloat = 220
+                                    let maxH: CGFloat = 160
+                                    let ratio = nsImage.size.width / max(nsImage.size.height, 1)
+                                    let w = min(maxW, maxH * ratio)
+                                    let h = min(maxH, maxW / ratio)
+
                                     Image(nsImage: nsImage)
                                         .resizable()
-                                        .aspectRatio(contentMode: .fit)
-                                        .frame(maxWidth: 200, maxHeight: 140)
+                                        .frame(width: w, height: h)
                                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                                .strokeBorder(palette.cardBorder.opacity(0.12), lineWidth: 1)
+                                                .strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1)
                                         )
-                                        .shadow(color: palette.sidebarShadow.opacity(0.4), radius: 4, y: 2)
+                                        .shadow(color: palette.sidebarShadow.opacity(0.3), radius: 3, y: 2)
                                         .onTapGesture { enlargedImage = nsImage }
                                         .onHover { hovering in
                                             if hovering { NSCursor.pointingHand.push() }
@@ -153,6 +159,7 @@ struct MessageBubble: View {
                                 }
                             }
                         }
+                        .frame(maxWidth: 220, alignment: message.role == .user ? .trailing : .leading)
                         .popover(isPresented: Binding(
                             get: { enlargedImage != nil },
                             set: { if !$0 { enlargedImage = nil } }
@@ -167,15 +174,17 @@ struct MessageBubble: View {
                         }
                     }
 
-                    messageContent
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(bubbleBackground)
-                        .foregroundColor(bubbleForeground)
-                        .clipShape(bubbleShape)
-                        .overlay(bubbleShape.strokeBorder(typeBorder, lineWidth: typeBorderWidth))
-                        .shadow(color: palette.sidebarShadow.opacity(0.6), radius: 4, y: 2)
-                        .textSelection(.enabled)
+                    if !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        messageContent
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(bubbleBackground)
+                            .foregroundColor(bubbleForeground)
+                            .clipShape(bubbleShape)
+                            .overlay(bubbleShape.strokeBorder(typeBorder, lineWidth: typeBorderWidth))
+                            .shadow(color: palette.sidebarShadow.opacity(0.6), radius: 4, y: 2)
+                            .textSelection(.enabled)
+                    }
                 }
 
                 if message.role == .assistant { Spacer(minLength: 48) }
@@ -188,6 +197,13 @@ struct MessageBubble: View {
                             height: DesignTokens.WindowSize.agentInfoSheet.height
                         )
                 }
+            }
+            .sheet(item: $tappedMentionAgent) { mentionedAgent in
+                AgentInfoSheet(agent: mentionedAgent)
+                    .frame(
+                        width: DesignTokens.WindowSize.agentInfoSheet.width,
+                        height: DesignTokens.WindowSize.agentInfoSheet.height
+                    )
             }
         }
     }
@@ -310,9 +326,17 @@ struct MessageBubble: View {
     @ViewBuilder
     private var messageContent: some View {
         if message.role == .user {
-            Text(message.content)
+            Text(buildMentionAttributedString(message.content))
                 .font(.system(size: DesignTokens.FontSize.bodyMd))
                 .lineSpacing(2)
+                .environment(\.openURL, OpenURLAction { url in
+                    if url.scheme == "mention",
+                       let name = url.host?.removingPercentEncoding,
+                       let agent = agentStore.agents.first(where: { $0.name == name }) {
+                        tappedMentionAgent = agent
+                    }
+                    return .handled
+                })
         } else {
             Markdown(Self.normalizeMarkdown(message.content))
                 .markdownTextStyle {
@@ -329,6 +353,35 @@ struct MessageBubble: View {
                         )
                 }
         }
+    }
+
+    // MARK: - @멘션 하이라이트
+
+    /// 사용자 메시지에서 @에이전트이름을 찾아 강조 + 링크 처리
+    private func buildMentionAttributedString(_ text: String) -> AttributedString {
+        var result = AttributedString(text)
+        let agents = agentStore.agents
+
+        // 에이전트 이름 길이 내림차순 — 긴 이름 우선 매칭 (e.g. "백엔드 개발자" > "백엔드")
+        let sorted = agents.sorted { $0.name.count > $1.name.count }
+
+        for agent in sorted {
+            let mention = "@\(agent.name)"
+            var searchStart = result.startIndex
+
+            while searchStart < result.endIndex,
+                  let range = result[searchStart...].range(of: mention) {
+                result[range].foregroundColor = palette.userBubbleText.opacity(0.7)
+                result[range].font = .system(size: DesignTokens.FontSize.bodyMd, weight: .bold, design: .rounded)
+                result[range].underlineStyle = .single
+                if let url = URL(string: "mention://\(agent.name.addingPercentEncoding(withAllowedCharacters: .urlHostAllowed) ?? "")") {
+                    result[range].link = url
+                }
+                searchStart = range.upperBound
+            }
+        }
+
+        return result
     }
 
     /// 채팅용 마크다운 정규화 (후처리)

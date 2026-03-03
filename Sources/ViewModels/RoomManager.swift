@@ -2872,8 +2872,6 @@ class RoomManager: ObservableObject {
                 rooms[i].workLog = log
             }
 
-            let logMsg = ChatMessage(role: .system, content: "작업일지가 생성되었습니다.")
-            appendMessage(logMsg, to: roomID)
             scheduleSave()
         } catch {
             createFallbackLog(roomID: roomID, task: task)
