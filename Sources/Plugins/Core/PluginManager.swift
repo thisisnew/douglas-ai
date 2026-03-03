@@ -128,6 +128,57 @@ final class PluginManager: ObservableObject {
         return true
     }
 
+    // MARK: - 플러그인 생성 (빌더)
+
+    /// 플러그인 ID 중복 여부 확인
+    func isIDTaken(_ id: String) -> Bool {
+        plugins.contains { $0.info.id == id }
+    }
+
+    /// 빌더에서 생성된 플러그인을 직접 설치
+    func createPlugin(
+        manifest: PluginManifest,
+        scripts: [(filename: String, content: String)]
+    ) -> (success: Bool, message: String) {
+        // 중복 체크
+        if isIDTaken(manifest.id) {
+            return (false, "이미 같은 ID의 플러그인이 있습니다: \(manifest.id)")
+        }
+
+        let destURL = Self.pluginsDirectory.appendingPathComponent(manifest.id)
+        do {
+            try FileManager.default.createDirectory(at: destURL, withIntermediateDirectories: true)
+
+            // plugin.json 쓰기
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let jsonData = try encoder.encode(manifest)
+            try jsonData.write(to: destURL.appendingPathComponent("plugin.json"))
+
+            // 스크립트 파일 쓰기
+            for script in scripts {
+                let scriptURL = destURL.appendingPathComponent(script.filename)
+                try script.content.write(to: scriptURL, atomically: true, encoding: .utf8)
+            }
+
+            // 실행 권한 부여
+            makeScriptsExecutable(in: destURL)
+
+            // 로드 & 등록
+            if let plugin = loadScriptPlugin(from: destURL) {
+                registerPlugin(plugin)
+                return (true, "\(manifest.name) 생성 완료")
+            }
+
+            // 로드 실패 시 정리
+            try? FileManager.default.removeItem(at: destURL)
+            return (false, "플러그인 로드 실패")
+        } catch {
+            try? FileManager.default.removeItem(at: destURL)
+            return (false, "생성 실패: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - 라이프사이클
 
     private func restoreActivePlugins() {

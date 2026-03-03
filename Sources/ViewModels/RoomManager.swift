@@ -201,6 +201,13 @@ class RoomManager: ObservableObject {
         }
     }
 
+    /// 토론 체크포인트에서 "진행" 선택 — 피드백 없이 다음 단계로
+    func proceedDiscussion(roomID: UUID) {
+        if let cont = userInputContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: "")
+        }
+    }
+
     /// 사용자가 방에 메시지 보내기
     func sendUserMessage(_ text: String, to roomID: UUID, attachments: [ImageAttachment]? = nil) async {
         // @멘션 파싱: 에이전트 초대 + 순수 텍스트 분리
@@ -853,8 +860,9 @@ class RoomManager: ObservableObject {
             guard !Task.isCancelled else { return }
 
             if approved {
-                // 승인됨 → planning 복귀, 루프 탈출
+                // 승인됨 → clarify 요약 저장 (토론 의도 앵커링용) + planning 복귀
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].clarifySummary = currentSummary
                     rooms[i].transitionTo(.planning)
                 }
                 break
@@ -1068,6 +1076,29 @@ class RoomManager: ObservableObject {
                 )
                 addAgentSuggestion(suggestion, to: roomID)
                 await waitForSuggestionResponse(roomID: roomID)
+
+                // 건너뛰기 후에도 전문가 없으면 → 사용자에게 기존 에이전트 선택 요청
+                let postSkipSpecialists = executingAgentIDs(in: roomID)
+                if postSkipSpecialists.isEmpty {
+                    let subAgentNames = (agentStore?.subAgents ?? []).map { $0.name }
+                    if !subAgentNames.isEmpty {
+                        let selectMsg = ChatMessage(
+                            role: .system,
+                            content: "전문가가 배정되지 않았습니다. 입력창에서 @멘션으로 기존 에이전트를 초대해 주세요.\n사용 가능: \(subAgentNames.joined(separator: ", "))",
+                            messageType: .userQuestion
+                        )
+                        appendMessage(selectMsg, to: roomID)
+                        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                            rooms[i].transitionTo(.awaitingUserInput)
+                        }
+                        let _ = await withCheckedContinuation { (cont: CheckedContinuation<String, Never>) in
+                            userInputContinuations[roomID] = cont
+                        }
+                        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                            rooms[i].transitionTo(.inProgress)
+                        }
+                    }
+                }
                 return
             }
 
@@ -1103,6 +1134,29 @@ class RoomManager: ObservableObject {
             let hadUnmatched = matched.contains(where: { $0.status == .unmatched })
             if hadUnmatched {
                 await waitForSuggestionResponse(roomID: roomID)
+
+                // 건너뛰기 후 전문가 없으면 → 사용자에게 기존 에이전트 선택 요청
+                let postSkipSpecialists = executingAgentIDs(in: roomID)
+                if postSkipSpecialists.isEmpty {
+                    let subAgentNames = (agentStore?.subAgents ?? []).map { $0.name }
+                    if !subAgentNames.isEmpty {
+                        let selectMsg = ChatMessage(
+                            role: .system,
+                            content: "전문가가 배정되지 않았습니다. 입력창에서 @멘션으로 기존 에이전트를 초대해 주세요.\n사용 가능: \(subAgentNames.joined(separator: ", "))",
+                            messageType: .userQuestion
+                        )
+                        appendMessage(selectMsg, to: roomID)
+                        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                            rooms[i].transitionTo(.awaitingUserInput)
+                        }
+                        let _ = await withCheckedContinuation { (cont: CheckedContinuation<String, Never>) in
+                            userInputContinuations[roomID] = cont
+                        }
+                        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                            rooms[i].transitionTo(.inProgress)
+                        }
+                    }
+                }
             }
 
             // 5) 커버리지 게이트 (생성 제안이 처리된 경우 스킵 — 사용자가 이미 결정함)
@@ -1630,11 +1684,19 @@ class RoomManager: ObservableObject {
         }
         specialistNames = specialists.isEmpty ? "(없음)" : specialists.joined(separator: ", ")
 
+        // 원래 사용자 요청 앵커링
+        let clarifyContext: String
+        if let summary = room.clarifySummary {
+            clarifyContext = "\n[원래 사용자 요청]\n\(summary)\n"
+        } else {
+            clarifyContext = ""
+        }
+
         let planSystemPrompt = """
         \(agent.resolvedSystemPrompt)
-
+        \(clarifyContext)
         현재 작업방에 배정되었습니다. 팀원들과의 토론이 완료되었습니다.
-        토론 내용을 바탕으로 반드시 아래 형식의 JSON으로 실행 계획을 제출하세요:
+        토론 내용을 바탕으로, 원래 사용자 요청 범위 안에서 실행 계획을 제출하세요:
 
         {"plan": {"summary": "전체 계획 요약", "estimated_minutes": 5, "steps": [{"text": "단계 설명", "agent": "담당 에이전트 이름"}, ...]}}
 
@@ -2424,71 +2486,94 @@ class RoomManager: ObservableObject {
     // MARK: - 토론 실행
 
     /// 합의 기반 토론 실행 (합의 도달 시 자동 종료, 최대 3라운드)
+    /// 토론: 발산→수렴→합의 사이클 + 사용자 체크포인트
     private func executeDiscussion(roomID: UUID, topic: String) async {
-        guard let room = rooms.first(where: { $0.id == roomID }) else { return }
-        let maxSafetyRounds = 3
+        guard rooms.first(where: { $0.id == roomID }) != nil else { return }
+        let maxCycles = 3  // 안전 상한: 최대 3사이클 (9라운드)
+        let roundTypes: [DiscussionRoundType] = [.diverge, .converge, .conclude]
 
-        for round in 0..<maxSafetyRounds {
+        for cycle in 0..<maxCycles {
             guard !Task.isCancelled,
                   let currentRoom = rooms.first(where: { $0.id == roomID }),
                   currentRoom.isActive else { break }
 
-            // 라운드 업데이트
-            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].currentRound = round
-            }
-
-            let roundMsg = ChatMessage(
+            // ── 토론 사이클 N ──
+            let cycleMsg = ChatMessage(
                 role: .system,
-                content: "── 토론 라운드 \(round + 1) ──",
+                content: "── 토론 사이클 \(cycle + 1) ──",
                 messageType: .discussionRound
             )
-            appendMessage(roundMsg, to: roomID)
+            appendMessage(cycleMsg, to: roomID)
 
-            // 각 에이전트가 순차적으로 발언 + 합의 여부 수집
-            var agreedCount = 0
-            let agentIDs = room.assignedAgentIDs
-
-            var earlyConsensus = false
-            for agentID in agentIDs {
+            // 3단계 라운드 실행 (발산 → 수렴 → 합의)
+            let agentIDs = currentRoom.assignedAgentIDs
+            for (roundIdx, roundType) in roundTypes.enumerated() {
                 guard !Task.isCancelled,
-                      let current = rooms.first(where: { $0.id == roomID }),
-                      current.isActive else { break }
+                      rooms.first(where: { $0.id == roomID })?.isActive == true else { break }
 
-                let agreed = await executeDiscussionTurn(
-                    topic: topic,
-                    agentID: agentID,
-                    roomID: roomID,
-                    round: round
+                let globalRound = cycle * 3 + roundIdx
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].currentRound = globalRound
+                }
+
+                // 라운드 타입 표시
+                let roundMsg = ChatMessage(
+                    role: .system,
+                    content: "[\(roundType.label)] 라운드 \(globalRound + 1)",
+                    messageType: .discussionRound
                 )
-                if agreed { agreedCount += 1 }
+                appendMessage(roundMsg, to: roomID)
 
-                // 진행자가 합의 선언 + 2라운드 이상 → 나머지 발언 스킵 (반복 방지)
-                let isMaster = agentStore?.agents.first(where: { $0.id == agentID })?.isMaster ?? false
-                if isMaster && agreed && round >= 1 {
-                    earlyConsensus = true
-                    break
+                // 각 에이전트 발언
+                for agentID in agentIDs {
+                    guard !Task.isCancelled,
+                          rooms.first(where: { $0.id == roomID })?.isActive == true else { break }
+
+                    await executeDiscussionTurn(
+                        topic: topic,
+                        agentID: agentID,
+                        roomID: roomID,
+                        round: globalRound,
+                        roundType: roundType
+                    )
                 }
             }
 
-            // 전원 합의 또는 진행자 조기 종료 → 토론 종료
-            if earlyConsensus || (agreedCount == agentIDs.count && agentIDs.count > 0) {
-                let consensusMsg = ChatMessage(
-                    role: .system,
-                    content: "전원 합의 도달. 토론을 마무리합니다."
-                )
-                appendMessage(consensusMsg, to: roomID)
-                break
+            // 사용자 체크포인트
+            let checkpointMsg = ChatMessage(
+                role: .system,
+                content: "토론 사이클 \(cycle + 1) 완료. 피드백이 있으시면 입력해주세요.",
+                messageType: .userQuestion
+            )
+            appendMessage(checkpointMsg, to: roomID)
+
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].isDiscussionCheckpoint = true
+                rooms[i].transitionTo(.awaitingUserInput)
+            }
+            scheduleSave()
+
+            let feedback = await withCheckedContinuation { (cont: CheckedContinuation<String, Never>) in
+                userInputContinuations[roomID] = cont
+            }
+            userInputContinuations.removeValue(forKey: roomID)
+            guard !Task.isCancelled else { return }
+
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].isDiscussionCheckpoint = false
+                rooms[i].transitionTo(.inProgress)
             }
 
-            // 최소 2라운드 이상 + 과반 합의 → 종료
-            if round >= 1 && agreedCount > agentIDs.count / 2 {
-                let consensusMsg = ChatMessage(
-                    role: .system,
-                    content: "과반 합의 도달. 토론을 마무리합니다."
-                )
-                appendMessage(consensusMsg, to: roomID)
+            if feedback.isEmpty {
+                // "진행" → 토론 종료, 브리핑으로
                 break
+            } else {
+                // 사용자 피드백 → answerUserQuestion에서 이미 appendMessage 됨
+                let feedbackNote = ChatMessage(
+                    role: .system,
+                    content: "사용자 피드백을 반영하여 새 사이클을 시작합니다."
+                )
+                appendMessage(feedbackNote, to: roomID)
             }
         }
 
@@ -2503,7 +2588,8 @@ class RoomManager: ObservableObject {
         topic: String,
         agentID: UUID,
         roomID: UUID,
-        round: Int
+        round: Int,
+        roundType: DiscussionRoundType = .diverge
     ) async -> Bool {
         guard let agent = agentStore?.agents.first(where: { $0.id == agentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return false }
@@ -2537,6 +2623,17 @@ class RoomManager: ObservableObject {
         // 마스터(오케스트레이터) 여부 판별
         let isMasterAgent = agent.isMaster
 
+        // clarify 요약 앵커링 (토론 범위 제한)
+        let clarifyText = roomRef?.clarifySummary ?? ""
+        let anchorBlock = clarifyText.isEmpty ? "" : """
+
+        [사용자 확인 요약 — 이 범위를 벗어나지 마세요]
+        \(clarifyText)
+        """
+
+        // 라운드 타입별 지시
+        let roundInstruction = roundType.instruction
+
         let discussionPrompt: String
         if isMasterAgent {
             // 마스터: 요구사항 전달만, 직접 작업 금지
@@ -2545,6 +2642,7 @@ class RoomManager: ObservableObject {
             - 전문가에게 사용자의 요구사항을 간결하게 전달
             - 전문가의 질문에 답변
             - 작업 방향이 맞는지 확인하고, 전문가의 업무를 대신 수행하지 않습니다
+            \(anchorBlock)
 
             [절대 금지] 다른 에이전트(\(specialistDesc)) 역할로 발언하거나, 그들의 발언을 대신 작성
             [절대 금지] **[백엔드 개발자]** 등 다른 이름으로 발언 — 반드시 \(agent.name)으로만 발언
@@ -2552,6 +2650,7 @@ class RoomManager: ObservableObject {
 
             [회의실] \(topic)
             라운드 \(round + 1) | 전문가: \(specialistDesc)
+            \(roundInstruction)
 
             \(agent.name)으로서 2문장 이내로 발언하세요. 전문가들은 별도로 자기 차례에 발언합니다.
             이름 헤더(**[이름]** 등)를 붙이지 마세요. UI가 화자를 표시합니다.
@@ -2562,10 +2661,12 @@ class RoomManager: ObservableObject {
             let masterNote = masterAgent != nil ? "\(masterAgent!.name)은 진행자입니다. 전문적인 질문은 다른 전문가에게 직접 하세요." : ""
             discussionPrompt = """
             \(agent.resolvedSystemPrompt)
+            \(anchorBlock)
 
             [회의실] \(topic)
             라운드 \(round + 1) | 동료: \(otherNames)
             \(masterNote)
+            \(roundInstruction)
 
             첨부된 이미지나 파일이 있으면 내용을 확인하고 참고하세요.
             2-4문장으로 핵심만 말하세요.
@@ -2659,14 +2760,22 @@ class RoomManager: ObservableObject {
         let artifactList = room.artifacts.isEmpty ? "" :
             "\n\n산출물 목록:\n" + room.artifacts.map { "- [\($0.type.displayName)] \($0.title)" }.joined(separator: "\n")
 
+        // 원래 사용자 요청 앵커링
+        let originalContext: String
+        if let summary = room.clarifySummary {
+            originalContext = "[원래 사용자 요청]\n\(summary)\n\n"
+        } else {
+            originalContext = ""
+        }
+
         let briefingPrompt = """
-        토론 내용을 분석하여 실행팀을 위한 브리핑 문서를 JSON으로 작성하세요.\(artifactList)
+        \(originalContext)토론 내용을 분석하여 실행팀을 위한 브리핑 문서를 JSON으로 작성하세요.\(artifactList)
 
         반드시 아래 형식의 JSON으로만 응답하세요:
         {"summary": "작업 요약 2-3문장", "key_decisions": ["결정1", "결정2"], "agent_responsibilities": {"에이전트명": "담당역할"}, "open_issues": ["미결사항"]}
 
         규칙:
-        - summary: 팀이 합의한 방향과 핵심 목표 (2-3문장)
+        - summary: 팀이 합의한 방향과 핵심 목표 (2-3문장). 반드시 원래 사용자 요청 범위 내에서 작성
         - key_decisions: 토론에서 확정된 결정사항 (3-5개)
         - agent_responsibilities: 각 참여자의 담당 역할 (토론에서 드러난 전문성 기반)
         - open_issues: 추가 논의가 필요한 미결 사항 (없으면 빈 배열)

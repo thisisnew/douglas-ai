@@ -79,6 +79,8 @@ struct AddProviderSheet: View {
                             SecureField("API Key (sk-...)", text: $openAIKey)
                                 .textFieldStyle(.plain)
                                 .font(.body)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                                 .padding(10)
                                 .background(palette.inputBackground)
                                 .continuousRadius(DesignTokens.CozyGame.cardRadius)
@@ -119,6 +121,8 @@ struct AddProviderSheet: View {
                             SecureField("API Key (AIza...)", text: $googleKey)
                                 .textFieldStyle(.plain)
                                 .font(.body)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                                 .padding(10)
                                 .background(palette.inputBackground)
                                 .continuousRadius(DesignTokens.CozyGame.cardRadius)
@@ -192,6 +196,8 @@ struct AddProviderSheet: View {
                                 }
                                 .textFieldStyle(.plain)
                                 .font(.body)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
 
                                 Button {
                                     showJiraToken.toggle()

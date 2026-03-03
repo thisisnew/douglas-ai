@@ -412,7 +412,10 @@ struct EditAgentSheet: View {
     private var isFormValid: Bool {
         let baseValid = !name.isEmpty && !persona.isEmpty
         if agent.isMaster { return baseValid }
-        return baseValid && hasValidRules
+        // 기존 에이전트(rules 없이 생성)도 저장 가능 — rules 입력 시작하면 유효성 검사
+        let rulesEdited = !inlineRules.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !rulesFilePaths.isEmpty
+        let hadNoRules = agent.workingRules == nil
+        return baseValid && (rulesEdited || hadNoRules)
     }
 
     private var hasValidRules: Bool {

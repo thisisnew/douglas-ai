@@ -897,11 +897,12 @@ executeWithTools() 루프 (최대 10회):
 ```
 
 - **Intent 분류** (`IntentClassifier`): 규칙 기반 즉시 분류 (`quickClassify`) → 실패 시 LLM 분류 (`classifyWithLLM`). `quickClassify`가 nil(판단 불가)이면 `executeIntentPhase`에서 LLM 추천 intent와 함께 **IntentSelectionCard** UI를 표시하여 사용자가 4종 intent 중 선택. `pendingIntentSelection` + `intentContinuations`으로 비동기 게이트 구현. 분류 실패 시 `.quickAnswer` 폴백 (가장 가벼운 워크플로우).
-- **복명복창 Clarify** (`executeClarifyPhase`): DOUGLAS가 요청을 요약 → 사용자 승인/거부 → 거부 시 피드백 반영 재요약 → 승인까지 무한 반복.
+- **복명복창 Clarify** (`executeClarifyPhase`): DOUGLAS가 요청을 요약 → 사용자 승인/거부 → 거부 시 피드백 반영 재요약 → 승인까지 무한 반복. 승인 시 `room.clarifySummary`에 저장 → 이후 토론/브리핑/계획 프롬프트에서 의도 앵커링용으로 참조.
 - **PlanMode 분기** (`executePlanPhase`):
   - `.skip`: Plan 단계 건너뜀 (quickAnswer)
   - `.lite`: 토론(필요 시) + 산출물 정리만 (research)
   - `.exec`: 토론(필요 시) + 계획 수립 + 승인(implementation만) (documentation, implementation)
+- **토론 알고리즘** (`executeDiscussion`): 발산→수렴→합의 = 1사이클. 매 사이클 후 사용자 체크포인트 (DiscussionCheckpointCard). 사용자 피드백 시 새 사이클, "진행" 시 브리핑으로. 최대 3사이클 (9라운드). `DiscussionRoundType`: `.diverge`(발산) / `.converge`(수렴) / `.conclude`(합의) — 각 라운드마다 목적별 프롬프트 지시. 모든 에이전트 프롬프트에 `clarifySummary` 앵커링 포함.
 - **quickAnswer** (`executeQuickAnswer`): 전문가 1명이 도구 포함 즉답
 - **실행 시 마스터 제외** (`executingAgentIDs`): `agent.isMaster`이면 실행 대상에서 제외
 - **계획 수립**: 전문가가 생성 (마스터 제외). 계획 JSON은 사용자에게 숨김.
@@ -934,8 +935,8 @@ executeWithTools() 루프 (최대 10회):
 
 **QA 루프** (`runQALoop`): 빌드 루프 성공 후 `testCommand`가 있으면 자동 실행. `BuildLoopRunner.runTests()` → 실패 시 QA 에이전트(이름/페르소나에 "QA" 키워드 포함)에게 수정 프롬프트 → 재테스트 (최대 `maxQARetries`회).
 
-**컨텍스트 압축**: 토론 종료 후 `generateBriefing()`이 전체 히스토리를 JSON 브리핑으로 압축.
-- 계획 수립: 브리핑 + 산출물만 전달 (40msg → ~500토큰)
+**컨텍스트 압축**: 토론 종료 후 `generateBriefing()`이 전체 히스토리를 JSON 브리핑으로 압축. 브리핑/계획 프롬프트에 `clarifySummary`(원래 사용자 요청) 포함 → 탈선 방지.
+- 계획 수립: 브리핑 + 산출물만 전달 (40msg → ~500토큰) + 원래 요청 앵커
 - 실행 단계: 브리핑 + 최근 5개 메시지 (`buildRoomHistory(limit: 5)`)
 - 브리핑 없으면 기존 히스토리 폴백
 
@@ -1014,7 +1015,7 @@ executeWithTools() 루프 (최대 10회):
 ② Intent ── 작업 유형 표시 (방 생성 시 IntentClassifier가 분류)
 ③ Clarify ─ 복명복창 (DOUGLAS 요약 → 사용자 컨펌까지 무한 루프)
 ④ Assemble ─ 전문가 초대 (AgentMatcher → 미매칭 시 생성 제안)
-⑤ Plan ──── PlanMode 분기: skip / lite(토론→정리) / exec(토론→계획→승인)
+⑤ Plan ──── PlanMode 분기: skip / lite(토론→정리) / exec(토론→계획→승인) — 토론: 발산→수렴→합의 사이클 + 사용자 체크포인트
 ⑥ Execute ── quickAnswer(즉답) / 표준 실행(단계별)
 ⑦ Review ─── 작업일지 + 플레이북 override 감지
 ```

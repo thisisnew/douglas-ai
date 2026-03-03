@@ -1,5 +1,33 @@
 import Foundation
 
+// MARK: - 토론 라운드 타입
+
+/// 토론 라운드의 목적 (발산→수렴→합의 = 1사이클)
+enum DiscussionRoundType: String, Codable {
+    case diverge   // 발산: 각자 의견 자유 제시
+    case converge  // 수렴: 반론/보완, 공통점 탐색
+    case conclude  // 합의: 결론 도출
+
+    var label: String {
+        switch self {
+        case .diverge:  return "발산"
+        case .converge: return "수렴"
+        case .conclude: return "합의"
+        }
+    }
+
+    var instruction: String {
+        switch self {
+        case .diverge:
+            return "[이번 라운드 목적: 발산] 자유롭게 의견을 제시하세요. 다양한 관점에서 접근합니다."
+        case .converge:
+            return "[이번 라운드 목적: 수렴] 다른 참여자의 의견을 검토하고 반론하거나 보완하세요. 공통점을 찾으세요."
+        case .conclude:
+            return "[이번 라운드 목적: 합의] 핵심 합의점을 도출하세요. 결론을 정리하고 반드시 [합의] 태그를 붙이세요."
+        }
+    }
+}
+
 // MARK: - 방 모드
 
 enum RoomMode: String, Codable {
@@ -291,6 +319,10 @@ struct Room: Identifiable, Codable {
     var playbook: ProjectPlaybook?
     var intakeData: IntakeData?
     var clarifyQuestionCount: Int
+    /// 복명복창에서 사용자가 승인한 요약 (토론 의도 앵커링용)
+    var clarifySummary: String?
+    /// 토론 사이클 후 사용자 체크포인트 대기 여부
+    var isDiscussionCheckpoint: Bool
     // 토론 결정 로그
     var decisionLog: [DecisionEntry]
 
@@ -434,6 +466,8 @@ struct Room: Identifiable, Codable {
         self.playbook = nil
         self.intakeData = nil
         self.clarifyQuestionCount = 0
+        self.clarifySummary = nil
+        self.isDiscussionCheckpoint = false
         self.decisionLog = []
     }
 
@@ -489,6 +523,8 @@ struct Room: Identifiable, Codable {
         playbook = try container.decodeIfPresent(ProjectPlaybook.self, forKey: .playbook)
         intakeData = try container.decodeIfPresent(IntakeData.self, forKey: .intakeData)
         clarifyQuestionCount = try container.decodeIfPresent(Int.self, forKey: .clarifyQuestionCount) ?? 0
+        clarifySummary = try container.decodeIfPresent(String.self, forKey: .clarifySummary)
+        isDiscussionCheckpoint = try container.decodeIfPresent(Bool.self, forKey: .isDiscussionCheckpoint) ?? false
         decisionLog = try container.decodeIfPresent([DecisionEntry].self, forKey: .decisionLog) ?? []
     }
 }

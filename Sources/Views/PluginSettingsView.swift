@@ -9,6 +9,7 @@ struct PluginSettingsView: View {
 
     @State private var expandedPluginID: String?
     @State private var installMessage: String?
+    @State private var showBuilder = false
 
     var body: some View {
         ScrollView {
@@ -20,13 +21,22 @@ struct PluginSettingsView: View {
                     .foregroundColor(palette.textPrimary)
                 Spacer()
                 Button {
+                    showBuilder = true
+                } label: {
+                    Label("만들기", systemImage: "hammer")
+                        .font(.system(size: DesignTokens.FontSize.xs, weight: .medium, design: .rounded))
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(palette.accent)
+
+                Button {
                     installFromFolder()
                 } label: {
                     Label("설치", systemImage: "plus.circle")
                         .font(.system(size: DesignTokens.FontSize.xs, weight: .medium, design: .rounded))
                 }
                 .buttonStyle(.plain)
-                .foregroundColor(palette.accent)
+                .foregroundColor(palette.textSecondary)
             }
 
             // 설치 결과 메시지
@@ -61,6 +71,10 @@ struct PluginSettingsView: View {
         }
         .frame(width: isEmbedded ? nil : 320)
         .frame(maxWidth: isEmbedded ? .infinity : nil, maxHeight: isEmbedded ? .infinity : nil)
+        .sheet(isPresented: $showBuilder) {
+            PluginBuilderSheet()
+                .environmentObject(pluginManager)
+        }
     }
 
     // MARK: - 플러그인 행
@@ -133,8 +147,21 @@ struct PluginSettingsView: View {
                     .buttonStyle(.plain)
                 }
 
-                // 외부 플러그인만 제거 가능
-                if plugin is ScriptPlugin {
+                // 외부 플러그인만 제거 + 스크립트 열기 가능
+                if let scriptPlugin = plugin as? ScriptPlugin {
+                    Button {
+                        NSWorkspace.shared.open(scriptPlugin.pluginDirectory)
+                    } label: {
+                        HStack(spacing: 2) {
+                            Image(systemName: "doc.text")
+                                .font(.system(size: 9))
+                            Text("스크립트 열기")
+                                .font(.system(size: DesignTokens.FontSize.xs, weight: .medium, design: .rounded))
+                        }
+                        .foregroundColor(palette.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+
                     Spacer()
                     Button {
                         Task {

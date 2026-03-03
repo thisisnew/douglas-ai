@@ -69,10 +69,15 @@ struct RoomChatView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
-                // 사용자 입력 카드 (ask_user 도구 활성 시)
+                // 사용자 입력 카드
                 if room.status == .awaitingUserInput {
-                    UserInputCard(roomID: room.id)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    if room.isDiscussionCheckpoint {
+                        DiscussionCheckpointCard(roomID: room.id)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    } else {
+                        UserInputCard(roomID: room.id)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                 }
 
                 Rectangle()
@@ -1189,6 +1194,75 @@ struct UserInputCard: View {
     }
 }
 
+// MARK: - 토론 체크포인트 카드
+
+struct DiscussionCheckpointCard: View {
+    let roomID: UUID
+    @EnvironmentObject var roomManager: RoomManager
+    @Environment(\.colorPalette) private var palette
+    @State private var inputText = ""
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        CardContainer(accentColor: .orange, opacity: 0.08) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                        .font(.caption)
+                        .foregroundColor(.orange.opacity(0.7))
+                    Text("하실 말씀 있으신가요?")
+                        .font(.caption2.bold())
+                        .foregroundColor(.primary)
+                }
+
+                HStack(spacing: 8) {
+                    TextField("방향 수정, 추가 요구사항...", text: $inputText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12, design: .rounded))
+                        .padding(6)
+                        .background(palette.inputBackground)
+                        .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                                .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1)
+                        )
+                        .focused($isFocused)
+                        .onSubmit { submitFeedback() }
+
+                    Button("전송") { submitFeedback() }
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(inputText.trimmingCharacters(in: .whitespaces).isEmpty ? Color.gray.opacity(0.6) : palette.accent)
+                        .continuousRadius(DesignTokens.CozyGame.buttonRadius)
+                        .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty)
+
+                    Button("진행") { proceed() }
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Color.green.opacity(0.8))
+                        .continuousRadius(DesignTokens.CozyGame.buttonRadius)
+                }
+            }
+        }
+        .onAppear { isFocused = true }
+    }
+
+    private func submitFeedback() {
+        let feedback = inputText.trimmingCharacters(in: .whitespaces)
+        guard !feedback.isEmpty else { return }
+        inputText = ""
+        roomManager.answerUserQuestion(roomID: roomID, answer: feedback)
+    }
+
+    private func proceed() {
+        roomManager.proceedDiscussion(roomID: roomID)
+    }
+}
+
 // MARK: - Intent 선택 카드
 
 struct IntentSelectionCard: View {
@@ -1273,19 +1347,19 @@ struct AgentSuggestionCard: View {
     @State private var showAddSheet = false
 
     var body: some View {
-        CardContainer(accentColor: .orange, opacity: 0.06) {
+        CardContainer(accentColor: palette.accent, opacity: 0.06) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Image(systemName: "person.badge.plus")
                         .font(.caption)
-                        .foregroundColor(.orange.opacity(0.7))
+                        .foregroundColor(palette.accent.opacity(0.7))
                     Text("에이전트 생성 제안")
                         .font(.caption2.bold())
-                        .foregroundColor(.orange.opacity(0.7))
+                        .foregroundColor(palette.accent.opacity(0.7))
                     Spacer()
                     Text(suggestion.suggestedBy)
                         .font(.system(size: DesignTokens.FontSize.badge))
-                        .foregroundColor(.secondary)
+                        .foregroundColor(palette.textSecondary)
                 }
 
                 Text(suggestion.name)
@@ -1303,37 +1377,48 @@ struct AgentSuggestionCard: View {
                         .foregroundColor(.secondary)
                 }
 
-                HStack {
+                HStack(spacing: 8) {
                     Spacer()
-                    Button("건너뛰기") {
+                    Button {
                         roomManager.rejectAgentSuggestion(suggestionID: suggestion.id, in: roomID)
+                    } label: {
+                        Text("건너뛰기")
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundColor(palette.textSecondary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
+                                    .fill(palette.inputBackground)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
+                                    .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1)
+                            )
+                            .shadow(color: palette.buttonShadow.opacity(0.1), radius: 2, y: 1)
                     }
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(palette.inputBackground)
-                    .continuousRadius(DesignTokens.CozyGame.buttonRadius)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
-                            .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1)
-                    )
+                    .buttonStyle(.plain)
 
-                    Button("추가") {
+                    Button {
                         showAddSheet = true
+                    } label: {
+                        Text("추가")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [palette.accent.opacity(0.9), palette.accent],
+                                            startPoint: .top, endPoint: .bottom
+                                        )
+                                    )
+                            )
+                            .shadow(color: palette.buttonShadow.opacity(0.25), radius: 4, y: DesignTokens.CozyGame.buttonShadowY)
                     }
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(
-                        LinearGradient(
-                            colors: [Color.orange.opacity(0.8), Color.orange.opacity(0.9)],
-                            startPoint: .top, endPoint: .bottom
-                        )
-                    )
-                    .continuousRadius(DesignTokens.CozyGame.buttonRadius)
-                    .shadow(color: Color.orange.opacity(0.2), radius: 3, y: 2)
+                    .buttonStyle(.plain)
                 }
             }
         }
