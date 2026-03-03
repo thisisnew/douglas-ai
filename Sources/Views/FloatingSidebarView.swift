@@ -24,6 +24,7 @@ final class UtilityWindowManager {
         chatVM: ChatViewModel,
         roomManager: RoomManager? = nil,
         themeManager: ThemeManager? = nil,
+        pluginManager: PluginManager? = nil,
         @ViewBuilder content: () -> Content
     ) {
         // 같은 identifier의 윈도우가 이미 열려 있으면 포커스만
@@ -50,6 +51,9 @@ final class UtilityWindowManager {
             .environmentObject(chatVM))
         if let roomMgr = roomManager {
             rootView = AnyView(rootView.environmentObject(roomMgr))
+        }
+        if let pm = pluginManager {
+            rootView = AnyView(rootView.environmentObject(pm))
         }
         if let tm = themeManager {
             rootView = AnyView(
@@ -204,21 +208,36 @@ final class SlashMenuState: ObservableObject {
     }
 }
 
-// MARK: - 코지 아이콘 버튼 스타일 (호버 시 부드러운 배경)
+// MARK: - 귀엽뽀짝 헤더 버튼 스타일
 
-private struct CozyIconButtonStyle: ButtonStyle {
+private struct CuteHeaderButtonStyle: ButtonStyle {
+    let tint: Color
+
     @Environment(\.colorPalette) private var palette
     @State private var isHovered = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isHovered ? palette.hoverBackground : Color.clear)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(isHovered ? tint.opacity(0.18) : tint.opacity(0.08))
             )
-            .scaleEffect(configuration.isPressed ? 0.9 : 1.0)
-            .animation(.dgFast, value: isHovered)
-            .animation(.dgFast, value: configuration.isPressed)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(
+                        isHovered ? tint.opacity(0.35) : tint.opacity(0.12),
+                        lineWidth: 1
+                    )
+            )
+            .shadow(
+                color: isHovered ? tint.opacity(0.18) : .clear,
+                radius: isHovered ? 6 : 0,
+                y: isHovered ? 2 : 0
+            )
+            .scaleEffect(configuration.isPressed ? 0.88 : isHovered ? 1.06 : 1.0)
+            .offset(y: configuration.isPressed ? 1.5 : 0)
+            .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
             .onHover { isHovered = $0 }
     }
 }
@@ -231,6 +250,7 @@ struct FloatingSidebarView: View {
     @EnvironmentObject var chatVM: ChatViewModel
     @EnvironmentObject var roomManager: RoomManager
     @EnvironmentObject var themeManager: ThemeManager
+    @EnvironmentObject var pluginManager: PluginManager
     @Environment(\.colorPalette) private var palette
 
     @State private var inputText = ""
@@ -255,9 +275,6 @@ struct FloatingSidebarView: View {
     /// 아바타 확대 보기
     @State private var enlargedAvatarAgent: Agent?
     @State private var showEnlargedProfile = false
-    @State private var showThemePopover = false
-    @State private var showPluginPopover = false
-
     private var masterAgent: Agent? { agentStore.masterAgent }
     private var masterID: UUID? { masterAgent?.id }
 
@@ -442,23 +459,30 @@ struct FloatingSidebarView: View {
 
     // MARK: - 헤더
 
-    /// 호버 시 부드러운 배경이 나타나는 아이콘 버튼
-    private func cozyIconButton(
-        _ icon: String, size: CGFloat = 13, help: String, action: @escaping () -> Void
+    /// 파스텔 틴트의 귀여운 헤더 버튼
+    private func cuteHeaderButton(
+        icon: String,
+        label: String,
+        tint: Color,
+        action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: size))
-                .foregroundColor(.secondary)
-                .frame(width: 26, height: 26)
-                .contentShape(Rectangle())
+            VStack(spacing: 2) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(label)
+                    .font(.system(size: 7.5, weight: .semibold, design: .rounded))
+            }
+            .foregroundColor(tint)
+            .frame(width: 38, height: 34)
+            .contentShape(Rectangle())
         }
-        .buttonStyle(CozyIconButtonStyle())
-        .help(help)
+        .buttonStyle(CuteHeaderButtonStyle(tint: tint))
+        .help(label)
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             // 프로필 이미지
             ProfileImageView(size: 28)
                 .onTapGesture { showEnlargedProfile = true }
@@ -467,33 +491,36 @@ struct FloatingSidebarView: View {
                 .tracking(1.5)
             Spacer()
 
-            cozyIconButton("plus.circle", help: "에이전트 추가") { openAddAgentWindow() }
-            cozyIconButton("clock.arrow.circlepath", help: "작업일지") { openWorkLogWindow() }
-            cozyIconButton("gearshape", help: "API 설정") { openProviderWindow() }
+            cuteHeaderButton(
+                icon: "person.badge.plus",
+                label: "추가",
+                tint: Color(red: 0.55, green: 0.80, blue: 0.62)
+            ) { openAddAgentWindow() }
 
-            cozyIconButton("puzzlepiece", help: "플러그인") { showPluginPopover.toggle() }
-                .popover(isPresented: $showPluginPopover, arrowEdge: .bottom) {
-                    PluginSettingsView()
-                        .environment(\.colorPalette, themeManager.currentPalette)
-                }
+            cuteHeaderButton(
+                icon: "text.book.closed",
+                label: "일지",
+                tint: Color(red: 0.93, green: 0.73, blue: 0.52)
+            ) { openWorkLogWindow() }
 
-            cozyIconButton("paintpalette", help: "테마 변경") { showThemePopover.toggle() }
-                .popover(isPresented: $showThemePopover, arrowEdge: .bottom) {
-                    ThemeSettingsView()
-                        .environmentObject(themeManager)
-                        .environment(\.colorPalette, themeManager.currentPalette)
-                }
+            cuteHeaderButton(
+                icon: "gearshape.fill",
+                label: "설정",
+                tint: Color(red: 0.70, green: 0.55, blue: 0.82)
+            ) { openSettingsWindow() }
 
             // 사이드바 숨기기
             Button(action: {
                 NotificationCenter.default.post(name: .sidebarHideRequested, object: nil)
             }) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(.secondary.opacity(0.6))
-                    .frame(width: 20, height: 20)
-                    .background(palette.closeButton)
-                    .clipShape(Circle())
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(palette.textSecondary.opacity(0.5))
+                    .frame(width: 18, height: 18)
+                    .background(
+                        Circle()
+                            .fill(palette.closeButton)
+                    )
             }
             .buttonStyle(.plain)
             .help("사이드바 닫기")
@@ -1113,11 +1140,12 @@ struct FloatingSidebarView: View {
         }
     }
 
-    private func openProviderWindow() {
-        UtilityWindowManager.shared.open(title: "API 설정",
-            width: DesignTokens.WindowSize.providerSheet.width, height: DesignTokens.WindowSize.providerSheet.height,
-            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, themeManager: themeManager) {
-            AddProviderSheet()
+    private func openSettingsWindow() {
+        UtilityWindowManager.shared.open(title: "설정", identifier: "UnifiedSettings",
+            width: DesignTokens.WindowSize.settingsSheet.width, height: DesignTokens.WindowSize.settingsSheet.height,
+            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM,
+            themeManager: themeManager, pluginManager: pluginManager) {
+            SettingsTabView()
         }
     }
 

@@ -291,6 +291,7 @@ enum DesignTokens {
         static let roomChat = CGSize(width: 520, height: 600)
         static let workLog = CGSize(width: 520, height: 560)
         static let onboarding = CGSize(width: 520, height: 560)
+        static let settingsSheet = CGSize(width: 500, height: 620)
     }
 
     // MARK: - 레이아웃 상수

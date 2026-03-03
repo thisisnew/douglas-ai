@@ -109,6 +109,7 @@ DOUGLAS/
 │       ├── CozyGameComponents.swift # 코지 게임 UI 컴포넌트 (CozyButtonStyle, CozyPanelModifier, CozyProgressBar 등)
 │       ├── ThemeEnvironment.swift   # 테마 환경 (ThemedView, colorPalette EnvironmentKey, .fontDesign(.rounded) 전역 적용)
 │       ├── ThemeSettingsView.swift  # 테마 설정 뷰 (테마 카드 프리뷰, 커스텀 색상 선택)
+│       ├── SettingsTabView.swift   # 통합 설정 윈도우 (API 설정 / 테마 / 플러그인 탭)
 │       ├── SharedComponents.swift   # 공유 UI 컴포넌트 (SheetNavHeader, CardContainer, SendButton 등)
 │       ├── ProgressActivityBubble.swift # 확장형 진행 버블 (활동 로그 인라인 표시)
 │       ├── TypingIndicator.swift    # 타이핑 인디케이터 (점 바운스 애니메이션, 경과 시간 표시)
@@ -702,13 +703,20 @@ MessageType에 따른 시각 차별화:
 - 페르소나: TextEditor
 - 프로바이더/모델: Picker (동적 모델 목록 로딩)
 
-### AddProviderSheet (`Views/AddProviderSheet.swift`)
+### 통합 설정 윈도우 (`Views/SettingsTabView.swift`)
 
-프로바이더 설정 UI:
-- **Claude Code**: CLI 경로 표시, 연결 상태 확인
-- **OpenAI**: SecureField로 API 키 입력, 연결 테스트, 저장
-- **Google**: SecureField로 API 키 입력, 연결 테스트, 저장
-- **Jira Cloud**: 도메인 + 이메일 + API 토큰 설정 (JiraConfig에 저장, web_fetch 도구에서 사용)
+기존 분산된 설정 (API 설정 윈도우, 테마 팝오버, 플러그인 팝오버)을 **3탭 통합 윈도우**로 병합:
+- **API 설정** 탭: AddProviderSheet(isEmbedded: true) — Claude Code, OpenAI, Google, Jira Cloud
+- **테마** 탭: ThemeSettingsView(isEmbedded: true) — 프리셋 3종 + 커스텀 색상
+- **플러그인** 탭: PluginSettingsView(isEmbedded: true) — 빌트인/외부 플러그인 관리
+
+헤더의 "설정" 버튼 하나로 진입. `UtilityWindowManager`에 `pluginManager` 환경 주입 추가.
+
+### 헤더 버튼 디자인 (`CuteHeaderButtonStyle`)
+
+사이드바 헤더 버튼을 코지 게임 톤에 맞는 파스텔 컬러 귀여운 스타일로 교체:
+- 3개 버튼: 추가(민트), 일지(앰버), 설정(라벤더)
+- 각 버튼: 아이콘 + 라벨, 파스텔 배경, 호버 글로우, 스프링 눌림 효과
 
 ---
 

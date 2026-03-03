@@ -1,7 +1,9 @@
 import SwiftUI
 
-/// 플러그인 관리 팝오버 — 플러그인 목록 + 활성화 토글 + 설정 + 설치/제거
+/// 플러그인 관리 — 플러그인 목록 + 활성화 토글 + 설정 + 설치/제거
 struct PluginSettingsView: View {
+    var isEmbedded = false
+
     @EnvironmentObject var pluginManager: PluginManager
     @Environment(\.colorPalette) private var palette
 
@@ -9,6 +11,7 @@ struct PluginSettingsView: View {
     @State private var installMessage: String?
 
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 12) {
             // 헤더 + 설치 버튼
             HStack {
@@ -54,8 +57,10 @@ struct PluginSettingsView: View {
                 }
             }
         }
-        .padding(16)
-        .frame(width: 320)
+        .padding(isEmbedded ? 24 : 16)
+        }
+        .frame(width: isEmbedded ? nil : 320)
+        .frame(maxWidth: isEmbedded ? .infinity : nil, maxHeight: isEmbedded ? .infinity : nil)
     }
 
     // MARK: - 플러그인 행

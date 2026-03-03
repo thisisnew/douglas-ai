@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct AddProviderSheet: View {
+    var isEmbedded = false
+
     @Environment(\.colorPalette) private var palette
     @EnvironmentObject var providerManager: ProviderManager
     @Environment(\.dismiss) private var dismiss
@@ -20,12 +22,14 @@ struct AddProviderSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            SheetNavHeader(title: "API 설정") {
-                EmptyView()
-            } trailing: {
-                Button("완료") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                    .buttonStyle(CozyButtonStyle(.accent))
+            if !isEmbedded {
+                SheetNavHeader(title: "API 설정") {
+                    EmptyView()
+                } trailing: {
+                    Button("완료") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
+                        .buttonStyle(CozyButtonStyle(.accent))
+                }
             }
 
             ScrollView {
@@ -202,7 +206,11 @@ struct AddProviderSheet: View {
                 .padding(24)
             }
         }
-        .frame(width: DesignTokens.WindowSize.providerSheet.width, height: DesignTokens.WindowSize.providerSheet.height)
+        .frame(
+            width: isEmbedded ? nil : DesignTokens.WindowSize.providerSheet.width,
+            height: isEmbedded ? nil : DesignTokens.WindowSize.providerSheet.height
+        )
+        .frame(maxWidth: isEmbedded ? .infinity : nil, maxHeight: isEmbedded ? .infinity : nil)
     }
 
     // MARK: - Components
