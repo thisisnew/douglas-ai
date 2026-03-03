@@ -22,9 +22,9 @@ enum RoomFilter: String, CaseIterable {
     var color: Color {
         switch self {
         case .all:       return .primary
-        case .active:    return .orange
-        case .completed: return .green
-        case .failed:    return .red
+        case .active:    return .orange.opacity(0.7)
+        case .completed: return .green.opacity(0.7)
+        case .failed:    return .red.opacity(0.7)
         }
     }
 }
@@ -88,8 +88,8 @@ struct RoomListView: View {
             if filteredRooms.isEmpty {
                 Spacer()
                 Text(selectedFilter == .all ? "아직 방이 없습니다" : "'\(selectedFilter.rawValue)' 상태의 방이 없습니다")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary.opacity(0.6))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.secondary.opacity(0.5))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .multilineTextAlignment(.center)
                 Spacer()
@@ -241,12 +241,12 @@ struct RoomListView: View {
                         Text("완료 (\(activeSelectedCount))")
                             .font(.system(size: 11, weight: .medium))
                     }
-                    .foregroundColor(.green)
+                    .foregroundColor(.green.opacity(0.7))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .background(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color.green.opacity(0.12))
+                            .fill(Color.green.opacity(0.08))
                     )
                 }
                 .buttonStyle(.plain)
@@ -262,12 +262,12 @@ struct RoomListView: View {
                     Text("삭제 (\(selectedIDs.count))")
                         .font(.system(size: 11, weight: .medium))
                 }
-                .foregroundColor(.red)
+                .foregroundColor(.red.opacity(0.7))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.red.opacity(0.12))
+                        .fill(Color.red.opacity(0.08))
                 )
             }
             .buttonStyle(.plain)
@@ -435,7 +435,7 @@ struct RoomListItem: View {
                             .foregroundColor(.white)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Capsule().fill(Color.orange))
+                            .background(Capsule().fill(Color.orange.opacity(0.7)))
                     }
                 }
             }

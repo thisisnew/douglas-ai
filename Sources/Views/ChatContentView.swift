@@ -89,8 +89,8 @@ struct ChatContentView: View {
                 Text(agent.isMaster
                      ? "안녕하세요! 무엇을 도와드릴까요?"
                      : "\(agent.name)에게 메시지를 보내보세요.")
-                    .font(.title3)
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(.secondary.opacity(0.6))
             }
             Spacer()
         }

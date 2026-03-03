@@ -512,7 +512,7 @@ struct FloatingSidebarView: View {
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(.white)
                             .frame(width: 16, height: 16)
-                            .background(isBusy ? Color.red : Color.accentColor)
+                            .background(isBusy ? Color.red.opacity(0.7) : Color.accentColor)
                             .clipShape(Circle())
                             .offset(x: 4, y: -4)
                     }
@@ -527,7 +527,7 @@ struct FloatingSidebarView: View {
                     }
                 }
                 // 바쁨 그림자
-                .shadow(color: isBusy ? Color.red.opacity(0.4) : .clear, radius: 4)
+                .shadow(color: isBusy ? Color.red.opacity(0.3) : .clear, radius: 4)
                 // 에이전트-방 팝오버
                 .popover(isPresented: Binding(
                     get: { popoverAgentID == agent.id },
@@ -570,7 +570,7 @@ struct FloatingSidebarView: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
-                        .background(Color.red.opacity(0.85))
+                        .background(Color.red.opacity(0.7))
                         .clipShape(Capsule())
                 }
             }
@@ -628,11 +628,11 @@ struct FloatingSidebarView: View {
                                 VStack(spacing: 8) {
                                     Spacer(minLength: 40)
                                     Text("어떤 작업을 해볼까요?")
-                                        .font(.title3)
-                                        .foregroundColor(.secondary)
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundColor(.secondary.opacity(0.6))
                                     Text("메시지를 입력하면 팀이 작업을 시작합니다")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary.opacity(0.7))
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(.secondary.opacity(0.4))
                                 }
                                 .frame(maxWidth: .infinity)
                             }
@@ -1095,12 +1095,12 @@ struct ProfileImageView: View {
         } else {
             // 폴백: 이니셜
             Circle()
-                .fill(Color.blue.opacity(0.2))
+                .fill(Color.accentColor.opacity(0.15))
                 .frame(width: size, height: size)
                 .overlay(
                     Text("D")
                         .font(.system(size: size * 0.4, weight: .bold))
-                        .foregroundColor(.blue)
+                        .foregroundColor(.accentColor.opacity(0.7))
                 )
         }
     }
@@ -1122,7 +1122,7 @@ struct AgentInfoSheet: View {
                     if agent.isMaster {
                         Text("총괄")
                             .font(.caption)
-                            .foregroundColor(.purple)
+                            .foregroundColor(.purple.opacity(0.7))
                     }
                 }
                 Spacer()
@@ -1171,7 +1171,7 @@ struct AgentInfoSheet: View {
                     Section("최근 오류") {
                         Text(err)
                             .font(.caption)
-                            .foregroundColor(.red)
+                            .foregroundColor(.red.opacity(0.7))
                             .textSelection(.enabled)
                     }
                 }
@@ -1252,10 +1252,10 @@ struct RoomOpenProgressRing: View {
             ZStack {
                 if isHovered {
                     Circle()
-                        .fill(Color.red.opacity(0.12))
+                        .fill(Color.red.opacity(0.08))
                     Image(systemName: "stop.fill")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.red)
+                        .foregroundColor(.red.opacity(0.7))
                 } else {
                     Circle()
                         .stroke(Color.accentColor.opacity(0.15), lineWidth: lineWidth)

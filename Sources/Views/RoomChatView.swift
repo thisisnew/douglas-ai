@@ -709,10 +709,10 @@ struct BuildStatusCard: View {
 
     private var statusColor: Color {
         switch room.buildLoopStatus {
-        case .building: return .orange
-        case .fixing:   return .yellow
-        case .passed:   return .green
-        case .failed:   return .red
+        case .building: return .orange.opacity(0.7)
+        case .fixing:   return .yellow.opacity(0.7)
+        case .passed:   return .green.opacity(0.7)
+        case .failed:   return .red.opacity(0.7)
         case .idle, .none: return .gray
         }
     }
@@ -727,11 +727,11 @@ struct BuildStatusCard: View {
         case .passed:
             Image(systemName: "checkmark.circle.fill")
                 .font(.caption)
-                .foregroundColor(.green)
+                .foregroundColor(.green.opacity(0.7))
         case .failed:
             Image(systemName: "xmark.circle.fill")
                 .font(.caption)
-                .foregroundColor(.red)
+                .foregroundColor(.red.opacity(0.7))
         case .idle, .none:
             Image(systemName: "hammer")
                 .font(.caption)
@@ -1198,10 +1198,10 @@ struct QAStatusCard: View {
 
     private var qaStatusColor: Color {
         switch room.qaLoopStatus {
-        case .testing:   return .teal
-        case .analyzing: return .yellow
-        case .passed:    return .green
-        case .failed:    return .red
+        case .testing:   return .teal.opacity(0.7)
+        case .analyzing: return .yellow.opacity(0.7)
+        case .passed:    return .green.opacity(0.7)
+        case .failed:    return .red.opacity(0.7)
         case .idle, .none: return .gray
         }
     }
@@ -1216,11 +1216,11 @@ struct QAStatusCard: View {
         case .passed:
             Image(systemName: "checkmark.shield.fill")
                 .font(.caption)
-                .foregroundColor(.green)
+                .foregroundColor(.green.opacity(0.7))
         case .failed:
             Image(systemName: "xmark.shield.fill")
                 .font(.caption)
-                .foregroundColor(.red)
+                .foregroundColor(.red.opacity(0.7))
         case .idle, .none:
             Image(systemName: "checkmark.shield")
                 .font(.caption)
