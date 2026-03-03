@@ -68,7 +68,7 @@ struct AddProviderSheet: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("OpenAI")
                                         .font(.body.weight(.medium))
-                                    Text("GPT-4o, GPT-4o-mini")
+                                    Text("API Key로 사용 가능한 모델 연동")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
@@ -110,7 +110,7 @@ struct AddProviderSheet: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("Google Gemini")
                                         .font(.body.weight(.medium))
-                                    Text("Gemini 2.0 Flash, Pro")
+                                    Text("API Key로 사용 가능한 모델 연동")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
