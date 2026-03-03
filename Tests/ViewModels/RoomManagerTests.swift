@@ -8,11 +8,17 @@ struct RoomManagerTests {
 
     // MARK: - Helper
 
+    /// 테스트용 임시 디렉토리 (프로세스 단위 격리)
+    private static let testRoomDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("douglas-roommanager-tests-\(ProcessInfo.processInfo.processIdentifier)")
+
     private func makeManager() -> RoomManager {
-        RoomManager()
+        RoomManager.roomDirectoryOverride = Self.testRoomDir
+        return RoomManager()
     }
 
     private func makeConfiguredManager() -> (RoomManager, AgentStore, ProviderManager) {
+        RoomManager.roomDirectoryOverride = Self.testRoomDir
         let defaults = makeTestDefaults()
         let store = AgentStore(defaults: defaults)
         let providerManager = ProviderManager(defaults: defaults)
@@ -647,13 +653,13 @@ struct RoomManagerTests {
     // MARK: - saveRooms / loadRooms
 
     @Test("saveRooms / loadRooms 라운드트립")
-    func saveLoadRooms() async {
+    func saveLoadRooms() {
         let manager = makeManager()
         let room = manager.createRoom(title: "Persist Test", agentIDs: [], createdBy: .user)
         manager.appendMessage(ChatMessage(role: .user, content: "saved"), to: room.id)
 
-        // scheduleSave 디바운스 대기 (1초 디바운스 + 여유)
-        try? await Task.sleep(for: .milliseconds(1500))
+        // 디바운스 대기 대신 직접 저장
+        manager.saveRooms()
 
         let manager2 = makeManager()
         manager2.loadRooms()

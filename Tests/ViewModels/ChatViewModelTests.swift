@@ -270,7 +270,7 @@ struct ChatViewModelTests {
         let defaults = makeTestDefaults()
         let store = AgentStore(defaults: defaults)
         let providerManager = ProviderManager(defaults: defaults)
-        let roomManager = RoomManager()
+        let roomManager = makeTestRoomManager()
 
         vm.configure(agentStore: store, providerManager: providerManager, roomManager: roomManager)
         #expect(vm.agentStore != nil)

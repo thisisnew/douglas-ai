@@ -66,6 +66,15 @@ func mockHTTPResponse(url: String = "https://test.example.com", statusCode: Int 
     )!
 }
 
+/// 테스트용 RoomManager 팩토리 — 임시 디렉토리로 격리
+@MainActor
+func makeTestRoomManager() -> RoomManager {
+    let tmpDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("douglas-test-rooms-\(ProcessInfo.processInfo.processIdentifier)")
+    RoomManager.roomDirectoryOverride = tmpDir
+    return RoomManager()
+}
+
 /// @Sendable 클로저에서 mutable 값을 캡처하기 위한 thread-safe 박스
 final class CapturedValue<T: Sendable>: @unchecked Sendable {
     private let lock = NSLock()

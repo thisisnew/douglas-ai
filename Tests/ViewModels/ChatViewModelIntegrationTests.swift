@@ -58,7 +58,7 @@ struct ChatViewModelIntegrationTests {
         let mock = MockAIProvider()
         let (vm, store, providerManager, _) = makeConfiguredVM(mockProvider: mock)
 
-        let roomManager = RoomManager()
+        let roomManager = makeTestRoomManager()
         roomManager.configure(agentStore: store, providerManager: providerManager)
         vm.configure(agentStore: store, providerManager: providerManager, roomManager: roomManager)
 

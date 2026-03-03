@@ -28,6 +28,9 @@ class RoomManager: ObservableObject {
     /// 이전 사이클 완료 시점의 에이전트 수 (후속 사이클에서 에이전트 변동 감지용)
     private var previousCycleAgentCount: [UUID: Int] = [:]
 
+    /// 플러그인 이벤트 디스패치 (PluginManager가 설정)
+    var pluginEventDelegate: ((PluginEvent) -> Void)?
+
     // MARK: - 계산 프로퍼티
 
     var activeRooms: [Room] {
@@ -70,6 +73,7 @@ class RoomManager: ObservableObject {
         selectedRoomID = room.id
         syncAgentStatuses()
         scheduleSave()
+        pluginEventDelegate?(.roomCreated(roomID: room.id, title: room.title))
         return room
     }
 
@@ -106,6 +110,7 @@ class RoomManager: ObservableObject {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
         rooms[idx].messages.append(message)
         scheduleSave()
+        pluginEventDelegate?(.messageAdded(roomID: roomID, message: message))
     }
 
     // MARK: - 승인 게이트
@@ -318,6 +323,7 @@ class RoomManager: ObservableObject {
             rooms[i].currentPhase = nil
             rooms[i].status = .completed
             rooms[i].completedAt = Date()
+            pluginEventDelegate?(.roomCompleted(roomID: roomID, title: rooms[i].title))
         }
         syncAgentStatuses()
         scheduleSave()
@@ -603,6 +609,7 @@ class RoomManager: ObservableObject {
             rooms[i].currentPhase = nil
             rooms[i].status = .completed
             rooms[i].completedAt = Date()
+            pluginEventDelegate?(.roomCompleted(roomID: roomID, title: rooms[i].title))
         }
         syncAgentStatuses()
         scheduleSave()
@@ -1425,6 +1432,7 @@ class RoomManager: ObservableObject {
             rooms[i].currentPhase = nil
             rooms[i].status = .completed
             rooms[i].completedAt = Date()
+            pluginEventDelegate?(.roomCompleted(roomID: roomID, title: rooms[i].title))
         }
         syncAgentStatuses()
         scheduleSave()
@@ -3070,7 +3078,14 @@ class RoomManager: ObservableObject {
 
     // MARK: - 영속화
 
+    /// 테스트에서 임시 디렉토리로 교체 가능 (프로덕션에서는 nil)
+    static var roomDirectoryOverride: URL?
+
     private static var roomDirectory: URL {
+        if let override = roomDirectoryOverride {
+            try? FileManager.default.createDirectory(at: override, withIntermediateDirectories: true)
+            return override
+        }
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".agentmanager")
         let dir = appSupport.appendingPathComponent("DOUGLAS/rooms", isDirectory: true)
