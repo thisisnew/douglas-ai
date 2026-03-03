@@ -65,8 +65,8 @@ final class UtilityWindowManager {
         windowIdentifiers[window] = windowID
         windows.append(window)
 
-        // 사이드바보다 높은 레벨로 표시 (사이드바 조작 없이)
-        window.level = .floating + 1
+        // 일반 창 레벨 (다른 창 뒤로도 갈 수 있게)
+        window.level = .normal
         // MenuBarExtra 앱은 기본적으로 키보드 입력을 못 받음
         // → 유틸리티 윈도우가 열릴 때 .regular로 전환해서 TextField 입력 가능하게
         NSApp.setActivationPolicy(.regular)

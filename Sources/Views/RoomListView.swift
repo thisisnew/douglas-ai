@@ -36,6 +36,7 @@ struct RoomListView: View {
     @State private var isEditMode = false
     @State private var selectedIDs: Set<UUID> = []
     @State private var showDeleteConfirm = false
+    @State private var searchText = ""
     let onCreateRoom: () -> Void
     let onRoomTap: (UUID) -> Void
 
@@ -47,7 +48,15 @@ struct RoomListView: View {
     }
 
     private var filteredRooms: [Room] {
-        allRooms.filter { selectedFilter.matches($0) }
+        let byFilter = searchText.isEmpty
+            ? allRooms.filter { selectedFilter.matches($0) }
+            : allRooms // 검색 중이면 상태 필터 무시
+        guard !searchText.isEmpty else { return byFilter }
+        let query = searchText.lowercased()
+        return byFilter.filter { room in
+            room.title.lowercased().contains(query)
+            || room.messages.contains { $0.content.lowercased().contains(query) }
+        }
     }
 
     /// 필터별 방 개수
@@ -68,6 +77,32 @@ struct RoomListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // 검색 바
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary.opacity(0.5))
+                TextField("방 또는 메시지 검색...", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11))
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary.opacity(0.4))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Color.primary.opacity(0.04))
+            .continuousRadius(6)
+            .padding(.horizontal, 8)
+            .padding(.top, 6)
+
             // 상태 필터 바 + 액션 버튼
             HStack(spacing: 6) {
                 filterBar
@@ -87,7 +122,9 @@ struct RoomListView: View {
             // 방 리스트
             if filteredRooms.isEmpty {
                 Spacer()
-                Text(selectedFilter == .all ? "아직 방이 없습니다" : "'\(selectedFilter.rawValue)' 상태의 방이 없습니다")
+                Text(!searchText.isEmpty ? "'\(searchText)' 검색 결과가 없습니다"
+                     : selectedFilter == .all ? "아직 방이 없습니다"
+                     : "'\(selectedFilter.rawValue)' 상태의 방이 없습니다")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.secondary.opacity(0.5))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

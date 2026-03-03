@@ -1,4 +1,5 @@
 import SwiftUI
+import MarkdownUI
 
 struct ChatView: View {
     @EnvironmentObject var agentStore: AgentStore
@@ -42,6 +43,7 @@ struct MessageBubble: View {
     let message: ChatMessage
     @EnvironmentObject var agentStore: AgentStore
     @State private var enlargedImage: NSImage?
+    @State private var showAgentInfo = false
 
     private var agent: Agent? {
         guard let name = message.agentName else { return nil }
@@ -61,6 +63,8 @@ struct MessageBubble: View {
                     if let agent = agent {
                         AgentAvatarView(agent: agent, size: 26)
                             .padding(.top, 2)
+                            .onTapGesture { showAgentInfo = true }
+                            .help(agent.name)
                     } else {
                         Circle()
                             .fill(DesignTokens.Colors.avatarFallback)
@@ -82,6 +86,7 @@ struct MessageBubble: View {
                                 Text(name)
                                     .font(.system(size: DesignTokens.FontSize.sm, weight: .semibold))
                                     .foregroundColor(.primary.opacity(0.7))
+                                    .onTapGesture { if agent != nil { showAgentInfo = true } }
                             }
                             if let icon = typeIcon {
                                 Image(systemName: icon)
@@ -130,8 +135,7 @@ struct MessageBubble: View {
                         }
                     }
 
-                    markdownText(message.content, isUser: message.role == .user)
-                        .font(.system(size: DesignTokens.FontSize.bodyMd))
+                    messageContent
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .background(bubbleBackground)
@@ -145,6 +149,15 @@ struct MessageBubble: View {
                 }
 
                 if message.role == .assistant { Spacer(minLength: 48) }
+            }
+            .sheet(isPresented: $showAgentInfo) {
+                if let agent = agent {
+                    AgentInfoSheet(agent: agent)
+                        .frame(
+                            width: DesignTokens.WindowSize.agentInfoSheet.width,
+                            height: DesignTokens.WindowSize.agentInfoSheet.height
+                        )
+                }
             }
         }
     }
@@ -242,45 +255,37 @@ struct MessageBubble: View {
     // MARK: - 마크다운 렌더링
 
     /// 마크다운을 AttributedString으로 렌더링 (실패 시 plain text 폴백)
-    private func markdownText(_ raw: String, isUser: Bool) -> Text {
-        // 사용자 메시지는 정규화 불필요
-        if isUser {
-            return Text(raw)
+    /// 메시지 내용 렌더링: 사용자=플레인 텍스트, 에이전트=MarkdownUI
+    @ViewBuilder
+    private var messageContent: some View {
+        if message.role == .user {
+            Text(message.content)
+                .font(.system(size: DesignTokens.FontSize.bodyMd))
+        } else {
+            Markdown(Self.normalizeMarkdown(message.content))
+                .markdownTextStyle {
+                    FontSize(DesignTokens.FontSize.bodyMd)
+                }
+                .markdownBlockStyle(\.codeBlock) { configuration in
+                    configuration.label
+                        .padding(8)
+                        .background(Color.primary.opacity(0.04))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
         }
-        let normalized = Self.normalizeMarkdown(raw)
-        if let attr = try? AttributedString(markdown: normalized, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
-            return Text(attr)
-        }
-        return Text(normalized)
     }
 
     /// 채팅용 마크다운 정규화 (후처리)
     static func normalizeMarkdown(_ text: String) -> String {
-        var lines = text.components(separatedBy: "\n")
-
-        lines = lines.map { line in
-            var l = line
-            // ### 헤더 → **볼드** (채팅에서 헤더 레벨은 과함)
-            if let range = l.range(of: #"^#{1,4}\s+"#, options: .regularExpression) {
-                let content = String(l[range.upperBound...]).trimmingCharacters(in: .whitespaces)
-                l = "**\(content)**"
-            }
-            return l
-        }
-
         var result: [String] = []
         var prevEmpty = false
-        for line in lines {
+        for line in text.components(separatedBy: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
 
             // --- 구분선 제거
-            if trimmed.range(of: #"^-{3,}$"#, options: .regularExpression) != nil {
-                continue
-            }
+            if trimmed.range(of: #"^-{3,}$"#, options: .regularExpression) != nil { continue }
             // === 구분선 제거
-            if trimmed.range(of: #"^={3,}$"#, options: .regularExpression) != nil {
-                continue
-            }
+            if trimmed.range(of: #"^={3,}$"#, options: .regularExpression) != nil { continue }
 
             // 연속 빈 줄 1개로 축소
             if trimmed.isEmpty {
@@ -291,9 +296,7 @@ struct MessageBubble: View {
             prevEmpty = false
 
             // **[이름]** 패턴 제거 (단독 줄)
-            if trimmed.range(of: #"^\*\*\[.+\]\*\*$"#, options: .regularExpression) != nil {
-                continue
-            }
+            if trimmed.range(of: #"^\*\*\[.+\]\*\*$"#, options: .regularExpression) != nil { continue }
 
             result.append(line)
         }
