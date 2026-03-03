@@ -142,8 +142,8 @@ struct ChatViewModelIntegrationTests {
         let agentID = UUID()
         vm.appendMessagePublic(makeTestMessage(role: .user, content: "saved msg"), for: agentID)
 
-        // scheduleSave가 디바운스(1초)를 사용하므로 잠시 대기
-        try? await Task.sleep(for: .seconds(1.5))
+        // scheduleSave 디바운스 대기 (1초 디바운스 + 여유)
+        try? await Task.sleep(for: .milliseconds(1500))
 
         let vm2 = ChatViewModel()
         vm2.loadMessages()

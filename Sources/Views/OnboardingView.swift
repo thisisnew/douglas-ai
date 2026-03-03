@@ -722,9 +722,7 @@ struct OnboardingView: View {
             case .openAI:     return ("brain", .green)
             case .anthropic:  return ("sparkles", .orange)
             case .google:     return ("globe", .blue)
-            case .ollama:     return ("desktopcomputer", .teal)
-            case .lmStudio:   return ("cpu", .indigo)
-            case .custom:     return ("puzzlepiece", .gray)
+            default:          return ("puzzlepiece", .gray)
             }
         }()
 

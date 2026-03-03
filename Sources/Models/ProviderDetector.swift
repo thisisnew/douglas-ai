@@ -30,13 +30,11 @@ enum ProviderDetector {
     /// 모든 감지를 병렬 실행
     static func detectAll() async -> [DetectedProvider] {
         async let claude = detectClaudeCode()
-        async let ollama = detectOllama()
         async let openAI = detectOpenAIKey()
         async let anthropic = detectAnthropicKey()
         async let google = detectGoogleKey()
-        async let lmStudio = detectLMStudio()
 
-        let results = await [claude, ollama, openAI, anthropic, google, lmStudio]
+        let results = await [claude, openAI, anthropic, google]
         return results.compactMap { $0 }
     }
 
@@ -51,26 +49,6 @@ enum ProviderDetector {
             detail: path,
             prefilledAPIKey: nil,
             isConfirmed: true
-        )
-    }
-
-    // MARK: - Ollama
-
-    static func detectOllama() async -> DetectedProvider? {
-        // 1. 바이너리 존재 확인
-        let paths = ["/opt/homebrew/bin/ollama", "/usr/local/bin/ollama"]
-        let binaryExists = paths.contains { FileManager.default.isExecutableFile(atPath: $0) }
-
-        // 2. 서버 응답 확인 (2초 타임아웃)
-        let serverRunning = await checkHTTP(url: "http://localhost:11434/api/tags", timeout: 2)
-
-        guard binaryExists || serverRunning else { return nil }
-        return DetectedProvider(
-            type: .ollama,
-            displayName: "Ollama (로컬)",
-            detail: serverRunning ? "localhost:11434 응답 확인" : "설치됨 (서버 미실행)",
-            prefilledAPIKey: nil,
-            isConfirmed: serverRunning
         )
     }
 
@@ -114,22 +92,6 @@ enum ProviderDetector {
             detail: "환경변수에서 API 키 발견",
             prefilledAPIKey: key,
             isConfirmed: false
-        )
-    }
-
-    // MARK: - LM Studio
-
-    static func detectLMStudio() async -> DetectedProvider? {
-        let appExists = FileManager.default.fileExists(atPath: "/Applications/LM Studio.app")
-        let serverRunning = await checkHTTP(url: "http://localhost:1234/v1/models", timeout: 2)
-
-        guard appExists || serverRunning else { return nil }
-        return DetectedProvider(
-            type: .lmStudio,
-            displayName: "LM Studio (로컬)",
-            detail: serverRunning ? "localhost:1234 응답 확인" : "앱 설치됨 (서버 미실행)",
-            prefilledAPIKey: nil,
-            isConfirmed: serverRunning
         )
     }
 

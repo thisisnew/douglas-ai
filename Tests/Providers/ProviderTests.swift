@@ -2,8 +2,7 @@ import Testing
 import Foundation
 @testable import DOUGLAS
 
-/// 모든 Provider 테스트는 MockURLProtocol.requestHandler를 공유하므로 직렬 실행 필수
-@Suite("Provider Tests", .serialized)
+@Suite("Provider Tests")
 struct ProviderTests {
 
     // MARK: - AIProvider Extension
@@ -59,7 +58,7 @@ struct ProviderTests {
     @Test("applyAuth - customHeader")
     func applyAuthCustomHeader() {
         let config = ProviderConfig(
-            name: "Test", type: .custom, baseURL: "https://t.com",
+            name: "Test", type: .openAI, baseURL: "https://t.com",
             authMethod: .customHeader, customHeaderName: "X-Custom", customHeaderValue: "my-value"
         )
         let provider = MockAIProvider(config: config)
@@ -72,7 +71,7 @@ struct ProviderTests {
 
     @Test("OpenAI fetchModels - 모델 필터링")
     func openAIFetchModelsFiltering() async throws {
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             let body: [String: Any] = [
                 "data": [
                     ["id": "gpt-4o"], ["id": "gpt-3.5-turbo"],
@@ -81,8 +80,9 @@ struct ProviderTests {
             ]
             return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
         let config = makeTestProviderConfig(name: "OpenAI", type: .openAI, baseURL: "https://api.openai.com")
-        let provider = OpenAIProvider(config: config, session: makeMockSession())
+        let provider = OpenAIProvider(config: config, session: session)
         let models = try await provider.fetchModels()
         #expect(models.contains("gpt-4o"))
         #expect(models.contains("o1-mini"))
@@ -92,24 +92,26 @@ struct ProviderTests {
 
     @Test("OpenAI sendMessage - 응답 파싱")
     func openAISendMessageParse() async throws {
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             let body: [String: Any] = ["choices": [["message": ["content": "Hello from GPT"]]]]
             return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
         let config = makeTestProviderConfig(name: "OpenAI", type: .openAI, baseURL: "https://api.openai.com")
-        let provider = OpenAIProvider(config: config, session: makeMockSession())
+        let provider = OpenAIProvider(config: config, session: session)
         let result = try await provider.sendMessage(model: "gpt-4o", systemPrompt: "You are helpful", messages: [("user", "Hi")])
         #expect(result == "Hello from GPT")
     }
 
     @Test("OpenAI sendMessage - API 에러")
     func openAISendMessageAPIError() async {
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             let body: [String: Any] = ["error": ["message": "quota exceeded"]]
             return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
         let config = makeTestProviderConfig(name: "OpenAI", type: .openAI, baseURL: "https://api.openai.com")
-        let provider = OpenAIProvider(config: config, session: makeMockSession())
+        let provider = OpenAIProvider(config: config, session: session)
         do {
             _ = try await provider.sendMessage(model: "gpt-4o", systemPrompt: "", messages: [("user", "Hi")])
             Issue.record("Expected error")
@@ -120,11 +122,12 @@ struct ProviderTests {
 
     @Test("OpenAI sendMessage - HTTP 에러")
     func openAISendMessageHTTPError() async {
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             (mockHTTPResponse(url: request.url!.absoluteString, statusCode: 500), Data())
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
         let config = makeTestProviderConfig(name: "OpenAI", type: .openAI, baseURL: "https://api.openai.com")
-        let provider = OpenAIProvider(config: config, session: makeMockSession())
+        let provider = OpenAIProvider(config: config, session: session)
         do {
             _ = try await provider.sendMessage(model: "gpt-4o", systemPrompt: "", messages: [("user", "Hi")])
             Issue.record("Expected error")
@@ -135,15 +138,16 @@ struct ProviderTests {
 
     @Test("OpenAI sendMessage - 빈 systemPrompt")
     func openAIEmptySystem() async throws {
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             let body: [String: Any] = ["choices": [["message": ["content": "ok"]]]]
             return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
         let config = makeTestProviderConfig(name: "OpenAI", type: .openAI, baseURL: "https://api.openai.com")
-        let provider = OpenAIProvider(config: config, session: makeMockSession())
+        let provider = OpenAIProvider(config: config, session: session)
         _ = try await provider.sendMessage(model: "gpt-4o", systemPrompt: "", messages: [("user", "Hi")])
 
-        if let bodyData = MockURLProtocol.lastRequestBody,
+        if let bodyData = MockURLProtocol.lastBody(for: testID),
            let captured = try? JSONSerialization.jsonObject(with: bodyData) as? [String: Any],
            let messages = captured["messages"] as? [[String: String]] {
             #expect(!messages.map { $0["role"] }.contains("system"))
@@ -163,27 +167,29 @@ struct ProviderTests {
 
     @Test("Anthropic sendMessage - 응답 파싱")
     func anthropicSendMessageParse() async throws {
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             let body: [String: Any] = ["content": [["text": "Hello from Claude"]]]
             return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
         let config = makeTestProviderConfig(type: .anthropic, baseURL: "https://api.anthropic.com")
-        let provider = AnthropicProvider(config: config, session: makeMockSession())
+        let provider = AnthropicProvider(config: config, session: session)
         let result = try await provider.sendMessage(model: "claude-sonnet-4-6", systemPrompt: "Be helpful", messages: [("user", "Hi")])
         #expect(result == "Hello from Claude")
     }
 
     @Test("Anthropic sendMessage - system 필드 분리")
     func anthropicSystemField() async throws {
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             let body: [String: Any] = ["content": [["text": "ok"]]]
             return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
         let config = makeTestProviderConfig(type: .anthropic, baseURL: "https://api.anthropic.com")
-        let provider = AnthropicProvider(config: config, session: makeMockSession())
+        let provider = AnthropicProvider(config: config, session: session)
         _ = try await provider.sendMessage(model: "claude-sonnet-4-6", systemPrompt: "Be helpful", messages: [("user", "Hi")])
 
-        if let bodyData = MockURLProtocol.lastRequestBody,
+        if let bodyData = MockURLProtocol.lastBody(for: testID),
            let captured = try? JSONSerialization.jsonObject(with: bodyData) as? [String: Any] {
             #expect(captured["system"] as? String == "Be helpful")
         } else {
@@ -193,15 +199,16 @@ struct ProviderTests {
 
     @Test("Anthropic sendMessage - 빈 systemPrompt면 system 없음")
     func anthropicEmptySystem() async throws {
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             let body: [String: Any] = ["content": [["text": "ok"]]]
             return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
         let config = makeTestProviderConfig(type: .anthropic, baseURL: "https://api.anthropic.com")
-        let provider = AnthropicProvider(config: config, session: makeMockSession())
+        let provider = AnthropicProvider(config: config, session: session)
         _ = try await provider.sendMessage(model: "claude-sonnet-4-6", systemPrompt: "", messages: [("user", "Hi")])
 
-        if let bodyData = MockURLProtocol.lastRequestBody,
+        if let bodyData = MockURLProtocol.lastBody(for: testID),
            let captured = try? JSONSerialization.jsonObject(with: bodyData) as? [String: Any] {
             #expect(captured["system"] == nil)
         }
@@ -219,12 +226,13 @@ struct ProviderTests {
 
     @Test("Google sendMessage - 응답 파싱")
     func googleSendMessageParse() async throws {
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             let body: [String: Any] = ["candidates": [["content": ["parts": [["text": "Hello from Gemini"]]]]]]
             return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
         let config = ProviderConfig(name: "Google", type: .google, baseURL: "https://generativelanguage.googleapis.com", authMethod: .apiKey, apiKey: "test-key-google")
-        let provider = GoogleProvider(config: config, session: makeMockSession())
+        let provider = GoogleProvider(config: config, session: session)
         let result = try await provider.sendMessage(model: "gemini-2.0-flash", systemPrompt: "", messages: [("user", "Hi")])
         #expect(result == "Hello from Gemini")
         // cleanup
@@ -233,15 +241,16 @@ struct ProviderTests {
 
     @Test("Google sendMessage - systemInstruction 필드")
     func googleSystemInstruction() async throws {
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             let body: [String: Any] = ["candidates": [["content": ["parts": [["text": "ok"]]]]]]
             return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
         let config = ProviderConfig(name: "Google", type: .google, baseURL: "https://generativelanguage.googleapis.com", authMethod: .apiKey, apiKey: "test-key-google2")
-        let provider = GoogleProvider(config: config, session: makeMockSession())
+        let provider = GoogleProvider(config: config, session: session)
         _ = try await provider.sendMessage(model: "gemini-2.0-flash", systemPrompt: "Be helpful", messages: [("user", "Hi")])
 
-        if let bodyData = MockURLProtocol.lastRequestBody,
+        if let bodyData = MockURLProtocol.lastBody(for: testID),
            let captured = try? JSONSerialization.jsonObject(with: bodyData) as? [String: Any] {
             #expect(captured["systemInstruction"] != nil)
         } else {
@@ -252,15 +261,16 @@ struct ProviderTests {
 
     @Test("Google sendMessage - 역할 매핑 (assistant → model)")
     func googleRoleMapping() async throws {
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             let body: [String: Any] = ["candidates": [["content": ["parts": [["text": "ok"]]]]]]
             return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
         let config = ProviderConfig(name: "Google", type: .google, baseURL: "https://generativelanguage.googleapis.com", authMethod: .apiKey, apiKey: "test-key-google3")
-        let provider = GoogleProvider(config: config, session: makeMockSession())
+        let provider = GoogleProvider(config: config, session: session)
         _ = try await provider.sendMessage(model: "gemini-2.0-flash", systemPrompt: "", messages: [("user", "Hi"), ("assistant", "Hello")])
 
-        if let bodyData = MockURLProtocol.lastRequestBody,
+        if let bodyData = MockURLProtocol.lastBody(for: testID),
            let captured = try? JSONSerialization.jsonObject(with: bodyData) as? [String: Any],
            let contents = captured["contents"] as? [[String: Any]] {
             let roles = contents.compactMap { $0["role"] as? String }
@@ -270,158 +280,12 @@ struct ProviderTests {
         try? KeychainHelper.delete(key: "provider-apikey-\(config.id.uuidString)")
     }
 
-    // MARK: - Ollama Provider
-
-    @Test("Ollama fetchModels - 모델 파싱")
-    func ollamaFetchModels() async throws {
-        MockURLProtocol.requestHandler = { request in
-            let body: [String: Any] = ["models": [["name": "llama3"], ["name": "mistral"]]]
-            return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
-        }
-        let config = makeTestProviderConfig(type: .ollama, baseURL: "http://localhost:11434")
-        let provider = OllamaProvider(config: config, session: makeMockSession())
-        let models = try await provider.fetchModels()
-        #expect(models.contains("llama3"))
-        #expect(models.contains("mistral"))
-    }
-
-    @Test("Ollama sendMessage - 응답 파싱")
-    func ollamaSendMessage() async throws {
-        MockURLProtocol.requestHandler = { request in
-            let body: [String: Any] = ["message": ["content": "Hello from Ollama"]]
-            return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
-        }
-        let config = makeTestProviderConfig(type: .ollama, baseURL: "http://localhost:11434")
-        let provider = OllamaProvider(config: config, session: makeMockSession())
-        let result = try await provider.sendMessage(model: "llama3", systemPrompt: "", messages: [("user", "Hi")])
-        #expect(result == "Hello from Ollama")
-    }
-
-    @Test("Ollama sendMessage - stream: false 포함")
-    func ollamaStreamFalse() async throws {
-        MockURLProtocol.requestHandler = { request in
-            let body: [String: Any] = ["message": ["content": "ok"]]
-            return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
-        }
-        let config = makeTestProviderConfig(type: .ollama, baseURL: "http://localhost:11434")
-        let provider = OllamaProvider(config: config, session: makeMockSession())
-        _ = try await provider.sendMessage(model: "llama3", systemPrompt: "", messages: [("user", "Hi")])
-
-        if let bodyData = MockURLProtocol.lastRequestBody,
-           let captured = try? JSONSerialization.jsonObject(with: bodyData) as? [String: Any] {
-            #expect(captured["stream"] as? Bool == false)
-        }
-    }
-
-    @Test("Ollama sendMessage - API 에러")
-    func ollamaSendMessageError() async {
-        MockURLProtocol.requestHandler = { request in
-            let body: [String: Any] = ["error": "model not found"]
-            return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
-        }
-        let config = makeTestProviderConfig(type: .ollama, baseURL: "http://localhost:11434")
-        let provider = OllamaProvider(config: config, session: makeMockSession())
-        do {
-            _ = try await provider.sendMessage(model: "bad", systemPrompt: "", messages: [("user", "Hi")])
-            Issue.record("Expected error")
-        } catch {
-            #expect(error is AIProviderError)
-        }
-    }
-
-    // MARK: - LM Studio
-
-    @Test("LM Studio fetchModels - /v1/models")
-    func lmStudioFetchModels() async throws {
-        MockURLProtocol.requestHandler = { request in
-            let body: [String: Any] = ["data": [["id": "model-1"]]]
-            return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
-        }
-        let config = makeTestProviderConfig(type: .lmStudio, baseURL: "http://localhost:1234")
-        let provider = OllamaProvider(config: config, session: makeMockSession())
-        let models = try await provider.fetchModels()
-        #expect(models.contains("model-1"))
-    }
-
-    @Test("LM Studio sendMessage - 응답 파싱")
-    func lmStudioSendMessage() async throws {
-        MockURLProtocol.requestHandler = { request in
-            let body: [String: Any] = ["choices": [["message": ["content": "ok from LM Studio"]]]]
-            return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
-        }
-        let config = makeTestProviderConfig(type: .lmStudio, baseURL: "http://localhost:1234")
-        let provider = OllamaProvider(config: config, session: makeMockSession())
-        let result = try await provider.sendMessage(model: "model-1", systemPrompt: "", messages: [("user", "Hi")])
-        #expect(result == "ok from LM Studio")
-    }
-
-    // MARK: - Custom Provider
-
-    @Test("Custom fetchModels - 모델 파싱")
-    func customFetchModels() async throws {
-        MockURLProtocol.requestHandler = { request in
-            #expect(request.url?.path.hasSuffix("/v1/models") == true)
-            let body: [String: Any] = ["data": [["id": "custom-model-1"], ["id": "custom-model-2"]]]
-            return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
-        }
-        let config = makeTestProviderConfig(type: .custom, baseURL: "https://custom.example.com")
-        let provider = CustomProvider(config: config, session: makeMockSession())
-        let models = try await provider.fetchModels()
-        #expect(models.contains("custom-model-1"))
-        #expect(models.contains("custom-model-2"))
-    }
-
-    @Test("Custom sendMessage - 응답 파싱")
-    func customSendMessage() async throws {
-        MockURLProtocol.requestHandler = { request in
-            #expect(request.url?.path.hasSuffix("/v1/chat/completions") == true)
-            let body: [String: Any] = ["choices": [["message": ["content": "Hello from Custom"]]]]
-            return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
-        }
-        let config = makeTestProviderConfig(type: .custom, baseURL: "https://custom.example.com")
-        let provider = CustomProvider(config: config, session: makeMockSession())
-        let result = try await provider.sendMessage(model: "custom-model", systemPrompt: "Be helpful", messages: [("user", "Hi")])
-        #expect(result == "Hello from Custom")
-    }
-
-    @Test("Custom sendMessage - 빈 systemPrompt")
-    func customEmptySystem() async throws {
-        MockURLProtocol.requestHandler = { request in
-            let body: [String: Any] = ["choices": [["message": ["content": "ok"]]]]
-            return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
-        }
-        let config = makeTestProviderConfig(type: .custom, baseURL: "https://custom.example.com")
-        let provider = CustomProvider(config: config, session: makeMockSession())
-        _ = try await provider.sendMessage(model: "m", systemPrompt: "", messages: [("user", "Hi")])
-
-        if let bodyData = MockURLProtocol.lastRequestBody,
-           let captured = try? JSONSerialization.jsonObject(with: bodyData) as? [String: Any],
-           let messages = captured["messages"] as? [[String: String]] {
-            #expect(!messages.map { $0["role"] }.contains("system"))
-        }
-    }
-
-    @Test("Custom sendMessage - HTTP 에러")
-    func customSendMessageHTTPError() async {
-        MockURLProtocol.requestHandler = { request in
-            (mockHTTPResponse(url: request.url!.absoluteString, statusCode: 503), Data())
-        }
-        let config = makeTestProviderConfig(type: .custom, baseURL: "https://custom.example.com")
-        let provider = CustomProvider(config: config, session: makeMockSession())
-        do {
-            _ = try await provider.sendMessage(model: "m", systemPrompt: "", messages: [("user", "Hi")])
-            Issue.record("Expected error")
-        } catch {
-            #expect(error is AIProviderError)
-        }
-    }
-
     // MARK: - applyAuth 추가 테스트
 
     @Test("applyAuth - bearerToken")
     func applyAuthBearerToken() {
         let config = ProviderConfig(
-            name: "Test", type: .custom, baseURL: "https://t.com",
+            name: "Test", type: .openAI, baseURL: "https://t.com",
             authMethod: .bearerToken, apiKey: "test-bearer-token"
         )
         let provider = MockAIProvider(config: config)
@@ -559,9 +423,8 @@ struct ProviderTests {
             name: "TestOpenAI", type: .openAI, baseURL: "https://api.openai.com",
             authMethod: .apiKey, apiKey: "test-key"
         )
-        let provider = OpenAIProvider(config: config, session: makeMockSession())
 
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             // 요청 body 검증
             if let body = request.httpBody,
                let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
@@ -576,6 +439,8 @@ struct ProviderTests {
             """.data(using: .utf8)!
             return (mockHTTPResponse(url: request.url!.absoluteString), responseData)
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
+        let provider = OpenAIProvider(config: config, session: session)
 
         let tools = [AgentTool(
             id: "file_read", name: "파일 읽기", description: "Read file",
@@ -605,14 +470,15 @@ struct ProviderTests {
             name: "TestOpenAI", type: .openAI, baseURL: "https://api.openai.com",
             authMethod: .apiKey, apiKey: "test-key"
         )
-        let provider = OpenAIProvider(config: config, session: makeMockSession())
 
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             let responseData = """
             {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"file_read","arguments":"{\\"path\\":\\"/tmp/test\\"}"}}]}}]}
             """.data(using: .utf8)!
             return (mockHTTPResponse(url: request.url!.absoluteString), responseData)
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
+        let provider = OpenAIProvider(config: config, session: session)
 
         let tools = ToolRegistry.tools(for: ["file_read"])
         let result = try await provider.sendMessageWithTools(
@@ -636,18 +502,18 @@ struct ProviderTests {
 
     @Test("Anthropic sendMessageWithTools - tool_use 파싱")
     func anthropicToolUseParsing() async throws {
-        let config = ProviderConfig(
-            name: "TestAnthropic", type: .anthropic, baseURL: "https://api.anthropic.com",
-            authMethod: .apiKey, apiKey: "test-key"
-        )
-        let provider = AnthropicProvider(config: config, session: makeMockSession())
-
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             let responseData = """
             {"content":[{"type":"text","text":"Let me read that."},{"type":"tool_use","id":"toolu_01","name":"file_read","input":{"path":"/tmp/test"}}],"stop_reason":"tool_use"}
             """.data(using: .utf8)!
             return (mockHTTPResponse(url: request.url!.absoluteString), responseData)
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
+        let config = ProviderConfig(
+            name: "TestAnthropic", type: .anthropic, baseURL: "https://api.anthropic.com",
+            authMethod: .apiKey, apiKey: "test-key"
+        )
+        let provider = AnthropicProvider(config: config, session: session)
 
         let tools = ToolRegistry.tools(for: ["file_read"])
         let result = try await provider.sendMessageWithTools(
@@ -671,13 +537,7 @@ struct ProviderTests {
 
     @Test("Google sendMessageWithTools - functionCall 파싱")
     func googleFunctionCallParsing() async throws {
-        let config = ProviderConfig(
-            name: "TestGoogle", type: .google, baseURL: "https://generativelanguage.googleapis.com",
-            authMethod: .apiKey, apiKey: "test-key"
-        )
-        let provider = GoogleProvider(config: config, session: makeMockSession())
-
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             // x-goog-api-key 헤더 확인
             #expect(request.value(forHTTPHeaderField: "x-goog-api-key") == "test-key")
             // URL에 키가 없어야 함
@@ -688,6 +548,12 @@ struct ProviderTests {
             """.data(using: .utf8)!
             return (mockHTTPResponse(url: request.url!.absoluteString), responseData)
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
+        let config = ProviderConfig(
+            name: "TestGoogle", type: .google, baseURL: "https://generativelanguage.googleapis.com",
+            authMethod: .apiKey, apiKey: "test-key"
+        )
+        let provider = GoogleProvider(config: config, session: session)
 
         let tools = ToolRegistry.tools(for: ["file_read"])
         let result = try await provider.sendMessageWithTools(
@@ -710,112 +576,97 @@ struct ProviderTests {
 
     @Test("ClaudeCode sendMessage - 성공 응답")
     func claudeCodeSendMessageSuccess() async throws {
-        let originalHandler = ProcessRunner.handler
-        defer { ProcessRunner.handler = originalHandler }
-
-        var capturedArgs: [String]?
-        ProcessRunner.handler = { executable, args, env, workDir in
-            capturedArgs = args
+        let captured = CapturedValue<[String]>()
+        try await ProcessRunner.withMock({ executable, args, env, workDir in
+            captured.value = args
             return (exitCode: 0, stdout: "Hello from Claude Code", stderr: "")
+        }) {
+            let config = makeTestProviderConfig(type: .claudeCode, baseURL: "/usr/local/bin/claude")
+            let provider = ClaudeCodeProvider(config: config)
+            let result = try await provider.sendMessage(
+                model: "claude-sonnet-4-6",
+                systemPrompt: "Be helpful",
+                messages: [("user", "Hi")]
+            )
+            #expect(result == "Hello from Claude Code")
+            // 프롬프트에 시스템 지시가 포함되어야 함
+            let prompt = captured.value?.first(where: { $0.contains("[시스템 지시]") })
+            #expect(prompt != nil || captured.value?.contains(where: { $0.contains("Be helpful") }) == true)
         }
-
-        let config = makeTestProviderConfig(type: .claudeCode, baseURL: "/usr/local/bin/claude")
-        let provider = ClaudeCodeProvider(config: config)
-        let result = try await provider.sendMessage(
-            model: "claude-sonnet-4-6",
-            systemPrompt: "Be helpful",
-            messages: [("user", "Hi")]
-        )
-        #expect(result == "Hello from Claude Code")
-        // 프롬프트에 시스템 지시가 포함되어야 함
-        let prompt = capturedArgs?.first(where: { $0.contains("[시스템 지시]") })
-        #expect(prompt != nil || capturedArgs?.contains(where: { $0.contains("Be helpful") }) == true)
     }
 
     @Test("ClaudeCode sendMessage - 종료 코드 비정상")
-    func claudeCodeSendMessageError() async {
-        let originalHandler = ProcessRunner.handler
-        defer { ProcessRunner.handler = originalHandler }
-
-        ProcessRunner.handler = { _, _, _, _ in
+    func claudeCodeSendMessageError() async throws {
+        try await ProcessRunner.withMock({ _, _, _, _ in
             return (exitCode: 1, stdout: "", stderr: "Some error occurred")
-        }
-
-        let config = makeTestProviderConfig(type: .claudeCode, baseURL: "/usr/local/bin/claude")
-        let provider = ClaudeCodeProvider(config: config)
-        do {
-            _ = try await provider.sendMessage(model: "claude-sonnet-4-6", systemPrompt: "", messages: [("user", "Hi")])
-            Issue.record("Expected error")
-        } catch {
-            #expect(error is AIProviderError)
+        }) {
+            let config = makeTestProviderConfig(type: .claudeCode, baseURL: "/usr/local/bin/claude")
+            let provider = ClaudeCodeProvider(config: config)
+            do {
+                _ = try await provider.sendMessage(model: "claude-sonnet-4-6", systemPrompt: "", messages: [("user", "Hi")])
+                Issue.record("Expected error")
+            } catch {
+                #expect(error is AIProviderError)
+            }
         }
     }
 
     @Test("ClaudeCode sendMessage - 빈 응답")
-    func claudeCodeSendMessageEmpty() async {
-        let originalHandler = ProcessRunner.handler
-        defer { ProcessRunner.handler = originalHandler }
-
-        ProcessRunner.handler = { _, _, _, _ in
+    func claudeCodeSendMessageEmpty() async throws {
+        try await ProcessRunner.withMock({ _, _, _, _ in
             return (exitCode: 0, stdout: "", stderr: "")
-        }
-
-        let config = makeTestProviderConfig(type: .claudeCode, baseURL: "/usr/local/bin/claude")
-        let provider = ClaudeCodeProvider(config: config)
-        do {
-            _ = try await provider.sendMessage(model: "claude-sonnet-4-6", systemPrompt: "", messages: [("user", "Hi")])
-            Issue.record("Expected invalidResponse error")
-        } catch {
-            #expect(error is AIProviderError)
+        }) {
+            let config = makeTestProviderConfig(type: .claudeCode, baseURL: "/usr/local/bin/claude")
+            let provider = ClaudeCodeProvider(config: config)
+            do {
+                _ = try await provider.sendMessage(model: "claude-sonnet-4-6", systemPrompt: "", messages: [("user", "Hi")])
+                Issue.record("Expected invalidResponse error")
+            } catch {
+                #expect(error is AIProviderError)
+            }
         }
     }
 
     @Test("ClaudeCode sendMessage - SIGTERM (타임아웃)")
-    func claudeCodeSendMessageTimeout() async {
-        let originalHandler = ProcessRunner.handler
-        defer { ProcessRunner.handler = originalHandler }
-
-        ProcessRunner.handler = { _, _, _, _ in
+    func claudeCodeSendMessageTimeout() async throws {
+        try await ProcessRunner.withMock({ _, _, _, _ in
             return (exitCode: 15, stdout: "", stderr: "")
-        }
-
-        let config = makeTestProviderConfig(type: .claudeCode, baseURL: "/usr/local/bin/claude")
-        let provider = ClaudeCodeProvider(config: config)
-        do {
-            _ = try await provider.sendMessage(model: "claude-sonnet-4-6", systemPrompt: "", messages: [("user", "Hi")])
-            Issue.record("Expected timeout error")
-        } catch {
-            #expect(error is AIProviderError)
+        }) {
+            let config = makeTestProviderConfig(type: .claudeCode, baseURL: "/usr/local/bin/claude")
+            let provider = ClaudeCodeProvider(config: config)
+            do {
+                _ = try await provider.sendMessage(model: "claude-sonnet-4-6", systemPrompt: "", messages: [("user", "Hi")])
+                Issue.record("Expected timeout error")
+            } catch {
+                #expect(error is AIProviderError)
+            }
         }
     }
 
     @Test("ClaudeCode sendMessage - 프롬프트 구성 (대화 이력 포함)")
     func claudeCodePromptWithHistory() async throws {
-        let originalHandler = ProcessRunner.handler
-        defer { ProcessRunner.handler = originalHandler }
-
-        var capturedArgs: [String]?
-        ProcessRunner.handler = { _, args, _, _ in
-            capturedArgs = args
+        let captured = CapturedValue<[String]>()
+        try await ProcessRunner.withMock({ _, args, _, _ in
+            captured.value = args
             return (exitCode: 0, stdout: "response", stderr: "")
+        }) {
+            let config = makeTestProviderConfig(type: .claudeCode, baseURL: "/usr/local/bin/claude")
+            let provider = ClaudeCodeProvider(config: config)
+            _ = try await provider.sendMessage(
+                model: "claude-sonnet-4-6",
+                systemPrompt: "System prompt",
+                messages: [
+                    ("user", "First message"),
+                    ("assistant", "First response"),
+                    ("user", "Second message")
+                ]
+            )
+            // -p 플래그와 프롬프트가 포함되어야 함
+            #expect(captured.value?.contains("-p") == true)
+            // 모델 지정
+            #expect(captured.value?.contains("claude-sonnet-4-6") == true)
+            #expect(captured.value?.contains("--model") == true)
         }
-
-        let config = makeTestProviderConfig(type: .claudeCode, baseURL: "/usr/local/bin/claude")
-        let provider = ClaudeCodeProvider(config: config)
-        _ = try await provider.sendMessage(
-            model: "claude-sonnet-4-6",
-            systemPrompt: "System prompt",
-            messages: [
-                ("user", "First message"),
-                ("assistant", "First response"),
-                ("user", "Second message")
-            ]
-        )
-        // -p 플래그와 프롬프트가 포함되어야 함
-        #expect(capturedArgs?.contains("-p") == true)
-        // 모델 지정
-        #expect(capturedArgs?.contains("claude-sonnet-4-6") == true)
-        #expect(capturedArgs?.contains("--model") == true)
     }
 
     @Test("ClaudeCode findClaudePath - 반환값 확인")
@@ -829,34 +680,31 @@ struct ProviderTests {
 
     @Test("AIProvider default sendMessageWithTools - tool 메시지 필터링")
     func defaultSendMessageWithToolsFiltersTool() async throws {
-        let originalHandler = ProcessRunner.handler
-        defer { ProcessRunner.handler = originalHandler }
-
-        ProcessRunner.handler = { _, _, _, _ in
+        try await ProcessRunner.withMock({ _, _, _, _ in
             return (exitCode: 0, stdout: "fallback response", stderr: "")
-        }
+        }) {
+            let config = makeTestProviderConfig(type: .claudeCode, baseURL: "/usr/local/bin/claude")
+            let provider = ClaudeCodeProvider(config: config)
 
-        let config = makeTestProviderConfig(type: .claudeCode, baseURL: "/usr/local/bin/claude")
-        let provider = ClaudeCodeProvider(config: config)
+            let messages: [ConversationMessage] = [
+                .user("Hello"),
+                .assistant("I'll use a tool"),
+                .toolResult(callID: "call1", content: "tool output"),
+                .user("Thanks")
+            ]
 
-        let messages: [ConversationMessage] = [
-            .user("Hello"),
-            .assistant("I'll use a tool"),
-            .toolResult(callID: "call1", content: "tool output"),
-            .user("Thanks")
-        ]
+            let result = try await provider.sendMessageWithTools(
+                model: "claude-sonnet-4-6",
+                systemPrompt: "sys",
+                messages: messages,
+                tools: []
+            )
 
-        let result = try await provider.sendMessageWithTools(
-            model: "claude-sonnet-4-6",
-            systemPrompt: "sys",
-            messages: messages,
-            tools: []
-        )
-
-        if case .text(let text) = result {
-            #expect(text == "fallback response")
-        } else {
-            Issue.record("Expected .text response")
+            if case .text(let text) = result {
+                #expect(text == "fallback response")
+            } else {
+                Issue.record("Expected .text response")
+            }
         }
     }
 
@@ -864,14 +712,15 @@ struct ProviderTests {
 
     @Test("Anthropic sendMessage - API 에러 (error 필드)")
     func anthropicAPIError() async {
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             let body: [String: Any] = [
                 "error": ["type": "invalid_request_error", "message": "Invalid model"]
             ]
             return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
         let config = makeTestProviderConfig(type: .anthropic, baseURL: "https://api.anthropic.com")
-        let provider = AnthropicProvider(config: config, session: makeMockSession())
+        let provider = AnthropicProvider(config: config, session: session)
         do {
             _ = try await provider.sendMessage(model: "bad-model", systemPrompt: "", messages: [("user", "Hi")])
             Issue.record("Expected error")
@@ -882,11 +731,12 @@ struct ProviderTests {
 
     @Test("Anthropic sendMessage - HTTP 에러")
     func anthropicHTTPError() async {
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             (mockHTTPResponse(url: request.url!.absoluteString, statusCode: 429), Data())
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
         let config = makeTestProviderConfig(type: .anthropic, baseURL: "https://api.anthropic.com")
-        let provider = AnthropicProvider(config: config, session: makeMockSession())
+        let provider = AnthropicProvider(config: config, session: session)
         do {
             _ = try await provider.sendMessage(model: "claude-sonnet-4-6", systemPrompt: "", messages: [("user", "Hi")])
             Issue.record("Expected error")
@@ -899,12 +749,13 @@ struct ProviderTests {
 
     @Test("Google sendMessage - candidates 빈 배열이면 빈 문자열")
     func googleEmptyResponse() async throws {
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             let body: [String: Any] = ["candidates": []]
             return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
         let config = ProviderConfig(name: "Google", type: .google, baseURL: "https://generativelanguage.googleapis.com", authMethod: .apiKey, apiKey: "test-key-empty")
-        let provider = GoogleProvider(config: config, session: makeMockSession())
+        let provider = GoogleProvider(config: config, session: session)
         let result = try await provider.sendMessage(model: "gemini-2.0-flash", systemPrompt: "", messages: [("user", "Hi")])
         #expect(result == "")
         try? KeychainHelper.delete(key: "provider-apikey-\(config.id.uuidString)")
@@ -918,14 +769,15 @@ struct ProviderTests {
             name: "TestOpenAI", type: .openAI, baseURL: "https://api.openai.com",
             authMethod: .apiKey, apiKey: "test-key-txt"
         )
-        let provider = OpenAIProvider(config: config, session: makeMockSession())
 
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             let responseData = """
             {"choices":[{"message":{"role":"assistant","content":"Just text"}}]}
             """.data(using: .utf8)!
             return (mockHTTPResponse(url: request.url!.absoluteString), responseData)
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
+        let provider = OpenAIProvider(config: config, session: session)
 
         let messages: [ConversationMessage] = [.user("Hello")]
         let result = try await provider.sendMessageWithTools(
@@ -949,14 +801,15 @@ struct ProviderTests {
             name: "TestAnthropic", type: .anthropic, baseURL: "https://api.anthropic.com",
             authMethod: .apiKey, apiKey: "test-key-txt"
         )
-        let provider = AnthropicProvider(config: config, session: makeMockSession())
 
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             let responseData = """
             {"content":[{"type":"text","text":"Just text"}]}
             """.data(using: .utf8)!
             return (mockHTTPResponse(url: request.url!.absoluteString), responseData)
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
+        let provider = AnthropicProvider(config: config, session: session)
 
         let messages: [ConversationMessage] = [.user("Hello")]
         let result = try await provider.sendMessageWithTools(
@@ -976,13 +829,7 @@ struct ProviderTests {
 
     @Test("Anthropic sendMessageWithTools - tool_result 메시지 빌드")
     func anthropicToolResultBuild() async throws {
-        let config = ProviderConfig(
-            name: "TestAnthropic", type: .anthropic, baseURL: "https://api.anthropic.com",
-            authMethod: .apiKey, apiKey: "test-key-tr"
-        )
-        let provider = AnthropicProvider(config: config, session: makeMockSession())
-
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             if let body = request.httpBody,
                let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
                let messages = json["messages"] as? [[String: Any]] {
@@ -997,6 +844,12 @@ struct ProviderTests {
             """.data(using: .utf8)!
             return (mockHTTPResponse(url: request.url!.absoluteString), responseData)
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
+        let config = ProviderConfig(
+            name: "TestAnthropic", type: .anthropic, baseURL: "https://api.anthropic.com",
+            authMethod: .apiKey, apiKey: "test-key-tr"
+        )
+        let provider = AnthropicProvider(config: config, session: session)
 
         let messages: [ConversationMessage] = [
             .user("read file"),
@@ -1019,13 +872,7 @@ struct ProviderTests {
 
     @Test("OpenAI sendMessageWithTools - tool result 메시지 빌드")
     func openAIToolResultBuild() async throws {
-        let config = ProviderConfig(
-            name: "TestOpenAI", type: .openAI, baseURL: "https://api.openai.com",
-            authMethod: .apiKey, apiKey: "test-key-tr"
-        )
-        let provider = OpenAIProvider(config: config, session: makeMockSession())
-
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             if let body = request.httpBody,
                let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
                let messages = json["messages"] as? [[String: Any]] {
@@ -1037,6 +884,12 @@ struct ProviderTests {
             """.data(using: .utf8)!
             return (mockHTTPResponse(url: request.url!.absoluteString), responseData)
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
+        let config = ProviderConfig(
+            name: "TestOpenAI", type: .openAI, baseURL: "https://api.openai.com",
+            authMethod: .apiKey, apiKey: "test-key-tr"
+        )
+        let provider = OpenAIProvider(config: config, session: session)
 
         let messages: [ConversationMessage] = [
             .user("read file"),
@@ -1059,18 +912,18 @@ struct ProviderTests {
 
     @Test("Google sendMessageWithTools - functionResponse 빌드")
     func googleToolResultBuild() async throws {
-        let config = ProviderConfig(
-            name: "TestGoogle", type: .google, baseURL: "https://generativelanguage.googleapis.com",
-            authMethod: .apiKey, apiKey: "test-key-tr"
-        )
-        let provider = GoogleProvider(config: config, session: makeMockSession())
-
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             let responseData = """
             {"candidates":[{"content":{"parts":[{"text":"processed"}]}}]}
             """.data(using: .utf8)!
             return (mockHTTPResponse(url: request.url!.absoluteString), responseData)
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
+        let config = ProviderConfig(
+            name: "TestGoogle", type: .google, baseURL: "https://generativelanguage.googleapis.com",
+            authMethod: .apiKey, apiKey: "test-key-tr"
+        )
+        let provider = GoogleProvider(config: config, session: session)
 
         let messages: [ConversationMessage] = [
             .user("read file"),
@@ -1091,13 +944,7 @@ struct ProviderTests {
 
     @Test("Google sendMessage - API 키가 헤더에 있고 URL에 없음")
     func googleAPIKeyInHeader() async throws {
-        let config = ProviderConfig(
-            name: "TestGoogle", type: .google, baseURL: "https://generativelanguage.googleapis.com",
-            authMethod: .apiKey, apiKey: "secret-key-123"
-        )
-        let provider = GoogleProvider(config: config, session: makeMockSession())
-
-        MockURLProtocol.requestHandler = { request in
+        let (session, testID) = makeMockSession { request in
             #expect(request.value(forHTTPHeaderField: "x-goog-api-key") == "secret-key-123")
             let urlString = request.url?.absoluteString ?? ""
             #expect(!urlString.contains("key=secret-key-123"))
@@ -1107,6 +954,12 @@ struct ProviderTests {
             """.data(using: .utf8)!
             return (mockHTTPResponse(url: request.url!.absoluteString), responseData)
         }
+        defer { MockURLProtocol.removeHandler(for: testID) }
+        let config = ProviderConfig(
+            name: "TestGoogle", type: .google, baseURL: "https://generativelanguage.googleapis.com",
+            authMethod: .apiKey, apiKey: "secret-key-123"
+        )
+        let provider = GoogleProvider(config: config, session: session)
 
         let result = try await provider.sendMessage(
             model: "gemini-2.0-flash", systemPrompt: "test",

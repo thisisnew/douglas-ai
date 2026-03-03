@@ -57,12 +57,12 @@ struct AgentTests {
         #expect(a == b)
     }
 
-    @Test("Equatable - 같은 ID면 같은 에이전트 (이름 달라도)")
+    @Test("Equatable - 같은 ID라도 이름 다르면 다른 에이전트")
     func equalSameIDDifferentName() {
         let id = UUID()
         let a = Agent(id: id, name: "A", persona: "p", providerName: "P", modelName: "M")
         let b = Agent(id: id, name: "B", persona: "p", providerName: "P", modelName: "M")
-        #expect(a == b) // ID 기반 동등성
+        #expect(a != b) // id + name + hasImage + status 기반 동등성
     }
 
     @Test("Equatable - 다른 ID면 다른 에이전트")
@@ -226,7 +226,7 @@ struct AgentTests {
     @Test("createMaster - 기본 속성 확인")
     func createMasterDefaults2() {
         let master = Agent.createMaster()
-        #expect(master.persona.contains("라우터"))
+        #expect(master.persona.contains("AI 집사"))
         #expect(master.status == .idle)
         #expect(master.errorMessage == nil)
         #expect(master.hasImage == false)

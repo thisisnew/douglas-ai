@@ -7,17 +7,17 @@ struct ProviderConfigTests {
 
     @Test("기본 초기화 (apiKey 없이)")
     func initWithoutApiKey() {
-        let config = makeTestProviderConfig(name: "Test", type: .ollama, baseURL: "http://localhost:11434")
+        let config = makeTestProviderConfig(name: "Test", type: .openAI, baseURL: "https://api.openai.com")
         #expect(config.name == "Test")
-        #expect(config.type == .ollama)
-        #expect(config.baseURL == "http://localhost:11434")
+        #expect(config.type == .openAI)
+        #expect(config.baseURL == "https://api.openai.com")
         #expect(config.authMethod == .none)
         #expect(config.isBuiltIn == false)
     }
 
     @Test("Codable 라운드트립 (apiKey 없이)")
     func codableRoundTripNoApiKey() throws {
-        let original = makeTestProviderConfig(name: "Ollama", type: .ollama, baseURL: "http://localhost:11434")
+        let original = makeTestProviderConfig(name: "Google", type: .google, baseURL: "https://generativelanguage.googleapis.com")
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(ProviderConfig.self, from: data)
         #expect(decoded.name == original.name)
@@ -63,23 +63,17 @@ struct ProviderConfigTests {
 
     @Test("ProviderType 기본 baseURL")
     func providerTypeDefaultBaseURL() {
-        #expect(ProviderType.ollama.defaultBaseURL == "http://localhost:11434")
-        #expect(ProviderType.lmStudio.defaultBaseURL == "http://localhost:1234")
         #expect(ProviderType.openAI.defaultBaseURL == "https://api.openai.com")
         #expect(ProviderType.anthropic.defaultBaseURL == "https://api.anthropic.com")
         #expect(ProviderType.google.defaultBaseURL == "https://generativelanguage.googleapis.com")
-        #expect(ProviderType.custom.defaultBaseURL == "")
     }
 
     @Test("ProviderType 기본 인증 방식")
     func providerTypeDefaultAuthMethod() {
         #expect(ProviderType.claudeCode.defaultAuthMethod == .none)
-        #expect(ProviderType.ollama.defaultAuthMethod == .none)
-        #expect(ProviderType.lmStudio.defaultAuthMethod == .none)
         #expect(ProviderType.openAI.defaultAuthMethod == .apiKey)
         #expect(ProviderType.anthropic.defaultAuthMethod == .apiKey)
         #expect(ProviderType.google.defaultAuthMethod == .apiKey)
-        #expect(ProviderType.custom.defaultAuthMethod == .none)
     }
 
     @Test("AuthMethod CaseIterable")
@@ -101,34 +95,10 @@ struct ProviderConfigTests {
 
     // MARK: - isConnected
 
-    @Test("isConnected - Ollama는 항상 true")
-    func isConnectedOllama() {
-        let config = makeTestProviderConfig(type: .ollama, baseURL: "http://localhost:11434")
-        #expect(config.isConnected == true)
-    }
-
-    @Test("isConnected - LM Studio는 항상 true")
-    func isConnectedLMStudio() {
-        let config = makeTestProviderConfig(type: .lmStudio, baseURL: "http://localhost:1234")
-        #expect(config.isConnected == true)
-    }
-
     @Test("isConnected - OpenAI (apiKey 없으면 false)")
     func isConnectedOpenAINoKey() {
         let config = makeTestProviderConfig(type: .openAI, baseURL: "https://api.openai.com", authMethod: .apiKey)
         #expect(config.isConnected == false)
-    }
-
-    @Test("isConnected - Custom (baseURL 비어있으면 false)")
-    func isConnectedCustomEmpty() {
-        let config = makeTestProviderConfig(type: .custom, baseURL: "")
-        #expect(config.isConnected == false)
-    }
-
-    @Test("isConnected - Custom (baseURL 있으면 true)")
-    func isConnectedCustomWithURL() {
-        let config = makeTestProviderConfig(type: .custom, baseURL: "https://example.com")
-        #expect(config.isConnected == true)
     }
 
     @Test("isConnected - Claude Code (존재하지 않는 경로)")

@@ -118,12 +118,11 @@ class ProviderManager: ObservableObject {
 
     func createProvider(from config: ProviderConfig) -> AIProvider {
         switch config.type {
-        case .claudeCode:        return ClaudeCodeProvider(config: config)
-        case .openAI:            return OpenAIProvider(config: config)
-        case .google:            return GoogleProvider(config: config)
-        case .ollama, .lmStudio: return OllamaProvider(config: config)
-        case .anthropic:         return AnthropicProvider(config: config)
-        case .custom:            return CustomProvider(config: config)
+        case .claudeCode:  return ClaudeCodeProvider(config: config)
+        case .openAI:      return OpenAIProvider(config: config)
+        case .google:      return GoogleProvider(config: config)
+        case .anthropic:   return AnthropicProvider(config: config)
+        default:           return OpenAIProvider(config: config) // 미지원 타입 폴백
         }
     }
 
@@ -142,11 +141,15 @@ class ProviderManager: ObservableObject {
         }
     }
 
+    /// 지원하는 프로바이더 타입
+    private static let supportedTypes: Set<ProviderType> = [.claudeCode, .openAI, .anthropic, .google]
+
     private func loadConfigs() {
         guard let data = defaults.data(forKey: saveKey),
               let loaded = try? JSONDecoder().decode([ProviderConfig].self, from: data) else {
             return
         }
-        configs = loaded
+        // 미지원 타입(ollama, lmStudio, custom) 필터링
+        configs = loaded.filter { Self.supportedTypes.contains($0.type) }
     }
 }

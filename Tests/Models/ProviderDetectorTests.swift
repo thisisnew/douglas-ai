@@ -121,33 +121,6 @@ struct ProviderDetectorTests {
         #expect(provider.needsAPIKey == false)
     }
 
-    @Test("needsAPIKey - 불필요 (Ollama)")
-    func needsAPIKeyOllama() {
-        let provider = DetectedProvider(
-            type: .ollama, displayName: "", detail: "",
-            prefilledAPIKey: nil, isConfirmed: true
-        )
-        #expect(provider.needsAPIKey == false)
-    }
-
-    @Test("needsAPIKey - 불필요 (LM Studio)")
-    func needsAPIKeyLMStudio() {
-        let provider = DetectedProvider(
-            type: .lmStudio, displayName: "", detail: "",
-            prefilledAPIKey: nil, isConfirmed: true
-        )
-        #expect(provider.needsAPIKey == false)
-    }
-
-    @Test("needsAPIKey - Custom은 불필요")
-    func needsAPIKeyCustom() {
-        let provider = DetectedProvider(
-            type: .custom, displayName: "", detail: "",
-            prefilledAPIKey: nil, isConfirmed: false
-        )
-        #expect(provider.needsAPIKey == false)
-    }
-
     // MARK: - detectClaudeCode
 
     @Test("detectClaudeCode - 바이너리 없으면 nil")
@@ -202,29 +175,6 @@ struct ProviderDetectorTests {
         }
     }
 
-    // MARK: - detectOllama
-
-    @Test("detectOllama - 바이너리와 서버 상태 조합")
-    func detectOllamaResult() async {
-        let result = await ProviderDetector.detectOllama()
-        // 결과는 환경에 따라 다르지만 nil이거나 올바른 타입이어야 함
-        if let r = result {
-            #expect(r.type == .ollama)
-            #expect(r.displayName.contains("Ollama"))
-        }
-    }
-
-    // MARK: - detectLMStudio
-
-    @Test("detectLMStudio - 앱과 서버 상태 조합")
-    func detectLMStudioResult() async {
-        let result = await ProviderDetector.detectLMStudio()
-        if let r = result {
-            #expect(r.type == .lmStudio)
-            #expect(r.displayName.contains("LM Studio"))
-        }
-    }
-
     // MARK: - detectAll
 
     @Test("detectAll - 결과 배열 반환")
@@ -255,38 +205,11 @@ struct ProviderDetectorTests {
             return (response, Data())
         }
 
-        // detectOllama uses checkHTTP internally
-        // We test via detectOllama with mocked HTTP
-        let result = await ProviderDetector.detectOllama()
-        // With HTTP mock returning 200, server should be "running"
-        if let r = result {
-            #expect(r.detail.contains("응답 확인") || r.detail.contains("설치됨"))
+        // detectAll을 통해 checkHTTP 간접 테스트
+        let results = await ProviderDetector.detectAll()
+        // mock HTTP가 200을 반환하므로 감지 결과에 영향
+        for r in results {
+            #expect(r.displayName.isEmpty == false)
         }
-    }
-
-    @Test("checkHTTP - 목 URLSession으로 실패 응답")
-    func checkHTTPFailureMock() async {
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [MockURLProtocol.self]
-        let mockSession = URLSession(configuration: config)
-        let originalSession = ProviderDetector.urlSession
-        ProviderDetector.urlSession = mockSession
-        defer { ProviderDetector.urlSession = originalSession }
-
-        MockURLProtocol.requestHandler = { request in
-            let response = HTTPURLResponse(
-                url: request.url!, statusCode: 500,
-                httpVersion: nil, headerFields: nil
-            )!
-            return (response, Data())
-        }
-
-        // detectLMStudio with mock returning 500
-        let result = await ProviderDetector.detectLMStudio()
-        if let r = result {
-            // 앱이 설치되어 있으면 "서버 미실행"으로 반환
-            #expect(r.detail.contains("서버 미실행") || r.detail.contains("응답 확인"))
-        }
-        // 앱이 없으면 nil일 수 있음 — 둘 다 유효
     }
 }

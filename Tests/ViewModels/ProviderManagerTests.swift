@@ -81,24 +81,6 @@ struct ProviderManagerTests {
         #expect(provider is GoogleProvider)
     }
 
-    @Test("createProvider - Ollama")
-    func createProviderOllama() {
-        let defaults = makeTestDefaults()
-        let manager = ProviderManager(defaults: defaults)
-        let config = makeTestProviderConfig(type: .ollama)
-        let provider = manager.createProvider(from: config)
-        #expect(provider is OllamaProvider)
-    }
-
-    @Test("createProvider - Custom")
-    func createProviderCustom() {
-        let defaults = makeTestDefaults()
-        let manager = ProviderManager(defaults: defaults)
-        let config = makeTestProviderConfig(type: .custom)
-        let provider = manager.createProvider(from: config)
-        #expect(provider is CustomProvider)
-    }
-
     @Test("createProvider - Claude Code")
     func createProviderClaudeCode() {
         let defaults = makeTestDefaults()
@@ -132,11 +114,11 @@ struct ProviderManagerTests {
         let manager = ProviderManager(defaults: defaults)
         let initialCount = manager.configs.count
         manager.configureFromOnboarding(
-            selectedTypes: [.ollama],
+            selectedTypes: [.anthropic],
             apiKeys: [:]
         )
         #expect(manager.configs.count == initialCount + 1)
-        #expect(manager.configs.contains(where: { $0.type == .ollama }))
+        #expect(manager.configs.contains(where: { $0.type == .anthropic }))
     }
 
     @Test("configureFromOnboarding - 이미 존재하는 프로바이더는 스킵")
@@ -175,11 +157,11 @@ struct ProviderManagerTests {
         let defaults = makeTestDefaults()
         let manager = ProviderManager(defaults: defaults)
         manager.configureFromOnboarding(
-            selectedTypes: [.ollama, .lmStudio, .anthropic],
+            selectedTypes: [.openAI, .google, .anthropic],
             apiKeys: [.anthropic: "sk-ant-test"]
         )
-        #expect(manager.configs.contains(where: { $0.type == .ollama }))
-        #expect(manager.configs.contains(where: { $0.type == .lmStudio }))
+        #expect(manager.configs.contains(where: { $0.type == .openAI }))
+        #expect(manager.configs.contains(where: { $0.type == .google }))
         #expect(manager.configs.contains(where: { $0.type == .anthropic }))
         // cleanup
         if let c = manager.configs.first(where: { $0.type == .anthropic }) {
@@ -199,15 +181,6 @@ struct ProviderManagerTests {
 
     // MARK: - createProvider 추가
 
-    @Test("createProvider - LM Studio (OllamaProvider로 생성)")
-    func createProviderLMStudio() {
-        let defaults = makeTestDefaults()
-        let manager = ProviderManager(defaults: defaults)
-        let config = makeTestProviderConfig(type: .lmStudio, baseURL: "http://localhost:1234")
-        let provider = manager.createProvider(from: config)
-        #expect(provider is OllamaProvider)
-    }
-
     // MARK: - 영속화
 
     @Test("configs 영속화 - 저장 후 재로드")
@@ -215,12 +188,12 @@ struct ProviderManagerTests {
         let defaults = makeTestDefaults()
         let manager = ProviderManager(defaults: defaults)
         manager.configureFromOnboarding(
-            selectedTypes: [.ollama],
+            selectedTypes: [.anthropic],
             apiKeys: [:]
         )
 
         let manager2 = ProviderManager(defaults: defaults)
-        #expect(manager2.configs.contains(where: { $0.type == .ollama }))
+        #expect(manager2.configs.contains(where: { $0.type == .anthropic }))
     }
 
     // MARK: - updateConfig 존재하지 않는 config
@@ -229,7 +202,7 @@ struct ProviderManagerTests {
     func updateConfigNonExisting() {
         let defaults = makeTestDefaults()
         let manager = ProviderManager(defaults: defaults)
-        let fakeConfig = makeTestProviderConfig(name: "Fake", type: .custom)
+        let fakeConfig = makeTestProviderConfig(name: "Fake", type: .anthropic)
         let countBefore = manager.configs.count
         manager.updateConfig(fakeConfig)
         #expect(manager.configs.count == countBefore) // 변경 없음
@@ -268,12 +241,11 @@ struct ProviderManagerTests {
         let defaults = makeTestDefaults()
         let manager = ProviderManager(defaults: defaults)
         // config 추가 (apiKey 없음 → 연결 안됨)
-        manager.configureFromOnboarding(selectedTypes: [.openAI, .ollama], apiKeys: [:])
+        manager.configureFromOnboarding(selectedTypes: [.openAI], apiKeys: [:])
         let connected = manager.connectedConfigs
-        // ollama는 apiKey 불필요 (authMethod == .none)이므로 연결됨
         // openAI는 apiKey 필요 (authMethod == .apiKey)이므로 연결 안됨
-        let ollamaConnected = connected.contains(where: { $0.type == .ollama })
-        #expect(ollamaConnected == true)
+        let openAIConnected = connected.contains(where: { $0.type == .openAI })
+        #expect(openAIConnected == false)
     }
 
     // MARK: - fetchModels with mock provider

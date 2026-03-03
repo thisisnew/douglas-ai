@@ -3,11 +3,21 @@ import Foundation
 /// 테스트에서 교체 가능한 프로세스 실행기
 /// 프로덕션: Process()로 실제 실행. 테스트: handler를 설정하여 mock.
 enum ProcessRunner {
-    /// 테스트에서 이 핸들러를 설정하면 실제 Process 대신 mock 응답을 반환
-    nonisolated(unsafe) static var handler: (
-        (_ executable: String, _ args: [String], _ env: [String: String]?, _ workDir: String?)
+    /// 테스트에서 `$handler.withValue(mock) { ... }` 로 태스크별 격리된 mock 주입.
+    /// @TaskLocal로 병렬 테스트 간 핸들러 충돌 방지.
+    @TaskLocal static var handler: (
+        @Sendable (_ executable: String, _ args: [String], _ env: [String: String]?, _ workDir: String?)
         async -> (exitCode: Int32, stdout: String, stderr: String)
-    )? = nil
+    )?
+
+    /// 테스트에서 mock handler를 태스크 격리 방식으로 주입
+    static func withMock(
+        _ mock: @escaping @Sendable (_ executable: String, _ args: [String], _ env: [String: String]?, _ workDir: String?)
+            async -> (exitCode: Int32, stdout: String, stderr: String),
+        body: () async throws -> Void
+    ) async rethrows {
+        try await $handler.withValue(mock, operation: body)
+    }
 
     /// 프로세스 실행. handler가 설정되면 mock, 아니면 실제 Process 실행.
     static func run(

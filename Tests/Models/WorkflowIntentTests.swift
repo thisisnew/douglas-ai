@@ -128,11 +128,11 @@ struct WorkflowIntentTests {
         #expect(!phases.contains(.execute))
     }
 
-    @Test("research — Plan + Execute 포함")
+    @Test("research — Plan 포함, Execute 미포함")
     func researchPhases() {
         let phases = WorkflowIntent.research.requiredPhases
         #expect(phases.contains(.plan))
-        #expect(phases.contains(.execute))
+        #expect(!phases.contains(.execute))
     }
 
     @Test("requirementsAnalysis — Plan 포함, Execute 미포함")
@@ -151,7 +151,7 @@ struct WorkflowIntentTests {
         #expect(WorkflowIntent.requirementsAnalysis.planMode == .lite)
         #expect(WorkflowIntent.testPlanning.planMode == .lite)
         #expect(WorkflowIntent.taskDecomposition.planMode == .lite)
-        #expect(WorkflowIntent.research.planMode == .exec)
+        #expect(WorkflowIntent.research.planMode == .lite)
         #expect(WorkflowIntent.documentation.planMode == .exec)
         #expect(WorkflowIntent.implementation.planMode == .exec)
     }
@@ -192,11 +192,11 @@ struct WorkflowIntentTests {
     func includesExecution() {
         // Execute 포함
         #expect(WorkflowIntent.quickAnswer.includesExecution == true)
-        #expect(WorkflowIntent.research.includesExecution == true)
         #expect(WorkflowIntent.documentation.includesExecution == true)
         #expect(WorkflowIntent.implementation.includesExecution == true)
 
         // Execute 미포함
+        #expect(WorkflowIntent.research.includesExecution == false)
         #expect(WorkflowIntent.brainstorm.includesExecution == false)
         #expect(WorkflowIntent.requirementsAnalysis.includesExecution == false)
         #expect(WorkflowIntent.testPlanning.includesExecution == false)

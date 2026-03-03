@@ -2,60 +2,54 @@ import Testing
 import Foundation
 @testable import DOUGLAS
 
-@Suite("BuildLoopRunner Tests", .serialized)
+@Suite("BuildLoopRunner Tests")
 struct BuildLoopRunnerTests {
 
     // MARK: - runBuild
 
     @Test("빌드 성공 시 BuildResult.success == true")
     func buildSuccess() async {
-        let original = ProcessRunner.handler
-        ProcessRunner.handler = { _, _, _, _ in
+        await ProcessRunner.withMock({ _, _, _, _ in
             (exitCode: 0, stdout: "Build complete!", stderr: "")
+        }) {
+            let result = await BuildLoopRunner.runBuild(
+                command: "echo ok",
+                workingDirectory: "/tmp"
+            )
+            #expect(result.success == true)
+            #expect(result.exitCode == 0)
+            #expect(result.output.contains("Build complete!"))
         }
-        defer { ProcessRunner.handler = original }
-
-        let result = await BuildLoopRunner.runBuild(
-            command: "echo ok",
-            workingDirectory: "/tmp"
-        )
-        #expect(result.success == true)
-        #expect(result.exitCode == 0)
-        #expect(result.output.contains("Build complete!"))
     }
 
     @Test("빌드 실패 시 BuildResult.success == false")
     func buildFailure() async {
-        let original = ProcessRunner.handler
-        ProcessRunner.handler = { _, _, _, _ in
+        await ProcessRunner.withMock({ _, _, _, _ in
             (exitCode: 1, stdout: "", stderr: "error: cannot find module")
+        }) {
+            let result = await BuildLoopRunner.runBuild(
+                command: "swift build",
+                workingDirectory: "/tmp"
+            )
+            #expect(result.success == false)
+            #expect(result.exitCode == 1)
+            #expect(result.output.contains("cannot find module"))
         }
-        defer { ProcessRunner.handler = original }
-
-        let result = await BuildLoopRunner.runBuild(
-            command: "swift build",
-            workingDirectory: "/tmp"
-        )
-        #expect(result.success == false)
-        #expect(result.exitCode == 1)
-        #expect(result.output.contains("cannot find module"))
     }
 
     @Test("빌드 출력 크기 제한")
     func buildOutputTruncation() async {
-        let original = ProcessRunner.handler
         let longOutput = String(repeating: "a", count: 20_000)
-        ProcessRunner.handler = { _, _, _, _ in
+        await ProcessRunner.withMock({ _, _, _, _ in
             (exitCode: 0, stdout: longOutput, stderr: "")
+        }) {
+            let result = await BuildLoopRunner.runBuild(
+                command: "build",
+                workingDirectory: "/tmp"
+            )
+            #expect(result.output.count < longOutput.count)
+            #expect(result.output.contains("생략"))
         }
-        defer { ProcessRunner.handler = original }
-
-        let result = await BuildLoopRunner.runBuild(
-            command: "build",
-            workingDirectory: "/tmp"
-        )
-        #expect(result.output.count < longOutput.count)
-        #expect(result.output.contains("생략"))
     }
 
     // MARK: - buildFixPrompt
@@ -78,53 +72,47 @@ struct BuildLoopRunnerTests {
 
     @Test("테스트 성공 시 QAResult.success == true")
     func testSuccess() async {
-        let original = ProcessRunner.handler
-        ProcessRunner.handler = { _, _, _, _ in
+        await ProcessRunner.withMock({ _, _, _, _ in
             (exitCode: 0, stdout: "All tests passed!", stderr: "")
+        }) {
+            let result = await BuildLoopRunner.runTests(
+                command: "swift test",
+                workingDirectory: "/tmp"
+            )
+            #expect(result.success == true)
+            #expect(result.exitCode == 0)
+            #expect(result.output.contains("All tests passed!"))
         }
-        defer { ProcessRunner.handler = original }
-
-        let result = await BuildLoopRunner.runTests(
-            command: "swift test",
-            workingDirectory: "/tmp"
-        )
-        #expect(result.success == true)
-        #expect(result.exitCode == 0)
-        #expect(result.output.contains("All tests passed!"))
     }
 
     @Test("테스트 실패 시 QAResult.success == false")
     func testFailure() async {
-        let original = ProcessRunner.handler
-        ProcessRunner.handler = { _, _, _, _ in
+        await ProcessRunner.withMock({ _, _, _, _ in
             (exitCode: 1, stdout: "", stderr: "2 tests failed")
+        }) {
+            let result = await BuildLoopRunner.runTests(
+                command: "npm test",
+                workingDirectory: "/tmp"
+            )
+            #expect(result.success == false)
+            #expect(result.exitCode == 1)
+            #expect(result.output.contains("2 tests failed"))
         }
-        defer { ProcessRunner.handler = original }
-
-        let result = await BuildLoopRunner.runTests(
-            command: "npm test",
-            workingDirectory: "/tmp"
-        )
-        #expect(result.success == false)
-        #expect(result.exitCode == 1)
-        #expect(result.output.contains("2 tests failed"))
     }
 
     @Test("테스트 출력 크기 제한")
     func testOutputTruncation() async {
-        let original = ProcessRunner.handler
         let longOutput = String(repeating: "x", count: 20_000)
-        ProcessRunner.handler = { _, _, _, _ in
+        await ProcessRunner.withMock({ _, _, _, _ in
             (exitCode: 0, stdout: longOutput, stderr: "")
+        }) {
+            let result = await BuildLoopRunner.runTests(
+                command: "test",
+                workingDirectory: "/tmp"
+            )
+            #expect(result.output.count < longOutput.count)
+            #expect(result.output.contains("생략"))
         }
-        defer { ProcessRunner.handler = original }
-
-        let result = await BuildLoopRunner.runTests(
-            command: "test",
-            workingDirectory: "/tmp"
-        )
-        #expect(result.output.count < longOutput.count)
-        #expect(result.output.contains("생략"))
     }
 
     @Test("QA 수정 프롬프트 형식 검증")
@@ -143,18 +131,16 @@ struct BuildLoopRunnerTests {
 
     @Test("빌드 명령이 working directory로 전달됨")
     func workingDirectoryPassed() async {
-        let original = ProcessRunner.handler
-        var capturedWorkDir: String?
-        ProcessRunner.handler = { _, _, _, workDir in
-            capturedWorkDir = workDir
+        let captured = CapturedValue<String>()
+        await ProcessRunner.withMock({ _, _, _, workDir in
+            captured.value = workDir
             return (exitCode: 0, stdout: "", stderr: "")
+        }) {
+            _ = await BuildLoopRunner.runBuild(
+                command: "make",
+                workingDirectory: "/Users/test/project"
+            )
+            #expect(captured.value == "/Users/test/project")
         }
-        defer { ProcessRunner.handler = original }
-
-        _ = await BuildLoopRunner.runBuild(
-            command: "make",
-            workingDirectory: "/Users/test/project"
-        )
-        #expect(capturedWorkDir == "/Users/test/project")
     }
 }

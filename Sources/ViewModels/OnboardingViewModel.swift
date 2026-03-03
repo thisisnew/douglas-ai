@@ -54,7 +54,7 @@ class OnboardingViewModel: ObservableObject {
     // MARK: - 마스터 우선순위
 
     private static let masterPriority: [ProviderType] = [
-        .claudeCode, .anthropic, .openAI, .google, .ollama, .lmStudio
+        .claudeCode, .anthropic, .openAI, .google
     ]
 
     // MARK: - Claude Setup 단계
@@ -118,7 +118,7 @@ class OnboardingViewModel: ObservableObject {
 
         // 전체 프로바이더 목록 (Claude Code 제외 — 이미 처리됨)
         let detectedTypes = Set(detected.map(\.type))
-        let subProviderOrder: [ProviderType] = [.openAI, .anthropic, .google, .ollama, .lmStudio]
+        let subProviderOrder: [ProviderType] = [.openAI, .anthropic, .google]
         let detectedSubTypes = detected.map(\.type).filter { $0 != .claudeCode }
         let undetectedSubTypes = subProviderOrder.filter { !detectedTypes.contains($0) }
         allProviderTypes = detectedSubTypes + undetectedSubTypes
@@ -231,9 +231,7 @@ class OnboardingViewModel: ObservableObject {
         case .anthropic:  return "claude-sonnet-4-6"
         case .openAI:     return "gpt-4o"
         case .google:     return "gemini-2.0-flash"
-        case .ollama:     return "llama3"
-        case .lmStudio:   return "default"
-        case .custom:     return "default"
+        default:          return "default"
         }
     }
 

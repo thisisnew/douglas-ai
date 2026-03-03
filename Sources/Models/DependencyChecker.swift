@@ -38,20 +38,6 @@ class DependencyChecker: ObservableObject {
                 downloadURL: "https://nodejs.org",
                 installHint: nil
             ),
-            Dependency(
-                name: "Git",
-                binaryNames: ["git"],
-                isRequired: false,
-                downloadURL: nil,
-                installHint: "xcode-select --install"
-            ),
-            Dependency(
-                name: "Homebrew",
-                binaryNames: ["brew"],
-                isRequired: false,
-                downloadURL: "https://brew.sh",
-                installHint: nil
-            ),
         ]
     }
 

@@ -14,7 +14,7 @@ class MockAIProvider: AIProvider {
     init(config: ProviderConfig? = nil) {
         self.config = config ?? ProviderConfig(
             name: "MockProvider",
-            type: .custom,
+            type: .openAI,
             baseURL: "https://mock.test",
             authMethod: .none
         )

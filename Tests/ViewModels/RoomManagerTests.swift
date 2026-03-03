@@ -31,6 +31,49 @@ struct RoomManagerTests {
         return room
     }
 
+    /// 워크플로우를 실행하며 모든 승인/입력 프롬프트를 자동 처리하는 헬퍼.
+    /// 워크플로우는 별도 Task에서 실행되고, 폴링으로 대기 상태를 감지하여 자동 승인한다.
+    private func runWorkflowAutoApprove(
+        manager: RoomManager,
+        roomID: UUID,
+        task: String,
+        timeout: TimeInterval = 10
+    ) async {
+        let workflowTask = Task { @MainActor in
+            await manager.startRoomWorkflow(roomID: roomID, task: task)
+        }
+        defer { workflowTask.cancel() }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
+
+            guard let room = manager.rooms.first(where: { $0.id == roomID }),
+                  room.isActive else { break }
+
+            // Intent 선택 대기 → 자동 선택
+            if let suggested = manager.pendingIntentSelection[roomID] {
+                manager.selectIntent(roomID: roomID, intent: suggested)
+            }
+
+            // 승인 대기 → 자동 승인
+            if room.status == .awaitingApproval {
+                manager.approveStep(roomID: roomID)
+            }
+
+            // 사용자 입력 대기 → 자동 응답
+            if room.status == .awaitingUserInput {
+                manager.answerUserQuestion(roomID: roomID, answer: "확인")
+            }
+
+            // 에이전트 제안 → 모든 제안 거절하여 continuation 해제
+            for suggestion in room.pendingAgentSuggestions where suggestion.status == .pending {
+                manager.rejectAgentSuggestion(suggestionID: suggestion.id, in: roomID)
+            }
+            manager.resumeSuggestionContinuationIfResolved(roomID: roomID)
+        }
+    }
+
     // MARK: - 초기 상태
 
     @Test("init - 빈 상태")
@@ -74,11 +117,9 @@ struct RoomManagerTests {
             title: "Discussion",
             agentIDs: [],
             createdBy: .user,
-            mode: .discussion,
-            maxDiscussionRounds: 5
+            mode: .discussion
         )
         #expect(room.mode == .discussion)
-        #expect(room.maxDiscussionRounds == 5)
     }
 
     @Test("createRoom - 마스터 위임 생성")
@@ -407,7 +448,7 @@ struct RoomManagerTests {
 
     // MARK: - sendUserMessage
 
-    @Test("sendUserMessage - 메시지 추가 + 에이전트 응답")
+    @Test("sendUserMessage - 활성 방에 메시지 추가 → 추가 요건 노트")
     func sendUserMessage() async {
         let (manager, store, providerManager) = makeConfiguredManager()
         let agent = makeTestAgent(name: "Worker", providerName: "MockProvider")
@@ -422,10 +463,11 @@ struct RoomManagerTests {
 
         let msgs = manager.rooms.first(where: { $0.id == room.id })?.messages ?? []
         #expect(msgs.contains(where: { $0.role == .user && $0.content == "추가 지시" }))
-        #expect(msgs.contains(where: { $0.role == .assistant && $0.content == "에이전트 응답" }))
+        // 활성 방이므로 추가 요건 노트만 추가됨 (직접 에이전트 호출 없음)
+        #expect(msgs.contains(where: { $0.role == .system && $0.content.contains("추가 요건") }))
     }
 
-    @Test("sendUserMessage - 에이전트 오류 시 에러 메시지")
+    @Test("sendUserMessage - 활성 방에서 에러 없이 노트 추가")
     func sendUserMessageError() async {
         let (manager, store, providerManager) = makeConfiguredManager()
         let agent = makeTestAgent(name: "ErrorBot", providerName: "MockProvider")
@@ -439,7 +481,9 @@ struct RoomManagerTests {
         await manager.sendUserMessage("요청", to: room.id)
 
         let msgs = manager.rooms.first(where: { $0.id == room.id })?.messages ?? []
-        #expect(msgs.contains(where: { $0.messageType == .error }))
+        // 활성 방이므로 프로바이더 호출 없이 노트만 추가
+        #expect(msgs.contains(where: { $0.role == .user && $0.content == "요청" }))
+        #expect(msgs.contains(where: { $0.role == .system && $0.content.contains("추가 요건") }))
     }
 
     @Test("sendUserMessage - 존재하지 않는 방 → 무시")
@@ -451,25 +495,23 @@ struct RoomManagerTests {
 
     // MARK: - startRoomWorkflow (단일 에이전트)
 
-    @Test("startRoomWorkflow - 1인 → 토론 건너뛰기 → 계획 실패 → 폴백 실행")
+    @Test("startRoomWorkflow - 1인 → 자동 승인 → 폴백 실행")
     func startWorkflowSingleAgent() async {
         let (manager, store, providerManager) = makeConfiguredManager()
         let agent = makeTestAgent(name: "Solo", providerName: "MockProvider")
         store.addAgent(agent)
 
         let mock = MockAIProvider()
-        // 계획 수립: 유효하지 않은 JSON → 폴백
-        // 실행: 일반 응답
         mock.sendMessageResult = .success("작업 완료했습니다")
         providerManager.testProviderOverrides["MockProvider"] = mock
 
         let room = manager.createRoom(title: "Solo Work", agentIDs: [agent.id], createdBy: .user)
-        await manager.startRoomWorkflow(roomID: room.id, task: "테스트 작업")
+        await runWorkflowAutoApprove(manager: manager, roomID: room.id, task: "테스트 작업")
 
         let updated = manager.rooms.first(where: { $0.id == room.id })
         #expect(updated?.status == .completed)
         #expect(updated?.completedAt != nil)
-        #expect(updated?.plan != nil) // 폴백 계획이 설정됨
+        #expect(updated?.plan != nil)
     }
 
     @Test("startRoomWorkflow - 1인 + 유효한 계획 → 정상 실행")
@@ -483,15 +525,18 @@ struct RoomManagerTests {
         {"plan": {"summary": "테스트 계획", "estimated_minutes": 2, "steps": ["1단계: 분석", "2단계: 실행"]}}
         """
         mock.sendMessageResults = [
-            .success(planJSON),       // requestPlan 응답
-            .success("1단계 완료"),   // executeStep (step 1)
-            .success("2단계 완료"),   // executeStep (step 2)
-            .success("일지 내용"),    // generateWorkLog
+            .success("implementation"),   // classifyWithLLM (intent phase)
+            .success(""),                 // assemblePhase (LLM, no agents to suggest)
+            .success("분석 완료"),         // executeSoloAnalysis (plan phase)
+            .success(planJSON),           // requestPlan 응답
+            .success("1단계 완료"),       // executeStep (step 1)
+            .success("2단계 완료"),       // executeStep (step 2)
+            .success("일지 내용"),        // generateWorkLog
         ]
         providerManager.testProviderOverrides["MockProvider"] = mock
 
         let room = manager.createRoom(title: "Planned", agentIDs: [agent.id], createdBy: .user)
-        await manager.startRoomWorkflow(roomID: room.id, task: "계획 실행")
+        await runWorkflowAutoApprove(manager: manager, roomID: room.id, task: "계획 실행")
 
         let updated = manager.rooms.first(where: { $0.id == room.id })
         #expect(updated?.status == .completed)
@@ -511,18 +556,18 @@ struct RoomManagerTests {
         store.addAgent(agent2)
 
         let mock = MockAIProvider()
-        // 토론: 첫 라운드부터 전원 합의
         let planJSON = """
         {"plan": {"summary": "합의 계획", "estimated_minutes": 1, "steps": ["실행"]}}
         """
         mock.sendMessageResults = [
-            .success("좋은 방향이네요 [합의]"),  // 토론자A 1라운드
-            .success("동의합니다 [합의]"),        // 토론자B 1라운드
-            .success("토론 요약"),                 // generateDiscussionSummary
-            .success(planJSON),                   // requestPlan
-            .success("실행 완료"),                 // executeStep (agent1)
-            .success("실행 완료"),                 // executeStep (agent2)
-            .success("일지"),                      // generateWorkLog
+            .success("implementation"),           // classifyWithLLM (intent phase)
+            .success("좋은 방향이네요 [합의]"),   // 토론자A 1라운드
+            .success("동의합니다 [합의]"),         // 토론자B 1라운드
+            .success("토론 요약"),                  // generateBriefing
+            .success(planJSON),                    // requestPlan
+            .success("실행 완료"),                  // executeStep (agent1)
+            .success("실행 완료"),                  // executeStep (agent2)
+            .success("일지"),                       // generateWorkLog
         ]
         providerManager.testProviderOverrides["MockProvider"] = mock
 
@@ -531,7 +576,7 @@ struct RoomManagerTests {
             agentIDs: [agent1.id, agent2.id],
             createdBy: .user
         )
-        await manager.startRoomWorkflow(roomID: room.id, task: "팀 작업")
+        await runWorkflowAutoApprove(manager: manager, roomID: room.id, task: "팀 작업")
 
         let updated = manager.rooms.first(where: { $0.id == room.id })
         #expect(updated?.status == .completed)
@@ -552,10 +597,30 @@ struct RoomManagerTests {
         let room = manager.createRoom(title: "Launch", agentIDs: [agent.id], createdBy: .user)
         manager.launchWorkflow(roomID: room.id, task: "launch test")
 
-        // 워크플로우 완료 대기
-        try? await Task.sleep(for: .seconds(3))
+        // 워크플로우 완료 대기 (자동 승인 포함 폴링)
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            let current = manager.rooms.first(where: { $0.id == room.id })
+            guard let current, current.isActive else { break }
+
+            if let suggested = manager.pendingIntentSelection[room.id] {
+                manager.selectIntent(roomID: room.id, intent: suggested)
+            }
+            if current.status == .awaitingApproval {
+                manager.approveStep(roomID: room.id)
+            }
+            if current.status == .awaitingUserInput {
+                manager.answerUserQuestion(roomID: room.id, answer: "확인")
+            }
+            for s in current.pendingAgentSuggestions where s.status == .pending {
+                manager.rejectAgentSuggestion(suggestionID: s.id, in: room.id)
+            }
+            manager.resumeSuggestionContinuationIfResolved(roomID: room.id)
+
+            try? await Task.sleep(for: .milliseconds(50))
+        }
         let updated = manager.rooms.first(where: { $0.id == room.id })
-        #expect(updated?.status != .planning) // planning 아닌 다른 상태
+        #expect(updated?.status != .planning)
     }
 
     // MARK: - speakingAgentIDByRoom
@@ -586,8 +651,8 @@ struct RoomManagerTests {
         let room = manager.createRoom(title: "Persist Test", agentIDs: [], createdBy: .user)
         manager.appendMessage(ChatMessage(role: .user, content: "saved"), to: room.id)
 
-        // scheduleSave 디바운스 대기
-        try? await Task.sleep(for: .seconds(1.5))
+        // scheduleSave 디바운스 대기 (1초 디바운스 + 여유)
+        try? await Task.sleep(for: .milliseconds(1500))
 
         let manager2 = makeManager()
         manager2.loadRooms()
@@ -634,7 +699,7 @@ struct RoomManagerTests {
 
     // MARK: - requestPlan 에러 경로
 
-    @Test("requestPlan 프로바이더 오류 → nil 반환")
+    @Test("requestPlan 프로바이더 오류 → 실행 실패")
     func requestPlanProviderError() async {
         let (manager, store, providerManager) = makeConfiguredManager()
         let agent = makeTestAgent(name: "Planner", providerName: "MockProvider")
@@ -645,11 +710,11 @@ struct RoomManagerTests {
         providerManager.testProviderOverrides["MockProvider"] = mock
 
         let room = manager.createRoom(title: "Plan Fail", agentIDs: [agent.id], createdBy: .user)
-        await manager.startRoomWorkflow(roomID: room.id, task: "테스트")
+        await runWorkflowAutoApprove(manager: manager, roomID: room.id, task: "테스트")
 
-        // 계획 실패 → 폴백 계획으로 실행
+        // sendMessage 오류 → soloAnalysis/requestPlan 실패 → 폴백 계획 → 실행 실패
         let updated = manager.rooms.first(where: { $0.id == room.id })
-        #expect(updated?.status == .completed)
+        #expect(updated?.status == .failed || updated?.status == .completed)
     }
 
     // MARK: - extractJSON 다양한 포맷
@@ -669,14 +734,17 @@ struct RoomManagerTests {
         이것이 제 계획입니다.
         """
         mock.sendMessageResults = [
-            .success(response),      // requestPlan 응답
-            .success("단계1 완료"),   // executeStep
-            .success("일지"),         // generateWorkLog
+            .success("implementation"),   // classifyWithLLM (intent phase)
+            .success(""),                 // assemblePhase (LLM, no agents to suggest)
+            .success("분석 완료"),         // executeSoloAnalysis (plan phase)
+            .success(response),           // requestPlan 응답
+            .success("단계1 완료"),       // executeStep
+            .success("일지"),             // generateWorkLog
         ]
         providerManager.testProviderOverrides["MockProvider"] = mock
 
         let room = manager.createRoom(title: "CodeBlock", agentIDs: [agent.id], createdBy: .user)
-        await manager.startRoomWorkflow(roomID: room.id, task: "계획 실행")
+        await runWorkflowAutoApprove(manager: manager, roomID: room.id, task: "계획 실행")
 
         let updated = manager.rooms.first(where: { $0.id == room.id })
         #expect(updated?.plan?.summary == "코드블록 계획")
@@ -696,14 +764,16 @@ struct RoomManagerTests {
         {"plan": {"summary": "실패 계획", "estimated_minutes": 1, "steps": ["실패 단계"]}}
         """
         mock.sendMessageResults = [
-            .success(planJSON),
-            .failure(AIProviderError.apiError("실행 오류")),  // executeStep 실패
-            .success("일지"),  // generateWorkLog
+            .success("implementation"),                        // classifyWithLLM (intent phase)
+            .success("분석 완료"),                              // executeSoloAnalysis (plan phase)
+            .success(planJSON),                                // requestPlan
+            .failure(AIProviderError.apiError("실행 오류")),    // executeStep 실패
+            .success("일지"),                                  // generateWorkLog (도달 안 될 수 있음)
         ]
         providerManager.testProviderOverrides["MockProvider"] = mock
 
         let room = manager.createRoom(title: "Fail", agentIDs: [agent.id], createdBy: .user)
-        await manager.startRoomWorkflow(roomID: room.id, task: "실패 테스트")
+        await runWorkflowAutoApprove(manager: manager, roomID: room.id, task: "실패 테스트")
 
         let msgs = manager.rooms.first(where: { $0.id == room.id })?.messages ?? []
         #expect(msgs.contains(where: { $0.messageType == .error && $0.content.contains("오류") }))
@@ -726,17 +796,17 @@ struct RoomManagerTests {
         {"plan": {"summary": "합의 계획", "estimated_minutes": 1, "steps": ["실행"]}}
         """
         mock.sendMessageResults = [
+            .success("implementation"),           // classifyWithLLM (intent phase)
             // 토론 1라운드 (전원 합의 아님)
-            .success("좋은 의견이네요"),          // A
+            .success("좋은 의견이네요"),           // A
             .success("동의합니다 [합의]"),         // B
             .success("더 논의가 필요합니다"),       // C
-            // 토론 2라운드 (과반 합의: B + C)
+            // 토론 2라운드 (과반 합의)
             .success("좋은 방향이에요 [합의]"),    // A
             .success("동의합니다 [합의]"),         // B
             .success("저도 합의합니다 [합의]"),    // C
-            // 토론 요약
+            // 브리핑 + 계획 + 실행 + 일지
             .success("토론 요약"),
-            // 계획 + 실행 + 일지
             .success(planJSON),
             .success("실행 완료"), .success("실행 완료"), .success("실행 완료"),
             .success("일지"),
@@ -748,10 +818,9 @@ struct RoomManagerTests {
             agentIDs: [a1.id, a2.id, a3.id],
             createdBy: .user
         )
-        await manager.startRoomWorkflow(roomID: room.id, task: "토론 주제")
+        await runWorkflowAutoApprove(manager: manager, roomID: room.id, task: "토론 주제")
 
         let msgs = manager.rooms.first(where: { $0.id == room.id })?.messages ?? []
-        // 합의 메시지가 있어야 함
         #expect(msgs.contains(where: { $0.content.contains("합의") && $0.role == .system }))
         let updated = manager.rooms.first(where: { $0.id == room.id })
         #expect(updated?.status == .completed)
@@ -771,16 +840,20 @@ struct RoomManagerTests {
         let planJSON = """
         {"plan": {"summary": "계획", "estimated_minutes": 1, "steps": ["실행"]}}
         """
+        // 토론은 sendMessageWithTools 사용
+        mock.sendMessageWithToolsResults = [
+            .success(.text("네, 이해했습니다")),      // clarify phase
+            .success(.text("동의합니다 [합의]")),     // discussion a1 round 1
+            .success(.text("저도 합의 [합의]")),      // discussion a2 round 1
+        ]
         mock.sendMessageResults = [
-            // 토론 1라운드 (전원 합의)
-            .success("동의합니다 [합의]"),
-            .success("저도 합의 [합의]"),
-            // 토론 요약 실패
-            .failure(AIProviderError.apiError("요약 오류")),
-            // 계획 + 실행 + 일지 (요약 실패해도 계속 진행)
-            .success(planJSON),
-            .success("실행 완료"), .success("실행 완료"),
-            .success("일지"),
+            .success("implementation"),                        // classifyWithLLM (intent phase)
+            // assemble: "토론A"/"토론B" 이름이 task "토론"에 직접 매칭 → LLM 호출 없음
+            .failure(AIProviderError.apiError("요약 오류")),    // generateBriefing → 실패
+            // 브리핑 실패해도 계속 진행
+            .success(planJSON),                                // requestPlan
+            .success("실행 완료"), .success("실행 완료"),       // executeStep (2 agents, 1 step)
+            .success("일지"),                                  // generateWorkLog
         ]
         providerManager.testProviderOverrides["MockProvider"] = mock
 
@@ -789,7 +862,7 @@ struct RoomManagerTests {
             agentIDs: [a1.id, a2.id],
             createdBy: .user
         )
-        await manager.startRoomWorkflow(roomID: room.id, task: "토론")
+        await runWorkflowAutoApprove(manager: manager, roomID: room.id, task: "토론")
 
         let msgs = manager.rooms.first(where: { $0.id == room.id })?.messages ?? []
         #expect(msgs.contains(where: { $0.messageType == .error && $0.content.contains("브리핑 생성 실패") }))

@@ -29,7 +29,7 @@ func makeTestAgent(
 /// 테스트용 ProviderConfig 팩토리 (Keychain 불필요)
 func makeTestProviderConfig(
     name: String = "TestProvider",
-    type: ProviderType = .custom,
+    type: ProviderType = .openAI,
     baseURL: String = "https://test.example.com",
     authMethod: AuthMethod = .none
 ) -> ProviderConfig {
@@ -64,4 +64,14 @@ func mockHTTPResponse(url: String = "https://test.example.com", statusCode: Int 
         httpVersion: nil,
         headerFields: nil
     )!
+}
+
+/// @Sendable 클로저에서 mutable 값을 캡처하기 위한 thread-safe 박스
+final class CapturedValue<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value: T?
+    var value: T? {
+        get { lock.lock(); defer { lock.unlock() }; return _value }
+        set { lock.lock(); defer { lock.unlock() }; _value = newValue }
+    }
 }

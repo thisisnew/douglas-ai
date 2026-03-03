@@ -98,7 +98,7 @@ struct RoomTests {
     @Test("Room timerDisplayText - 각 상태")
     func roomTimerDisplayText() {
         var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .planning)
-        #expect(room.timerDisplayText == "계획 중...")
+        #expect(room.timerDisplayText == "준비 중")
 
         room.status = .completed
         #expect(room.timerDisplayText == "완료")
@@ -191,32 +191,9 @@ struct RoomTests {
 
     @Test("Room discussion 모드 생성")
     func roomDiscussionMode() {
-        let room = Room(title: "토론", assignedAgentIDs: [], createdBy: .user, mode: .discussion, maxDiscussionRounds: 5)
+        let room = Room(title: "토론", assignedAgentIDs: [], createdBy: .user, mode: .discussion)
         #expect(room.mode == .discussion)
-        #expect(room.maxDiscussionRounds == 5)
         #expect(room.currentRound == 0)
-    }
-
-    // MARK: - discussionProgressText
-
-    @Test("discussionProgressText - planning 상태 + currentRound 0")
-    func discussionProgressTextReady() {
-        let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, mode: .discussion)
-        #expect(room.discussionProgressText == "준비 중")
-    }
-
-    @Test("discussionProgressText - planning 상태 + 진행 중")
-    func discussionProgressTextInProgress() {
-        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, mode: .discussion, maxDiscussionRounds: 3)
-        room.currentRound = 1
-        #expect(room.discussionProgressText == "분석 중 (1단계)")
-    }
-
-    @Test("discussionProgressText - 완료 (status != planning)")
-    func discussionProgressTextCompleted() {
-        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, mode: .discussion, maxDiscussionRounds: 3)
-        room.status = .completed
-        #expect(room.discussionProgressText == "분석 완료")
     }
 
     // MARK: - timerDisplayText 추가 케이스
@@ -263,8 +240,8 @@ struct RoomTests {
         #expect(room.mode == .task) // 기본값
     }
 
-    @Test("Decodable - maxDiscussionRounds 없는 레거시 JSON")
-    func decodeLegacyWithoutDiscussionRounds() throws {
+    @Test("Decodable - 토론 필드 없는 레거시 JSON")
+    func decodeLegacyWithoutDiscussionFields() throws {
         let roomID = UUID()
         let json: [String: Any] = [
             "id": roomID.uuidString,
@@ -279,7 +256,6 @@ struct RoomTests {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let room = try decoder.decode(Room.self, from: data)
-        #expect(room.maxDiscussionRounds == 3) // 기본값
         #expect(room.currentRound == 0) // 기본값
         #expect(room.currentStepIndex == 0) // 기본값
     }
@@ -290,8 +266,7 @@ struct RoomTests {
             title: "토론방",
             assignedAgentIDs: [UUID()],
             createdBy: .user,
-            mode: .discussion,
-            maxDiscussionRounds: 5
+            mode: .discussion
         )
         room.currentRound = 2
         room.status = .inProgress
@@ -299,7 +274,6 @@ struct RoomTests {
         let data = try JSONEncoder().encode(room)
         let decoded = try JSONDecoder().decode(Room.self, from: data)
         #expect(decoded.mode == .discussion)
-        #expect(decoded.maxDiscussionRounds == 5)
         #expect(decoded.currentRound == 2)
     }
 
@@ -328,14 +302,14 @@ struct RoomTests {
     @Test("canTransition - completed → inProgress 허용 (후속 메시지)")
     func canTransitionCompletedToInProgress() {
         #expect(RoomStatus.completed.canTransition(to: .inProgress) == true)
-        #expect(RoomStatus.completed.canTransition(to: .planning) == false)
+        #expect(RoomStatus.completed.canTransition(to: .planning) == true)
         #expect(RoomStatus.completed.canTransition(to: .failed) == false)
     }
 
     @Test("canTransition - failed → inProgress 허용 (재활성화)")
     func canTransitionFailedToInProgress() {
         #expect(RoomStatus.failed.canTransition(to: .inProgress) == true)
-        #expect(RoomStatus.failed.canTransition(to: .planning) == false)
+        #expect(RoomStatus.failed.canTransition(to: .planning) == true)
         #expect(RoomStatus.failed.canTransition(to: .completed) == false)
     }
 
@@ -366,8 +340,9 @@ struct RoomTests {
 
     @Test("transitionTo - 무효한 전이 실패")
     func transitionToInvalid() {
+        // completed → completed (같은 상태 전이)는 허용되지 않음
         var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .completed)
-        let result = room.transitionTo(.planning)
+        let result = room.transitionTo(.completed)
         #expect(result == false)
         #expect(room.status == .completed) // 변경되지 않음
     }
@@ -484,35 +459,6 @@ struct RoomTests {
         #expect(decoded.workLog?.durationSeconds == 30)
     }
 
-    // MARK: - maxDiscussionRounds 최소값
-
-    @Test("Room - maxDiscussionRounds 최소 1")
-    func maxDiscussionRoundsMinimum() {
-        let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, maxDiscussionRounds: 0)
-        #expect(room.maxDiscussionRounds == 1) // max(1, 0) = 1
-    }
-
-    @Test("Room - maxDiscussionRounds 음수도 1로")
-    func maxDiscussionRoundsNegative() {
-        let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, maxDiscussionRounds: -5)
-        #expect(room.maxDiscussionRounds == 1)
-    }
-
-    // MARK: - discussionProgressText 추가
-
-    @Test("discussionProgressText - inProgress 상태")
-    func discussionProgressTextInProgressStatus() {
-        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, mode: .discussion)
-        room.status = .inProgress
-        #expect(room.discussionProgressText == "분석 완료")
-    }
-
-    @Test("discussionProgressText - failed 상태")
-    func discussionProgressTextFailed() {
-        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, mode: .discussion)
-        room.status = .failed
-        #expect(room.discussionProgressText == "분석 완료")
-    }
 
     // MARK: - Phase B 필드
 

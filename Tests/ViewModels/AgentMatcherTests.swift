@@ -61,8 +61,9 @@ struct AgentMatcherTests {
 
     @Test("matchRoles — 작업 규칙 키워드 매칭")
     func matchRolesByWorkingRules() {
+        // 이름에 "react" 포함 (score +3) + 작업 규칙에도 "react" (score +1) = 4 ≥ 3
         let agent = makeAgent(
-            name: "개발자",
+            name: "React 개발자",
             persona: "코드 작성 전문",
             workingRules: WorkingRulesSource(inlineText: "React 컴포넌트는 함수형으로 작성. TypeScript 필수.")
         )
@@ -75,7 +76,8 @@ struct AgentMatcherTests {
 
     @Test("matchRoles — 에이전트 중복 사용 불가")
     func matchRolesNoDuplicateAgent() {
-        let agent = makeAgent(name: "개발자", persona: "백엔드 개발 전문")
+        // 이름에 "백엔드" 포함 (score +3) ≥ 3 → 매칭됨
+        let agent = makeAgent(name: "백엔드", persona: "서버 개발 전문")
         let requirements = [
             RoleRequirement(roleName: "백엔드"),
             RoleRequirement(roleName: "백엔드")  // 같은 역할 두 번

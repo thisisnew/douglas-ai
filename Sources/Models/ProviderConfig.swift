@@ -9,7 +9,7 @@ enum AuthMethod: String, Codable, CaseIterable {
 
     var description: String {
         switch self {
-        case .none:         return "인증 없이 접속 (Ollama, LM Studio 등 로컬 모델)"
+        case .none:         return "인증 없이 접속 (로컬 모델)"
         case .apiKey:       return "API Key 사용 (OpenAI, Anthropic, Google 등)"
         case .bearerToken:  return "Bearer Token 사용 (OAuth, JWT 등)"
         case .customHeader: return "커스텀 HTTP 헤더로 인증"
@@ -116,34 +116,29 @@ enum ProviderType: String, Codable, CaseIterable {
     var defaultBaseURL: String {
         switch self {
         case .claudeCode: return ClaudeCodeProvider.findClaudePath()
-        case .ollama:     return "http://localhost:11434"
-        case .lmStudio:   return "http://localhost:1234"
         case .openAI:     return "https://api.openai.com"
         case .anthropic:  return "https://api.anthropic.com"
         case .google:     return "https://generativelanguage.googleapis.com"
-        case .custom:     return ""
+        default:          return ""
         }
     }
 
     var defaultAuthMethod: AuthMethod {
         switch self {
-        case .claudeCode:        return .none   // 키 불필요!
-        case .ollama, .lmStudio: return .none
+        case .claudeCode:        return .none
         case .openAI, .google:   return .apiKey
         case .anthropic:         return .apiKey
-        case .custom:            return .none
+        default:                 return .none
         }
     }
 
     var label: String {
         switch self {
         case .claudeCode: return "Claude Code (설치됨, 키 불필요)"
-        case .ollama:     return "Ollama (로컬, 무료)"
-        case .lmStudio:   return "LM Studio (로컬, 무료)"
         case .openAI:     return "OpenAI (API Key)"
         case .anthropic:  return "Anthropic (API Key)"
         case .google:     return "Google Gemini (API Key)"
-        case .custom:     return "커스텀 URL"
+        default:          return rawValue
         }
     }
 }
@@ -156,11 +151,9 @@ extension ProviderConfig {
         switch type {
         case .claudeCode:
             return FileManager.default.isExecutableFile(atPath: baseURL)
-        case .ollama, .lmStudio:
-            return true
         case .openAI, .anthropic, .google:
             return apiKey != nil && !(apiKey?.isEmpty ?? true)
-        case .custom:
+        default:
             return !baseURL.isEmpty
         }
     }

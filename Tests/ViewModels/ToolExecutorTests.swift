@@ -322,24 +322,30 @@ struct ToolExecutorTests {
 
     @Test("shell_exec — 간단한 명령 실행")
     func shellExecSuccess() async throws {
-        let provider = makeMockProvider(supportsTools: true)
-        let call = ToolCall(id: "c1", toolName: "shell_exec", arguments: ["command": .string("echo hello_tool_test")])
-        provider.sendMessageWithToolsResults = [
-            .success(.toolCalls([call])),
-            .success(.text("exec done"))
-        ]
+        try await ProcessRunner.withMock({ _, args, _, _ in
+            if args.contains(where: { $0.contains("echo hello_tool_test") }) {
+                return (exitCode: 0, stdout: "hello_tool_test\n", stderr: "")
+            }
+            return (exitCode: 0, stdout: "", stderr: "")
+        }) {
+            let provider = makeMockProvider(supportsTools: true)
+            let call = ToolCall(id: "c1", toolName: "shell_exec", arguments: ["command": .string("echo hello_tool_test")])
+            provider.sendMessageWithToolsResults = [
+                .success(.toolCalls([call])),
+                .success(.text("exec done"))
+            ]
 
-        let agent = makeAgent()
-        let result = try await ToolExecutor.smartSend(
-            provider: provider, agent: agent,
-            systemPrompt: "s", messages: [("user", "run")]
-        )
-        #expect(result == "exec done")
+            let agent = makeAgent()
+            let result = try await ToolExecutor.smartSend(
+                provider: provider, agent: agent,
+                systemPrompt: "s", messages: [("user", "run")]
+            )
+            #expect(result == "exec done")
 
-        // 도구 결과에 echo 출력이 포함되어야 함
-        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
-        let toolResultMsg = lastMessages.first { $0.role == "tool" }
-        #expect(toolResultMsg?.content?.contains("hello_tool_test") == true)
+            let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+            let toolResultMsg = lastMessages.first { $0.role == "tool" }
+            #expect(toolResultMsg?.content?.contains("hello_tool_test") == true)
+        }
     }
 
     @Test("shell_exec — command 파라미터 없음")
@@ -364,23 +370,29 @@ struct ToolExecutorTests {
 
     @Test("shell_exec — 실패하는 명령어")
     func shellExecFailure() async throws {
-        let provider = makeMockProvider(supportsTools: true)
-        let call = ToolCall(id: "c1", toolName: "shell_exec", arguments: ["command": .string("false")])
-        provider.sendMessageWithToolsResults = [
-            .success(.toolCalls([call])),
-            .success(.text("handled"))
-        ]
+        try await ProcessRunner.withMock({ _, args, _, _ in
+            if args.contains(where: { $0.contains("false") }) {
+                return (exitCode: 1, stdout: "", stderr: "")
+            }
+            return (exitCode: 0, stdout: "", stderr: "")
+        }) {
+            let provider = makeMockProvider(supportsTools: true)
+            let call = ToolCall(id: "c1", toolName: "shell_exec", arguments: ["command": .string("false")])
+            provider.sendMessageWithToolsResults = [
+                .success(.toolCalls([call])),
+                .success(.text("handled"))
+            ]
 
-        let agent = makeAgent()
-        _ = try await ToolExecutor.smartSend(
-            provider: provider, agent: agent,
-            systemPrompt: "s", messages: [("user", "run")]
-        )
+            let agent = makeAgent()
+            _ = try await ToolExecutor.smartSend(
+                provider: provider, agent: agent,
+                systemPrompt: "s", messages: [("user", "run")]
+            )
 
-        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
-        let toolResultMsg = lastMessages.first { $0.role == "tool" }
-        // 실패한 명령은 종료 코드가 0이 아니므로 오류 표시
-        #expect(toolResultMsg?.content?.contains("종료 코드") == true)
+            let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+            let toolResultMsg = lastMessages.first { $0.role == "tool" }
+            #expect(toolResultMsg?.content?.contains("종료 코드") == true)
+        }
     }
 
     @Test("알 수 없는 도구 — 오류 반환")
@@ -898,51 +910,65 @@ struct ToolExecutorTests {
 
     @Test("shell_exec — working_directory 지정")
     func shellExecWithWorkDir() async throws {
-        let provider = makeMockProvider(supportsTools: true)
-        let call = ToolCall(id: "c1", toolName: "shell_exec", arguments: [
-            "command": .string("pwd"),
-            "working_directory": .string("/tmp")
-        ])
-        provider.sendMessageWithToolsResults = [
-            .success(.toolCalls([call])),
-            .success(.text("done"))
-        ]
+        try await ProcessRunner.withMock({ _, args, _, workDir in
+            if args.contains(where: { $0.contains("pwd") }) {
+                let dir = workDir ?? "/tmp"
+                return (exitCode: 0, stdout: dir + "\n", stderr: "")
+            }
+            return (exitCode: 0, stdout: "", stderr: "")
+        }) {
+            let provider = makeMockProvider(supportsTools: true)
+            let call = ToolCall(id: "c1", toolName: "shell_exec", arguments: [
+                "command": .string("pwd"),
+                "working_directory": .string("/tmp")
+            ])
+            provider.sendMessageWithToolsResults = [
+                .success(.toolCalls([call])),
+                .success(.text("done"))
+            ]
 
-        let agent = makeAgent()
-        _ = try await ToolExecutor.smartSend(
-            provider: provider, agent: agent,
-            systemPrompt: "s", messages: [("user", "pwd")]
-        )
+            let agent = makeAgent()
+            _ = try await ToolExecutor.smartSend(
+                provider: provider, agent: agent,
+                systemPrompt: "s", messages: [("user", "pwd")]
+            )
 
-        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
-        let toolResult = lastMessages.first { $0.role == "tool" }
-        // /tmp은 macOS에서 /private/tmp으로 해석됨
-        #expect(toolResult?.content?.contains("tmp") == true)
+            let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+            let toolResult = lastMessages.first { $0.role == "tool" }
+            #expect(toolResult?.content?.contains("tmp") == true)
+        }
     }
 
     // MARK: - shell_exec 큰 출력 truncation
 
     @Test("shell_exec — 큰 출력 잘림 (30,000자 제한)")
     func shellExecTruncation() async throws {
-        let provider = makeMockProvider(supportsTools: true)
-        // 50000개 문자 출력하는 명령
-        let call = ToolCall(id: "c1", toolName: "shell_exec", arguments: [
-            "command": .string("python3 -c \"print('A' * 40000)\"")
-        ])
-        provider.sendMessageWithToolsResults = [
-            .success(.toolCalls([call])),
-            .success(.text("done"))
-        ]
+        try await ProcessRunner.withMock({ _, args, _, _ in
+            if args.contains(where: { $0.contains("python3") }) {
+                // 40000자 'A' 출력 시뮬레이션
+                return (exitCode: 0, stdout: String(repeating: "A", count: 40000) + "\n", stderr: "")
+            }
+            return (exitCode: 0, stdout: "", stderr: "")
+        }) {
+            let provider = makeMockProvider(supportsTools: true)
+            let call = ToolCall(id: "c1", toolName: "shell_exec", arguments: [
+                "command": .string("python3 -c \"print('A' * 40000)\"")
+            ])
+            provider.sendMessageWithToolsResults = [
+                .success(.toolCalls([call])),
+                .success(.text("done"))
+            ]
 
-        let agent = makeAgent()
-        _ = try await ToolExecutor.smartSend(
-            provider: provider, agent: agent,
-            systemPrompt: "s", messages: [("user", "big output")]
-        )
+            let agent = makeAgent()
+            _ = try await ToolExecutor.smartSend(
+                provider: provider, agent: agent,
+                systemPrompt: "s", messages: [("user", "big output")]
+            )
 
-        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
-        let toolResult = lastMessages.first { $0.role == "tool" }
-        #expect(toolResult?.content?.contains("잘렸습니다") == true)
+            let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+            let toolResult = lastMessages.first { $0.role == "tool" }
+            #expect(toolResult?.content?.contains("잘렸습니다") == true)
+        }
     }
 
     // MARK: - smartSend system 역할 변환
