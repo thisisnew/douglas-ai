@@ -8,6 +8,12 @@ final class PluginManager: ObservableObject {
     private var pluginContext: PluginContext?
     private let defaults: UserDefaults
 
+    /// 외부 플러그인 설치 디렉토리
+    static var pluginsDirectory: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("DOUGLAS/Plugins")
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
     }
@@ -20,18 +26,106 @@ final class PluginManager: ObservableObject {
         restoreActivePlugins()
     }
 
-    // MARK: - 플러그인 발견 (하드코딩 — 향후 동적 로딩 확장 가능)
+    // MARK: - 플러그인 발견
 
     private func discoverPlugins() {
-        let allPlugins: [any DougPlugin] = [
+        // 1. 빌트인 플러그인
+        let builtins: [any DougPlugin] = [
             SlackPlugin(),
         ]
-        for plugin in allPlugins {
-            if let ctx = pluginContext {
-                plugin.configure(context: ctx)
-            }
-            plugins.append(plugin)
+        for plugin in builtins {
+            registerPlugin(plugin)
         }
+
+        // 2. 외부 스크립트 플러그인 (~/Library/Application Support/DOUGLAS/Plugins/)
+        let dir = Self.pluginsDirectory
+        ensureDirectory(dir)
+
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.isDirectoryKey]
+        ) else { return }
+
+        for itemURL in contents {
+            guard (try? itemURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
+            if let plugin = loadScriptPlugin(from: itemURL) {
+                registerPlugin(plugin)
+            }
+        }
+    }
+
+    private func registerPlugin(_ plugin: any DougPlugin) {
+        if let ctx = pluginContext {
+            plugin.configure(context: ctx)
+        }
+        plugins.append(plugin)
+    }
+
+    /// plugin.json에서 ScriptPlugin 로드
+    private func loadScriptPlugin(from directory: URL) -> ScriptPlugin? {
+        let manifestURL = directory.appendingPathComponent("plugin.json")
+        guard let data = try? Data(contentsOf: manifestURL),
+              let manifest = try? JSONDecoder().decode(PluginManifest.self, from: data) else {
+            return nil
+        }
+        // 중복 체크
+        guard !plugins.contains(where: { $0.info.id == manifest.id }) else { return nil }
+        return ScriptPlugin(manifest: manifest, directory: directory)
+    }
+
+    // MARK: - 플러그인 설치 / 제거
+
+    /// 외부 플러그인 폴더를 선택하여 설치 (복사)
+    func installPlugin(from sourceURL: URL) -> (success: Bool, message: String) {
+        let manifestURL = sourceURL.appendingPathComponent("plugin.json")
+        guard let data = try? Data(contentsOf: manifestURL),
+              let manifest = try? JSONDecoder().decode(PluginManifest.self, from: data) else {
+            return (false, "plugin.json을 찾을 수 없거나 형식이 올바르지 않습니다.")
+        }
+
+        // 중복 체크
+        if plugins.contains(where: { $0.info.id == manifest.id }) {
+            return (false, "이미 설치된 플러그인입니다: \(manifest.name)")
+        }
+
+        // 설치 디렉토리로 복사
+        let destURL = Self.pluginsDirectory.appendingPathComponent(manifest.id)
+        do {
+            if FileManager.default.fileExists(atPath: destURL.path) {
+                try FileManager.default.removeItem(at: destURL)
+            }
+            try FileManager.default.copyItem(at: sourceURL, to: destURL)
+
+            // 스크립트 파일에 실행 권한 부여
+            makeScriptsExecutable(in: destURL)
+
+            // 로드 & 등록
+            if let plugin = loadScriptPlugin(from: destURL) {
+                registerPlugin(plugin)
+                return (true, "\(manifest.name) 설치 완료")
+            }
+            return (false, "플러그인 로드 실패")
+        } catch {
+            return (false, "설치 실패: \(error.localizedDescription)")
+        }
+    }
+
+    /// 외부 플러그인 제거
+    func uninstallPlugin(_ pluginID: String) async -> Bool {
+        guard let plugin = plugins.first(where: { $0.info.id == pluginID }),
+              plugin is ScriptPlugin else { return false } // 빌트인은 제거 불가
+
+        // 비활성화 먼저
+        if plugin.isActive {
+            await deactivatePlugin(pluginID)
+        }
+
+        // 파일 삭제
+        let dir = Self.pluginsDirectory.appendingPathComponent(pluginID)
+        try? FileManager.default.removeItem(at: dir)
+
+        // 목록에서 제거
+        plugins.removeAll { $0.info.id == pluginID }
+        return true
     }
 
     // MARK: - 라이프사이클
@@ -82,5 +176,19 @@ final class PluginManager: ObservableObject {
 
     var pluginTools: [AgentTool] {
         plugins.filter { $0.isActive }.flatMap { $0.registeredTools() }
+    }
+
+    // MARK: - Helpers
+
+    private func ensureDirectory(_ url: URL) {
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    }
+
+    private func makeScriptsExecutable(in directory: URL) {
+        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
+        let scriptExts = Set(["sh", "bash", "zsh", "py", "python", "js", "rb"])
+        for file in files where scriptExts.contains(file.pathExtension) {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+        }
     }
 }
