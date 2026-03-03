@@ -9,17 +9,43 @@ extension Notification.Name {
 class ClickThroughPanel: NSPanel {
     /// 상단 드래그 영역 높이 (SwiftUI 드래그 핸들 + 헤더 영역)
     private let dragZoneHeight: CGFloat = 24
+    /// 수동 드래그 상태
+    private var isDragging = false
+    private var dragOffset: NSPoint = .zero
 
     override var canBecomeKey: Bool { true }
 
     override func sendEvent(_ event: NSEvent) {
-        // 상단 드래그 영역에서 좌클릭 → 윈도우 드래그
-        if event.type == .leftMouseDown {
-            let loc = event.locationInWindow
-            if loc.y >= frame.height - dragZoneHeight {
-                performDrag(with: event)
-                return
-            }
+        let loc = event.locationInWindow
+        let inDragZone = loc.y >= frame.height - dragZoneHeight
+
+        switch event.type {
+        case .leftMouseDown where inDragZone:
+            isDragging = true
+            dragOffset = NSPoint(
+                x: frame.origin.x - NSEvent.mouseLocation.x,
+                y: frame.origin.y - NSEvent.mouseLocation.y
+            )
+            level = .floating
+            NSCursor.closedHand.push()
+            return
+
+        case .leftMouseDragged where isDragging:
+            let mouse = NSEvent.mouseLocation
+            setFrameOrigin(NSPoint(
+                x: mouse.x + dragOffset.x,
+                y: mouse.y + dragOffset.y
+            ))
+            return
+
+        case .leftMouseUp where isDragging:
+            isDragging = false
+            NSCursor.pop()
+            level = .normal
+            return
+
+        default:
+            break
         }
         super.sendEvent(event)
     }
