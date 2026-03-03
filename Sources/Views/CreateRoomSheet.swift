@@ -317,7 +317,7 @@ struct CreateRoomSheet: View {
             testCommand: trimmedTest.isEmpty ? nil : trimmedTest
         )
         // NSWindow 닫기
-        NSApp.keyWindow?.close()
+        UtilityWindowManager.shared.closeKeyWindow()
     }
 
     private func pickProjectDirectories() {

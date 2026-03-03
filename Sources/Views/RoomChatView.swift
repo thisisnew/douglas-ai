@@ -270,7 +270,7 @@ struct RoomChatView: View {
                         // 창 닫기를 위해 UtilityWindowManager 사용
                         roomManager.deleteRoom(room.id)
                         // NSWindow를 찾아 닫기
-                        NSApp.keyWindow?.close()
+                        UtilityWindowManager.shared.closeKeyWindow()
                     }
                 } message: {
                     Text("진행 중인 작업이 있으면 즉시 중단됩니다.")

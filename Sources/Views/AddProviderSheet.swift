@@ -18,6 +18,7 @@ struct AddProviderSheet: View {
     @State private var jiraToken = ""
     @State private var jiraTestResult: String?
     @State private var isTestingJira = false
+    @State private var showJiraToken = false
 
 
     var body: some View {
@@ -181,13 +182,36 @@ struct AddProviderSheet: View {
                                 .continuousRadius(DesignTokens.CozyGame.cardRadius)
                                 .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous).strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1))
 
-                            SecureField("API Token", text: $jiraToken)
+                            HStack(spacing: 0) {
+                                Group {
+                                    if showJiraToken {
+                                        TextField("API Token", text: $jiraToken)
+                                    } else {
+                                        SecureField("API Token", text: $jiraToken)
+                                    }
+                                }
                                 .textFieldStyle(.plain)
                                 .font(.body)
-                                .padding(10)
-                                .background(palette.inputBackground)
-                                .continuousRadius(DesignTokens.CozyGame.cardRadius)
-                                .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous).strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1))
+
+                                Button {
+                                    showJiraToken.toggle()
+                                } label: {
+                                    Image(systemName: showJiraToken ? "eye.slash" : "eye")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(10)
+                            .background(palette.inputBackground)
+                            .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                            .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous).strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1))
+
+                            if !jiraToken.isEmpty {
+                                Text("\(jiraToken.count)자")
+                                    .font(.caption2)
+                                    .foregroundColor(jiraToken.count < 170 ? .orange : .secondary)
+                            }
 
                             HStack(spacing: 8) {
                                 Spacer()
@@ -368,9 +392,12 @@ struct AddProviderSheet: View {
                    let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let displayName = json["displayName"] as? String {
                     jiraTestResult = "성공 · \(displayName)"
+                } else if status == 401 {
+                    jiraTestResult = "인증 실패 — 토큰을 다시 확인하세요 (\(cleanToken.count)자)"
+                } else if status == 403 {
+                    jiraTestResult = "권한 없음 (HTTP 403)"
                 } else {
-                    let body = String(data: data.prefix(200), encoding: .utf8) ?? ""
-                    jiraTestResult = "실패 (HTTP \(status)) \(body.prefix(60))"
+                    jiraTestResult = "실패 (HTTP \(status))"
                 }
             } catch {
                 jiraTestResult = "연결 실패: \(error.localizedDescription.prefix(50))"

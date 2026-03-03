@@ -93,6 +93,13 @@ final class UtilityWindowManager {
         }
     }
 
+    /// 현재 key window가 유틸리티 윈도우일 때만 닫기 (사이드바 패널 보호)
+    func closeKeyWindow() {
+        if let window = windows.first(where: { $0.isKeyWindow }) {
+            window.close()
+        }
+    }
+
     private func cleanup(_ window: NSWindow) {
         if let observer = observers.removeValue(forKey: window) {
             NotificationCenter.default.removeObserver(observer)
