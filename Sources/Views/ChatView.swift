@@ -216,6 +216,7 @@ struct MessageBubble: View {
             case .buildStatus:   return palette.messageBuildStatus.opacity(0.15)
             case .qaStatus:      return palette.messageQaStatus.opacity(0.15)
             case .approvalRequest: return palette.messageApprovalRequest.opacity(0.15)
+            case .phaseTransition: return palette.messageSummary.opacity(0.12)
             case .progress:      return palette.messageProgress.opacity(0.10)
             default:             return palette.messageBubbleBackground
             }
@@ -238,6 +239,7 @@ struct MessageBubble: View {
         case .buildStatus:   return "hammer"
         case .qaStatus:      return "checkmark.shield"
         case .approvalRequest: return "hand.raised"
+        case .phaseTransition: return "arrow.right.circle"
         case .progress:      return "hourglass"
         default:             return nil
         }
@@ -254,6 +256,7 @@ struct MessageBubble: View {
         case .buildStatus:   return palette.messageBuildStatus
         case .qaStatus:      return palette.messageQaStatus
         case .approvalRequest: return palette.messageApprovalRequest
+        case .phaseTransition: return palette.messageSummary
         case .progress:      return palette.messageProgress
         default:             return palette.textSecondary
         }

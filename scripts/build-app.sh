@@ -74,8 +74,6 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << 'PLIST'
     <true/>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.developer-tools</string>
-    <key>LSUIElement</key>
-    <true/>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsLocalNetworking</key>

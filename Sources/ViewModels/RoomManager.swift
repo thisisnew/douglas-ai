@@ -644,17 +644,24 @@ class RoomManager: ObservableObject {
             }
 
             rooms[idx].intent = selectedIntent
+            postIntentExplanation(roomID: roomID)
             scheduleSave()
             return
         }
 
         // 2) quickClassify가 정확한 결과를 반환한 경우 (implementation이 아닌 경우) 재분류 불필요
-        guard currentIntent == .implementation else { return }
+        guard currentIntent == .implementation else {
+            postIntentExplanation(roomID: roomID)
+            return
+        }
 
         // 3) implementation → LLM으로 재분류 시도
         guard let firstAgentID = rooms[idx].assignedAgentIDs.first,
               let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
-              let provider = providerManager?.provider(named: agent.providerName) else { return }
+              let provider = providerManager?.provider(named: agent.providerName) else {
+            postIntentExplanation(roomID: roomID)
+            return
+        }
 
         let newIntent = await IntentClassifier.classifyWithLLM(
             task: task,
@@ -666,7 +673,21 @@ class RoomManager: ObservableObject {
         if newIntent != currentIntent {
             rooms[idx].intent = newIntent
         }
+        postIntentExplanation(roomID: roomID)
         scheduleSave()
+    }
+
+    /// Intent 확정 후 사용자에게 워크플로우 설명 메시지 표시
+    private func postIntentExplanation(roomID: UUID) {
+        guard let room = rooms.first(where: { $0.id == roomID }),
+              let intent = room.intent else { return }
+
+        let msg = ChatMessage(
+            role: .system,
+            content: "[\(intent.displayName)] \(intent.subtitle)\n진행: \(intent.phaseSummary)",
+            messageType: .phaseTransition
+        )
+        appendMessage(msg, to: roomID)
     }
 
     /// Intake 단계: 입력 파싱, Jira fetch, IntakeData 저장, 플레이북 로드

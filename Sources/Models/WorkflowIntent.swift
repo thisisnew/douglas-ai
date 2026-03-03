@@ -124,6 +124,14 @@ enum WorkflowIntent: String, CaseIterable {
         }
     }
 
+    /// 사용자에게 보여줄 진행 단계 요약 (intake/intent 제외)
+    var phaseSummary: String {
+        requiredPhases
+            .filter { $0 != .intake && $0 != .intent }
+            .map { $0.displayName }
+            .joined(separator: " → ")
+    }
+
     /// 실행 단계를 포함하는지
     var includesExecution: Bool {
         requiredPhases.contains(.execute)
