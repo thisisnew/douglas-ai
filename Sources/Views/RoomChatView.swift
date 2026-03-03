@@ -30,12 +30,22 @@ struct RoomChatView: View {
                     DiscussionProgressBar(room: room)
                 }
 
+                // 계획 카드 (계획 수립 후) — 헤더 아래 고정
+                if let plan = room.plan {
+                    PlanCard(plan: plan, currentStep: room.currentStepIndex, status: room.status, agentStore: agentStore)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
+                // 메시지 목록
+                messageListView(room)
+
+                // 액션 카드 영역 (입력 위, 메시지 아래)
 
                 // 에이전트 생성 제안 카드
                 ForEach(room.pendingAgentSuggestions.filter { $0.status == .pending }) { suggestion in
                     AgentSuggestionCard(suggestion: suggestion, roomID: room.id)
                         .transition(.asymmetric(
-                            insertion: .move(edge: .top).combined(with: .opacity),
+                            insertion: .move(edge: .bottom).combined(with: .opacity),
                             removal: .scale(scale: 0.95).combined(with: .opacity)
                         ))
                 }
@@ -44,29 +54,20 @@ struct RoomChatView: View {
                 // Intent 선택 카드 (quickClassify 실패 시)
                 if let suggestedIntent = roomManager.pendingIntentSelection[room.id] {
                     IntentSelectionCard(roomID: room.id, suggestedIntent: suggestedIntent)
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
                 // 승인 대기 카드 (승인 게이트 활성 시)
                 if room.status == .awaitingApproval {
                     ApprovalCard(roomID: room.id)
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
                 // 사용자 입력 카드 (ask_user 도구 활성 시)
                 if room.status == .awaitingUserInput {
                     UserInputCard(roomID: room.id)
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
-
-                // 계획 카드 (계획 수립 후)
-                if let plan = room.plan {
-                    PlanCard(plan: plan, currentStep: room.currentStepIndex, status: room.status, agentStore: agentStore)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-
-                // 메시지 목록
-                messageListView(room)
 
                 Divider()
 
@@ -439,39 +440,39 @@ struct RoomChatView: View {
                     .foregroundColor(DesignTokens.RoomStatusColor.color(for: .planning))
             case .inProgress:
                 Circle()
-                    .fill(Color.orange)
+                    .fill(Color.orange.opacity(0.7))
                     .frame(width: 6, height: 6)
                 Text("진행중")
                     .font(.caption2)
-                    .foregroundColor(.orange)
+                    .foregroundColor(.orange.opacity(0.7))
             case .awaitingApproval:
                 Image(systemName: "hand.raised.fill")
                     .font(.system(size: 9))
-                    .foregroundColor(.yellow)
+                    .foregroundColor(.yellow.opacity(0.7))
                 Text("승인 대기")
                     .font(.caption2)
-                    .foregroundColor(.yellow)
+                    .foregroundColor(.yellow.opacity(0.7))
             case .awaitingUserInput:
                 Image(systemName: "questionmark.circle.fill")
                     .font(.system(size: 9))
-                    .foregroundColor(.cyan)
+                    .foregroundColor(.cyan.opacity(0.7))
                 Text("입력 대기")
                     .font(.caption2)
-                    .foregroundColor(.cyan)
+                    .foregroundColor(.cyan.opacity(0.7))
             case .completed:
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 9))
-                    .foregroundColor(.green)
+                    .foregroundColor(.green.opacity(0.7))
                 Text("완료")
                     .font(.caption2)
-                    .foregroundColor(.green)
+                    .foregroundColor(.green.opacity(0.7))
             case .failed:
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 9))
-                    .foregroundColor(.red)
+                    .foregroundColor(.red.opacity(0.7))
                 Text("실패")
                     .font(.caption2)
-                    .foregroundColor(.red)
+                    .foregroundColor(.red.opacity(0.7))
             }
 
             Text("·")
@@ -507,10 +508,10 @@ struct PlanCard: View {
                     HStack {
                         Image(systemName: "list.bullet.clipboard")
                             .font(.caption2)
-                            .foregroundColor(.purple)
+                            .foregroundColor(.purple.opacity(0.7))
                         Text("작업 계획")
                             .font(.caption2.bold())
-                            .foregroundColor(.purple)
+                            .foregroundColor(.purple.opacity(0.7))
                         Spacer()
                         Text("\(completedStepCount)/\(plan.steps.count)")
                             .font(DesignTokens.Typography.mono(DesignTokens.FontSize.nano))
@@ -534,7 +535,7 @@ struct PlanCard: View {
                             if step.requiresApproval {
                                 Image(systemName: "hand.raised.fill")
                                     .font(.system(size: DesignTokens.FontSize.nano))
-                                    .foregroundColor(.orange)
+                                    .foregroundColor(.orange.opacity(0.7))
                             }
                             Text(step.text)
                                 .font(.caption2)
@@ -544,7 +545,7 @@ struct PlanCard: View {
                             if let name = agentName(for: step) {
                                 Text(name)
                                     .font(.system(size: 9))
-                                    .foregroundColor(index == currentStep && status == .inProgress ? .orange : .secondary.opacity(0.6))
+                                    .foregroundColor(index == currentStep && status == .inProgress ? .orange.opacity(0.7) : .secondary.opacity(0.6))
                                     .lineLimit(1)
                             }
                         }
@@ -570,11 +571,11 @@ struct PlanCard: View {
         if status == .completed || index < currentStep {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 9))
-                .foregroundColor(.green)
+                .foregroundColor(.green.opacity(0.7))
         } else if index == currentStep && status == .inProgress {
             Image(systemName: "play.circle.fill")
                 .font(.system(size: 9))
-                .foregroundColor(.orange)
+                .foregroundColor(.orange.opacity(0.7))
         } else {
             Image(systemName: "circle")
                 .font(.system(size: 9))
@@ -612,10 +613,10 @@ struct DiscussionProgressBar: View {
                 HStack {
                     Image(systemName: "bubble.left.and.bubble.right.fill")
                         .font(.caption2)
-                        .foregroundColor(.blue)
+                        .foregroundColor(.blue.opacity(0.7))
                     Text("작업 진행")
                         .font(.caption2.bold())
-                        .foregroundColor(.blue)
+                        .foregroundColor(.blue.opacity(0.7))
                     Spacer()
                     Text(room.phaseLabel)
                         .font(DesignTokens.Typography.monoBadge)
@@ -629,7 +630,7 @@ struct DiscussionProgressBar: View {
                         .fill(Color.blue.opacity(0.1))
                         .frame(height: 4)
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.blue)
+                        .fill(Color.blue.opacity(0.7))
                         .frame(width: geo.size.width * progressRatio, height: 4)
                 }
             }
@@ -643,7 +644,7 @@ struct DiscussionProgressBar: View {
                         .frame(width: 12, height: 12)
                     Text("\(speakingName) 발언 중...")
                         .font(.caption2)
-                        .foregroundColor(.green)
+                        .foregroundColor(.secondary)
                 }
             } else {
                 Text("\(room.assignedAgentIDs.count)명 참여")
@@ -774,12 +775,12 @@ struct ApprovalCard: View {
                 // 타이틀
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(.yellow.opacity(0.15))
+                        .fill(.yellow.opacity(0.1))
                         .frame(width: 24, height: 24)
                         .overlay(
                             Image(systemName: "checkmark.circle")
                                 .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(.yellow)
+                                .foregroundStyle(.yellow.opacity(0.7))
                         )
                     Text(approvalInfo.title)
                         .font(.system(size: 12, weight: .medium))
@@ -960,7 +961,7 @@ struct UserInputCard: View {
                 HStack(spacing: 6) {
                     Image(systemName: "questionmark.circle.fill")
                         .font(.caption)
-                        .foregroundColor(.cyan)
+                        .foregroundColor(.cyan.opacity(0.7))
                     Text("에이전트가 추가 정보를 요청합니다")
                         .font(.caption2.bold())
                         .foregroundColor(.primary)
@@ -981,7 +982,7 @@ struct UserInputCard: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
-                        .background(inputText.trimmingCharacters(in: .whitespaces).isEmpty ? Color.gray : Color.cyan)
+                        .background(inputText.trimmingCharacters(in: .whitespaces).isEmpty ? Color.gray.opacity(0.6) : Color.accentColor)
                         .continuousRadius(DesignTokens.Radius.md)
                         .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
@@ -1011,7 +1012,7 @@ struct IntentSelectionCard: View {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.triangle.branch")
                         .font(.caption)
-                        .foregroundColor(.teal)
+                        .foregroundColor(.teal.opacity(0.7))
                     Text("작업 유형을 선택해주세요")
                         .font(.caption2.bold())
                         .foregroundColor(.primary)
@@ -1036,15 +1037,15 @@ struct IntentSelectionCard: View {
                                         .foregroundColor(.white)
                                         .padding(.horizontal, 4)
                                         .padding(.vertical, 1)
-                                        .background(Color.teal)
+                                        .background(Color.teal.opacity(0.7))
                                         .clipShape(Capsule())
                                 }
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 6)
                             .padding(.horizontal, 8)
-                            .background(intent == suggestedIntent ? Color.teal.opacity(0.12) : Color.primary.opacity(0.04))
-                            .foregroundColor(intent == suggestedIntent ? .teal : .primary)
+                            .background(intent == suggestedIntent ? Color.teal.opacity(0.08) : Color.primary.opacity(0.04))
+                            .foregroundColor(intent == suggestedIntent ? .teal.opacity(0.7) : .primary)
                             .continuousRadius(DesignTokens.Radius.sm)
                         }
                         .buttonStyle(.plain)
@@ -1083,10 +1084,10 @@ struct AgentSuggestionCard: View {
                 HStack(spacing: 6) {
                     Image(systemName: "person.badge.plus")
                         .font(.caption)
-                        .foregroundColor(.orange)
+                        .foregroundColor(.orange.opacity(0.7))
                     Text("에이전트 생성 제안")
                         .font(.caption2.bold())
-                        .foregroundColor(.orange)
+                        .foregroundColor(.orange.opacity(0.7))
                     Spacer()
                     Text(suggestion.suggestedBy)
                         .font(.system(size: DesignTokens.FontSize.badge))
@@ -1127,7 +1128,7 @@ struct AgentSuggestionCard: View {
                     .foregroundColor(.white)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
-                    .background(Color.orange)
+                    .background(Color.orange.opacity(0.85))
                     .continuousRadius(DesignTokens.Radius.md)
                 }
             }
