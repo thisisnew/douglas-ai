@@ -69,6 +69,8 @@ final class UtilityWindowManager {
             object: window,
             queue: .main
         ) { [weak self] notification in
+            // 시스템 색상 피커가 열려있으면 동기적으로 즉시 닫기 (async cleanup 대기 시 깜빡임 방지)
+            if NSColorPanel.shared.isVisible { NSColorPanel.shared.orderOut(nil) }
             guard let closedWindow = notification.object as? NSWindow else { return }
             Task { @MainActor [weak self] in self?.cleanup(closedWindow) }
         }
@@ -1027,14 +1029,14 @@ struct FloatingSidebarView: View {
         pendingAttachments = []
         showSlashMenu = false
         slashMenu.stopMonitoring()
-        chatVM.sendMessage(text.isEmpty ? "[이미지]" : text, agentID: id, attachments: attachments)
+        chatVM.sendMessage(text, agentID: id, attachments: attachments)
     }
 
     // MARK: - 이미지 첨부
 
     private func pickImage() {
-        // .nonactivatingPanel이 NSOpenPanel 클릭을 방해하므로 임시 해제 (NSColorPanel 제외 — 색상 피커 오동작 방지)
-        NSColorPanel.shared.close()
+        // .nonactivatingPanel이 NSOpenPanel 클릭을 방해하므로 임시 해제 (NSColorPanel 제외)
+        if NSColorPanel.shared.isVisible { NSColorPanel.shared.orderOut(nil) }
         let panels = NSApp.windows.compactMap { $0 as? NSPanel }.filter { $0.styleMask.contains(.nonactivatingPanel) && !($0 is NSColorPanel) }
         for p in panels { p.styleMask.remove(.nonactivatingPanel) }
 
