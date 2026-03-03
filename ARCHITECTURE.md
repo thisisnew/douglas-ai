@@ -79,6 +79,17 @@ DOUGLAS/
 │   │   ├── AnthropicProvider.swift  # Anthropic API + Tool Use
 │   │   ├── OllamaProvider.swift     # (비활성) Ollama/LM Studio
 │   │   └── CustomProvider.swift     # (비활성) 커스텀 URL
+│   ├── Plugins/
+│   │   ├── Core/
+│   │   │   ├── DougPlugin.swift        # 플러그인 프로토콜 + 이벤트 타입 (PluginEvent, PluginConfigField)
+│   │   │   ├── PluginContext.swift      # 플러그인용 시스템 파사드 (Room/Agent 안전 API)
+│   │   │   ├── PluginManager.swift     # 플러그인 라이프사이클 관리 (@MainActor ObservableObject)
+│   │   │   └── PluginConfiguration.swift # 플러그인 설정 저장 (UserDefaults + KeychainHelper)
+│   │   └── Slack/
+│   │       ├── SlackPlugin.swift        # Slack 연동 플러그인 (DougPlugin 구현체)
+│   │       ├── SlackSocketConnection.swift # Slack Socket Mode WebSocket 연결
+│   │       ├── SlackMessageParser.swift   # Slack 메시지 ↔ 일반 텍스트 변환
+│   │       └── SlackChannelRoomMapper.swift # Slack 채널 ↔ Room 양방향 매핑
 │   └── Views/
 │       ├── FloatingSidebarView.swift # 팀 로스터 + 마스터 채팅 사이드바 UI
 │       ├── SidebarQuickInputView.swift # (예비) 사이드바 퀵 인풋 컴포넌트
@@ -101,7 +112,8 @@ DOUGLAS/
 │       ├── SharedComponents.swift   # 공유 UI 컴포넌트 (SheetNavHeader, CardContainer, SendButton 등)
 │       ├── ProgressActivityBubble.swift # 확장형 진행 버블 (활동 로그 인라인 표시)
 │       ├── TypingIndicator.swift    # 타이핑 인디케이터 (점 바운스 애니메이션, 경과 시간 표시)
-│       └── ToastView.swift          # 임시 알림 오버레이
+│       ├── ToastView.swift          # 임시 알림 오버레이
+│       └── PluginSettingsView.swift # 플러그인 관리 UI (활성화 토글, 설정 에디터)
 ```
 
 ---
@@ -1075,6 +1087,69 @@ executeWithTools() 루프 (최대 10회):
 
 ---
 
+## 플러그인 시스템
+
+### 아키텍처
+
+```
+┌─ PluginManager (@MainActor ObservableObject) ─────────────┐
+│  plugins: [any DougPlugin]                                 │
+│  activePluginIDs: Set<String>                             │
+│  configure(roomManager:, agentStore:)                     │
+│  dispatch(_ event: PluginEvent)                           │
+└───────────────────────────────────────────────────────────┘
+        │                           ▲
+        │ configure(context:)       │ pluginEventDelegate closure
+        ▼                           │
+┌─ DougPlugin Protocol ─┐    ┌─ RoomManager ─┐
+│  info: PluginInfo      │    │  appendMessage → .messageAdded
+│  activate() → Bool     │    │  createRoom → .roomCreated
+│  deactivate()          │    │  완료/실패 → .roomCompleted/.roomFailed
+│  handle(event:)        │    └───────────────┘
+└────────────────────────┘
+        │
+        ▼
+┌─ PluginContext (파사드) ─┐
+│  createRoom()            │
+│  sendUserMessage()       │
+│  room(for:) / activeRooms()
+│  masterAgent() / subAgents()
+└──────────────────────────┘
+```
+
+### 핵심 파일
+
+| 파일 | 역할 |
+|------|------|
+| `Plugins/Core/DougPlugin.swift` | 프로토콜 + PluginEvent + PluginConfigField |
+| `Plugins/Core/PluginContext.swift` | 플러그인에 노출되는 안전한 시스템 API |
+| `Plugins/Core/PluginManager.swift` | 발견 → 설정 → 활성화/비활성화 라이프사이클 |
+| `Plugins/Core/PluginConfiguration.swift` | 일반값(UserDefaults) + 비밀값(KeychainHelper) 저장 |
+
+### 이벤트 흐름
+
+1. RoomManager에서 `pluginEventDelegate?(.event)` 호출 (클로저 — 플러그인 존재 무지)
+2. AppDelegate가 `roomManager.pluginEventDelegate = { pluginManager.dispatch($0) }` 연결
+3. PluginManager가 모든 활성 플러그인에 `handle(event:)` 브로드캐스트
+
+### 플러그인 추가 방법
+
+1. `Sources/Plugins/{Name}/` 디렉토리 생성
+2. `DougPlugin` 프로토콜 구현 (`info`, `configFields`, `activate/deactivate`, `handle`)
+3. `PluginManager.discoverPlugins()`에 인스턴스 추가
+4. 빌드 & 테스트
+
+### Slack 플러그인
+
+첫 번째 플러그인. Slack Socket Mode(WebSocket)로 멘션/키워드에 반응하여 Room 생성·메시지 주입, 결과를 Slack 스레드로 응답.
+
+- **Socket Mode**: `apps.connections.open` → `URLSessionWebSocketTask` (외부 라이브러리 불필요)
+- **트리거**: Bot 멘션 (`app_mention`) + 커스텀 키워드 패턴
+- **매핑**: `SlackChannelRoomMapper` — 채널 ID ↔ Room ID 양방향, UserDefaults 영속화
+- **설정**: Bot Token / App-Level Token (KeychainHelper 암호화), 트리거 패턴, 채널 필터
+
+---
+
 ## 확장 포인트
 
 1. **새 프로바이더 추가**: `AIProvider` 프로토콜 구현 + `ProviderType` enum 케이스 추가 + `ProviderManager.createProvider()` 분기 추가
@@ -1084,6 +1159,7 @@ executeWithTools() 루프 (최대 10회):
 5. **새 도구 추가**: `ToolRegistry`에 `AgentTool` 추가 + `ToolExecutor.executeSingleTool()`에 case 추가
 6. **MCP (Model Context Protocol)**: 현재 내장 도구 방식. 외부 MCP 서버 연동으로 확장 가능
 7. **web_search 도구 구현**: 현재 placeholder. 실제 검색 API 연동 필요
+8. **새 플러그인 추가**: `DougPlugin` 프로토콜 구현 + `PluginManager.discoverPlugins()`에 등록 (Discord, GitHub Webhook, Jira 등)
 
 ---
 

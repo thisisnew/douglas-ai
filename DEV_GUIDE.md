@@ -161,6 +161,47 @@ Files changed:
 
 ---
 
+## 플러그인 개발 가이드
+
+### 새 플러그인 만들기
+
+1. `Sources/Plugins/{Name}/` 디렉토리 생성
+2. `DougPlugin` 프로토콜 구현:
+   ```swift
+   @MainActor
+   final class MyPlugin: DougPlugin {
+       let info = PluginInfo(id: "my-plugin", name: "내 플러그인", ...)
+       private(set) var isActive = false
+       let configFields: [PluginConfigField] = [...]
+
+       func configure(context: PluginContext) { /* 컨텍스트 저장 */ }
+       func activate() async -> Bool { /* 연결/초기화 */ }
+       func deactivate() async { /* 정리 */ }
+       func handle(event: PluginEvent) async { /* 이벤트 처리 */ }
+   }
+   ```
+3. `PluginManager.discoverPlugins()`에 인스턴스 추가
+4. 테스트 작성 (`Tests/Plugins/`)
+
+### 규칙
+
+- **비밀 값은 `isSecret: true`**: `PluginConfigStore`가 KeychainHelper로 암호화 저장
+- **`PluginContext`만 사용**: RoomManager/AgentStore 직접 참조 금지
+- **`@MainActor` 필수**: 플러그인 프로토콜이 MainActor 바운드
+- **비활성 시 리소스 해제**: `deactivate()`에서 WebSocket/타이머 등 정리
+
+### 사용 가능한 이벤트 (PluginEvent)
+
+| 이벤트 | 시점 |
+|--------|------|
+| `.roomCreated(roomID, title)` | 방 생성 직후 |
+| `.roomCompleted(roomID, title)` | 워크플로우 완료 시 |
+| `.roomFailed(roomID, title)` | 워크플로우 실패 시 |
+| `.messageAdded(roomID, message)` | 메시지 추가 시 (모든 역할) |
+| `.workflowPhaseChanged(roomID, phase)` | 워크플로우 단계 전환 시 |
+
+---
+
 ## 보안 규칙
 
 ### API 키 관리

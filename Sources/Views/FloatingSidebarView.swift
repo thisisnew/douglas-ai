@@ -256,6 +256,7 @@ struct FloatingSidebarView: View {
     @State private var enlargedAvatarAgent: Agent?
     @State private var showEnlargedProfile = false
     @State private var showThemePopover = false
+    @State private var showPluginPopover = false
 
     private var masterAgent: Agent? { agentStore.masterAgent }
     private var masterID: UUID? { masterAgent?.id }
@@ -469,6 +470,12 @@ struct FloatingSidebarView: View {
             cozyIconButton("plus.circle", help: "에이전트 추가") { openAddAgentWindow() }
             cozyIconButton("clock.arrow.circlepath", help: "작업일지") { openWorkLogWindow() }
             cozyIconButton("gearshape", help: "API 설정") { openProviderWindow() }
+
+            cozyIconButton("puzzlepiece", help: "플러그인") { showPluginPopover.toggle() }
+                .popover(isPresented: $showPluginPopover, arrowEdge: .bottom) {
+                    PluginSettingsView()
+                        .environment(\.colorPalette, themeManager.currentPalette)
+                }
 
             cozyIconButton("paintpalette", help: "테마 변경") { showThemePopover.toggle() }
                 .popover(isPresented: $showThemePopover, arrowEdge: .bottom) {

@@ -69,6 +69,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let chatVM = ChatViewModel()
     let roomManager = RoomManager()
     let themeManager = ThemeManager()
+    let pluginManager = PluginManager()
     private var statusItem: NSStatusItem?
     private var sidebarHotkeyMonitor: Any?
     private var sidebarGlobalMonitor: Any?
@@ -91,6 +92,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // ChatViewModel에 RoomManager 포함하여 설정
         chatVM.configure(agentStore: agentStore, providerManager: providerManager, roomManager: roomManager)
         chatVM.loadMessages()
+
+        // 플러그인 시스템 초기화
+        pluginManager.configure(roomManager: roomManager, agentStore: agentStore)
+        roomManager.pluginEventDelegate = { [weak pluginManager] event in
+            pluginManager?.dispatch(event)
+        }
 
         // 에이전트 삭제 시 채팅 기록 + 첨부 파일 정리
         agentStore.onAgentRemoved = { [weak self] agentID in
@@ -246,6 +253,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         .environmentObject(providerManager)
         .environmentObject(agentStore)
         .environmentObject(themeManager)
+        .environmentObject(pluginManager)
         .environment(\.colorPalette, themeManager.currentPalette)
 
         window.contentView = NSHostingView(rootView: onboardingView)
@@ -257,6 +265,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // 활성 플러그인 정리
+        for plugin in pluginManager.plugins where plugin.isActive {
+            let semaphore = DispatchSemaphore(value: 0)
+            Task {
+                await plugin.deactivate()
+                semaphore.signal()
+            }
+            _ = semaphore.wait(timeout: .now() + 2)
+        }
         // 강제 종료 시 디바운스 대기 중인 데이터 손실 방지 — 동기 저장
         roomManager.saveRooms()
         chatVM.saveMessages()
@@ -367,6 +384,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .environmentObject(chatVM)
             .environmentObject(roomManager)
             .environmentObject(themeManager)
+            .environmentObject(pluginManager)
 
         let hostingView = ClickThroughHostingView(rootView: sidebarView)
         sidebarPanel.contentView = hostingView
