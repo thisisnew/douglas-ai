@@ -3,7 +3,7 @@ import SwiftUI
 
 extension Notification.Name {
     static let sidebarHideRequested = Notification.Name("sidebarHideRequested")
-    static let sidebarMinimizeRequested = Notification.Name("sidebarMinimizeRequested")
+    static let roomMinimizeRequested = Notification.Name("roomMinimizeRequested")
 }
 
 class ClickThroughPanel: NSPanel {
@@ -47,8 +47,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var sidebarGlobalMonitor: Any?
 
     private var isSidebarVisible = false
-    private var isMiniMode = false
-    private var savedPanelFrame: NSRect?
     private var panelWidth: CGFloat = 400
     /// 현재 사이드바가 표시 중인 화면
     private weak var currentScreen: NSScreen?
@@ -109,11 +107,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(forName: .sidebarHideRequested, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.hideSidebar()
-            }
-        }
-        NotificationCenter.default.addObserver(forName: .sidebarMinimizeRequested, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.toggleMiniMode()
             }
         }
     }
@@ -435,10 +428,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - 수동 토글
 
     func toggleSidebar() {
-        if isMiniMode {
-            restoreFromMiniMode()
-            return
-        }
         if isSidebarVisible {
             hideSidebar()
         } else {
@@ -447,54 +436,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) })
             showSidebar(on: screen)
         }
-    }
-
-    // MARK: - 미니 모드 (PiP 스타일 축소)
-
-    private static let miniSize: CGFloat = 52
-
-    private func toggleMiniMode() {
-        if isMiniMode {
-            restoreFromMiniMode()
-        } else {
-            enterMiniMode()
-        }
-    }
-
-    private func enterMiniMode() {
-        guard isSidebarVisible, !isMiniMode else { return }
-        isMiniMode = true
-        savedPanelFrame = sidebarPanel.frame
-
-        let screen = currentScreen ?? NSScreen.screens.first
-        let sf = screen?.visibleFrame ?? .zero
-        let s = Self.miniSize
-        let targetFrame = NSRect(x: sf.maxX - s - 16, y: sf.minY + 16, width: s, height: s)
-
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.25
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            self.sidebarPanel.animator().setFrame(targetFrame, display: true)
-        }
-    }
-
-    private func restoreFromMiniMode() {
-        guard isMiniMode else { return }
-        isMiniMode = false
-
-        let frame = savedPanelFrame ?? {
-            let screen = currentScreen ?? NSScreen.screens.first
-            let sf = screen?.visibleFrame ?? .zero
-            let w = panelWidth
-            return NSRect(x: sf.maxX - w, y: sf.minY, width: w, height: sf.height)
-        }()
-
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.25
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            self.sidebarPanel.animator().setFrame(frame, display: true)
-        }
-        savedPanelFrame = nil
     }
 
 }

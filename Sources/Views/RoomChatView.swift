@@ -210,6 +210,17 @@ struct RoomChatView: View {
                     .lineLimit(1)
                 Spacer()
 
+                // 미니 모드 (PiP)
+                Button {
+                    UtilityWindowManager.shared.toggleMiniMode(windowID: roomID.uuidString)
+                } label: {
+                    Image(systemName: "rectangle.bottomhalf.inset.filled")
+                        .font(.caption)
+                        .foregroundColor(.secondary.opacity(0.6))
+                }
+                .buttonStyle(.plain)
+                .help("미니 모드")
+
                 // 대화 내역 복사
                 Button {
                     copyRoomTranscript(room)

@@ -93,6 +93,46 @@ final class UtilityWindowManager {
             NSApp.setActivationPolicy(.accessory)
         }
     }
+
+    // MARK: - 방 창 미니 모드
+
+    private static let miniWidth: CGFloat = 280
+    private static let miniHeight: CGFloat = 180
+    private var savedFrames: [NSWindow: NSRect] = [:]
+
+    func toggleMiniMode(windowID: String) {
+        guard let window = windows.first(where: { windowIdentifiers[$0] == windowID }) else { return }
+        if let savedFrame = savedFrames[window] {
+            // 복원
+            savedFrames.removeValue(forKey: window)
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.25
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                window.animator().setFrame(savedFrame, display: true)
+            }
+        } else {
+            // 축소
+            savedFrames[window] = window.frame
+            let screen = window.screen ?? NSScreen.main ?? NSScreen.screens.first
+            let sf = screen?.visibleFrame ?? .zero
+            let miniFrame = NSRect(
+                x: sf.maxX - Self.miniWidth - 16,
+                y: sf.minY + 16,
+                width: Self.miniWidth,
+                height: Self.miniHeight
+            )
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.25
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                window.animator().setFrame(miniFrame, display: true)
+            }
+        }
+    }
+
+    func isMini(windowID: String) -> Bool {
+        guard let window = windows.first(where: { windowIdentifiers[$0] == windowID }) else { return false }
+        return savedFrames[window] != nil
+    }
 }
 
 // MARK: - 슬래시 커맨드 모델
@@ -227,10 +267,6 @@ struct FloatingSidebarView: View {
 
     var body: some View {
         GeometryReader { sidebarGeo in
-            if sidebarGeo.size.width < 100 || sidebarGeo.size.height < 100 {
-                // 미니 모드: 프로필 아이콘만 표시
-                miniModeView
-            } else {
             VStack(spacing: 0) {
                 // ── 드래그 핸들 ──
                 dragHandle
@@ -276,7 +312,6 @@ struct FloatingSidebarView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            } // end if-else mini mode
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .continuousRadius(DesignTokens.Sidebar.cornerRadius)
@@ -359,23 +394,6 @@ struct FloatingSidebarView: View {
 
     // MARK: - 헤더
 
-    /// 미니 모드: 프로필 아이콘만 표시, 클릭 시 복원
-    private var miniModeView: some View {
-        Button {
-            NotificationCenter.default.post(name: .sidebarMinimizeRequested, object: nil)
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(Color(nsColor: .windowBackgroundColor))
-                    .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
-                ProfileImageView(size: 36)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .buttonStyle(.plain)
-        .help("사이드바 복원")
-    }
-
     private var header: some View {
         HStack(spacing: 10) {
             // 프로필 이미지
@@ -409,20 +427,6 @@ struct FloatingSidebarView: View {
             .buttonStyle(.plain)
             .help("API 설정")
 
-
-            // 사이드바 최소화
-            Button(action: {
-                NotificationCenter.default.post(name: .sidebarMinimizeRequested, object: nil)
-            }) {
-                Image(systemName: "minus")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(.secondary.opacity(0.6))
-                    .frame(width: 20, height: 20)
-                    .background(DesignTokens.Colors.closeButton)
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .help("미니 모드")
 
             // 사이드바 숨기기
             Button(action: {
