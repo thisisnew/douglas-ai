@@ -883,25 +883,30 @@ struct FloatingSidebarView: View {
     // MARK: - 이미지 첨부
 
     private func pickImage() {
-        NSApp.activate(ignoringOtherApps: true)
-        // 사이드바 윈도우 레벨을 임시로 낮춰서 NSOpenPanel 클릭 가능하게
-        let sidebarWindow = NSApp.windows.first { $0.level.rawValue > NSWindow.Level.floating.rawValue }
-        let originalLevel = sidebarWindow?.level
-        sidebarWindow?.level = .normal
+        // .nonactivatingPanel이 NSOpenPanel 클릭을 방해하므로 임시 해제
+        let panels = NSApp.windows.compactMap { $0 as? NSPanel }.filter { $0.styleMask.contains(.nonactivatingPanel) }
+        for p in panels { p.styleMask.remove(.nonactivatingPanel) }
 
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.jpeg, .png, .gif, .webP]
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = false
-        panel.message = "첨부할 이미지를 선택하세요"
-        guard panel.runModal() == .OK else {
-            if let level = originalLevel { sidebarWindow?.level = level }
-            return
+        let wasAccessory = NSApp.activationPolicy() == .accessory
+        if wasAccessory { NSApp.setActivationPolicy(.regular) }
+        NSApp.activate(ignoringOtherApps: true)
+
+        let openPanel = NSOpenPanel()
+        openPanel.allowedContentTypes = [.jpeg, .png, .gif, .webP]
+        openPanel.allowsMultipleSelection = true
+        openPanel.canChooseDirectories = false
+        openPanel.message = "첨부할 이미지를 선택하세요"
+        let response = openPanel.runModal()
+
+        // 복원
+        for p in panels { p.styleMask.insert(.nonactivatingPanel) }
+        if wasAccessory && UtilityWindowManager.shared.windows.isEmpty {
+            NSApp.setActivationPolicy(.accessory)
         }
-        for url in panel.urls {
+        guard response == .OK else { return }
+        for url in openPanel.urls {
             addImageFromURL(url)
         }
-        if let level = originalLevel { sidebarWindow?.level = level }
     }
 
     private func addImageFromURL(_ url: URL) {
