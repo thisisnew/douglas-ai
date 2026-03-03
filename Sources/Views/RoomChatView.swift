@@ -518,8 +518,9 @@ struct RoomChatView: View {
     // MARK: - 이미지 첨부
 
     private func pickImage() {
-        // .nonactivatingPanel이 NSOpenPanel 클릭을 방해하므로 임시 해제
-        let panels = NSApp.windows.compactMap { $0 as? NSPanel }.filter { $0.styleMask.contains(.nonactivatingPanel) }
+        // .nonactivatingPanel이 NSOpenPanel 클릭을 방해하므로 임시 해제 (NSColorPanel 제외 — 색상 피커 오동작 방지)
+        NSColorPanel.shared.close()
+        let panels = NSApp.windows.compactMap { $0 as? NSPanel }.filter { $0.styleMask.contains(.nonactivatingPanel) && !($0 is NSColorPanel) }
         for p in panels { p.styleMask.remove(.nonactivatingPanel) }
 
         let wasAccessory = NSApp.activationPolicy() == .accessory
