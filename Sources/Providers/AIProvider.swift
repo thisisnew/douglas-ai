@@ -82,6 +82,90 @@ extension AIProvider {
     }
 }
 
+// MARK: - 사용자 친화적 오류 메시지
+
+extension Error {
+    /// API 오류를 정형화된 사용자 메시지로 변환
+    var userFacingMessage: String {
+        if let providerError = self as? AIProviderError {
+            switch providerError {
+            case .noAPIKey:
+                return "API 키가 설정되지 않았습니다. 설정에서 확인해 주세요."
+            case .invalidURL:
+                return "API 연결 설정을 확인해 주세요."
+            case .invalidResponse:
+                return "모델 응답을 처리할 수 없습니다. 다시 시도해 주세요."
+            case .httpError(let code, let body):
+                return classifyHTTPError(code: code, body: body)
+            case .apiError(let msg):
+                return classifyRawMessage(msg)
+            case .networkError:
+                return "네트워크 연결을 확인해 주세요."
+            }
+        }
+        return classifyRawMessage(localizedDescription)
+    }
+}
+
+private func classifyHTTPError(code: Int, body: String) -> String {
+    // body에 세부 정보가 있으면 먼저 분류 시도
+    let bodyClassified = classifyRawMessage(body)
+    let fallback = "일시적인 오류가 발생했습니다. 다시 시도해 주세요."
+    if bodyClassified != fallback { return bodyClassified }
+
+    switch code {
+    case 401, 403:
+        return "API 인증에 실패했습니다. 키를 확인해 주세요."
+    case 429:
+        return "API 요청 한도에 도달했습니다. 잠시 후 다시 시도해 주세요."
+    case 500...599:
+        return "서버에 일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요."
+    default:
+        return "서버 통신 오류가 발생했습니다 (코드: \(code))."
+    }
+}
+
+private func classifyRawMessage(_ message: String) -> String {
+    let lower = message.lowercased()
+
+    // Token / context length limit
+    if lower.contains("context_length") || lower.contains("context window") ||
+       lower.contains("too long") || lower.contains("too many input tokens") ||
+       (lower.contains("token") && (lower.contains("limit") || lower.contains("maximum") || lower.contains("exceed"))) {
+        return "모델의 토큰 한도를 초과했습니다. 대화를 정리하거나 다른 모델을 사용해 보세요."
+    }
+
+    // Rate limit
+    if (lower.contains("rate") && lower.contains("limit")) ||
+       lower.contains("quota") || lower.contains("too many requests") {
+        return "API 요청 한도에 도달했습니다. 잠시 후 다시 시도해 주세요."
+    }
+
+    // Auth
+    if lower.contains("unauthorized") || lower.contains("authentication") ||
+       (lower.contains("invalid") && lower.contains("key")) {
+        return "API 인증에 실패했습니다. 키를 확인해 주세요."
+    }
+
+    // Server overload
+    if lower.contains("overloaded") || lower.contains("capacity") {
+        return "서버가 과부하 상태입니다. 잠시 후 다시 시도해 주세요."
+    }
+
+    // Timeout
+    if lower.contains("timeout") || lower.contains("timed out") || lower.contains("시간 초과") {
+        return "응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요."
+    }
+
+    // Network
+    if lower.contains("network") || lower.contains("connection") ||
+       lower.contains("internet") || lower.contains("네트워크") {
+        return "네트워크 연결을 확인해 주세요."
+    }
+
+    return "일시적인 오류가 발생했습니다. 다시 시도해 주세요."
+}
+
 /// 공통 유틸리티 함수
 extension AIProvider {
     /// HTTP 응답 상태 코드 검증

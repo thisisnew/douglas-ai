@@ -192,13 +192,13 @@ class ChatViewModel: ObservableObject {
             sendNotification(agentName: agent.name, message: response)
 
         } catch {
-            agentStore?.updateStatus(agentID: agent.id, status: .error, errorMessage: error.localizedDescription)
-            showToastMessage("\(agent.name) 오류: \(error.localizedDescription)")
-            sendErrorNotification(agentName: agent.name, error: error.localizedDescription)
+            agentStore?.updateStatus(agentID: agent.id, status: .error, errorMessage: error.userFacingMessage)
+            showToastMessage("\(agent.name) 오류: \(error.userFacingMessage)")
+            sendErrorNotification(agentName: agent.name, error: error.userFacingMessage)
 
             let errorReply = ChatMessage(
                 role: .assistant,
-                content: "오류가 발생했습니다: \(error.localizedDescription)",
+                content: "오류가 발생했습니다: \(error.userFacingMessage)",
                 agentName: agent.name,
                 messageType: .error
             )

@@ -766,7 +766,7 @@ class RoomManager: ObservableObject {
             } catch {
                 let errorMsg = ChatMessage(
                     role: .assistant,
-                    content: "요건 확인 오류: \(error.localizedDescription)",
+                    content: "요건 확인 오류: \(error.userFacingMessage)",
                     agentName: agent.name,
                     messageType: .error
                 )
@@ -1065,7 +1065,7 @@ class RoomManager: ObservableObject {
         } catch {
             let errorMsg = ChatMessage(
                 role: .assistant,
-                content: "Assemble 단계 오류: \(error.localizedDescription)",
+                content: "Assemble 단계 오류: \(error.userFacingMessage)",
                 agentName: agent.name,
                 messageType: .error
             )
@@ -1292,7 +1292,7 @@ class RoomManager: ObservableObject {
         } catch {
             let errorMsg = ChatMessage(
                 role: .assistant,
-                content: "오류: \(error.localizedDescription)",
+                content: "오류: \(error.userFacingMessage)",
                 agentName: agent.name,
                 messageType: .error
             )
@@ -1336,7 +1336,7 @@ class RoomManager: ObservableObject {
         } catch {
             let errorMsg = ChatMessage(
                 role: .assistant,
-                content: "분석 오류: \(error.localizedDescription)",
+                content: "분석 오류: \(error.userFacingMessage)",
                 agentName: agent.name,
                 messageType: .error
             )
@@ -1572,7 +1572,7 @@ class RoomManager: ObservableObject {
         } catch {
             let errorMsg = ChatMessage(
                 role: .assistant,
-                content: "계획 수립 실패: \(error.localizedDescription)",
+                content: "계획 수립 실패: \(error.userFacingMessage)",
                 agentName: agent.name,
                 messageType: .error
             )
@@ -2034,7 +2034,7 @@ class RoomManager: ObservableObject {
             }
             let errorMsg = ChatMessage(
                 role: .assistant,
-                content: "단계 실행 오류: \(error.localizedDescription)",
+                content: "단계 실행 오류: \(error.userFacingMessage)",
                 agentName: agent.name,
                 messageType: .error
             )
@@ -2511,7 +2511,7 @@ class RoomManager: ObservableObject {
             speakingAgentIDByRoom.removeValue(forKey: roomID)
             let errorMsg = ChatMessage(
                 role: .assistant,
-                content: "발언 실패: \(error.localizedDescription)",
+                content: "발언 실패: \(error.userFacingMessage)",
                 agentName: agent.name,
                 messageType: .error
             )
@@ -2591,7 +2591,7 @@ class RoomManager: ObservableObject {
         } catch {
             let errorMsg = ChatMessage(
                 role: .system,
-                content: "브리핑 생성 실패: \(error.localizedDescription)",
+                content: "브리핑 생성 실패: \(error.userFacingMessage)",
                 messageType: .error
             )
             appendMessage(errorMsg, to: roomID)
