@@ -593,25 +593,8 @@ struct FloatingSidebarView: View {
                                 agentStore.moveSubAgent(fromID: from, toID: to)
                             }
                         ))
-                        .contextMenu {
-                            Button {
-                                openEditWindow(for: agent)
-                            } label: {
-                                Label("편집", systemImage: "pencil")
-                            }
-                            Button {
-                                openInfoWindow(for: agent)
-                            } label: {
-                                Label("정보", systemImage: "info.circle")
-                            }
-                            if !agent.isMaster {
-                                Divider()
-                                Button(role: .destructive) {
-                                    agentStore.removeAgent(agent)
-                                } label: {
-                                    Label("삭제", systemImage: "trash")
-                                }
-                            }
+                        .onTapGesture {
+                            openInfoWindow(for: agent)
                         }
                 }
             }
@@ -1271,82 +1254,152 @@ struct ProfileImageView: View {
 struct AgentInfoSheet: View {
     let agent: Agent
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorPalette) private var palette
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                AgentAvatarView(agent: agent, size: 40)
-                VStack(alignment: .leading) {
+        VStack(spacing: 0) {
+            // 헤더
+            VStack(spacing: 10) {
+                AgentAvatarView(agent: agent, size: 52)
+                    .shadow(color: palette.accent.opacity(0.3), radius: 8, y: 2)
+
+                VStack(spacing: 4) {
                     Text(agent.name)
-                        .font(.title2.bold())
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
                     if agent.isMaster {
-                        Text("총괄")
-                            .font(.caption)
-                            .foregroundColor(.purple.opacity(0.7))
+                        Text("총괄 에이전트")
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundColor(palette.accent.opacity(0.8))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(palette.accent.opacity(0.1))
+                            .continuousRadius(6)
                     }
                 }
-                Spacer()
+
+                // 상태 뱃지
+                HStack(spacing: 12) {
+                    infoChip(icon: "cpu", text: agent.providerName)
+                    infoChip(icon: "cube", text: agent.modelName)
+                    infoChip(icon: statusIcon, text: statusText, color: statusColor)
+                }
             }
-            .padding()
+            .padding(.top, 20)
+            .padding(.bottom, 14)
 
-            Divider()
+            // 구분선
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [palette.cardBorder.opacity(0), palette.cardBorder.opacity(0.3), palette.cardBorder.opacity(0)],
+                        startPoint: .leading, endPoint: .trailing
+                    )
+                )
+                .frame(height: 1)
 
-            List {
-                Section("모델") {
-                    LabeledContent("API", value: agent.providerName)
-                    LabeledContent("모델", value: agent.modelName)
-                    LabeledContent("상태", value: statusText)
-                }
+            // 본문
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    infoSection(title: "역할 설명", icon: "person.text.rectangle") {
+                        Text(agent.persona)
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundColor(.primary.opacity(0.8))
+                            .lineSpacing(3)
+                            .textSelection(.enabled)
+                    }
 
-                Section("역할 설명") {
-                    Text(agent.persona)
-                        .font(.body)
-                        .textSelection(.enabled)
-                }
-
-                if let rules = agent.workingRules, !rules.isEmpty {
-                    Section("작업 규칙") {
-                        if !rules.inlineText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text(rules.inlineText)
-                                .font(.body)
-                                .textSelection(.enabled)
-                        }
-                        ForEach(rules.filePaths, id: \.self) { path in
-                            HStack {
-                                Image(systemName: "doc.text")
-                                Text((path as NSString).lastPathComponent)
-                                    .font(.body)
-                                Spacer()
-                                Text(path)
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
+                    if let rules = agent.workingRules, !rules.isEmpty {
+                        infoSection(title: "작업 규칙", icon: "list.clipboard") {
+                            VStack(alignment: .leading, spacing: 6) {
+                                if !rules.inlineText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    Text(rules.inlineText)
+                                        .font(.system(size: 12, design: .rounded))
+                                        .foregroundColor(.primary.opacity(0.8))
+                                        .lineSpacing(3)
+                                        .textSelection(.enabled)
+                                }
+                                ForEach(rules.filePaths, id: \.self) { path in
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "doc.text.fill")
+                                            .font(.system(size: 10))
+                                            .foregroundColor(palette.accent.opacity(0.6))
+                                        Text((path as NSString).lastPathComponent)
+                                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                                    }
+                                }
                             }
                         }
                     }
-                }
 
-                if let err = agent.errorMessage {
-                    Section("최근 오류") {
-                        Text(err)
-                            .font(.caption)
-                            .foregroundColor(.red.opacity(0.7))
-                            .textSelection(.enabled)
+                    if let err = agent.errorMessage {
+                        infoSection(title: "최근 오류", icon: "exclamationmark.triangle.fill") {
+                            Text(err)
+                                .font(.system(size: 11, design: .rounded))
+                                .foregroundColor(palette.messageError.opacity(0.9))
+                                .textSelection(.enabled)
+                        }
                     }
                 }
+                .padding(16)
             }
 
-            Divider()
-
-            HStack {
-                Spacer()
-                Button("닫기") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
+            // 닫기
+            Button {
+                dismiss()
+            } label: {
+                Text("닫기")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundColor(.primary.opacity(0.6))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
             }
-            .padding()
+            .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction)
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(palette.cardBorder.opacity(0.15))
+                    .frame(height: 0.5)
+            }
         }
-        .frame(width: 480, height: 480)
+        .background(palette.panelGradient)
+    }
+
+    // MARK: - 헬퍼
+
+    private func infoChip(icon: String, text: String, color: Color = .secondary) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 9))
+            Text(text)
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+        }
+        .foregroundColor(color.opacity(0.8))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(color.opacity(0.08))
+        .continuousRadius(8)
+    }
+
+    private func infoSection<Content: View>(title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 11))
+                    .foregroundColor(palette.accent.opacity(0.7))
+                Text(title)
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary.opacity(0.6))
+            }
+            content()
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(palette.inputBackground.opacity(0.5))
+        .continuousRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(palette.cardBorder.opacity(0.1), lineWidth: 0.5)
+        )
     }
 
     private var statusText: String {
@@ -1355,6 +1408,24 @@ struct AgentInfoSheet: View {
         case .working: return "작업중"
         case .busy:    return "바쁨"
         case .error:   return "오류"
+        }
+    }
+
+    private var statusIcon: String {
+        switch agent.status {
+        case .idle:    return "circle"
+        case .working: return "circle.dotted"
+        case .busy:    return "circle.badge.exclamationmark"
+        case .error:   return "exclamationmark.triangle"
+        }
+    }
+
+    private var statusColor: Color {
+        switch agent.status {
+        case .idle:    return .secondary
+        case .working: return palette.accent
+        case .busy:    return .orange
+        case .error:   return palette.messageError
         }
     }
 }

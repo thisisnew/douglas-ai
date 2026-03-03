@@ -117,6 +117,26 @@ struct MentionParserTests {
         #expect(result.mentions[0].name == "QA 전문가")
     }
 
+    // MARK: - 다중 단어 이름
+
+    @Test("다중 단어 이름 전체 매칭 — @백엔드 개발자 넌 번역할 줄 알어?")
+    func multiWordName() {
+        let result = MentionParser.parse("@백엔드 개발자 넌 번역할 줄 알어?", agents: agents)
+        #expect(result.mentions.count == 1)
+        #expect(result.mentions[0].name == "백엔드 개발자")
+        #expect(result.cleanText == "넌 번역할 줄 알어?")
+    }
+
+    @Test("다중 단어 이름 + 접두어 혼합")
+    func multiWordAndPrefix() {
+        let result = MentionParser.parse("@프론트엔드 개발자 @번역 이거 봐줘", agents: agents)
+        #expect(result.mentions.count == 2)
+        let names = Set(result.mentions.map { $0.name })
+        #expect(names.contains("프론트엔드 개발자"))
+        #expect(names.contains("번역가"))
+        #expect(result.cleanText == "이거 봐줘")
+    }
+
     // MARK: - 이메일 오탐 방지
 
     @Test("이메일 주소는 멘션 아님")

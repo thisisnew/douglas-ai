@@ -9,54 +9,64 @@ enum MentionParser {
         let cleanText: String
     }
 
-    /// `@이름` 패턴 (문장 시작 또는 공백 뒤에서만 매칭 — 이메일 등 오탐 방지)
-    private static let mentionPattern = try! NSRegularExpression(
-        pattern: "(?:^|\\s)@(\\S+)",
-        options: []
-    )
-
     /// 텍스트에서 `@이름` 멘션을 추출하고, 매칭된 멘션만 제거한 순수 텍스트 반환
-    /// - Parameters:
-    ///   - text: 사용자 입력 원문
-    ///   - agents: 매칭 대상 에이전트 목록 (보통 subAgents)
-    /// - Returns: 매칭된 에이전트 + 멘션 제거된 텍스트
+    ///
+    /// 2단계 매칭:
+    /// 1. 전체 이름 매칭 (긴 이름 우선): `@백엔드 개발자` → "백엔드 개발자" (다중 단어 지원)
+    /// 2. 접두어 매칭: `@번역` → "번역가" (단일 후보일 때만)
     static func parse(_ text: String, agents: [Agent]) -> Result {
-        let nsText = text as NSString
-        let range = NSRange(location: 0, length: nsText.length)
-        let matches = mentionPattern.matches(in: text, range: range)
-
-        guard !matches.isEmpty else {
+        guard text.contains("@") else {
             return Result(mentions: [], cleanText: text)
         }
 
         var mentionedAgents: [Agent] = []
-        // 매칭된 멘션의 전체 범위 (제거용) — 뒤에서부터 처리
-        var rangesToRemove: [NSRange] = []
+        var cleanText = text
 
-        for match in matches {
-            guard match.numberOfRanges >= 2 else { continue }
-            let nameRange = match.range(at: 1)
-            let mentionName = nsText.substring(with: nameRange)
+        // Phase 1: 전체 이름 매칭 (긴 이름 우선 — greedy)
+        let sortedAgents = agents.sorted { $0.name.count > $1.name.count }
+        for agent in sortedAgents {
+            let mention = "@\(agent.name)"
+            while let range = cleanText.range(of: mention, options: .caseInsensitive) {
+                // @ 앞이 문장 시작 또는 공백인 경우만 (이메일 오탐 방지)
+                guard isWordBoundary(range.lowerBound, in: cleanText) else { break }
 
-            if let agent = resolveAgent(name: mentionName, from: agents) {
-                // 중복 방지
                 if !mentionedAgents.contains(where: { $0.id == agent.id }) {
                     mentionedAgents.append(agent)
                 }
-                rangesToRemove.append(match.range(at: 0))
+                cleanText.removeSubrange(range)
             }
-            // 미매칭: rangesToRemove에 추가 안 함 → 원문 유지
         }
 
-        // 멘션 제거 (뒤에서부터 제거하여 인덱스 밀림 방지)
-        var cleanText = text
-        for range in rangesToRemove.reversed() {
-            if let swiftRange = Range(range, in: cleanText) {
-                cleanText.removeSubrange(swiftRange)
+        // Phase 2: 접두어 매칭 (남은 @패턴 → 단일 후보 시 매칭)
+        let pattern = try! NSRegularExpression(pattern: "(?:^|\\s)@(\\S+)", options: [])
+        var nsClean = cleanText as NSString
+        var prefixMatches = pattern.matches(in: cleanText, range: NSRange(location: 0, length: nsClean.length))
+        var rangesToRemove: [Range<String.Index>] = []
+
+        for match in prefixMatches {
+            guard match.numberOfRanges >= 2 else { continue }
+            let nameRange = match.range(at: 1)
+            let mentionName = nsClean.substring(with: nameRange).lowercased()
+
+            let alreadyMentioned = Set(mentionedAgents.map(\.id))
+            let candidates = agents.filter { agent in
+                agent.name.lowercased().hasPrefix(mentionName) &&
+                !alreadyMentioned.contains(agent.id)
+            }
+            if candidates.count == 1, let agent = candidates.first {
+                mentionedAgents.append(agent)
+                if let swiftRange = Range(match.range(at: 0), in: cleanText) {
+                    rangesToRemove.append(swiftRange)
+                }
             }
         }
+
+        // 뒤에서부터 제거 (인덱스 밀림 방지)
+        for range in rangesToRemove.reversed() {
+            cleanText.removeSubrange(range)
+        }
+
         cleanText = cleanText.trimmingCharacters(in: .whitespaces)
-        // 연속 공백 정리
         while cleanText.contains("  ") {
             cleanText = cleanText.replacingOccurrences(of: "  ", with: " ")
         }
@@ -64,21 +74,9 @@ enum MentionParser {
         return Result(mentions: mentionedAgents, cleanText: cleanText)
     }
 
-    /// 이름으로 에이전트 매칭 (정확 → 접두어 순)
-    private static func resolveAgent(name: String, from agents: [Agent]) -> Agent? {
-        let lowered = name.lowercased()
-
-        // 1) 정확 매칭
-        if let exact = agents.first(where: { $0.name.lowercased() == lowered }) {
-            return exact
-        }
-
-        // 2) 접두어 매칭 (축약 허용: "번역" → "번역가")
-        let prefixMatches = agents.filter { $0.name.lowercased().hasPrefix(lowered) }
-        if prefixMatches.count == 1 {
-            return prefixMatches.first
-        }
-
-        return nil
+    /// @ 위치가 문장 시작 또는 공백 뒤인지 확인
+    private static func isWordBoundary(_ index: String.Index, in text: String) -> Bool {
+        if index == text.startIndex { return true }
+        return text[text.index(before: index)].isWhitespace
     }
 }

@@ -14,6 +14,7 @@ struct RoomChatView: View {
     @State private var showCopiedFeedback = false
     @State private var selectedAgent: Agent?
     @State private var mentionCandidates: [Agent] = []
+    @State private var mentionSelectionIndex: Int = 0
     @FocusState private var isInputFocused: Bool
 
     private var room: Room? {
@@ -384,14 +385,14 @@ struct RoomChatView: View {
             // @멘션 자동완성 팝오버
             if !mentionCandidates.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(mentionCandidates) { agent in
+                    ForEach(Array(mentionCandidates.enumerated()), id: \.element.id) { idx, agent in
                         Button {
                             insertMention(agent)
                         } label: {
                             HStack(spacing: 6) {
                                 AgentAvatarView(agent: agent, size: 18)
                                 Text(agent.name)
-                                    .font(.system(size: 11))
+                                    .font(.system(size: 11, weight: idx == mentionSelectionIndex ? .bold : .regular))
                                     .foregroundColor(.primary)
                                 Spacer()
                                 if room.assignedAgentIDs.contains(agent.id) {
@@ -402,11 +403,18 @@ struct RoomChatView: View {
                             }
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
+                            .background(
+                                idx == mentionSelectionIndex
+                                    ? palette.accent.opacity(0.12)
+                                    : Color.clear
+                            )
+                            .continuousRadius(6)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }
                 }
+                .padding(.vertical, 4)
                 .background(palette.panelGradientStart)
                 .continuousRadius(DesignTokens.CozyGame.cardRadius)
                 .overlay(
@@ -431,7 +439,35 @@ struct RoomChatView: View {
                     .textFieldStyle(.plain)
                     .lineLimit(1...3)
                     .focused($isInputFocused)
-                    .onSubmit { sendMessage() }
+                    .onSubmit {
+                        if !mentionCandidates.isEmpty {
+                            let idx = min(mentionSelectionIndex, mentionCandidates.count - 1)
+                            insertMention(mentionCandidates[idx])
+                        } else {
+                            sendMessage()
+                        }
+                    }
+                    .onKeyPress(.upArrow) {
+                        guard !mentionCandidates.isEmpty else { return .ignored }
+                        mentionSelectionIndex = max(0, mentionSelectionIndex - 1)
+                        return .handled
+                    }
+                    .onKeyPress(.downArrow) {
+                        guard !mentionCandidates.isEmpty else { return .ignored }
+                        mentionSelectionIndex = min(mentionCandidates.count - 1, mentionSelectionIndex + 1)
+                        return .handled
+                    }
+                    .onKeyPress(.tab) {
+                        guard !mentionCandidates.isEmpty else { return .ignored }
+                        let idx = min(mentionSelectionIndex, mentionCandidates.count - 1)
+                        insertMention(mentionCandidates[idx])
+                        return .handled
+                    }
+                    .onKeyPress(.escape) {
+                        guard !mentionCandidates.isEmpty else { return .ignored }
+                        mentionCandidates = []
+                        return .handled
+                    }
                     .onChange(of: inputText) { _, newValue in
                         updateMentionCandidates(newValue)
                     }
@@ -493,16 +529,19 @@ struct RoomChatView: View {
         }
 
         let query = String(afterAt).lowercased()
-        let subAgents = agentStore.subAgents
+        // 이미 방에 참여 중인 에이전트 제외
+        let assignedIDs = room?.assignedAgentIDs ?? []
+        let available = agentStore.subAgents.filter { !assignedIDs.contains($0.id) }
         if query.isEmpty {
-            // @ 만 입력 → 전체 서브 에이전트 목록 (최대 6명)
-            mentionCandidates = Array(subAgents.prefix(6))
+            // @ 만 입력 → 전체 미참여 에이전트 목록 (최대 6명)
+            mentionCandidates = Array(available.prefix(6))
         } else {
             // 쿼리로 필터
-            mentionCandidates = subAgents.filter {
+            mentionCandidates = available.filter {
                 $0.name.lowercased().contains(query)
             }
         }
+        mentionSelectionIndex = 0
     }
 
     /// 자동완성에서 에이전트 선택 시 입력 필드에 멘션 삽입
