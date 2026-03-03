@@ -1730,12 +1730,12 @@ class RoomManager: ObservableObject {
                 targetAgentIDs = specialists.isEmpty ? room.assignedAgentIDs : specialists
             }
 
-            // 에이전트 실행, 하나라도 실패하면 워크플로우 중단
-            var stepFailed = false
-            await withTaskGroup(of: Bool.self) { group in
+            // 에이전트 실행 — 실패 시 1회 재시도, 전원 실패만 워크플로우 중단
+            var failedAgentIDs: [UUID] = []
+            await withTaskGroup(of: (UUID, Bool).self) { group in
                 for agentID in targetAgentIDs {
                     group.addTask { [self] in
-                        await self.executeStep(
+                        let success = await self.executeStep(
                             step: step.text,
                             fullTask: task,
                             agentID: agentID,
@@ -1745,27 +1745,70 @@ class RoomManager: ObservableObject {
                             fileWriteTracker: tracker,
                             progressGroupID: progressMsg.id
                         )
+                        return (agentID, success)
                     }
                 }
-                for await success in group {
-                    if !success { stepFailed = true }
+                for await (agentID, success) in group {
+                    if !success { failedAgentIDs.append(agentID) }
                 }
             }
 
-            if stepFailed {
+            // 실패한 에이전트 1회 재시도
+            if !failedAgentIDs.isEmpty {
+                var stillFailed: [UUID] = []
+                for agentID in failedAgentIDs {
+                    let retryMsg = ChatMessage(
+                        role: .system,
+                        content: "에이전트 재시도 중...",
+                        agentName: agentStore?.agents.first(where: { $0.id == agentID })?.name,
+                        messageType: .progress
+                    )
+                    appendMessage(retryMsg, to: roomID)
+                    let success = await executeStep(
+                        step: step.text,
+                        fullTask: task,
+                        agentID: agentID,
+                        roomID: roomID,
+                        stepIndex: stepIndex,
+                        totalSteps: plan.steps.count,
+                        fileWriteTracker: tracker,
+                        progressGroupID: progressMsg.id
+                    )
+                    if !success { stillFailed.append(agentID) }
+                }
+                failedAgentIDs = stillFailed
+            }
+
+            let succeededCount = targetAgentIDs.count - failedAgentIDs.count
+
+            // 전원 실패 → 워크플로우 중단 (에이전트가 있었는데 전부 실패한 경우만)
+            if succeededCount == 0 && !targetAgentIDs.isEmpty {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                     rooms[i].transitionTo(.failed)
                     rooms[i].completedAt = Date()
                 }
                 let failMsg = ChatMessage(
                     role: .system,
-                    content: "단계 \(stepIndex + 1) 실행 실패로 워크플로우를 중단합니다.",
+                    content: "단계 \(stepIndex + 1): 모든 에이전트 실패로 워크플로우를 중단합니다.",
                     messageType: .error
                 )
                 appendMessage(failMsg, to: roomID)
                 syncAgentStatuses()
                 scheduleSave()
                 return
+            }
+
+            // 일부 실패 → 경고 후 계속 진행
+            if !failedAgentIDs.isEmpty {
+                let failedNames = failedAgentIDs.compactMap { id in
+                    agentStore?.agents.first(where: { $0.id == id })?.name
+                }.joined(separator: ", ")
+                let warnMsg = ChatMessage(
+                    role: .system,
+                    content: "⚠️ 단계 \(stepIndex + 1): \(failedNames) 실패 (재시도 포함). 나머지 에이전트로 계속 진행합니다.",
+                    messageType: .error
+                )
+                appendMessage(warnMsg, to: roomID)
             }
 
             // 충돌 감지 경고
@@ -2410,8 +2453,8 @@ class RoomManager: ObservableObject {
 
             speakingAgentIDByRoom.removeValue(forKey: roomID)
 
-            // [합의] 또는 [합의: 내용] 태그 확인 후 DecisionLog 기록
-            let agreed = response.contains("[합의")
+            // 합의 감지 (퍼지 매칭 포함) 후 DecisionLog 기록
+            let agreed = Self.detectConsensus(in: response)
             if agreed, let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 let decision = Self.parseDecisionContent(from: response) ?? "합의 도달"
                 let entry = DecisionEntry(
@@ -2590,6 +2633,36 @@ class RoomManager: ObservableObject {
     // MARK: - 유틸리티
 
     /// [합의: 내용] 태그에서 내용 추출
+    /// 퍼지 합의 감지: [합의] 태그 우선, 없으면 한국어 합의 표현 탐지
+    static func detectConsensus(in response: String) -> Bool {
+        // 1) 명시적 태그 — 가장 신뢰도 높음
+        if response.contains("[합의") { return true }
+
+        // 2) 명시적 반대/계속 태그 — 확실한 비합의
+        if response.contains("[계속]") { return false }
+
+        // 3) 퍼지: 합의 표현 vs 반대 표현 비교
+        let lower = response.lowercased()
+        let agreePhrases = [
+            "동의합니다", "합의합니다", "찬성합니다",
+            "이의 없습니다", "이의없습니다",
+            "좋은 계획", "좋은 방향", "좋은 접근",
+            "이 방향으로 진행", "이대로 진행",
+            "agree", "consensus", "lgtm",
+        ]
+        let disagreePhrases = [
+            "반대합니다", "다른 의견", "다른 접근",
+            "재고해", "재검토", "우려가 있", "우려됩니다",
+            "수정이 필요", "보완이 필요", "disagree",
+        ]
+
+        let hasAgree = agreePhrases.contains { lower.contains($0) }
+        let hasDisagree = disagreePhrases.contains { lower.contains($0) }
+
+        // 합의 표현이 있고 반대 표현이 없으면 합의
+        return hasAgree && !hasDisagree
+    }
+
     static func parseDecisionContent(from text: String) -> String? {
         // [합의: 내용] 형태
         if let range = text.range(of: "\\[합의:\\s*([^\\]]+)\\]", options: .regularExpression) {
