@@ -25,6 +25,8 @@ class RoomManager: ObservableObject {
     private var suggestionContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
     /// Intent 선택 대기 중인 continuation (방 ID → continuation)
     private var intentContinuations: [UUID: CheckedContinuation<WorkflowIntent, Never>] = [:]
+    /// 이전 사이클 완료 시점의 에이전트 수 (후속 사이클에서 에이전트 변동 감지용)
+    private var previousCycleAgentCount: [UUID: Int] = [:]
 
     // MARK: - 계산 프로퍼티
 
@@ -253,14 +255,19 @@ class RoomManager: ObservableObject {
         syncAgentStatuses()
 
         // 후속 사이클 스킵 범위 결정:
-        // - 규칙 기반 quickAnswer 확정 + 이미 에이전트 있음 → clarify/assemble 스킵 (즉답은 빠르게)
+        // - 규칙 기반 quickAnswer 확정 + 에이전트 변동 없음 → clarify/assemble 스킵 (즉답은 빠르게)
+        // - 에이전트가 새로 추가됐으면 → assemble 수행 (새 에이전트 통합)
         // - 그 외 (LLM/fallback으로 분류됨) → clarify 수행 (의도 확인 필요)
         var completedPhases: Set<WorkflowPhase> = [.intake, .intent]
-        let hasSpecialists = !executingAgentIDs(in: roomID).isEmpty
-        if ruleBasedIntent == .quickAnswer && hasSpecialists {
+        let specialists = executingAgentIDs(in: roomID)
+        let previousAgentCount = previousCycleAgentCount[roomID] ?? specialists.count
+        let agentsChanged = specialists.count != previousAgentCount
+        if ruleBasedIntent == .quickAnswer && !specialists.isEmpty && !agentsChanged {
             completedPhases.insert(.clarify)
             completedPhases.insert(.assemble)
         }
+        // 현재 에이전트 수 기록 (다음 후속 사이클 비교용)
+        previousCycleAgentCount[roomID] = specialists.count
 
         while true {
             guard !Task.isCancelled,
@@ -1267,12 +1274,20 @@ class RoomManager: ObservableObject {
         }
     }
 
-    /// quickAnswer 실행: 전문가 1명이 도구 포함 즉답 (전문가 없으면 마스터 폴백)
+    /// quickAnswer 실행: 최적 전문가 1명이 도구 포함 즉답 (전문가 없으면 마스터 폴백)
     private func executeQuickAnswer(roomID: UUID, task: String) async {
         let specialistIDs = executingAgentIDs(in: roomID)
         let room = rooms.first(where: { $0.id == roomID })
-        // 전문가 우선, 없으면 마스터 포함 아무나
-        let candidateID = specialistIDs.first ?? room?.assignedAgentIDs.first
+
+        // 경량 라우팅: 전문가 2명+ → 마스터가 최적 1명 지명
+        let candidateID: UUID?
+        if specialistIDs.count >= 2 {
+            candidateID = await routeQuickAnswer(roomID: roomID, task: task, specialistIDs: specialistIDs)
+                ?? specialistIDs.first
+        } else {
+            candidateID = specialistIDs.first ?? room?.assignedAgentIDs.first
+        }
+
         guard let agentID = candidateID,
               let agent = agentStore?.agents.first(where: { $0.id == agentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return }
@@ -1310,6 +1325,43 @@ class RoomManager: ObservableObject {
         }
 
         speakingAgentIDByRoom.removeValue(forKey: roomID)
+    }
+
+    /// 경량 라우팅: 마스터가 즉답에 최적인 전문가 1명을 지명
+    /// LLM 1회 호출로 에이전트 이름만 반환받음. 실패 시 nil (호출측에서 첫 번째 폴백)
+    private func routeQuickAnswer(roomID: UUID, task: String, specialistIDs: [UUID]) async -> UUID? {
+        // 마스터 에이전트 + 프로바이더 확보
+        guard let masterID = rooms.first(where: { $0.id == roomID })?.assignedAgentIDs.first,
+              let master = agentStore?.agents.first(where: { $0.id == masterID }),
+              let provider = providerManager?.provider(named: master.providerName) else { return nil }
+
+        let roster = specialistIDs.compactMap { id in
+            agentStore?.agents.first(where: { $0.id == id })
+        }.map { "- \($0.name): \($0.persona.prefix(60))" }.joined(separator: "\n")
+
+        let prompt = """
+        아래 전문가 중 이 질문에 가장 적합한 1명의 **이름만** 출력하세요. 다른 내용은 절대 출력하지 마세요.
+
+        전문가:
+        \(roster)
+
+        질문: \(task)
+        """
+
+        do {
+            let response = try await provider.sendMessage(
+                model: master.modelName,
+                systemPrompt: "당신은 질문 라우터입니다. 전문가 이름만 한 줄로 출력하세요.",
+                messages: [("user", prompt)]
+            )
+            let name = response.trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "- ", with: "")
+            return specialistIDs.first { id in
+                agentStore?.agents.first(where: { $0.id == id })?.name == name
+            }
+        } catch {
+            return nil
+        }
     }
 
     /// 전문가 1명 Solo 분석: 토론 없이 혼자 분석하여 결과 공유 (전문가 없으면 마스터 폴백)
@@ -1885,6 +1937,8 @@ class RoomManager: ObservableObject {
                 rooms[i].transitionTo(.completed)
                 rooms[i].completedAt = Date()
             }
+            // 에이전트 수 스냅샷 (다음 후속 사이클에서 변동 감지용)
+            previousCycleAgentCount[roomID] = executingAgentIDs(in: roomID).count
             syncAgentStatuses()
 
             let doneMsg = ChatMessage(role: .system, content: "모든 작업이 완료되었습니다.")
@@ -2825,6 +2879,8 @@ class RoomManager: ObservableObject {
         pendingIntentSelection.removeValue(forKey: roomID)
         guard rooms[idx].transitionTo(.completed) else { return }
         rooms[idx].completedAt = Date()
+        // 에이전트 수 스냅샷 (다음 후속 사이클에서 변동 감지용)
+        previousCycleAgentCount[roomID] = executingAgentIDs(in: roomID).count
 
         // 작업일지 생성 (수동 완료 시에도)
         let task = rooms[idx].messages.first(where: { $0.role == .user })?.content ?? rooms[idx].title
