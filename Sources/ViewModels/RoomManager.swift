@@ -503,7 +503,7 @@ class RoomManager: ObservableObject {
         rooms[idx].status = .planning
         syncAgentStatuses()
 
-        let workflowStart = Date()
+        var workflowStart = Date()
         var completedPhases: Set<WorkflowPhase> = []
 
         while true {
@@ -559,6 +559,7 @@ class RoomManager: ObservableObject {
             }
 
             completedPhases.insert(nextPhase)
+            workflowStart = Date() // 단계 완료 후 타이머 리셋 (사용자 대기 시간으로 인한 타임아웃 방지)
         }
 
         // 워크플로우 완료
