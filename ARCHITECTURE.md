@@ -34,6 +34,7 @@ DOUGLAS/
 │   │   └── UtilityWindowManager.swift # 유틸리티 윈도우 관리
 │   ├── Models/
 │   │   ├── Agent.swift              # 에이전트 모델 (이름, 페르소나, 이미지, isMaster, workingRules, referenceProjectPaths)
+│   │   ├── AgentManifest.swift     # 에이전트 매니페스트 (.douglas 파일 포맷, Agent↔AgentEntry 변환)
 │   │   ├── WorkingRules.swift       # 작업 규칙 (WorkingRulesSource — 인라인+파일 동시 지원)
 │   │   ├── AgentTool.swift          # 도구 시스템 (AgentTool, ToolCall, ToolResult, ToolRegistry, ConversationMessage)
 │   │   ├── ArtifactParser.swift     # 토론 산출물 파서 (artifact 블록 추출/제거)
@@ -62,6 +63,7 @@ DOUGLAS/
 │   │   └── KeychainHelper.swift     # 파일 기반 API 키 저장 (Keychain 레거시 마이그레이션)
 │   ├── ViewModels/
 │   │   ├── AgentStore.swift         # 에이전트 CRUD, 마스터 생명주기
+│   │   ├── AgentPorter.swift        # 에이전트 매니페스트 Export/Import (NSSavePanel/NSOpenPanel)
 │   │   ├── ChatViewModel.swift      # 메시지 전송, 마스터 오케스트레이션
 │   │   ├── OnboardingViewModel.swift # 첫 실행 온보딩 (의존성 체크 + Claude 설정 + 프로바이더 선택)
 │   │   ├── ProviderManager.swift    # 프로바이더 설정 관리
@@ -326,6 +328,29 @@ struct Agent: Identifiable, Codable, Hashable {
 - Hashable: id만 사용
 - `createMaster()`: 기본 마스터 에이전트 팩토리 (Claude Code + 위임 페르소나)
 - 이미지: `~/Library/Application Support/DOUGLAS/avatars/{id}.png`에 저장 (static save/load/delete)
+
+### AgentManifest (`Models/AgentManifest.swift`)
+
+에이전트를 플랫폼 무관한 JSON `.douglas` 파일로 내보내기/가져오기하는 이식 포맷.
+
+```swift
+struct AgentManifest: Codable {
+    let formatVersion: Int       // 1부터 시작
+    let exportedAt: Date         // ISO8601
+    let exportedFrom: String     // "DOUGLAS"
+    let agents: [AgentEntry]     // 에이전트 목록
+}
+struct AgentEntry: Codable {
+    let name, persona, providerType, preferredModel: String
+    let isMaster: Bool
+    let workingRules: String?    // resolve()된 인라인 텍스트
+    let avatarBase64: String?    // PNG base64
+}
+```
+
+- **Export**: `Agent → AgentEntry` 변환 (workingRules 해석, 이미지 base64 인코딩)
+- **Import**: `AgentEntry → Agent` 변환 (새 UUID 발급, 마스터 skip, 이름 중복 해결)
+- **AgentPorter** (`ViewModels/AgentPorter.swift`): NSSavePanel/NSOpenPanel을 통한 파일 UI
 
 ### ChatMessage (`Models/ChatMessage.swift`)
 
@@ -1224,6 +1249,7 @@ executeWithTools() 루프 (최대 10회):
 Tests/
 ├── Models/
 │   ├── AgentTests.swift              # 22 tests — 초기화, 팩토리, Codable, 레거시 디코딩, imageData I/O, resolvedToolIDs (항상 전체 도구)
+│   ├── AgentManifestTests.swift     # 14 tests — 매니페스트 라운드트립, Agent↔Entry 변환, 이름 중복, 마스터 skip, 전방 호환
 │   ├── WorkingRulesTests.swift       # WorkingRulesSource — resolve, isEmpty, displaySummary, Codable
 │   ├── AgentToolTests.swift          # 32 tests — AgentTool/ToolCall/ToolResult Codable, ToolRegistry (11종 도구), ConversationMessage, Jira 도구
 │   ├── ArtifactParserTests.swift     # 15 tests — 산출물 추출, 다중 산출물, 타입별 파싱, 블록 제거

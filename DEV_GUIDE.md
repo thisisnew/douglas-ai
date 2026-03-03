@@ -41,6 +41,41 @@ DOUGLAS/
 - 채팅 기록: `~/Library/Application Support/DOUGLAS/chats/`
 - 이미지 첨부: `~/Library/Application Support/DOUGLAS/attachments/`
 
+### 에이전트 매니페스트 (.douglas 파일)
+에이전트를 플랫폼 무관한 JSON으로 내보내기/가져오기하는 이식 포맷.
+
+**파일 구조** (`.douglas` 확장자, 내부는 JSON):
+```json
+{
+  "formatVersion": 1,
+  "exportedAt": "2026-03-03T14:30:00Z",
+  "exportedFrom": "DOUGLAS",
+  "agents": [{
+    "name": "백엔드 개발자",
+    "persona": "시스템 프롬프트...",
+    "isMaster": false,
+    "providerType": "OpenAI",
+    "preferredModel": "gpt-4o",
+    "workingRules": "resolve된 규칙 텍스트 또는 null",
+    "avatarBase64": "PNG base64 또는 null"
+  }]
+}
+```
+
+**Export 규칙**:
+- `workingRules`: `resolve()` 호출로 파일 내용까지 인라인화 (파일 경로는 이식 불가)
+- `referenceProjectPaths`: 제외 (머신 종속)
+- `status`, `errorMessage`: 제외 (런타임 전용)
+- `id`: 제외 (import 시 새 UUID 발급)
+- API 키: 절대 포함하지 않음
+
+**Import 규칙**:
+- 마스터 에이전트(`isMaster=true`)는 건너뜀
+- 이름 중복 시 "(2)", "(3)" 등 접미어 자동 추가
+- `workingRules`는 `inlineText`로만 복원
+
+**관련 코드**: `AgentManifest` (모델), `AgentPorter` (Export/Import 로직)
+
 ### UI 텍스트
 - 한국어 (앱 내 모든 사용자 대면 텍스트)
 - 코드 주석은 한국어/영어 혼용 가능

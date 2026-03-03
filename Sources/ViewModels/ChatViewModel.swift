@@ -123,8 +123,9 @@ class ChatViewModel: ObservableObject {
             return
         }
 
-        // 방 제목: Jira URL이면 키만 추출, 아니면 원본 텍스트 (Jira 상세 데이터는 intakePhase에서 조회)
-        let roomTitle = Self.extractRoomTitle(from: text)
+        // 방 제목: Jira URL이면 키만 추출, 아니면 원본 텍스트 축약
+        let hasAttachments = attachments?.isEmpty == false
+        let roomTitle = Self.extractRoomTitle(from: text, hasAttachments: hasAttachments)
 
         // Intent 분류 (키워드 즉시 판별 — nil이면 워크플로우에서 사용자 선택)
         let intent = IntentClassifier.quickClassify(text)
@@ -376,23 +377,33 @@ class ChatViewModel: ObservableObject {
 
     /// Jira URL이면 키(PROJ-123)만 추출하여 간결한 제목 생성, 아닌 경우 원본 텍스트 사용
     /// Jira 상세 데이터는 executeIntakePhase에서 단 1회만 조회
-    static func extractRoomTitle(from text: String) -> String {
+    static func extractRoomTitle(from text: String, hasAttachments: Bool = false) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // 빈 텍스트 (이미지만 전송)
+        if trimmed.isEmpty {
+            return hasAttachments ? "이미지 분석" : "새 작업"
+        }
+
         // Jira 키 추출 (PROJ-123 패턴)
-        if let keyRange = text.range(of: "[A-Z][A-Z0-9]+-\\d+", options: .regularExpression) {
-            let jiraKey = String(text[keyRange])
-            // URL만 입력된 경우 → Jira 키를 제목으로
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let keyRange = trimmed.range(of: "[A-Z][A-Z0-9]+-\\d+", options: .regularExpression) {
+            let jiraKey = String(trimmed[keyRange])
             if trimmed.hasPrefix("http") && !trimmed.contains(" ") {
                 return jiraKey
             }
-            // URL + 설명이 있으면 → URL 제거 후 설명만 사용
-            let withoutURL = text.replacingOccurrences(of: "https?://[^\\s]+", with: "", options: .regularExpression)
+            let withoutURL = trimmed.replacingOccurrences(of: "https?://[^\\s]+", with: "", options: .regularExpression)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if withoutURL.isEmpty {
                 return jiraKey
             }
             return "[\(jiraKey)] \(withoutURL)"
         }
-        return text
+
+        // 일반 텍스트: 첫 줄, 30자 이내로 축약
+        let firstLine = trimmed.components(separatedBy: .newlines).first ?? trimmed
+        if firstLine.count <= 30 {
+            return firstLine
+        }
+        return String(firstLine.prefix(28)) + "…"
     }
 }

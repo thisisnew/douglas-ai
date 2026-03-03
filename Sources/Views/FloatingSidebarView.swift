@@ -507,6 +507,12 @@ struct FloatingSidebarView: View {
             ) { openAddAgentWindow() }
 
             cuteHeaderButton(
+                icon: "square.and.arrow.down",
+                label: "가져오기",
+                tint: Color(red: 0.55, green: 0.70, blue: 0.85)
+            ) { AgentPorter.importAgents(into: agentStore) }
+
+            cuteHeaderButton(
                 icon: "text.book.closed",
                 label: "일지",
                 tint: Color(red: 0.93, green: 0.73, blue: 0.52)
@@ -671,6 +677,14 @@ struct FloatingSidebarView: View {
                         onShowAvatar: agent.hasImage ? {
                             popoverAgentID = nil
                             enlargedAvatarAgent = agent
+                        } : nil,
+                        onExport: {
+                            popoverAgentID = nil
+                            AgentPorter.exportAgent(agent)
+                        },
+                        onExportAll: agent.isMaster ? {
+                            popoverAgentID = nil
+                            AgentPorter.exportAllAgents(from: agentStore)
                         } : nil
                     )
                 }
@@ -1518,6 +1532,8 @@ struct AgentRoomPopover: View {
     var onInfo: (() -> Void)?
     var onEdit: (() -> Void)?
     var onShowAvatar: (() -> Void)?
+    var onExport: (() -> Void)?
+    var onExportAll: (() -> Void)?
     @EnvironmentObject var roomManager: RoomManager
 
     private var agentRooms: [Room] {
@@ -1599,6 +1615,23 @@ struct AgentRoomPopover: View {
                     Button { onShowAvatar() } label: {
                         Image(systemName: "photo")
                             .font(.system(size: 11))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.secondary)
+                }
+                if let onExport {
+                    Button { onExport() } label: {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.secondary)
+                    .help("내보내기")
+                }
+                if let onExportAll {
+                    Button { onExportAll() } label: {
+                        Text("전체 내보내기")
+                            .font(.system(size: 10))
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(.secondary)

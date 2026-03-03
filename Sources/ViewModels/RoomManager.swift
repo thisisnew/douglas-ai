@@ -677,11 +677,10 @@ class RoomManager: ObservableObject {
         scheduleSave()
     }
 
-    /// Intent 확정 후 사용자에게 워크플로우 설명 메시지 표시 (quickAnswer는 생략)
+    /// Intent 확정 후 사용자에게 워크플로우 설명 메시지 표시
     private func postIntentExplanation(roomID: UUID) {
         guard let room = rooms.first(where: { $0.id == roomID }),
-              let intent = room.intent,
-              intent != .quickAnswer else { return }
+              let intent = room.intent else { return }
 
         let msg = ChatMessage(
             role: .system,
@@ -816,6 +815,16 @@ class RoomManager: ObservableObject {
                 case .toolCalls: response = "(요약 생성 실패)"
                 }
                 currentSummary = response
+
+                // 복명복창 요약에서 방 제목 자동 추출 (첫 라운드만)
+                if currentSummary.isEmpty == false,
+                   let i = rooms.firstIndex(where: { $0.id == roomID }),
+                   rooms[i].title == "이미지 분석" || rooms[i].title == "새 작업" || rooms[i].title.count > 28 {
+                    let refined = Self.extractTitleFromClarifySummary(response)
+                    if !refined.isEmpty {
+                        rooms[i].title = refined
+                    }
+                }
 
                 let summaryMsg = ChatMessage(role: .assistant, content: response, agentName: agent.name)
                 appendMessage(summaryMsg, to: roomID)
@@ -2815,6 +2824,27 @@ class RoomManager: ObservableObject {
         let intersection = wordsA.intersection(wordsB).count
         let union = wordsA.union(wordsB).count
         return Double(intersection) / Double(union)
+    }
+
+    // MARK: - 방 제목 자동 추출
+
+    /// clarify 요약에서 "요청 내용:" 줄을 추출하여 방 제목으로 사용
+    static func extractTitleFromClarifySummary(_ summary: String) -> String {
+        for line in summary.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            // "- 요청 내용: ..." 또는 "요청 내용: ..." 패턴
+            if let range = trimmed.range(of: "요청 내용:", options: .caseInsensitive) {
+                var title = String(trimmed[range.upperBound...])
+                    .trimmingCharacters(in: .whitespaces)
+                // 마크다운 볼드 제거
+                title = title.replacingOccurrences(of: "**", with: "")
+                if title.count > 30 {
+                    title = String(title.prefix(28)) + "…"
+                }
+                return title.isEmpty ? "" : title
+            }
+        }
+        return ""
     }
 
     // MARK: - 작업일지 생성
