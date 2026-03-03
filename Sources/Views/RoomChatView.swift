@@ -78,8 +78,8 @@ struct RoomChatView: View {
                     .fill(LinearGradient(colors: [.clear, palette.separator.opacity(0.3), .clear], startPoint: .leading, endPoint: .trailing))
                     .frame(height: 1)
 
-                // 입력 영역 (진행 중 = 추가 요건, 완료 후 = 일반 대화)
-                if room.status == .inProgress || room.status == .completed || room.status == .failed {
+                // 입력 영역 (완료/실패 후에만 — 진행 중에는 숨김)
+                if room.status == .completed || room.status == .failed {
                     inputArea(room)
                 }
             }

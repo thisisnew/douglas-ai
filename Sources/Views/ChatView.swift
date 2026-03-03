@@ -60,6 +60,23 @@ struct MessageBubble: View {
         return agentStore.agents.first { $0.name == name }
     }
 
+    /// 메신저 스타일 비대칭 모서리 — 사용자는 우하단, 어시스턴트는 좌하단 뾰족
+    private var bubbleShape: UnevenRoundedRectangle {
+        let r: CGFloat = DesignTokens.CozyGame.cardRadius
+        let small: CGFloat = 4
+        if message.role == .user {
+            return UnevenRoundedRectangle(
+                topLeadingRadius: r, bottomLeadingRadius: r,
+                bottomTrailingRadius: small, topTrailingRadius: r
+            )
+        } else {
+            return UnevenRoundedRectangle(
+                topLeadingRadius: r, bottomLeadingRadius: small,
+                bottomTrailingRadius: r, topTrailingRadius: r
+            )
+        }
+    }
+
     var body: some View {
         // 시스템 메시지 — 별도 스타일
         if message.role == .system {
@@ -88,41 +105,46 @@ struct MessageBubble: View {
                     }
                 }
 
-                VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 2) {
+                VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 3) {
                     // 에이전트 이름 + 타입 아이콘 + 시간
                     if message.role == .assistant {
                         HStack(spacing: 4) {
                             if let name = message.agentName {
                                 Text(name)
                                     .font(.system(size: DesignTokens.FontSize.sm, weight: .semibold, design: .rounded))
-                                    .foregroundColor(.primary.opacity(0.7))
+                                    .foregroundColor(.primary.opacity(0.65))
                                     .onTapGesture { if agent != nil { showAgentInfo = true } }
                             }
                             if let icon = typeIcon {
                                 Image(systemName: icon)
                                     .font(.system(size: DesignTokens.FontSize.nano))
-                                    .foregroundColor(typeColor)
+                                    .foregroundColor(typeColor.opacity(0.8))
                             }
                             Text(timeLabel)
-                                .font(.system(size: 9))
-                                .foregroundColor(.secondary.opacity(0.4))
+                                .font(.system(size: 9, design: .rounded))
+                                .foregroundColor(.secondary.opacity(0.35))
                         }
                     } else if message.role == .user {
                         Text(timeLabel)
-                            .font(.system(size: 9))
-                            .foregroundColor(.secondary.opacity(0.4))
+                            .font(.system(size: 9, design: .rounded))
+                            .foregroundColor(.secondary.opacity(0.35))
                     }
 
                     // 첨부 이미지
                     if let attachments = message.attachments, !attachments.isEmpty {
-                        HStack(spacing: 4) {
+                        HStack(spacing: 6) {
                             ForEach(attachments) { att in
                                 if let data = try? att.loadData(), let nsImage = NSImage(data: data) {
                                     Image(nsImage: nsImage)
                                         .resizable()
                                         .aspectRatio(contentMode: .fit)
-                                        .frame(maxWidth: 180, maxHeight: 120)
-                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                        .frame(maxWidth: 200, maxHeight: 140)
+                                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                .strokeBorder(palette.cardBorder.opacity(0.12), lineWidth: 1)
+                                        )
+                                        .shadow(color: palette.sidebarShadow.opacity(0.4), radius: 4, y: 2)
                                         .onTapGesture { enlargedImage = nsImage }
                                         .onHover { hovering in
                                             if hovering { NSCursor.pointingHand.push() }
@@ -146,16 +168,13 @@ struct MessageBubble: View {
                     }
 
                     messageContent
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
                         .background(bubbleBackground)
                         .foregroundColor(bubbleForeground)
-                        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
-                                .strokeBorder(typeBorder, lineWidth: typeBorderWidth)
-                        )
-                        .shadow(color: palette.sidebarShadow, radius: 3, y: 2)
+                        .clipShape(bubbleShape)
+                        .overlay(bubbleShape.strokeBorder(typeBorder, lineWidth: typeBorderWidth))
+                        .shadow(color: palette.sidebarShadow.opacity(0.6), radius: 4, y: 2)
                         .textSelection(.enabled)
                 }
 
@@ -176,18 +195,26 @@ struct MessageBubble: View {
     // MARK: - 시스템 메시지
 
     private var systemMessageView: some View {
-        HStack {
+        HStack(spacing: 6) {
             Spacer()
+            Rectangle()
+                .fill(LinearGradient(colors: [.clear, palette.separator.opacity(0.2)], startPoint: .leading, endPoint: .trailing))
+                .frame(height: 0.5)
+                .frame(maxWidth: 40)
             Text(message.content)
-                .font(.system(size: DesignTokens.FontSize.xs))
-                .foregroundColor(.secondary.opacity(0.6))
+                .font(.system(size: DesignTokens.FontSize.xs, design: .rounded))
+                .foregroundColor(.secondary.opacity(0.5))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
                 .background(palette.systemMessageBackground)
                 .clipShape(Capsule())
+            Rectangle()
+                .fill(LinearGradient(colors: [palette.separator.opacity(0.2), .clear], startPoint: .leading, endPoint: .trailing))
+                .frame(height: 0.5)
+                .frame(maxWidth: 40)
             Spacer()
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
     }
 
     private var timeLabel: String {
@@ -200,24 +227,24 @@ struct MessageBubble: View {
         if message.role == .user {
             return AnyShapeStyle(
                 LinearGradient(
-                    colors: [palette.userBubble.opacity(0.85), palette.userBubble],
-                    startPoint: .top, endPoint: .bottom
+                    colors: [palette.userBubble.opacity(0.9), palette.userBubble],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
                 )
             )
         }
         let color: Color = {
             switch message.messageType {
-            case .error:         return palette.messageError.opacity(0.15)
-            case .summary:       return palette.messageSummary.opacity(0.15)
-            case .chainProgress: return palette.messageChainProgress.opacity(0.15)
-            case .delegation:    return palette.messageDelegation.opacity(0.15)
-            case .suggestion:    return palette.messageSuggestion.opacity(0.15)
-            case .toolActivity:  return palette.messageToolActivity.opacity(0.12)
-            case .buildStatus:   return palette.messageBuildStatus.opacity(0.15)
-            case .qaStatus:      return palette.messageQaStatus.opacity(0.15)
-            case .approvalRequest: return palette.messageApprovalRequest.opacity(0.15)
-            case .phaseTransition: return palette.messageSummary.opacity(0.12)
-            case .progress:      return palette.messageProgress.opacity(0.10)
+            case .error:         return palette.messageError.opacity(0.12)
+            case .summary:       return palette.messageSummary.opacity(0.12)
+            case .chainProgress: return palette.messageChainProgress.opacity(0.12)
+            case .delegation:    return palette.messageDelegation.opacity(0.12)
+            case .suggestion:    return palette.messageSuggestion.opacity(0.12)
+            case .toolActivity:  return palette.messageToolActivity.opacity(0.10)
+            case .buildStatus:   return palette.messageBuildStatus.opacity(0.12)
+            case .qaStatus:      return palette.messageQaStatus.opacity(0.12)
+            case .approvalRequest: return palette.messageApprovalRequest.opacity(0.12)
+            case .phaseTransition: return palette.messageSummary.opacity(0.10)
+            case .progress:      return palette.messageProgress.opacity(0.08)
             default:             return palette.messageBubbleBackground
             }
         }()
@@ -264,29 +291,28 @@ struct MessageBubble: View {
 
     private var typeBorder: Color {
         switch message.messageType {
-        case .summary: return palette.messageSummary.opacity(0.3)
+        case .summary: return palette.messageSummary.opacity(0.25)
+        case .error:   return palette.messageError.opacity(0.2)
         default:
-            // 코지 게임 스타일: 어시스턴트 버블에 카드 테두리
-            return message.role == .assistant ? palette.cardBorder.opacity(0.25) : Color.clear
+            return message.role == .assistant ? palette.cardBorder.opacity(0.15) : Color.clear
         }
     }
 
     private var typeBorderWidth: CGFloat {
         switch message.messageType {
-        case .summary: return 1
-        default:       return message.role == .assistant ? DesignTokens.CozyGame.borderWidth * 0.5 : 0
+        case .summary, .error: return 1
+        default: return message.role == .assistant ? 0.5 : 0
         }
     }
 
     // MARK: - 마크다운 렌더링
 
-    /// 마크다운을 AttributedString으로 렌더링 (실패 시 plain text 폴백)
-    /// 메시지 내용 렌더링: 사용자=플레인 텍스트, 에이전트=MarkdownUI
     @ViewBuilder
     private var messageContent: some View {
         if message.role == .user {
             Text(message.content)
                 .font(.system(size: DesignTokens.FontSize.bodyMd))
+                .lineSpacing(2)
         } else {
             Markdown(Self.normalizeMarkdown(message.content))
                 .markdownTextStyle {
@@ -294,9 +320,13 @@ struct MessageBubble: View {
                 }
                 .markdownBlockStyle(\.codeBlock) { configuration in
                     configuration.label
-                        .padding(8)
-                        .background(palette.inputBackground)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .padding(10)
+                        .background(palette.inputBackground.opacity(0.8))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .strokeBorder(palette.cardBorder.opacity(0.1), lineWidth: 0.5)
+                        )
                 }
         }
     }

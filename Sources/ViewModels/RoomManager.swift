@@ -27,6 +27,8 @@ class RoomManager: ObservableObject {
     private var intentContinuations: [UUID: CheckedContinuation<WorkflowIntent, Never>] = [:]
     /// 이전 사이클 완료 시점의 에이전트 수 (후속 사이클에서 에이전트 변동 감지용)
     private var previousCycleAgentCount: [UUID: Int] = [:]
+    /// 멘션으로 지명된 에이전트 (라우팅 우선권 — executeQuickAnswer/executeSoloAnalysis에서 소비)
+    private var mentionedAgentIDsByRoom: [UUID: [UUID]] = [:]
 
     /// 플러그인 이벤트 디스패치 (PluginManager가 설정)
     var pluginEventDelegate: ((PluginEvent) -> Void)?
@@ -206,6 +208,10 @@ class RoomManager: ObservableObject {
         let parsed = MentionParser.parse(text, agents: allSubAgents)
         for agent in parsed.mentions {
             addAgent(agent.id, to: roomID)
+        }
+        // 멘션 에이전트 → 라우팅 우선권 저장 (executeQuickAnswer/executeSoloAnalysis에서 소비)
+        if !parsed.mentions.isEmpty {
+            mentionedAgentIDsByRoom[roomID] = parsed.mentions.map(\.id)
         }
         let cleanText = parsed.cleanText
 
@@ -1310,9 +1316,12 @@ class RoomManager: ObservableObject {
         let specialistIDs = executingAgentIDs(in: roomID)
         let room = rooms.first(where: { $0.id == roomID })
 
-        // 경량 라우팅: 전문가 2명+ → 마스터가 최적 1명 지명
+        // 라우팅: 멘션 우선 → 전문가 2명+ LLM 지명 → 첫 번째 전문가 → 마스터 폴백
         let candidateID: UUID?
-        if specialistIDs.count >= 2 {
+        if let mentionedIDs = mentionedAgentIDsByRoom.removeValue(forKey: roomID),
+           let firstMentioned = mentionedIDs.first {
+            candidateID = firstMentioned
+        } else if specialistIDs.count >= 2 {
             candidateID = await routeQuickAnswer(roomID: roomID, task: task, specialistIDs: specialistIDs)
                 ?? specialistIDs.first
         } else {
@@ -1399,7 +1408,14 @@ class RoomManager: ObservableObject {
     private func executeSoloAnalysis(roomID: UUID, task: String) async {
         let specialistIDs = executingAgentIDs(in: roomID)
         let room = rooms.first(where: { $0.id == roomID })
-        let candidateID = specialistIDs.first ?? room?.assignedAgentIDs.first
+        // 멘션 우선 → 첫 번째 전문가 → 마스터 폴백
+        let candidateID: UUID?
+        if let mentionedIDs = mentionedAgentIDsByRoom.removeValue(forKey: roomID),
+           let firstMentioned = mentionedIDs.first {
+            candidateID = firstMentioned
+        } else {
+            candidateID = specialistIDs.first ?? room?.assignedAgentIDs.first
+        }
         guard let agentID = candidateID,
               let agent = agentStore?.agents.first(where: { $0.id == agentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return }

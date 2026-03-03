@@ -895,9 +895,9 @@ executeWithTools() 루프 (최대 10회):
 
 **후속 사이클** (`launchFollowUpCycle`): 완료/실패 방에서 사용자 후속 질문 시 방 재활성화 → Intent 재분류 → clarify부터 워크플로우 재실행 (복명복창 포함). 규칙 기반 quickAnswer 확정 + 에이전트 변동 없으면 clarify/assemble 스킵 (즉답 빠른 경로). `previousCycleAgentCount`로 에이전트 추가/제거 감지.
 
-**`/@` 멘션** (`MentionParser`): 사용자가 `/@에이전트이름 메시지` 형태로 에이전트를 직접 초대. `sendUserMessage` 시작 시 파싱 → `addAgent` → 멘션 제거된 순수 텍스트로 워크플로우 진행. 정확 매칭 + 접두어 매칭 지원 (ex: `/@번역` → `번역가`). 미매칭 멘션은 원문 유지. RoomChatView에서 `/@` 입력 시 에이전트 자동완성 팝오버 표시.
+**`@` 멘션** (`MentionParser`): 사용자가 `@에이전트이름 메시지` 형태로 에이전트를 직접 초대. `sendUserMessage` 시작 시 파싱 → `addAgent` → 멘션 제거된 순수 텍스트로 워크플로우 진행. 정확 매칭 + 접두어 매칭 지원 (ex: `@번역` → `번역가`). 미매칭 멘션은 원문 유지. RoomChatView에서 `@` 입력 시 에이전트 자동완성 팝오버 표시. **멘션 라우팅 우선권**: 멘션된 에이전트 ID를 `mentionedAgentIDsByRoom`에 저장 → `executeQuickAnswer`/`executeSoloAnalysis`에서 LLM 라우팅보다 우선 사용 (소비 후 삭제).
 
-**quickAnswer 경량 라우팅** (`routeQuickAnswer`): 전문가 2명 이상인 방에서 즉답 시, 마스터가 질문에 최적인 전문가 1명을 지명하여 답변. LLM 1회 경량 호출.
+**quickAnswer 경량 라우팅** (`routeQuickAnswer`): 전문가 2명 이상인 방에서 즉답 시 (멘션 없는 경우), 마스터가 질문에 최적인 전문가 1명을 지명하여 답변. LLM 1회 경량 호출.
 
 **대상 경로 감지**: 코딩 관련 키워드가 포함된 요청에 파일 경로가 없으면 → `.awaitingUserInput`으로 전환 → 사용자에게 대상 파일/경로 질문 → 답변을 분석 결과에 추가.
 

@@ -75,17 +75,21 @@ struct AttachmentThumbnail: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
                     .frame(width: 48, height: 48)
-                    .continuousRadius(DesignTokens.Radius.md)
+                    .continuousRadius(DesignTokens.Radius.lg)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DesignTokens.Radius.lg, style: .continuous)
+                            .strokeBorder(palette.cardBorder.opacity(0.12), lineWidth: 0.5)
+                    )
             } else {
-                RoundedRectangle(cornerRadius: DesignTokens.Radius.md, style: .continuous)
-                    .fill(Color.gray.opacity(0.2))
+                RoundedRectangle(cornerRadius: DesignTokens.Radius.lg, style: .continuous)
+                    .fill(Color.gray.opacity(0.15))
                     .frame(width: 48, height: 48)
-                    .overlay(Image(systemName: "photo").foregroundColor(.secondary))
+                    .overlay(Image(systemName: "photo").foregroundColor(.secondary.opacity(0.5)))
             }
 
             Button(action: onDelete) {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: DesignTokens.FontSize.icon))
+                    .font(.system(size: 12))
                     .foregroundColor(.white)
                     .background(Circle().fill(palette.thumbnailDelete))
             }
@@ -103,29 +107,36 @@ struct SendButton: View {
     let canSend: Bool
     let isLoading: Bool
     let action: () -> Void
+    @State private var isPressed = false
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "arrow.up.circle.fill")
-                .font(.title2)
-                .foregroundColor(canSend ? .white : .gray)
-                .frame(width: 34, height: 34)
-                .background(
-                    Circle()
-                        .fill(canSend
-                            ? LinearGradient(colors: [palette.accent.opacity(0.85), palette.accent],
-                                             startPoint: .top, endPoint: .bottom)
-                            : LinearGradient(colors: [palette.stepInactive, palette.stepInactive],
-                                             startPoint: .top, endPoint: .bottom))
-                )
-                .shadow(
-                    color: canSend ? palette.buttonShadow.opacity(0.3) : .clear,
-                    radius: 2, y: 3
-                )
+            ZStack {
+                Circle()
+                    .fill(canSend
+                        ? LinearGradient(colors: [palette.accent.opacity(0.85), palette.accent],
+                                         startPoint: .topLeading, endPoint: .bottomTrailing)
+                        : LinearGradient(colors: [palette.stepInactive.opacity(0.5), palette.stepInactive.opacity(0.5)],
+                                         startPoint: .top, endPoint: .bottom))
+                    .frame(width: 30, height: 30)
+
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(canSend ? .white : .secondary.opacity(0.4))
+            }
+            .shadow(
+                color: canSend ? palette.buttonShadow.opacity(0.25) : .clear,
+                radius: 3, y: 2
+            )
+            .scaleEffect(isPressed ? 0.9 : 1.0)
+            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isPressed)
         }
         .buttonStyle(.plain)
         .disabled(!canSend || isLoading)
         .keyboardShortcut(.return, modifiers: .command)
+        .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
+            isPressed = pressing
+        }, perform: {})
     }
 }
 

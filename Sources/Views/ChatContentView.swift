@@ -58,12 +58,16 @@ struct ChatContentView: View {
                 }
             }
 
-            Divider()
+            // 그라데이션 구분선
+            Rectangle()
+                .fill(LinearGradient(colors: [.clear, palette.separator.opacity(0.25), .clear], startPoint: .leading, endPoint: .trailing))
+                .frame(height: 1)
 
             // 입력 영역
             HStack(spacing: 8) {
                 TextField("메시지를 입력하세요...", text: $inputText, axis: .vertical)
                     .textFieldStyle(.plain)
+                    .font(.system(size: DesignTokens.FontSize.bodyMd, design: .rounded))
                     .lineLimit(1...5)
                     .focused($isInputFocused)
                     .onSubmit { send() }
@@ -74,31 +78,42 @@ struct ChatContentView: View {
                     action: send
                 )
             }
-            .padding(10)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
-                    .fill(palette.inputBackground)
+                    .fill(palette.panelGradient)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
-                    .strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1)
+                    .strokeBorder(palette.cardBorder.opacity(0.12), lineWidth: 1)
             )
+            .shadow(color: palette.sidebarShadow.opacity(0.3), radius: 4, y: -1)
             .padding(.horizontal, 8)
             .padding(.vertical, 8)
         }
     }
 
     private var welcomeMessage: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 16) {
             Spacer()
             if let agent {
-                AgentAvatarView(agent: agent, size: 48)
-                    .opacity(0.5)
-                Text(agent.isMaster
-                     ? "안녕하세요! 무엇을 도와드릴까요?"
-                     : "\(agent.name)에게 메시지를 보내보세요.")
-                    .font(.system(size: 15, weight: .medium, design: .rounded))
-                    .foregroundColor(.secondary.opacity(0.6))
+                AgentAvatarView(agent: agent, size: 52)
+                    .opacity(0.6)
+                    .shadow(color: palette.accent.opacity(0.15), radius: 12, y: 4)
+
+                VStack(spacing: 4) {
+                    Text(agent.isMaster
+                         ? "무엇을 도와드릴까요?"
+                         : "\(agent.name)에게 메시지를 보내보세요")
+                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                        .foregroundColor(.secondary.opacity(0.6))
+                    if agent.isMaster {
+                        Text("빠른 질문부터 복잡한 프로젝트까지")
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundColor(.secondary.opacity(0.35))
+                    }
+                }
             }
             Spacer()
         }
@@ -120,19 +135,19 @@ struct ChatContentView: View {
     }
 
     private func dateSeparatorView(for date: Date) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Rectangle()
-                .fill(Color.secondary.opacity(0.2))
+                .fill(LinearGradient(colors: [.clear, palette.separator.opacity(0.25)], startPoint: .leading, endPoint: .trailing))
                 .frame(height: 0.5)
             Text(Self.dateSeparatorFormatter.string(from: date))
-                .font(.system(size: DesignTokens.FontSize.xs))
-                .foregroundColor(.secondary.opacity(0.5))
+                .font(.system(size: DesignTokens.FontSize.xs, weight: .medium, design: .rounded))
+                .foregroundColor(.secondary.opacity(0.4))
                 .fixedSize()
             Rectangle()
-                .fill(Color.secondary.opacity(0.2))
+                .fill(LinearGradient(colors: [palette.separator.opacity(0.25), .clear], startPoint: .leading, endPoint: .trailing))
                 .frame(height: 0.5)
         }
-        .padding(.vertical, DesignTokens.Spacing.md)
+        .padding(.vertical, DesignTokens.Spacing.lg)
     }
 
     private static let dateSeparatorFormatter: DateFormatter = {
