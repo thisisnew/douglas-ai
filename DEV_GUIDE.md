@@ -235,6 +235,17 @@ Files changed:
 | `.messageAdded(roomID, message)` | 메시지 추가 시 (모든 역할) |
 | `.workflowPhaseChanged(roomID, phase)` | 워크플로우 단계 전환 시 |
 
+### 플러그인 빌더 (노코드 생성)
+
+설정 → 플러그인 → "만들기" 버튼으로 `PluginBuilderSheet` 시트를 열 수 있다.
+
+- **3가지 액션 타입**: webhook (curl POST), shell (쉘 명령), notification (osascript)
+- **생성 흐름**: 이름/설명 입력 → 이벤트 토글 → 액션 설정 → "만들기" → 자동 설치
+- **ScriptGenerator**: `HandlerConfig` → 쉘 스크립트 자동 생성
+- **PluginSlug**: 한국어 이름 → ASCII 슬러그 (Foundation `StringTransform.toLatin + .stripDiacritics`)
+- **에디터 링크**: 생성된 플러그인의 "스크립트 열기" 버튼으로 Finder에서 직접 편집 가능
+- 생성된 플러그인은 `~/Library/Application Support/DOUGLAS/Plugins/{id}/`에 저장
+
 ---
 
 ## 보안 규칙

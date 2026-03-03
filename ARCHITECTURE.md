@@ -58,6 +58,7 @@ DOUGLAS/
 │   │   ├── ProviderConfig.swift     # 프로바이더 설정 (AuthMethod, ProviderType, isConnected)
 │   │   ├── ProviderDetector.swift   # 시스템 AI 프로바이더 자동 감지
 │   │   ├── ClaudeCodeInstaller.swift # Claude Code CLI 설치/검증 유틸리티
+│   │   ├── PluginTemplate.swift     # 플러그인 빌더 모델 (PluginActionType, HandlerConfig, ScriptGenerator, PluginSlug)
 │   │   ├── ProcessRunner.swift      # 테스트 가능한 프로세스 실행기 (DI seam)
 │   │   ├── Room.swift               # 프로젝트 방 모델 (상태 전이, 타이머, 토론 모드, RoomBriefing, RoomStep 승인 게이트)
 │   │   └── KeychainHelper.swift     # 파일 기반 API 키 저장 (Keychain 레거시 마이그레이션)
@@ -116,7 +117,8 @@ DOUGLAS/
 │       ├── ProgressActivityBubble.swift # 확장형 진행 버블 (활동 로그 인라인 표시)
 │       ├── TypingIndicator.swift    # 타이핑 인디케이터 (점 바운스 애니메이션, 경과 시간 표시)
 │       ├── ToastView.swift          # 임시 알림 오버레이
-│       └── PluginSettingsView.swift # 플러그인 관리 UI (활성화 토글, 설정 에디터)
+│       ├── PluginBuilderSheet.swift # 노코드 플러그인 빌더 (폼 → 스크립트 자동 생성)
+│       └── PluginSettingsView.swift # 플러그인 관리 UI (활성화 토글, 설정 에디터, 빌더 연결)
 ```
 
 ---
@@ -1172,6 +1174,16 @@ executeWithTools() 루프 (최대 10회):
 2. `DougPlugin` 프로토콜 구현 (`info`, `configFields`, `activate/deactivate`, `handle`)
 3. `PluginManager.discoverPlugins()`에 인스턴스 추가
 4. 빌드 & 테스트
+
+### 플러그인 빌더 (Plugin Builder)
+
+`PluginBuilderSheet` — 비개발자도 폼 UI로 스크립트 플러그인을 생성할 수 있다.
+
+- **3가지 노코드 액션**: 웹훅 전송, 쉘 명령, macOS 알림
+- **ScriptGenerator**: 액션 설정 → sh 스크립트 자동 생성
+- **PluginSlug**: 한국어 이름 → ASCII 슬러그 변환 (Foundation `StringTransform.toLatin`)
+- **PluginManager.createPlugin()**: 디렉토리 생성 + plugin.json/스크립트 쓰기 + 자동 로드
+- **에디터 링크**: 생성 후 "스크립트 열기"로 Finder에서 직접 수정 가능
 
 ### Slack 플러그인
 
