@@ -3,6 +3,7 @@ import SwiftUI
 // MARK: - 작업일지 뷰 (날짜별 그룹)
 
 struct WorkLogView: View {
+    @Environment(\.colorPalette) private var palette
     @EnvironmentObject var roomManager: RoomManager
 
     private var logsByDate: [(String, [WorkLog])] {
@@ -35,7 +36,7 @@ struct WorkLogView: View {
                         .font(.largeTitle)
                         .foregroundColor(.secondary.opacity(0.3))
                     Text("아직 완료된 작업이 없습니다")
-                        .font(.callout)
+                        .font(.system(size: 15, weight: .medium, design: .rounded))
                         .foregroundColor(.secondary)
                 }
                 Spacer()
@@ -47,7 +48,15 @@ struct WorkLogView: View {
                                 ForEach(logs) { log in
                                     LogEntryRow(log: log)
                                     if log.id != logs.last?.id {
-                                        Divider().padding(.leading, 52)
+                                        Rectangle()
+                                            .fill(
+                                                LinearGradient(
+                                                    colors: [palette.cardBorder.opacity(0), palette.cardBorder.opacity(0.35), palette.cardBorder.opacity(0)],
+                                                    startPoint: .leading, endPoint: .trailing
+                                                )
+                                            )
+                                            .frame(height: 1)
+                                            .padding(.leading, 52)
                                     }
                                 }
                             } header: {
@@ -65,7 +74,7 @@ struct WorkLogView: View {
     private func dateSectionHeader(_ dateString: String) -> some View {
         HStack {
             Text(dateString)
-                .font(.system(size: DesignTokens.FontSize.sm, weight: .semibold))
+                .font(.system(size: DesignTokens.FontSize.sm, weight: .semibold, design: .rounded))
                 .foregroundColor(.secondary)
             Spacer()
         }
@@ -85,6 +94,7 @@ struct WorkLogView: View {
 // MARK: - 개별 로그 엔트리
 
 struct LogEntryRow: View {
+    @Environment(\.colorPalette) private var palette
     let log: WorkLog
     @State private var isExpanded = false
 
@@ -92,7 +102,7 @@ struct LogEntryRow: View {
         VStack(alignment: .leading, spacing: 0) {
             // 요약 행
             Button {
-                withAnimation(.dgStandard) { isExpanded.toggle() }
+                withAnimation(.dgSpring) { isExpanded.toggle() }
             } label: {
                 HStack(alignment: .top, spacing: 10) {
                     // 시간
@@ -104,7 +114,7 @@ struct LogEntryRow: View {
                     // 내용
                     VStack(alignment: .leading, spacing: 3) {
                         Text(log.roomTitle)
-                            .font(.system(size: DesignTokens.FontSize.bodyMd, weight: .medium))
+                            .font(.system(size: DesignTokens.FontSize.bodyMd, weight: .medium, design: .rounded))
                             .foregroundColor(.primary)
                             .lineLimit(1)
 
@@ -122,7 +132,7 @@ struct LogEntryRow: View {
                             .font(DesignTokens.Typography.mono(DesignTokens.FontSize.xs))
                             .foregroundColor(.secondary)
                         Text("\(log.participants.count)명")
-                            .font(.system(size: 9))
+                            .font(.system(size: 9, weight: .regular, design: .rounded))
                             .foregroundColor(.secondary.opacity(0.6))
                     }
 
@@ -165,12 +175,23 @@ struct LogEntryRow: View {
                 .padding(.bottom, 12)
             }
         }
+        .background(
+            RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                .fill(Color.primary.opacity(0.02))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                .strokeBorder(palette.cardBorder.opacity(0.1), lineWidth: 1)
+        )
+        .shadow(color: palette.sidebarShadow, radius: 2, y: 1)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 3)
     }
 
     private func logDetail(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
-                .font(.system(size: DesignTokens.FontSize.badge, weight: .bold))
+                .font(.system(size: DesignTokens.FontSize.badge, weight: .bold, design: .rounded))
                 .foregroundColor(.secondary.opacity(0.6))
                 .textCase(.uppercase)
             Text(value)

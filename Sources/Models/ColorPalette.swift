@@ -85,6 +85,33 @@ struct ColorPalette: Equatable {
 
     let sidebarBackground: Color
     let sidebarShadow: Color
+
+    // MARK: - 코지 게임 UI (그라데이션 & 장식)
+
+    /// 패널 그라데이션 시작 색상
+    let panelGradientStart: Color
+    /// 패널 그라데이션 끝 색상
+    let panelGradientEnd: Color
+    /// 버튼 하단 그림자 색상
+    let buttonShadow: Color
+    /// 카드/패널 테두리 색상
+    let cardBorder: Color
+    /// 프로그레스 바 하이라이트 색상
+    let progressHighlight: Color
+    /// 아바타 테두리 색상
+    let avatarBorder: Color
+}
+
+// MARK: - 그라데이션 편의 프로퍼티
+
+extension ColorPalette {
+    /// 패널 배경용 LinearGradient
+    var panelGradient: LinearGradient {
+        LinearGradient(
+            colors: [panelGradientStart, panelGradientEnd],
+            startPoint: .topLeading, endPoint: .bottomTrailing
+        )
+    }
 }
 
 // MARK: - 커스텀 팔레트 생성
@@ -144,7 +171,13 @@ extension ColorPalette {
             messageProgress: Color(hue: 0.58, saturation: 0.4, brightness: 0.85),
             messageDefault: Color(hue: Double(h), saturation: 0.1, brightness: 0.7),
             sidebarBackground: veryLight,
-            sidebarShadow: Color.black.opacity(0.06)
+            sidebarShadow: Color.black.opacity(0.06),
+            panelGradientStart: veryLight,
+            panelGradientEnd: light,
+            buttonShadow: Color(hue: Double(h), saturation: Double(s) * 0.4, brightness: Double(b) * 0.7),
+            cardBorder: mid,
+            progressHighlight: Color.white.opacity(0.4),
+            avatarBorder: medium
         )
     }
 }

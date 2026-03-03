@@ -27,7 +27,7 @@ struct CreateRoomSheet: View {
             } trailing: {
                 Button("만들기") { createRoom() }
                     .keyboardShortcut(.defaultAction)
-                    .fontWeight(.semibold)
+                    .buttonStyle(CozyButtonStyle(.accent))
                     .disabled(!canCreate)
             }
 
@@ -54,7 +54,8 @@ struct CreateRoomSheet: View {
                 .font(.body)
                 .padding(10)
                 .background(palette.inputBackground)
-                .continuousRadius(DesignTokens.Radius.lg)
+                .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous).strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1))
         }
     }
 
@@ -90,7 +91,10 @@ struct CreateRoomSheet: View {
                 VStack(spacing: 0) {
                     ForEach(Array(availableAgents.enumerated()), id: \.element.id) { index, agent in
                         if index > 0 {
-                            Divider().padding(.leading, 48)
+                            Rectangle()
+                                .fill(LinearGradient(colors: [.clear, palette.separator.opacity(0.3), .clear], startPoint: .leading, endPoint: .trailing))
+                                .frame(height: 1)
+                                .padding(.leading, 48)
                         }
                         agentRow(agent)
                     }
@@ -110,7 +114,8 @@ struct CreateRoomSheet: View {
                 .frame(minHeight: 80, maxHeight: 120)
                 .padding(8)
                 .background(palette.inputBackground)
-                .continuousRadius(DesignTokens.Radius.lg)
+                .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous).strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1))
             Text("에이전트들이 먼저 토론한 후, 계획을 세우고 작업을 진행합니다.")
                 .font(.caption2)
                 .foregroundColor(.secondary.opacity(0.6))
@@ -152,7 +157,10 @@ struct CreateRoomSheet: View {
             ForEach(Array(projectPaths.enumerated()), id: \.offset) { index, path in
                 projectPathRow(index: index, path: path)
                 if index < projectPaths.count - 1 {
-                    Divider().padding(.leading, 30)
+                    Rectangle()
+                        .fill(LinearGradient(colors: [.clear, palette.separator.opacity(0.3), .clear], startPoint: .leading, endPoint: .trailing))
+                        .frame(height: 1)
+                        .padding(.leading, 30)
                 }
             }
         }

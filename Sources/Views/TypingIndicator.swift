@@ -77,13 +77,14 @@ struct TypingIndicator: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let elapsed = elapsedSeconds(at: context.date)
             HStack(spacing: 6) {
-                // 점 3개 애니메이션
-                HStack(spacing: 3) {
+                // 점 3개 바운스 애니메이션
+                HStack(spacing: 4) {
                     ForEach(0..<3, id: \.self) { i in
                         Circle()
-                            .fill(Color.accentColor.opacity(0.6))
-                            .frame(width: 5, height: 5)
-                            .offset(y: dotPhase == i ? -3 : 0)
+                            .fill(palette.accent.opacity(0.7))
+                            .frame(width: 6, height: 6)
+                            .offset(y: dotPhase == i ? -4 : 0)
+                            .scaleEffect(dotPhase == i ? 1.2 : 1.0)
                     }
                 }
 
@@ -98,14 +99,21 @@ struct TypingIndicator: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(palette.systemMessageBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                .fill(palette.panelGradient)
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                        .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1)
+                )
+        )
+        .shadow(color: palette.sidebarShadow, radius: 4, y: 2)
         .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
             Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
-                withAnimation(.easeInOut(duration: 0.3)) {
+                withAnimation(.dgSpring) {
                     dotPhase = (dotPhase + 1) % 3
                 }
             }

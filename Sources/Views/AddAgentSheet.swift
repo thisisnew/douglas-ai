@@ -33,7 +33,7 @@ struct AddAgentSheet: View {
             } trailing: {
                 Button("추가") { addAgent() }
                     .keyboardShortcut(.defaultAction)
-                    .fontWeight(.semibold)
+                    .buttonStyle(CozyButtonStyle(.accent))
                     .disabled(!isFormValid)
             }
 
@@ -51,7 +51,8 @@ struct AddAgentSheet: View {
                             .font(.body)
                             .padding(10)
                             .background(palette.inputBackground)
-                            .continuousRadius(DesignTokens.Radius.lg)
+                            .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                            .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous).strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1))
 
                         if isDuplicateName {
                             inlineWarning("이미 같은 이름의 에이전트가 있습니다")
@@ -67,7 +68,8 @@ struct AddAgentSheet: View {
                             .frame(minHeight: 80)
                             .padding(8)
                             .background(palette.inputBackground)
-                            .continuousRadius(DesignTokens.Radius.lg)
+                            .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                            .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous).strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1))
                             .overlay(
                                 Group {
                                     if persona.isEmpty {
@@ -121,7 +123,10 @@ struct AddAgentSheet: View {
                                 .fixedSize()
                             }
 
-                            Divider().padding(.leading, 14)
+                            Rectangle()
+                                .fill(LinearGradient(colors: [.clear, palette.separator.opacity(0.3), .clear], startPoint: .leading, endPoint: .trailing))
+                                .frame(height: 1)
+                                .padding(.leading, 14)
 
                             settingsRow("모델") {
                                 if isLoadingModels {
@@ -192,7 +197,8 @@ struct AddAgentSheet: View {
                 .frame(minHeight: 80)
                 .padding(8)
                 .background(palette.inputBackground)
-                .continuousRadius(DesignTokens.Radius.lg)
+                .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous).strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1))
                 .overlay(
                     Group {
                         if inlineRules.isEmpty {
@@ -255,7 +261,10 @@ struct AddAgentSheet: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     if index < rulesFilePaths.count - 1 {
-                        Divider().padding(.leading, 30)
+                        Rectangle()
+                            .fill(LinearGradient(colors: [.clear, palette.separator.opacity(0.3), .clear], startPoint: .leading, endPoint: .trailing))
+                            .frame(height: 1)
+                            .padding(.leading, 30)
                     }
                 }
             }
@@ -291,9 +300,10 @@ struct AddAgentSheet: View {
                         .resizable()
                         .scaledToFill()
                         .frame(width: 72, height: 72)
-                        .clipShape(Circle())
+                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1.5))
                 } else {
-                    Circle()
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
                         .fill(palette.avatarFallback)
                         .frame(width: 72, height: 72)
                         .overlay(
@@ -301,6 +311,7 @@ struct AddAgentSheet: View {
                                 .font(.system(size: 28, weight: .light))
                                 .foregroundColor(.secondary.opacity(0.6))
                         )
+                        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1.5))
                 }
 
                 Circle()
@@ -315,7 +326,7 @@ struct AddAgentSheet: View {
             }
         }
         .buttonStyle(.plain)
-        .contentShape(Circle())
+        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func settingsRow<Content: View>(_ label: String, @ViewBuilder content: @escaping () -> Content) -> some View {
@@ -365,7 +376,10 @@ struct AddAgentSheet: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         if index < referenceProjectPaths.count - 1 {
-                            Divider().padding(.leading, 30)
+                            Rectangle()
+                                .fill(LinearGradient(colors: [.clear, palette.separator.opacity(0.3), .clear], startPoint: .leading, endPoint: .trailing))
+                                .frame(height: 1)
+                                .padding(.leading, 30)
                         }
                     }
                 }

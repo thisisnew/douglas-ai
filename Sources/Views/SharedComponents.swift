@@ -11,7 +11,8 @@ struct SheetNavHeader<Leading: View, Trailing: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             ZStack {
-                Text(title).font(.headline)
+                Text(title)
+                    .font(.system(size: DesignTokens.FontSize.bodyMd, weight: .bold, design: .rounded))
                 HStack {
                     leading()
                     Spacer()
@@ -20,7 +21,15 @@ struct SheetNavHeader<Leading: View, Trailing: View>: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
-            Divider()
+
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [.clear, Color.primary.opacity(0.06), .clear],
+                        startPoint: .leading, endPoint: .trailing
+                    )
+                )
+                .frame(height: 1)
         }
     }
 }
@@ -36,9 +45,16 @@ struct CardContainer<Content: View>: View {
 
     var body: some View {
         content()
-            .padding(DesignTokens.Spacing.md)
-            .background(accentColor.opacity(opacity))
-            .continuousRadius(DesignTokens.Radius.xl)
+            .padding(DesignTokens.Spacing.lg)
+            .background(
+                RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                    .fill(palette.panelGradient)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                            .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1.5)
+                    )
+            )
+            .shadow(color: palette.sidebarShadow, radius: 6, y: 3)
             .padding(.horizontal, DesignTokens.Spacing.lg)
             .padding(.vertical, DesignTokens.Spacing.sm)
     }
@@ -92,7 +108,20 @@ struct SendButton: View {
         Button(action: action) {
             Image(systemName: "arrow.up.circle.fill")
                 .font(.title2)
-                .foregroundColor(canSend ? palette.accent : .gray)
+                .foregroundColor(canSend ? .white : .gray)
+                .frame(width: 34, height: 34)
+                .background(
+                    Circle()
+                        .fill(canSend
+                            ? LinearGradient(colors: [palette.accent.opacity(0.85), palette.accent],
+                                             startPoint: .top, endPoint: .bottom)
+                            : LinearGradient(colors: [palette.stepInactive, palette.stepInactive],
+                                             startPoint: .top, endPoint: .bottom))
+                )
+                .shadow(
+                    color: canSend ? palette.buttonShadow.opacity(0.3) : .clear,
+                    radius: 2, y: 3
+                )
         }
         .buttonStyle(.plain)
         .disabled(!canSend || isLoading)
@@ -105,7 +134,7 @@ struct SendButton: View {
 /// 시트 폼 내 섹션 제목
 func sectionLabel(_ text: String) -> some View {
     Text(text)
-        .font(.subheadline.weight(.medium))
+        .font(.system(.subheadline, design: .rounded).weight(.bold))
         .foregroundColor(.secondary)
 }
 
@@ -113,7 +142,7 @@ func sectionLabel(_ text: String) -> some View {
 func sectionLabel(_ text: String, required: Bool) -> some View {
     HStack(spacing: 4) {
         Text(text)
-            .font(.subheadline.weight(.medium))
+            .font(.system(.subheadline, design: .rounded).weight(.bold))
             .foregroundColor(.secondary)
         if required {
             Text("*")

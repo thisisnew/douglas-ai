@@ -52,6 +52,8 @@ DOUGLAS/
 │   │   ├── RoleRequirement.swift   # Assemble 역할 요구사항 (Priority, MatchStatus)
 │   │   ├── DependencyChecker.swift  # 의존성 체크 (Node.js, Git, Homebrew)
 │   │   ├── JiraConfig.swift          # Jira Cloud 연동 설정 (도메인, 이메일, API 토큰)
+│   │   ├── ColorPalette.swift       # 테마 색상 팔레트 (48+ 시맨틱 컬러, panelGradient computed property)
+│   │   ├── ThemePresets.swift       # 테마 프리셋 (ThemeID 5종: cozyGame/pastel/dark/warmCozy/custom)
 │   │   ├── ProviderConfig.swift     # 프로바이더 설정 (AuthMethod, ProviderType, isConnected)
 │   │   ├── ProviderDetector.swift   # 시스템 AI 프로바이더 자동 감지
 │   │   ├── ClaudeCodeInstaller.swift # Claude Code CLI 설치/검증 유틸리티
@@ -66,6 +68,7 @@ DOUGLAS/
 │   │   ├── BuildLoopRunner.swift     # 빌드/테스트 실행 + 수정 프롬프트 생성 엔진
 │   │   ├── RoomManager.swift        # 프로젝트 방 생명주기, 7단계 워크플로우, 승인/입력 게이트
 │   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (templateID → persona 키워드 → unmatched)
+│   │   ├── ThemeManager.swift       # 테마 관리 (기본값: .cozyGame, UserDefaults 저장, 커스텀 팔레트)
 │   │   └── ToolExecutor.swift       # 도구 호출 루프 + smartSend + 경로 해석/충돌 추적
 │   ├── Providers/
 │   │   ├── AIProvider.swift         # AIProvider 프로토콜 + 공통 인증 + Tool Use 확장
@@ -90,10 +93,14 @@ DOUGLAS/
 │       ├── RoomListView.swift       # 방 목록 + 상태 필터 + 편집 모드 (전체 선택/일괄 완료·삭제)
 │       ├── RoomChatView.swift       # 방별 채팅 인터페이스
 │       ├── WorkLogView.swift        # 방 작업 로그 뷰
-│       ├── AgentAvatarView.swift    # 원형 아바타 (마스터/서브 아이콘 분기)
-│       ├── DesignTokens.swift       # 디자인 시스템 (색상, 타이포, 간격, 모서리, 애니메이션, 윈도우 크기)
+│       ├── AgentAvatarView.swift    # 둥근 사각 아바타 (마스터/서브 아이콘 분기, 그라데이션 폴백)
+│       ├── DesignTokens.swift       # 디자인 시스템 (색상, 타이포, 간격, 모서리, 애니메이션, 윈도우 크기, CozyGame 토큰)
+│       ├── CozyGameComponents.swift # 코지 게임 UI 컴포넌트 (CozyButtonStyle, CozyPanelModifier, CozyProgressBar 등)
+│       ├── ThemeEnvironment.swift   # 테마 환경 (ThemedView, colorPalette EnvironmentKey, .fontDesign(.rounded) 전역 적용)
+│       ├── ThemeSettingsView.swift  # 테마 설정 뷰 (테마 카드 프리뷰, 커스텀 색상 선택)
 │       ├── SharedComponents.swift   # 공유 UI 컴포넌트 (SheetNavHeader, CardContainer, SendButton 등)
 │       ├── ProgressActivityBubble.swift # 확장형 진행 버블 (활동 로그 인라인 표시)
+│       ├── TypingIndicator.swift    # 타이핑 인디케이터 (점 바운스 애니메이션, 경과 시간 표시)
 │       └── ToastView.swift          # 임시 알림 오버레이
 ```
 
@@ -998,6 +1005,7 @@ executeWithTools() 루프 (최대 10회):
 | `DesignTokens.FontSize` | `nano(8)`, `badge(9)`, `xs(10)`, `sm(11)`, `body(12)`, `bodyMd(13)`, `icon(14)`, `lg(16)` |
 | `DesignTokens.Typography` | `mono(_ size:weight:)` 헬퍼, `monoBadge`, `monoStatus` 프리셋 |
 | `DesignTokens.WindowSize` | 7개 시트/윈도우 크기 상수 — `agentSheet`, `createRoomSheet`, `providerSheet`, `agentInfoSheet`, `roomChat`, `workLog`, `onboarding` |
+| `DesignTokens.CozyGame` | 코지 게임 UI 토큰: `panelRadius(18)`, `buttonRadius(14)`, `cardRadius(16)`, `borderWidth(2.5)`, `panelShadowRadius(10)`, `panelShadowY(4)`, `progressBarHeight(14)`, `progressBarRadius(7)` |
 | `DesignTokens.Sidebar` | 사이드바 전용: `cornerRadius`, `shadowOpacity`, `shadowRadius` |
 | `DesignTokens.Layout` | 사이드바/로스터/상태 표시 레이아웃 상수 |
 
@@ -1012,11 +1020,33 @@ executeWithTools() 루프 (최대 10회):
 - **`.continuousRadius(N)`** View extension 사용 (`.clipShape(RoundedRectangle(cornerRadius: N, style: .continuous))`)
 - deprecated `.cornerRadius()` 사용 금지
 
+### 테마 시스템
+
+| 파일 | 역할 |
+|------|------|
+| `Models/ColorPalette.swift` | 48+ 시맨틱 컬러 구조체 + `panelGradient` computed property |
+| `Models/ThemePresets.swift` | `ThemeID` enum (5종) + 각 테마별 정적 팔레트 |
+| `ViewModels/ThemeManager.swift` | `@MainActor ObservableObject` — 테마 선택/저장, currentPalette 발행 |
+| `Views/ThemeEnvironment.swift` | `ThemedView` 래퍼 — `@Environment(\.colorPalette)` 전파 + `.fontDesign(.rounded)` 전역 적용 |
+| `Views/ThemeSettingsView.swift` | 테마 카드 UI — 프리뷰 스와치, 커스텀 색상 선택 |
+
+**ThemeID 5종**: `.cozyGame` (기본값), `.pastel`, `.dark`, `.warmCozy`, `.custom`
+
+**코지 게임 테마 특징**:
+- SF Rounded 폰트 (`.fontDesign(.rounded)` 전역)
+- 크림/파스텔 그라데이션 배경 (`panelGradient`)
+- 소프트 shadow + 둥근 모서리 (radius 14~18)
+- 3D 버튼 효과 (하단 그림자 + 눌림 offset)
+
+**테마 적용 흐름**: `ThemeManager.currentPalette` → `ThemedView` → `@Environment(\.colorPalette)` → 모든 하위 뷰
+
 ### 애니메이션 토큰
 
 - `.dgFast` (0.15s) — 호버, 마이크로 인터랙션
 - `.dgStandard` (0.25s) — 일반 전환
 - `.dgSlow` (0.35s) — 모달, 토스트, 확장
+- `.dgSpring` — spring(response: 0.35, dampingFraction: 0.7) — 코지 게임 바운스
+- `.dgBounce` — spring(response: 0.4, dampingFraction: 0.6) — 강한 바운스
 
 ### 공유 컴포넌트 (`SharedComponents.swift`)
 
@@ -1028,6 +1058,20 @@ executeWithTools() 루프 (최대 10회):
 | `SendButton` | 전송 버튼 (canSend/isLoading 상태) |
 | `sectionLabel()` | 섹션 라벨 (caption, secondary) |
 | `SettingsRow` | 라벨 + 컨텐츠 설정 행 |
+
+### 코지 게임 UI 컴포넌트 (`CozyGameComponents.swift`)
+
+| 컴포넌트 | 용도 |
+|----------|------|
+| `CozyButtonStyle` | 3D 눌림 효과 게임 스타일 버튼 (variants: `.accent`, `.cream`, `.blue`, `.green`) |
+| `CozyPanelModifier` | 그라데이션 배경 + 소프트 테두리 + 드롭 섀도 패널 (`.cozyPanel()` modifier) |
+| `CozyProgressBar` | 둥근 게임 스타일 프로그레스 바 (그라데이션 fill + 상단 하이라이트) |
+| `CozyToggle` | 둥근 pill 모양 토글 스위치 |
+| `CozyCheckbox` | 둥근 사각 체크박스 |
+
+### ColorPalette 확장 (코지 게임 UI 색상)
+
+`panelGradientStart/End`, `buttonShadow`, `cardBorder`, `progressHighlight`, `avatarBorder` — 패널 그라데이션, 카드 테두리, 프로그레스 하이라이트 등 코지 게임 스타일 전용 색상. `palette.panelGradient` computed property로 LinearGradient 편의 접근.
 
 ---
 

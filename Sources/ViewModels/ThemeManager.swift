@@ -26,7 +26,7 @@ final class ThemeManager: ObservableObject {
            let id = ThemeID(rawValue: raw) {
             self.currentThemeID = id
         } else {
-            self.currentThemeID = .pastel
+            self.currentThemeID = .cozyGame
         }
 
         if let hex = defaults.string(forKey: Self.customAccentKey) {

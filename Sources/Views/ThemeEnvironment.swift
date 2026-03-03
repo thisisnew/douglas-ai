@@ -28,5 +28,6 @@ struct ThemedView<Content: View>: View {
         content
             .environment(\.colorPalette, themeManager.currentPalette)
             .tint(themeManager.currentPalette.accent)
+            .fontDesign(.rounded)
     }
 }

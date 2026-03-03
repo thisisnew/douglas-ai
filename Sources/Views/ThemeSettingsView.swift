@@ -18,7 +18,9 @@ struct ThemeSettingsView: View {
                 }
             }
 
-            Divider()
+            Rectangle()
+                .fill(LinearGradient(colors: [.clear, palette.separator.opacity(0.3), .clear], startPoint: .leading, endPoint: .trailing))
+                .frame(height: 1)
 
             // 커스텀 섹션
             HStack(spacing: 12) {
@@ -46,27 +48,56 @@ struct ThemeSettingsView: View {
         } label: {
             VStack(spacing: 6) {
                 // 미니 프리뷰 스와치
-                HStack(spacing: 2) {
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(previewPalette.background)
-                        .frame(width: 16, height: 24)
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(previewPalette.accent)
-                        .frame(width: 16, height: 24)
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(previewPalette.inputBackground)
-                        .frame(width: 16, height: 24)
+                if themeID == .cozyGame {
+                    // 코지 게임: 그라데이션 스와치
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(previewPalette.panelGradient)
+                        .frame(width: 52, height: 24)
+                        .overlay(
+                            HStack(spacing: 3) {
+                                Circle()
+                                    .fill(previewPalette.accent)
+                                    .frame(width: 8, height: 8)
+                                Circle()
+                                    .fill(previewPalette.statusWorking)
+                                    .frame(width: 8, height: 8)
+                                Circle()
+                                    .fill(previewPalette.roomCompleted)
+                                    .frame(width: 8, height: 8)
+                            }
+                        )
+                        .padding(6)
+                        .background(previewPalette.surfaceSecondary)
+                        .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                                .strokeBorder(isSelected ? previewPalette.accent : palette.cardBorder.opacity(0.2), lineWidth: isSelected ? 2 : 1)
+                        )
+                        .shadow(color: isSelected ? previewPalette.buttonShadow.opacity(0.2) : .clear, radius: 3, y: 2)
+                } else {
+                    HStack(spacing: 2) {
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(previewPalette.background)
+                            .frame(width: 16, height: 24)
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(previewPalette.accent)
+                            .frame(width: 16, height: 24)
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(previewPalette.inputBackground)
+                            .frame(width: 16, height: 24)
+                    }
+                    .padding(6)
+                    .background(previewPalette.surfaceSecondary)
+                    .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                            .strokeBorder(isSelected ? previewPalette.accent : palette.cardBorder.opacity(0.2), lineWidth: isSelected ? 2 : 1)
+                    )
+                    .shadow(color: isSelected ? previewPalette.buttonShadow.opacity(0.2) : .clear, radius: 3, y: 2)
                 }
-                .padding(6)
-                .background(previewPalette.surfaceSecondary)
-                .continuousRadius(8)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(isSelected ? previewPalette.accent : Color.clear, lineWidth: 2)
-                )
 
                 Text(themeID.displayName)
-                    .font(.caption)
+                    .font(.system(.caption, design: .rounded).weight(isSelected ? .bold : .regular))
                     .foregroundColor(isSelected ? palette.accent : palette.textSecondary)
             }
         }

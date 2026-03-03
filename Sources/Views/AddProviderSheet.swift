@@ -25,7 +25,7 @@ struct AddProviderSheet: View {
             } trailing: {
                 Button("완료") { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                    .fontWeight(.semibold)
+                    .buttonStyle(CozyButtonStyle(.accent))
             }
 
             ScrollView {
@@ -76,7 +76,8 @@ struct AddProviderSheet: View {
                                 .font(.body)
                                 .padding(10)
                                 .background(palette.inputBackground)
-                                .continuousRadius(DesignTokens.Radius.lg)
+                                .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                                .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous).strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1))
                                 .onAppear {
                                     openAIKey = providerManager.configs.first(where: { $0.type == .openAI })?.apiKey ?? ""
                                 }
@@ -115,7 +116,8 @@ struct AddProviderSheet: View {
                                 .font(.body)
                                 .padding(10)
                                 .background(palette.inputBackground)
-                                .continuousRadius(DesignTokens.Radius.lg)
+                                .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                                .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous).strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1))
                                 .onAppear {
                                     googleKey = providerManager.configs.first(where: { $0.type == .google })?.apiKey ?? ""
                                 }
@@ -164,21 +166,24 @@ struct AddProviderSheet: View {
                                 .font(.body)
                                 .padding(10)
                                 .background(palette.inputBackground)
-                                .continuousRadius(DesignTokens.Radius.lg)
+                                .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                                .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous).strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1))
 
                             TextField("이메일", text: $jiraEmail)
                                 .textFieldStyle(.plain)
                                 .font(.body)
                                 .padding(10)
                                 .background(palette.inputBackground)
-                                .continuousRadius(DesignTokens.Radius.lg)
+                                .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                                .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous).strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1))
 
                             SecureField("API Token", text: $jiraToken)
                                 .textFieldStyle(.plain)
                                 .font(.body)
                                 .padding(10)
                                 .background(palette.inputBackground)
-                                .continuousRadius(DesignTokens.Radius.lg)
+                                .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                                .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous).strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1))
 
                             HStack(spacing: 8) {
                                 Spacer()

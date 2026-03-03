@@ -2,8 +2,17 @@ import SwiftUI
 import AppKit
 
 struct AgentAvatarView: View {
+    @Environment(\.colorPalette) private var palette
     let agent: Agent
     var size: CGFloat = 32
+
+    private var avatarRadius: CGFloat {
+        size * DesignTokens.CozyGame.avatarRadiusRatio
+    }
+
+    private var avatarShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: avatarRadius, style: .continuous)
+    }
 
     var body: some View {
         if let data = agent.imageData, let nsImage = NSImage(data: data) {
@@ -11,22 +20,35 @@ struct AgentAvatarView: View {
                 .resizable()
                 .scaledToFill()
                 .frame(width: size, height: size)
-                .clipShape(Circle())
+                .clipShape(avatarShape)
+                .overlay(
+                    avatarShape.strokeBorder(palette.avatarBorder.opacity(0.4), lineWidth: 1.5)
+                )
         } else if agent.isMaster, let profileImage = masterProfileImage {
-            // 마스터: 번들 프로필 이미지를 기본 아바타로 사용
             Image(nsImage: profileImage)
                 .resizable()
                 .scaledToFill()
                 .frame(width: size, height: size)
-                .clipShape(Circle())
+                .clipShape(avatarShape)
+                .overlay(
+                    avatarShape.strokeBorder(palette.avatarBorder.opacity(0.4), lineWidth: 1.5)
+                )
         } else {
-            Circle()
-                .fill(defaultBackgroundColor.opacity(0.12))
+            avatarShape
+                .fill(
+                    LinearGradient(
+                        colors: [defaultBackgroundColor.opacity(0.15), defaultBackgroundColor.opacity(0.08)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    )
+                )
                 .frame(width: size, height: size)
                 .overlay(
                     Image(systemName: defaultIconName)
-                        .font(.system(size: size * 0.45))
+                        .font(.system(size: size * 0.45, weight: .medium, design: .rounded))
                         .foregroundColor(defaultIconColor)
+                )
+                .overlay(
+                    avatarShape.strokeBorder(palette.avatarBorder.opacity(0.3), lineWidth: 1.5)
                 )
         }
     }

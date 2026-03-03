@@ -26,7 +26,9 @@ struct RoomChatView: View {
                 // 방 헤더
                 roomHeader(room)
 
-                Divider()
+                Rectangle()
+                    .fill(LinearGradient(colors: [.clear, palette.separator.opacity(0.3), .clear], startPoint: .leading, endPoint: .trailing))
+                    .frame(height: 1)
 
                 // 토론 진행 바 (계획 수립 전)
                 if room.plan == nil && room.status == .planning {
@@ -72,7 +74,9 @@ struct RoomChatView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
-                Divider()
+                Rectangle()
+                    .fill(LinearGradient(colors: [.clear, palette.separator.opacity(0.3), .clear], startPoint: .leading, endPoint: .trailing))
+                    .frame(height: 1)
 
                 // 입력 영역 (진행 중 = 추가 요건, 완료 후 = 일반 대화)
                 if room.status == .inProgress || room.status == .completed || room.status == .failed {
@@ -156,15 +160,15 @@ struct RoomChatView: View {
     private func dateSeparatorView(for date: Date) -> some View {
         HStack(spacing: 8) {
             Rectangle()
-                .fill(Color.secondary.opacity(0.2))
-                .frame(height: 0.5)
+                .fill(LinearGradient(colors: [.clear, palette.separator.opacity(0.3)], startPoint: .leading, endPoint: .trailing))
+                .frame(height: 1)
             Text(Self.dateSeparatorFormatter.string(from: date))
-                .font(.system(size: DesignTokens.FontSize.xs))
+                .font(.system(size: DesignTokens.FontSize.xs, weight: .medium, design: .rounded))
                 .foregroundColor(.secondary.opacity(0.5))
                 .fixedSize()
             Rectangle()
-                .fill(Color.secondary.opacity(0.2))
-                .frame(height: 0.5)
+                .fill(LinearGradient(colors: [palette.separator.opacity(0.3), .clear], startPoint: .leading, endPoint: .trailing))
+                .frame(height: 1)
         }
         .padding(.vertical, DesignTokens.Spacing.md)
     }
@@ -208,7 +212,7 @@ struct RoomChatView: View {
         VStack(spacing: 4) {
             HStack {
                 Text(room.title)
-                    .font(.caption.bold())
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
                     .lineLimit(1)
                 Spacer()
 
@@ -321,7 +325,7 @@ struct RoomChatView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(palette.inputBackground.opacity(0.5))
+        .background(palette.panelGradient)
     }
 
     private func copyRoomTranscript(_ room: Room) {
@@ -403,9 +407,13 @@ struct RoomChatView: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .background(palette.inputBackground)
-                .cornerRadius(6)
-                .shadow(color: .black.opacity(0.15), radius: 4, y: -2)
+                .background(palette.panelGradientStart)
+                .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                        .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1)
+                )
+                .shadow(color: palette.sidebarShadow, radius: 6, y: -2)
                 .padding(.horizontal, 10)
             }
 
@@ -432,7 +440,16 @@ struct RoomChatView: View {
             }
         }
         .padding(10)
-        .background(palette.inputBackground.opacity(0.5))
+        .background(
+            RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                .fill(palette.panelGradient)
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                        .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1)
+                )
+        )
+        .padding(.horizontal, 6)
+        .padding(.bottom, 6)
         .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
             handleImageDrop(providers)
             return true
@@ -552,42 +569,42 @@ struct RoomChatView: View {
                 ProgressView().scaleEffect(0.4)
                     .frame(width: 12, height: 12)
                 Text(room.phaseLabel)
-                    .font(.caption2)
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
                     .foregroundColor(DesignTokens.RoomStatusColor.color(for: .planning, palette: palette))
             case .inProgress:
                 Circle()
                     .fill(Color.orange.opacity(0.7))
                     .frame(width: 6, height: 6)
                 Text("진행중")
-                    .font(.caption2)
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
                     .foregroundColor(.orange.opacity(0.7))
             case .awaitingApproval:
                 Image(systemName: "hand.raised.fill")
                     .font(.system(size: 9))
                     .foregroundColor(.yellow.opacity(0.7))
                 Text("승인 대기")
-                    .font(.caption2)
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
                     .foregroundColor(.yellow.opacity(0.7))
             case .awaitingUserInput:
                 Image(systemName: "questionmark.circle.fill")
                     .font(.system(size: 9))
                     .foregroundColor(.cyan.opacity(0.7))
                 Text("입력 대기")
-                    .font(.caption2)
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
                     .foregroundColor(.cyan.opacity(0.7))
             case .completed:
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 9))
                     .foregroundColor(.green.opacity(0.7))
                 Text("완료")
-                    .font(.caption2)
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
                     .foregroundColor(.green.opacity(0.7))
             case .failed:
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 9))
                     .foregroundColor(.red.opacity(0.7))
                 Text("실패")
-                    .font(.caption2)
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
                     .foregroundColor(.red.opacity(0.7))
             }
 
@@ -623,10 +640,10 @@ struct PlanCard: View {
                 } label: {
                     HStack {
                         Image(systemName: "list.bullet.clipboard")
-                            .font(.caption2)
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
                             .foregroundColor(.purple.opacity(0.7))
                         Text("작업 계획")
-                            .font(.caption2.bold())
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
                             .foregroundColor(.purple.opacity(0.7))
                         Spacer()
                         Text("\(completedStepCount)/\(plan.steps.count)")
@@ -728,10 +745,10 @@ struct DiscussionProgressBar: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Image(systemName: "bubble.left.and.bubble.right.fill")
-                        .font(.caption2)
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
                         .foregroundColor(.blue.opacity(0.7))
                     Text("작업 진행")
-                        .font(.caption2.bold())
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
                         .foregroundColor(.blue.opacity(0.7))
                     Spacer()
                     Text(room.phaseLabel)
@@ -740,17 +757,11 @@ struct DiscussionProgressBar: View {
                 }
 
             // 프로그레스 바
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.blue.opacity(0.1))
-                        .frame(height: 4)
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.blue.opacity(0.7))
-                        .frame(width: geo.size.width * progressRatio, height: 4)
-                }
-            }
-            .frame(height: 4)
+            CozyProgressBar(
+                progress: Double(progressRatio),
+                fillColor: Color.blue.opacity(0.7),
+                fillEndColor: Color.blue.opacity(0.5)
+            )
 
             // 현재 발언 중인 에이전트 또는 참여자 수
             if let speakingName = speakingAgentName {
@@ -908,14 +919,14 @@ struct ApprovalCard: View {
                 // 상세 내용
                 if let detail = approvalInfo.detail, !detail.isEmpty {
                     Text(detail)
-                        .font(.system(size: 11))
+                        .font(.system(size: 11, design: .rounded))
                         .foregroundStyle(.secondary)
                         .lineLimit(6)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 8)
-                        .background(.ultraThinMaterial)
-                        .continuousRadius(8)
+                        .background(palette.inputBackground.opacity(0.5))
+                        .continuousRadius(DesignTokens.CozyGame.cardRadius)
                 }
 
                 // 피드백 입력 영역 (수정 요청 클릭 시 표시)
@@ -927,11 +938,15 @@ struct ApprovalCard: View {
 
                         TextField("수정 사항을 입력하세요...", text: $feedbackText, axis: .vertical)
                             .textFieldStyle(.plain)
-                            .font(.system(size: 11))
+                            .font(.system(size: 11, design: .rounded))
                             .lineLimit(1...4)
                             .padding(8)
                             .background(palette.inputBackground)
-                            .continuousRadius(8)
+                            .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                                    .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1)
+                            )
                             .focused($isFeedbackFocused)
                             .onSubmit {
                                 submitFeedback()
@@ -963,7 +978,7 @@ struct ApprovalCard: View {
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 4)
                                     .background(
-                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
                                             .fill(feedbackText.trimmingCharacters(in: .whitespaces).isEmpty
                                                   ? palette.accent.opacity(0.4)
                                                   : palette.accent)
@@ -995,12 +1010,12 @@ struct ApprovalCard: View {
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 6)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
                                         .fill(hoveredButton == "reject" ? palette.separator : palette.inputBackground)
                                 )
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                        .strokeBorder(palette.stepInactive, lineWidth: 0.5)
+                                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
+                                        .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1)
                                 )
                                 .contentShape(Rectangle())
                         }
@@ -1020,14 +1035,18 @@ struct ApprovalCard: View {
                                 .padding(.horizontal, 20)
                                 .padding(.vertical, 6)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
                                         .fill(
-                                            hoveredButton == "approve"
-                                                ? palette.accent.opacity(0.9)
-                                                : palette.accent
+                                            LinearGradient(
+                                                colors: [
+                                                    hoveredButton == "approve" ? palette.accent.opacity(0.85) : palette.accent.opacity(0.9),
+                                                    palette.accent
+                                                ],
+                                                startPoint: .top, endPoint: .bottom
+                                            )
                                         )
                                 )
-                                .shadow(color: palette.accent.opacity(0.2), radius: 4, y: 2)
+                                .shadow(color: palette.buttonShadow.opacity(0.25), radius: 4, y: DesignTokens.CozyGame.buttonShadowY)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -1043,13 +1062,13 @@ struct ApprovalCard: View {
         }
         .background(
             ZStack {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .shadow(color: .black.opacity(0.06), radius: 8, y: 2)
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(palette.avatarFallback, lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: DesignTokens.CozyGame.panelRadius, style: .continuous)
+                    .fill(palette.panelGradient)
+                RoundedRectangle(cornerRadius: DesignTokens.CozyGame.panelRadius, style: .continuous)
+                    .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1.5)
             }
         )
+        .shadow(color: palette.sidebarShadow, radius: DesignTokens.CozyGame.panelShadowRadius, y: DesignTokens.CozyGame.panelShadowY)
         .padding(.horizontal, DesignTokens.Spacing.lg)
         .padding(.vertical, DesignTokens.Spacing.sm)
         .animation(.easeInOut(duration: 0.2), value: showFeedbackInput)
@@ -1088,20 +1107,24 @@ struct UserInputCard: View {
                 HStack(spacing: 8) {
                     TextField("답변을 입력하세요...", text: $inputText)
                         .textFieldStyle(.plain)
-                        .font(.caption)
+                        .font(.system(size: 12, design: .rounded))
                         .padding(6)
                         .background(palette.inputBackground)
-                        .continuousRadius(DesignTokens.Radius.md)
+                        .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                                .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1)
+                        )
                         .focused($isFocused)
                         .onSubmit { submit() }
 
                     Button("전송") { submit() }
-                        .font(.caption2.bold())
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
                         .foregroundColor(.white)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(inputText.trimmingCharacters(in: .whitespaces).isEmpty ? Color.gray.opacity(0.6) : palette.accent)
-                        .continuousRadius(DesignTokens.Radius.md)
+                        .continuousRadius(DesignTokens.CozyGame.buttonRadius)
                         .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
@@ -1169,7 +1192,14 @@ struct IntentSelectionCard: View {
                             .padding(.horizontal, 8)
                             .background(intent == suggestedIntent ? Color.teal.opacity(0.08) : palette.inputBackground)
                             .foregroundColor(intent == suggestedIntent ? .teal.opacity(0.7) : .primary)
-                            .continuousRadius(DesignTokens.Radius.sm)
+                            .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                                    .strokeBorder(
+                                        intent == suggestedIntent ? Color.teal.opacity(0.2) : palette.cardBorder.opacity(0.1),
+                                        lineWidth: 1
+                                    )
+                            )
                         }
                         .buttonStyle(.plain)
                     }
@@ -1190,6 +1220,7 @@ struct AgentSuggestionCard: View {
     let roomID: UUID
     @EnvironmentObject var roomManager: RoomManager
     @EnvironmentObject var agentStore: AgentStore
+    @Environment(\.colorPalette) private var palette
     @State private var showAddSheet = false
 
     var body: some View {
@@ -1228,22 +1259,32 @@ struct AgentSuggestionCard: View {
                     Button("건너뛰기") {
                         roomManager.rejectAgentSuggestion(suggestionID: suggestion.id, in: roomID)
                     }
-                    .font(.caption2)
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
-                    .background(Color.gray.opacity(0.1))
-                    .continuousRadius(DesignTokens.Radius.md)
+                    .background(palette.inputBackground)
+                    .continuousRadius(DesignTokens.CozyGame.buttonRadius)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
+                            .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1)
+                    )
 
                     Button("추가") {
                         showAddSheet = true
                     }
-                    .font(.caption2.bold())
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
                     .foregroundColor(.white)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
-                    .background(Color.orange.opacity(0.85))
-                    .continuousRadius(DesignTokens.Radius.md)
+                    .background(
+                        LinearGradient(
+                            colors: [Color.orange.opacity(0.8), Color.orange.opacity(0.9)],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                    )
+                    .continuousRadius(DesignTokens.CozyGame.buttonRadius)
+                    .shadow(color: Color.orange.opacity(0.2), radius: 3, y: 2)
                 }
             }
         }
@@ -1347,6 +1388,7 @@ struct QAStatusCard: View {
 
 struct DiscussionTurnBubble: View {
     let message: ChatMessage
+    @Environment(\.colorPalette) private var palette
 
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
@@ -1372,7 +1414,8 @@ struct DiscussionTurnBubble: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .background(Color.blue.opacity(0.03))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous))
+        .shadow(color: palette.sidebarShadow.opacity(0.5), radius: 2, y: 1)
     }
 }
 

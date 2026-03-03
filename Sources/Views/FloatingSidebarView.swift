@@ -204,6 +204,25 @@ final class SlashMenuState: ObservableObject {
     }
 }
 
+// MARK: - 코지 아이콘 버튼 스타일 (호버 시 부드러운 배경)
+
+private struct CozyIconButtonStyle: ButtonStyle {
+    @Environment(\.colorPalette) private var palette
+    @State private var isHovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isHovered ? palette.hoverBackground : Color.clear)
+            )
+            .scaleEffect(configuration.isPressed ? 0.9 : 1.0)
+            .animation(.dgFast, value: isHovered)
+            .animation(.dgFast, value: configuration.isPressed)
+            .onHover { isHovered = $0 }
+    }
+}
+
 // MARK: - 메인 사이드바 뷰
 
 struct FloatingSidebarView: View {
@@ -250,8 +269,13 @@ struct FloatingSidebarView: View {
 
     private var separator: some View {
         Rectangle()
-            .fill(palette.separator)
-            .frame(height: 0.5)
+            .fill(
+                LinearGradient(
+                    colors: [.clear, palette.separator.opacity(0.3), .clear],
+                    startPoint: .leading, endPoint: .trailing
+                )
+            )
+            .frame(height: 1)
             .padding(.horizontal, 16)
     }
 
@@ -298,7 +322,13 @@ struct FloatingSidebarView: View {
                     )
                 }
                 .frame(height: roomListHeight)
-                .clipped()
+                .background(
+                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                        .fill(palette.panelGradientStart.opacity(0.3))
+                )
+                .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                .shadow(color: palette.sidebarShadow.opacity(0.3), radius: 4, y: 2)
+                .padding(.horizontal, 6)
 
                 // ── 섹션 리사이즈 핸들 ──
                 sectionResizeHandle(sidebarHeight: sidebarGeo.size.height)
@@ -323,9 +353,16 @@ struct FloatingSidebarView: View {
                 }
             }
         }
-        .background(palette.background)
-        .continuousRadius(DesignTokens.Sidebar.cornerRadius)
-        .shadow(color: palette.sidebarShadow, radius: DesignTokens.Sidebar.shadowRadius, x: -4, y: 0)
+        .background(
+            RoundedRectangle(cornerRadius: DesignTokens.CozyGame.panelRadius, style: .continuous)
+                .fill(palette.panelGradient)
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.panelRadius, style: .continuous)
+                        .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1.5)
+                )
+        )
+        .continuousRadius(DesignTokens.CozyGame.panelRadius)
+        .shadow(color: palette.sidebarShadow, radius: 16, x: -4, y: 0)
         .padding(.leading, 4)
         .padding(.trailing, 6)
         .padding(.vertical, 8)
@@ -404,51 +441,41 @@ struct FloatingSidebarView: View {
 
     // MARK: - 헤더
 
+    /// 호버 시 부드러운 배경이 나타나는 아이콘 버튼
+    private func cozyIconButton(
+        _ icon: String, size: CGFloat = 13, help: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: size))
+                .foregroundColor(.secondary)
+                .frame(width: 26, height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(CozyIconButtonStyle())
+        .help(help)
+    }
+
     private var header: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             // 프로필 이미지
             ProfileImageView(size: 28)
                 .onTapGesture { showEnlargedProfile = true }
             Text("DOUGLAS")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 14, weight: .bold, design: .rounded))
                 .tracking(1.5)
             Spacer()
-            Button(action: { openAddAgentWindow() }) {
-                Image(systemName: "plus.circle")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
-            }
-            .buttonStyle(.plain)
-            .help("에이전트 추가")
 
-            Button(action: { openWorkLogWindow() }) {
-                Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
-            }
-            .buttonStyle(.plain)
-            .help("작업일지")
+            cozyIconButton("plus.circle", help: "에이전트 추가") { openAddAgentWindow() }
+            cozyIconButton("clock.arrow.circlepath", help: "작업일지") { openWorkLogWindow() }
+            cozyIconButton("gearshape", help: "API 설정") { openProviderWindow() }
 
-            Button(action: { openProviderWindow() }) {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
-            }
-            .buttonStyle(.plain)
-            .help("API 설정")
-
-            Button(action: { showThemePopover.toggle() }) {
-                Image(systemName: "paintpalette")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
-            }
-            .buttonStyle(.plain)
-            .help("테마 변경")
-            .popover(isPresented: $showThemePopover, arrowEdge: .bottom) {
-                ThemeSettingsView()
-                    .environmentObject(themeManager)
-                    .environment(\.colorPalette, themeManager.currentPalette)
-            }
+            cozyIconButton("paintpalette", help: "테마 변경") { showThemePopover.toggle() }
+                .popover(isPresented: $showThemePopover, arrowEdge: .bottom) {
+                    ThemeSettingsView()
+                        .environmentObject(themeManager)
+                        .environment(\.colorPalette, themeManager.currentPalette)
+                }
 
             // 사이드바 숨기기
             Button(action: {
@@ -466,6 +493,12 @@ struct FloatingSidebarView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .background(
+            LinearGradient(
+                colors: [palette.panelGradientStart.opacity(0.5), Color.clear],
+                startPoint: .top, endPoint: .bottom
+            )
+        )
     }
 
     // MARK: - 에이전트 로스터 (가로 스크롤)
@@ -834,8 +867,14 @@ struct FloatingSidebarView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
-                .background(palette.inputBackground)
-                .continuousRadius(DesignTokens.Radius.lg)
+                .background(
+                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                        .fill(palette.inputBackground)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                                .strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1)
+                        )
+                )
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .disabled(pendingRoomToOpen != nil)
@@ -884,8 +923,16 @@ struct FloatingSidebarView: View {
                 .buttonStyle(.plain)
             }
         }
-        .background(palette.inputBackground)
-        .continuousRadius(DesignTokens.Radius.xl)
+        .background(
+            RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                .fill(palette.inputBackground)
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                        .strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1)
+                )
+                .shadow(color: palette.sidebarShadow.opacity(0.2), radius: 4, y: 2)
+        )
+        .continuousRadius(DesignTokens.CozyGame.cardRadius)
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
         .transition(.move(edge: .bottom).combined(with: .opacity))

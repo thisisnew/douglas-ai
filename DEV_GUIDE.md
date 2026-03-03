@@ -116,6 +116,51 @@ Files changed:
 
 ---
 
+## 코지 게임 UI 스타일 가이드
+
+### 기본 원칙
+- 기본 테마는 `.cozyGame` — 따뜻한 크림/파스텔 톤 + 둥근 모서리 + 소프트 그림자
+- 모든 폰트는 SF Rounded (`.fontDesign(.rounded)` 전역 적용됨)
+- 뷰에서 색상은 반드시 `@Environment(\.colorPalette) private var palette` 사용
+
+### 버튼 스타일
+- 주요 액션 버튼: `CozyButtonStyle(.accent)` 사용 (3D 눌림 효과)
+- 보조 버튼: `CozyButtonStyle(.cream)`, `.blue`, `.green`
+- 시트 액션 버튼은 모두 `CozyButtonStyle` 적용
+
+### 패널/카드
+- 카드형 컨테이너: `palette.panelGradient` 배경 + `palette.cardBorder.opacity(0.2)` stroke
+- 모서리 반경: `DesignTokens.CozyGame.cardRadius` (16) 또는 `panelRadius` (18)
+- 그림자: `palette.sidebarShadow` + radius 4~6, y: 2
+
+### 구분선
+- `Divider()` 대신 그라데이션 구분선 사용:
+  ```swift
+  Rectangle()
+      .fill(LinearGradient(colors: [.clear, palette.cardBorder.opacity(0.3), .clear],
+                           startPoint: .leading, endPoint: .trailing))
+      .frame(height: 1)
+  ```
+
+### 입력 필드
+- 모서리: `DesignTokens.CozyGame.cardRadius`
+- 테두리: `palette.cardBorder.opacity(0.3)` stroke (1px)
+- 배경: 소프트 패널 그라데이션
+
+### 애니메이션
+- 상호작용 전환: `.dgSpring` (response: 0.35, dampingFraction: 0.7)
+- 바운스 효과: `.dgBounce` (response: 0.4, dampingFraction: 0.6)
+- 기존 `.easeInOut` 사용도 허용 (미세 전환에 한함)
+
+### 아바타
+- `RoundedRectangle(cornerRadius: size * 0.28)` 사용 (원형 아님)
+- 소프트 border: `palette.avatarBorder.opacity(0.4)`
+
+### 프로그레스 바
+- `CozyProgressBar(value:total:)` 사용 — 둥근 트랙 + 그라데이션 fill
+
+---
+
 ## 보안 규칙
 
 ### API 키 관리

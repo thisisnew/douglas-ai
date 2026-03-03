@@ -2,6 +2,7 @@ import SwiftUI
 
 /// 테마 ID
 enum ThemeID: String, Codable, CaseIterable, Equatable, Hashable {
+    case cozyGame
     case pastel
     case dark
     case warmCozy
@@ -9,6 +10,7 @@ enum ThemeID: String, Codable, CaseIterable, Equatable, Hashable {
 
     var displayName: String {
         switch self {
+        case .cozyGame: return "코지 게임"
         case .pastel:   return "파스텔"
         case .dark:     return "다크"
         case .warmCozy: return "따뜻한"
@@ -64,7 +66,13 @@ enum ThemePresets {
         messageProgress: Color(red: 0.52, green: 0.68, blue: 0.86),
         messageDefault: Color(red: 0.68, green: 0.73, blue: 0.80),
         sidebarBackground: Color(red: 0.97, green: 0.95, blue: 0.98),
-        sidebarShadow: Color.black.opacity(0.06)
+        sidebarShadow: Color.black.opacity(0.06),
+        panelGradientStart: Color(red: 0.97, green: 0.95, blue: 0.98),
+        panelGradientEnd: Color(red: 0.95, green: 0.93, blue: 0.97),
+        buttonShadow: Color(red: 0.55, green: 0.42, blue: 0.65),
+        cardBorder: Color(red: 0.89, green: 0.86, blue: 0.92),
+        progressHighlight: Color.white.opacity(0.4),
+        avatarBorder: Color(red: 0.89, green: 0.86, blue: 0.92)
     )
 
     // MARK: - 다크
@@ -111,7 +119,13 @@ enum ThemePresets {
         messageProgress: Color(red: 0.42, green: 0.58, blue: 0.78),
         messageDefault: Color(red: 0.45, green: 0.48, blue: 0.55),
         sidebarBackground: Color(red: 0.11, green: 0.11, blue: 0.14),
-        sidebarShadow: Color.black.opacity(0.3)
+        sidebarShadow: Color.black.opacity(0.3),
+        panelGradientStart: Color(red: 0.14, green: 0.14, blue: 0.18),
+        panelGradientEnd: Color(red: 0.11, green: 0.11, blue: 0.14),
+        buttonShadow: Color.black.opacity(0.4),
+        cardBorder: Color(red: 0.22, green: 0.22, blue: 0.26),
+        progressHighlight: Color.white.opacity(0.15),
+        avatarBorder: Color(red: 0.22, green: 0.22, blue: 0.26)
     )
 
     // MARK: - 따뜻한 톤
@@ -158,12 +172,72 @@ enum ThemePresets {
         messageProgress: Color(red: 0.52, green: 0.65, blue: 0.80),
         messageDefault: Color(red: 0.72, green: 0.68, blue: 0.62),
         sidebarBackground: Color(red: 0.97, green: 0.95, blue: 0.92),
-        sidebarShadow: Color.black.opacity(0.08)
+        sidebarShadow: Color.black.opacity(0.08),
+        panelGradientStart: Color(red: 0.97, green: 0.95, blue: 0.92),
+        panelGradientEnd: Color(red: 0.95, green: 0.92, blue: 0.88),
+        buttonShadow: Color(red: 0.58, green: 0.44, blue: 0.32),
+        cardBorder: Color(red: 0.88, green: 0.84, blue: 0.78),
+        progressHighlight: Color.white.opacity(0.35),
+        avatarBorder: Color(red: 0.88, green: 0.84, blue: 0.78)
+    )
+
+    // MARK: - 코지 게임
+    /// 부드럽고 둥근 2D 게임 스타일 파스텔 톤
+    static let cozyGame = ColorPalette(
+        background: Color(hex: "FFF8F0"),
+        inputBackground: Color(hex: "F5EDE4"),
+        surfaceSecondary: Color(hex: "FFF0E8"),
+        surfaceTertiary: Color(hex: "FFF5EE"),
+        hoverBackground: Color(hex: "FFE8DC"),
+        activeRowBackground: Color(hex: "FFF0E8"),
+        systemMessageBackground: Color(hex: "FFF5EE"),
+        messageBubbleBackground: Color(hex: "FFF0E8"),
+        avatarFallback: Color(hex: "FFE0D0"),
+        overlay: Color(hex: "F0E6F6"),
+        separator: Color(hex: "E8DCD0"),
+        closeButton: Color(hex: "E8DCD0"),
+        thumbnailDelete: Color.black.opacity(0.4),
+        stepInactive: Color(hex: "D8CCC0"),
+        accent: Color(hex: "FF8FAB"),
+        userBubble: Color(hex: "FF8FAB"),
+        userBubbleText: .white,
+        textPrimary: Color(hex: "4A3A2E"),
+        textSecondary: Color(hex: "8A7A6E"),
+        statusIdle: Color(hex: "A2D5F2"),
+        statusWorking: Color(hex: "FFD666"),
+        statusBusy: Color(hex: "FF8FAB"),
+        statusError: Color(hex: "F06878"),
+        roomPlanning: Color(hex: "C5A3E0"),
+        roomInProgress: Color(hex: "FFB366"),
+        roomAwaitingApproval: Color(hex: "FFD666"),
+        roomAwaitingUserInput: Color(hex: "A2D5F2"),
+        roomCompleted: Color(hex: "8ECF99"),
+        roomFailed: Color(hex: "F06878"),
+        messageError: Color(hex: "F06878"),
+        messageSummary: Color(hex: "C5A3E0"),
+        messageChainProgress: Color(hex: "A2D5F2"),
+        messageDelegation: Color(hex: "FFB366"),
+        messageSuggestion: Color(hex: "FFB366"),
+        messageToolActivity: Color(hex: "A2D5F2"),
+        messageBuildStatus: Color(hex: "FFB366"),
+        messageQaStatus: Color(hex: "8ECF99"),
+        messageApprovalRequest: Color(hex: "FFD666"),
+        messageProgress: Color(hex: "A2D5F2"),
+        messageDefault: Color(hex: "D4B896"),
+        sidebarBackground: Color(hex: "FFF0E8"),
+        sidebarShadow: Color(hex: "D4A880").opacity(0.12),
+        panelGradientStart: Color(hex: "FFF8F0"),
+        panelGradientEnd: Color(hex: "FFF0E8"),
+        buttonShadow: Color(hex: "D4687F"),
+        cardBorder: Color(hex: "E8D0C0"),
+        progressHighlight: Color.white.opacity(0.4),
+        avatarBorder: Color(hex: "FFD0B8")
     )
 
     /// ThemeID로 프리셋 팔레트 가져오기
     static func palette(for id: ThemeID, customAccent: Color = .purple) -> ColorPalette {
         switch id {
+        case .cozyGame: return cozyGame
         case .pastel:   return pastel
         case .dark:     return dark
         case .warmCozy: return warmCozy

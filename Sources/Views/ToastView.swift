@@ -6,16 +6,21 @@ struct ToastView: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.circle.fill")
-                .font(.callout)
+                .font(.system(size: DesignTokens.FontSize.icon, weight: .medium, design: .rounded))
             Text(message)
-                .font(.callout)
+                .font(.system(size: DesignTokens.FontSize.body, weight: .semibold, design: .rounded))
         }
         .foregroundColor(.white)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.red.gradient)
-        .continuousRadius(DesignTokens.Radius.xl)
-        .shadow(color: .black.opacity(0.15), radius: 12, y: 6)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
+                .fill(
+                    LinearGradient(colors: [Color(hex: "F06878"), Color(hex: "D4485A")],
+                                   startPoint: .top, endPoint: .bottom)
+                )
+        )
+        .shadow(color: Color(hex: "D4485A").opacity(0.3), radius: 8, y: 4)
     }
 }
 

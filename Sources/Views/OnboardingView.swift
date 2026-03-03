@@ -15,7 +15,9 @@ struct OnboardingView: View {
                 .padding(.top, 20)
                 .padding(.bottom, 16)
 
-            Divider()
+            Rectangle()
+                .fill(LinearGradient(colors: [.clear, palette.separator.opacity(0.3), .clear], startPoint: .leading, endPoint: .trailing))
+                .frame(height: 1)
 
             // 콘텐츠
             switch viewModel.currentStep {
@@ -60,13 +62,14 @@ struct OnboardingView: View {
     private func stepDot(active: Bool) -> some View {
         Circle()
             .fill(active ? palette.accent : palette.stepInactive)
-            .frame(width: 8, height: 8)
+            .frame(width: 10, height: 10)
+            .shadow(color: active ? palette.buttonShadow.opacity(0.3) : .clear, radius: 2, y: 1)
     }
 
     private func stepLine(active: Bool) -> some View {
-        Rectangle()
+        Capsule()
             .fill(active ? palette.accent : palette.stepInactive)
-            .frame(width: 40, height: 2)
+            .frame(width: 40, height: 3)
     }
 
     // MARK: - Claude Setup 화면
@@ -192,7 +195,11 @@ struct OnboardingView: View {
         }
         .padding(12)
         .background(palette.surfaceTertiary)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1)
+        )
     }
 
     @ViewBuilder
@@ -333,7 +340,7 @@ struct OnboardingView: View {
                     .padding(.vertical, 8)
                     .background(Color.purple)
                     .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
@@ -359,7 +366,8 @@ struct OnboardingView: View {
                 .padding(.vertical, 8)
                 .background(palette.accent)
                 .foregroundColor(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous))
+                .shadow(color: palette.buttonShadow.opacity(0.25), radius: 3, y: 2)
             }
 
         case .ready:
@@ -394,7 +402,7 @@ struct OnboardingView: View {
                     .padding(.vertical, 8)
                     .background(Color.purple)
                     .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
@@ -538,9 +546,14 @@ struct OnboardingView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
                 .fill(isSelected ? palette.accent.opacity(0.04) : palette.surfaceTertiary)
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                        .strokeBorder(isSelected ? palette.accent.opacity(0.2) : palette.cardBorder.opacity(0.15), lineWidth: 1)
+                )
         )
+        .shadow(color: palette.sidebarShadow, radius: 2, y: 1)
         .contentShape(Rectangle())
         .onTapGesture { viewModel.toggleProvider(type) }
     }
@@ -613,7 +626,8 @@ struct OnboardingView: View {
                     .padding(.vertical, 8)
                     .background(palette.accent)
                     .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous))
+                    .shadow(color: palette.buttonShadow.opacity(0.25), radius: 3, y: 2)
                 }
                 .buttonStyle(.plain)
             }
@@ -670,7 +684,11 @@ struct OnboardingView: View {
                     .font(.system(.caption, design: .monospaced))
                     .padding(8)
                     .background(palette.surfaceTertiary)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                            .strokeBorder(palette.cardBorder.opacity(0.3), lineWidth: 1)
+                    )
                 }
             } else {
                 // 수동 입력
@@ -682,7 +700,11 @@ struct OnboardingView: View {
                 .font(.system(.caption, design: .monospaced))
                 .padding(8)
                 .background(palette.surfaceTertiary)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                        .strokeBorder(palette.cardBorder.opacity(0.3), lineWidth: 1)
+                )
 
                 Text("나중에 설정할 수 있습니다")
                     .font(.caption2)
@@ -691,7 +713,12 @@ struct OnboardingView: View {
         }
         .padding(12)
         .background(palette.surfaceTertiary)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1)
+        )
+        .shadow(color: palette.sidebarShadow, radius: 2, y: 1)
     }
 
     // MARK: - 완료
@@ -709,11 +736,15 @@ struct OnboardingView: View {
             Image(systemName: "arrow.right")
                 .font(.caption)
         }
+        .font(.system(size: DesignTokens.FontSize.body, weight: .bold, design: .rounded))
+        .foregroundColor(palette.userBubbleText)
         .padding(.horizontal, 20)
         .padding(.vertical, 8)
-        .background(palette.accent)
-        .foregroundColor(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(
+            RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
+                .fill(palette.accent)
+        )
+        .shadow(color: palette.buttonShadow.opacity(0.25), radius: 3, y: 2)
     }
 
     private func providerIcon(_ type: ProviderType) -> some View {

@@ -2,6 +2,7 @@ import SwiftUI
 import MarkdownUI
 
 struct ChatView: View {
+    @Environment(\.colorPalette) private var palette
     @EnvironmentObject var agentStore: AgentStore
     @EnvironmentObject var chatVM: ChatViewModel
 
@@ -9,7 +10,15 @@ struct ChatView: View {
         VStack(spacing: 0) {
             if let agent = agentStore.selectedAgent {
                 agentHeader(agent)
-                Divider()
+                // 코지 게임 스타일: 그라데이션 구분선
+                Rectangle()
+                    .fill(
+                        LinearGradient(
+                            colors: [palette.cardBorder.opacity(0), palette.cardBorder.opacity(0.4), palette.cardBorder.opacity(0)],
+                            startPoint: .leading, endPoint: .trailing
+                        )
+                    )
+                    .frame(height: 1.5)
                 ChatContentView(agentID: agent.id, agent: agent)
             }
         }
@@ -20,9 +29,9 @@ struct ChatView: View {
             AgentAvatarView(agent: agent, size: 28)
             VStack(alignment: .leading) {
                 Text(agent.name)
-                    .font(.headline)
+                    .font(.system(.headline, design: .rounded))
                 Text("\(agent.providerName) / \(agent.modelName)")
-                    .font(.caption)
+                    .font(.system(.caption, design: .rounded))
                     .foregroundColor(.secondary)
             }
             Spacer()
@@ -85,7 +94,7 @@ struct MessageBubble: View {
                         HStack(spacing: 4) {
                             if let name = message.agentName {
                                 Text(name)
-                                    .font(.system(size: DesignTokens.FontSize.sm, weight: .semibold))
+                                    .font(.system(size: DesignTokens.FontSize.sm, weight: .semibold, design: .rounded))
                                     .foregroundColor(.primary.opacity(0.7))
                                     .onTapGesture { if agent != nil { showAgentInfo = true } }
                             }
@@ -141,11 +150,12 @@ struct MessageBubble: View {
                         .padding(.vertical, 8)
                         .background(bubbleBackground)
                         .foregroundColor(bubbleForeground)
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
                                 .strokeBorder(typeBorder, lineWidth: typeBorderWidth)
                         )
+                        .shadow(color: palette.sidebarShadow, radius: 3, y: 2)
                         .textSelection(.enabled)
                 }
 
@@ -186,21 +196,31 @@ struct MessageBubble: View {
         return formatter.string(from: message.timestamp)
     }
 
-    private var bubbleBackground: Color {
-        if message.role == .user { return palette.userBubble }
-        switch message.messageType {
-        case .error:         return palette.messageError.opacity(0.15)
-        case .summary:       return palette.messageSummary.opacity(0.15)
-        case .chainProgress: return palette.messageChainProgress.opacity(0.15)
-        case .delegation:    return palette.messageDelegation.opacity(0.15)
-        case .suggestion:    return palette.messageSuggestion.opacity(0.15)
-        case .toolActivity:  return palette.messageToolActivity.opacity(0.12)
-        case .buildStatus:   return palette.messageBuildStatus.opacity(0.15)
-        case .qaStatus:      return palette.messageQaStatus.opacity(0.15)
-        case .approvalRequest: return palette.messageApprovalRequest.opacity(0.15)
-        case .progress:      return palette.messageProgress.opacity(0.10)
-        default:             return palette.messageBubbleBackground
+    private var bubbleBackground: AnyShapeStyle {
+        if message.role == .user {
+            return AnyShapeStyle(
+                LinearGradient(
+                    colors: [palette.userBubble.opacity(0.85), palette.userBubble],
+                    startPoint: .top, endPoint: .bottom
+                )
+            )
         }
+        let color: Color = {
+            switch message.messageType {
+            case .error:         return palette.messageError.opacity(0.15)
+            case .summary:       return palette.messageSummary.opacity(0.15)
+            case .chainProgress: return palette.messageChainProgress.opacity(0.15)
+            case .delegation:    return palette.messageDelegation.opacity(0.15)
+            case .suggestion:    return palette.messageSuggestion.opacity(0.15)
+            case .toolActivity:  return palette.messageToolActivity.opacity(0.12)
+            case .buildStatus:   return palette.messageBuildStatus.opacity(0.15)
+            case .qaStatus:      return palette.messageQaStatus.opacity(0.15)
+            case .approvalRequest: return palette.messageApprovalRequest.opacity(0.15)
+            case .progress:      return palette.messageProgress.opacity(0.10)
+            default:             return palette.messageBubbleBackground
+            }
+        }()
+        return AnyShapeStyle(color)
     }
 
     private var bubbleForeground: Color {
@@ -242,14 +262,16 @@ struct MessageBubble: View {
     private var typeBorder: Color {
         switch message.messageType {
         case .summary: return palette.messageSummary.opacity(0.3)
-        default:       return Color.clear
+        default:
+            // 코지 게임 스타일: 어시스턴트 버블에 카드 테두리
+            return message.role == .assistant ? palette.cardBorder.opacity(0.25) : Color.clear
         }
     }
 
     private var typeBorderWidth: CGFloat {
         switch message.messageType {
         case .summary: return 1
-        default:       return 0
+        default:       return message.role == .assistant ? DesignTokens.CozyGame.borderWidth * 0.5 : 0
         }
     }
 

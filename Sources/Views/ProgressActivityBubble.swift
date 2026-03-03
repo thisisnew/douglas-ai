@@ -68,10 +68,14 @@ struct ProgressActivityBubble: View {
 
             Spacer()
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .background(palette.systemMessageBackground)
-        .clipShape(Capsule())
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .background(
+            Capsule()
+                .fill(palette.panelGradient)
+                .overlay(Capsule().strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1))
+        )
+        .shadow(color: palette.sidebarShadow, radius: 4, y: 2)
         .contentShape(Capsule())
     }
 

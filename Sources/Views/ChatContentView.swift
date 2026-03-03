@@ -75,7 +75,14 @@ struct ChatContentView: View {
                 )
             }
             .padding(10)
-            .background(palette.inputBackground)
+            .background(
+                RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                    .fill(palette.inputBackground)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                    .strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1)
+            )
             .padding(.horizontal, 8)
             .padding(.vertical, 8)
         }
@@ -90,7 +97,7 @@ struct ChatContentView: View {
                 Text(agent.isMaster
                      ? "안녕하세요! 무엇을 도와드릴까요?"
                      : "\(agent.name)에게 메시지를 보내보세요.")
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: 15, weight: .medium, design: .rounded))
                     .foregroundColor(.secondary.opacity(0.6))
             }
             Spacer()

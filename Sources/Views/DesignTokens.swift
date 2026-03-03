@@ -244,12 +244,41 @@ enum DesignTokens {
         }
     }
 
+    // MARK: - 코지 게임 UI 토큰
+
+    enum CozyGame {
+        /// 패널 외곽 모서리 반경
+        static let panelRadius: CGFloat = 18
+        /// 버튼 모서리 반경
+        static let buttonRadius: CGFloat = 14
+        /// 카드 모서리 반경
+        static let cardRadius: CGFloat = 16
+        /// 버튼 하단 그림자 Y 오프셋
+        static let buttonShadowY: CGFloat = 4
+        /// 버튼 눌림 시 Y 오프셋
+        static let buttonPressedY: CGFloat = 2
+        /// 카드/패널 테두리 두께
+        static let borderWidth: CGFloat = 2.5
+        /// 아바타 둥근 사각 반경 비율 (size * 0.28)
+        static let avatarRadiusRatio: CGFloat = 0.28
+        /// 프로그레스 바 높이
+        static let progressBarHeight: CGFloat = 14
+        /// 프로그레스 바 모서리 반경
+        static let progressBarRadius: CGFloat = 7
+        /// 패널 그림자 반경
+        static let panelShadowRadius: CGFloat = 10
+        /// 패널 그림자 Y
+        static let panelShadowY: CGFloat = 4
+    }
+
     // MARK: - 애니메이션 길이
 
     enum Animation {
         static let fast: Double = 0.15
         static let standard: Double = 0.2
         static let slow: Double = 0.3
+        static let springResponse: Double = 0.35
+        static let springDamping: Double = 0.7
     }
 
     // MARK: - 윈도우 크기 상수
@@ -362,6 +391,11 @@ extension SwiftUI.Animation {
     static let dgFast = SwiftUI.Animation.easeInOut(duration: DesignTokens.Animation.fast)
     static let dgStandard = SwiftUI.Animation.easeInOut(duration: DesignTokens.Animation.standard)
     static let dgSlow = SwiftUI.Animation.easeInOut(duration: DesignTokens.Animation.slow)
+    static let dgSpring = SwiftUI.Animation.spring(
+        response: DesignTokens.Animation.springResponse,
+        dampingFraction: DesignTokens.Animation.springDamping
+    )
+    static let dgBounce = SwiftUI.Animation.spring(response: 0.2, dampingFraction: 0.5)
 }
 
 // MARK: - 연속 곡선 RoundedRectangle 편의 확장

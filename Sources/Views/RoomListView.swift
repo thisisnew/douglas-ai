@@ -100,7 +100,8 @@ struct RoomListView: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background(Color.primary.opacity(0.04))
-            .continuousRadius(6)
+            .continuousRadius(DesignTokens.CozyGame.cardRadius)
+            .shadow(color: palette.sidebarShadow, radius: 3, y: 1)
             .padding(.horizontal, 8)
             .padding(.top, 6)
 
@@ -133,7 +134,7 @@ struct RoomListView: View {
                 Spacer()
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(spacing: 2) {
+                    LazyVStack(spacing: 6) {
                         ForEach(filteredRooms) { room in
                             RoomRowAnimated(
                                 room: room,
@@ -211,14 +212,8 @@ struct RoomListView: View {
                 Text("새 방")
                     .font(.system(size: 10, weight: .medium))
             }
-            .foregroundColor(palette.userBubbleText)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(
-                Capsule().fill(palette.accent)
-            )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(CozyButtonStyle(.accent))
     }
 
     // MARK: - 전체 선택 바
@@ -319,8 +314,13 @@ struct RoomListView: View {
                 .fill(.ultraThinMaterial)
                 .overlay(alignment: .top) {
                     Rectangle()
-                        .fill(palette.avatarFallback)
-                        .frame(height: 0.5)
+                        .fill(
+                            LinearGradient(
+                                colors: [palette.cardBorder.opacity(0), palette.cardBorder.opacity(0.4), palette.cardBorder.opacity(0)],
+                                startPoint: .leading, endPoint: .trailing
+                            )
+                        )
+                        .frame(height: 1.5)
                 }
         )
     }
@@ -358,9 +358,10 @@ struct RoomListView: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        Capsule()
                             .fill(isSelected ? filter.color.opacity(0.12) : Color.clear)
                     )
+                    .shadow(color: isSelected ? palette.sidebarShadow : .clear, radius: 2, y: 1)
                 }
                 .buttonStyle(.plain)
             }
@@ -482,11 +483,16 @@ struct RoomListItem: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(
-            RoundedRectangle(cornerRadius: DesignTokens.Spacing.lg, style: .continuous)
+            RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
                 .fill(isHovered
                       ? palette.hoverBackground
-                      : (room.isActive ? palette.activeRowBackground : Color.clear))
+                      : (room.isActive ? palette.activeRowBackground : palette.surfaceTertiary.opacity(0.5)))
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                .strokeBorder(palette.cardBorder.opacity(isHovered ? 0.3 : 0.12), lineWidth: 1)
+        )
+        .shadow(color: palette.sidebarShadow, radius: 3, y: 1)
         .onHover { hovering in
             withAnimation(.dgFast) {
                 isHovered = hovering
@@ -567,12 +573,12 @@ struct RoomListItem: View {
 
     private func badgeView(text: String, color: Color) -> some View {
         Text(text)
-            .font(.system(size: DesignTokens.FontSize.badge, weight: .medium))
+            .font(.system(size: DesignTokens.FontSize.badge, weight: .medium, design: .rounded))
             .foregroundColor(color)
             .padding(.horizontal, DesignTokens.Radius.md)
             .padding(.vertical, DesignTokens.Spacing.xs)
             .background(color.opacity(DesignTokens.Opacity.badgeBg))
-            .cornerRadius(DesignTokens.Radius.badge)
+            .clipShape(Capsule())
     }
 
     private var progressPercent: Int {
