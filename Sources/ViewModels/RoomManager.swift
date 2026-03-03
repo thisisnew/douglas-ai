@@ -222,6 +222,15 @@ class RoomManager: ObservableObject {
     private func launchFollowUpCycle(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
+        // 이전 작업 컨텍스트 주입 (방 재활성화 전에 workLog 캡처)
+        if let workLog = rooms[idx].workLog {
+            let contextMsg = ChatMessage(
+                role: .system,
+                content: workLog.asContextString()
+            )
+            appendMessage(contextMsg, to: roomID)
+        }
+
         // 방 재활성화
         rooms[idx].transitionTo(.planning)
         rooms[idx].completedAt = nil
@@ -867,6 +876,9 @@ class RoomManager: ObservableObject {
         if let assumptions = rooms[idx].assumptions, !assumptions.isEmpty {
             contextParts.append("[가정]\n" + assumptions.map { "- \($0.text)" }.joined(separator: "\n"))
         }
+        if let workLog = rooms[idx].workLog {
+            contextParts.append(workLog.asContextString())
+        }
 
         let intentName = rooms[idx].intent?.displayName ?? "구현"
         // 기존 에이전트 목록 구성
@@ -1261,7 +1273,11 @@ class RoomManager: ObservableObject {
         speakingAgentIDByRoom[roomID] = agentID
 
         let context = makeToolContext(roomID: roomID, currentAgentID: agentID)
-        let history = buildRoomHistory(roomID: roomID)
+        var history: [ConversationMessage] = []
+        if let workLog = rooms.first(where: { $0.id == roomID })?.workLog {
+            history.append(ConversationMessage.user("[이전 작업 컨텍스트]\n\(workLog.asContextString())"))
+        }
+        history.append(contentsOf: buildRoomHistory(roomID: roomID))
 
         do {
             let response = try await ToolExecutor.smartSend(

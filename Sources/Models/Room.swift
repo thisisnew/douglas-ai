@@ -201,6 +201,19 @@ struct WorkLog: Codable, Identifiable {
         self.outcome = outcome
         self.durationSeconds = durationSeconds
     }
+
+    func asContextString() -> String {
+        var parts: [String] = []
+        parts.append("[이전 작업] \(task)")
+        if !discussionSummary.isEmpty {
+            parts.append("[토론 결과] \(discussionSummary)")
+        }
+        if !planSummary.isEmpty {
+            parts.append("[실행 계획] \(planSummary)")
+        }
+        parts.append("[최종 결과] \(outcome)")
+        return parts.joined(separator: "\n")
+    }
 }
 
 // MARK: - 토론 브리핑 (컨텍스트 압축)
