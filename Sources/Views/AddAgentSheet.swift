@@ -82,6 +82,16 @@ struct AddAgentSheet: View {
                             )
                     }
 
+                    // 유사 에이전트 경고
+                    if !similarAgents.isEmpty {
+                        Label(
+                            "비슷한 에이전트: \(similarAgents.map(\.name).joined(separator: ", "))",
+                            systemImage: "person.2"
+                        )
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                    }
+
                     // 작업 규칙 (필수)
                     workingRulesSection
 
@@ -409,6 +419,17 @@ struct AddAgentSheet: View {
 
     private var hasValidRules: Bool {
         !inlineRules.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !rulesFilePaths.isEmpty
+    }
+
+    private var similarAgents: [Agent] {
+        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        let trimmedPersona = persona.trimmingCharacters(in: .whitespaces)
+        guard !trimmedName.isEmpty || !trimmedPersona.isEmpty else { return [] }
+        return AgentMatcher.findSimilarAgents(
+            name: trimmedName,
+            persona: trimmedPersona,
+            among: agentStore.agents
+        )
     }
 
     private var isDuplicateName: Bool {

@@ -105,12 +105,115 @@ enum AgentMatcher {
                 if lowerRules.contains(keyword) { score += 1 }
             }
 
-            // 최소 점수 3 이상 (이름 매칭 1회 이상 필요, 페르소나만으로는 부족)
-            if score >= 3, score > (bestMatch?.score ?? 0) {
+            // 최소 점수 2 이상 (페르소나 키워드 매칭만으로도 충분)
+            if score >= 2, score > (bestMatch?.score ?? 0) {
                 bestMatch = (agent, score)
             }
         }
 
         return bestMatch?.agent
     }
+
+    // MARK: - 유사 에이전트 탐지
+
+    /// 새 에이전트 등록 시 유사한 기존 에이전트 탐지 (이름 + 페르소나 양방향 매칭)
+    static func findSimilarAgents(
+        name: String,
+        persona: String,
+        among agents: [Agent]
+    ) -> [Agent] {
+        let newKeywords = extractSemanticKeywords(from: "\(name) \(persona)")
+        guard !newKeywords.isEmpty else { return [] }
+
+        return agents.filter { agent in
+            let agentText = "\(agent.name) \(agent.persona)".lowercased()
+            let agentKeywords = extractSemanticKeywords(from: "\(agent.name) \(agent.persona)")
+            let newText = "\(name) \(persona)".lowercased()
+
+            // 양방향: 새→기존, 기존→새 (한쪽이라도 2개+ 겹치면 유사)
+            let forward = newKeywords.filter { agentText.contains($0) }.count
+            let reverse = agentKeywords.filter { newText.contains($0) }.count
+
+            return max(forward, reverse) >= 2
+        }
+    }
+
+    // MARK: - 의미 키워드 추출 (한국어 지원)
+
+    /// 한국어 조사 제거 + 스크립트 경계 분리로 의미 키워드 추출
+    static func extractSemanticKeywords(from text: String) -> [String] {
+        let tokens = text.lowercased()
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+
+        var keywords: Set<String> = []
+
+        for token in tokens {
+            let parts = splitByScript(token)
+            for part in parts {
+                let subparts = part.components(separatedBy: CharacterSet.alphanumerics.inverted)
+                    .filter { $0.count >= 2 }
+                for sub in subparts {
+                    let stemmed = stripKoreanSuffix(sub)
+                    if stemmed.count >= 2 && !genericSuffixes.contains(stemmed) {
+                        keywords.insert(stemmed)
+                    }
+                    // 원형도 보존 (접미사 제거 전 — 정확 매칭용)
+                    if sub.count >= 2 && sub != stemmed && !genericSuffixes.contains(sub) {
+                        keywords.insert(sub)
+                    }
+                }
+            }
+        }
+
+        return Array(keywords)
+    }
+
+    /// 한글↔라틴 스크립트 경계에서 분리 (예: "react와" → ["react", "와"])
+    private static func splitByScript(_ token: String) -> [String] {
+        guard !token.isEmpty else { return [] }
+        var result: [String] = []
+        var current = ""
+        var prevIsKorean: Bool?
+
+        for char in token {
+            let korean = isKoreanCharacter(char)
+            if let prev = prevIsKorean, prev != korean, !current.isEmpty {
+                result.append(current)
+                current = ""
+            }
+            current.append(char)
+            prevIsKorean = korean
+        }
+        if !current.isEmpty { result.append(current) }
+        return result
+    }
+
+    private static func isKoreanCharacter(_ char: Character) -> Bool {
+        char.unicodeScalars.contains {
+            (0xAC00...0xD7A3).contains($0.value) ||  // 완성형 한글
+            (0x3131...0x3163).contains($0.value)      // 한글 자모
+        }
+    }
+
+    /// 한국어 조사/어미 제거 (형태소 분석 경량 대체)
+    private static func stripKoreanSuffix(_ word: String) -> String {
+        for suffix in koreanStripSuffixes {
+            if word.hasSuffix(suffix) {
+                let stem = String(word.dropLast(suffix.count))
+                if stem.count >= 2 { return stem }
+            }
+        }
+        return word
+    }
+
+    /// 긴 접미사부터 시도 (greedy 매칭)
+    private static let koreanStripSuffixes: [String] = [
+        "입니다", "습니다", "합니다", "됩니다",
+        "으로서", "으로써", "에서의",
+        "에서", "까지", "부터", "으로",
+        "하는", "하고", "이며", "에게",
+        "을", "를", "이", "가", "은", "는",
+        "에", "의", "와", "과", "로", "도", "만",
+    ]
 }
