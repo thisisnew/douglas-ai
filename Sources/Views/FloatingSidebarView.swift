@@ -372,7 +372,7 @@ struct FloatingSidebarView: View {
             .help("에이전트 추가")
 
             Button(action: { openWorkLogWindow() }) {
-                Image(systemName: "doc.text")
+                Image(systemName: "clock.arrow.circlepath")
                     .font(.system(size: 13))
                     .foregroundColor(.secondary)
             }

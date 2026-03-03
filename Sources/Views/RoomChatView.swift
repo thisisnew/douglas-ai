@@ -86,7 +86,11 @@ struct RoomChatView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
-                    ForEach(visibleMessages(room)) { message in
+                    let msgs = visibleMessages(room)
+                    ForEach(Array(msgs.enumerated()), id: \.element.id) { index, message in
+                        if shouldShowDateSeparator(at: index, in: msgs) {
+                            dateSeparatorView(for: message.timestamp)
+                        }
                         messageRow(message, in: room)
                     }
 
@@ -137,6 +141,36 @@ struct RoomChatView: View {
             withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
         }
     }
+
+    // MARK: - 날짜 구분선
+
+    private func shouldShowDateSeparator(at index: Int, in messages: [ChatMessage]) -> Bool {
+        guard index > 0 else { return true }
+        return !Calendar.current.isDate(messages[index].timestamp, inSameDayAs: messages[index - 1].timestamp)
+    }
+
+    private func dateSeparatorView(for date: Date) -> some View {
+        HStack(spacing: 8) {
+            Rectangle()
+                .fill(Color.secondary.opacity(0.2))
+                .frame(height: 0.5)
+            Text(Self.dateSeparatorFormatter.string(from: date))
+                .font(.system(size: DesignTokens.FontSize.xs))
+                .foregroundColor(.secondary.opacity(0.5))
+                .fixedSize()
+            Rectangle()
+                .fill(Color.secondary.opacity(0.2))
+                .frame(height: 0.5)
+        }
+        .padding(.vertical, DesignTokens.Spacing.md)
+    }
+
+    private static let dateSeparatorFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ko_KR")
+        f.dateFormat = "M월 d일 EEEE"
+        return f
+    }()
 
     // MARK: - 메시지 필터링 (활동 그룹 숨김)
 

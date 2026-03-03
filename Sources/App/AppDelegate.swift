@@ -316,8 +316,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         sidebarPanel.title = "Tell, Don't Ask"
-        sidebarPanel.level = .floating
-        sidebarPanel.isFloatingPanel = true
+        sidebarPanel.level = .normal
+        sidebarPanel.isFloatingPanel = false
         sidebarPanel.hidesOnDeactivate = false
         sidebarPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         sidebarPanel.isMovableByWindowBackground = false
