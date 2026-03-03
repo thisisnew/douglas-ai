@@ -49,30 +49,22 @@ struct WorkflowIntentTests {
 
     // MARK: - WorkflowIntent
 
-    @Test("WorkflowIntent — 전체 케이스 존재 (8종)")
+    @Test("WorkflowIntent — 전체 케이스 존재 (4종)")
     func workflowIntentAllCases() {
         let all = WorkflowIntent.allCases
-        #expect(all.count == 8)
+        #expect(all.count == 4)
         #expect(all.contains(.quickAnswer))
         #expect(all.contains(.research))
-        #expect(all.contains(.brainstorm))
         #expect(all.contains(.documentation))
         #expect(all.contains(.implementation))
-        #expect(all.contains(.requirementsAnalysis))
-        #expect(all.contains(.testPlanning))
-        #expect(all.contains(.taskDecomposition))
     }
 
     @Test("WorkflowIntent rawValue")
     func workflowIntentRawValues() {
         #expect(WorkflowIntent.quickAnswer.rawValue == "quickAnswer")
         #expect(WorkflowIntent.research.rawValue == "research")
-        #expect(WorkflowIntent.brainstorm.rawValue == "brainstorm")
         #expect(WorkflowIntent.documentation.rawValue == "documentation")
         #expect(WorkflowIntent.implementation.rawValue == "implementation")
-        #expect(WorkflowIntent.requirementsAnalysis.rawValue == "requirementsAnalysis")
-        #expect(WorkflowIntent.testPlanning.rawValue == "testPlanning")
-        #expect(WorkflowIntent.taskDecomposition.rawValue == "taskDecomposition")
     }
 
     @Test("WorkflowIntent displayName 비어있지 않음")
@@ -121,23 +113,9 @@ struct WorkflowIntentTests {
         #expect(phases.count == 6) // intake, intent, clarify, assemble, execute, review
     }
 
-    @Test("brainstorm — Plan 포함, Execute 미포함")
-    func brainstormPhases() {
-        let phases = WorkflowIntent.brainstorm.requiredPhases
-        #expect(phases.contains(.plan))
-        #expect(!phases.contains(.execute))
-    }
-
     @Test("research — Plan 포함, Execute 미포함")
     func researchPhases() {
         let phases = WorkflowIntent.research.requiredPhases
-        #expect(phases.contains(.plan))
-        #expect(!phases.contains(.execute))
-    }
-
-    @Test("requirementsAnalysis — Plan 포함, Execute 미포함")
-    func requirementsAnalysisPhases() {
-        let phases = WorkflowIntent.requirementsAnalysis.requiredPhases
         #expect(phases.contains(.plan))
         #expect(!phases.contains(.execute))
     }
@@ -147,10 +125,6 @@ struct WorkflowIntentTests {
     @Test("PlanMode 분기 올바름")
     func planModeMapping() {
         #expect(WorkflowIntent.quickAnswer.planMode == .skip)
-        #expect(WorkflowIntent.brainstorm.planMode == .lite)
-        #expect(WorkflowIntent.requirementsAnalysis.planMode == .lite)
-        #expect(WorkflowIntent.testPlanning.planMode == .lite)
-        #expect(WorkflowIntent.taskDecomposition.planMode == .lite)
         #expect(WorkflowIntent.research.planMode == .lite)
         #expect(WorkflowIntent.documentation.planMode == .exec)
         #expect(WorkflowIntent.implementation.planMode == .exec)
@@ -161,22 +135,17 @@ struct WorkflowIntentTests {
     @Test("토론 필요: quickAnswer만 제외")
     func requiresDiscussion() {
         #expect(WorkflowIntent.quickAnswer.requiresDiscussion == false)
-        // 나머지 모두 true
-        #expect(WorkflowIntent.brainstorm.requiresDiscussion == true)
-        #expect(WorkflowIntent.implementation.requiresDiscussion == true)
         #expect(WorkflowIntent.research.requiresDiscussion == true)
         #expect(WorkflowIntent.documentation.requiresDiscussion == true)
-        #expect(WorkflowIntent.requirementsAnalysis.requiresDiscussion == true)
-        #expect(WorkflowIntent.testPlanning.requiresDiscussion == true)
-        #expect(WorkflowIntent.taskDecomposition.requiresDiscussion == true)
+        #expect(WorkflowIntent.implementation.requiresDiscussion == true)
     }
 
     @Test("승인 필요: implementation만")
     func requiresApproval() {
         #expect(WorkflowIntent.implementation.requiresApproval == true)
         #expect(WorkflowIntent.quickAnswer.requiresApproval == false)
-        #expect(WorkflowIntent.brainstorm.requiresApproval == false)
         #expect(WorkflowIntent.research.requiresApproval == false)
+        #expect(WorkflowIntent.documentation.requiresApproval == false)
     }
 
     // MARK: - includesExecution / includesAssembly
@@ -197,9 +166,25 @@ struct WorkflowIntentTests {
 
         // Execute 미포함
         #expect(WorkflowIntent.research.includesExecution == false)
-        #expect(WorkflowIntent.brainstorm.includesExecution == false)
-        #expect(WorkflowIntent.requirementsAnalysis.includesExecution == false)
-        #expect(WorkflowIntent.testPlanning.includesExecution == false)
-        #expect(WorkflowIntent.taskDecomposition.includesExecution == false)
+    }
+
+    // MARK: - 레거시 호환 (Codable)
+
+    @Test("레거시 intent 문자열 → research로 디코딩")
+    func legacyIntentDecoding() throws {
+        let legacyValues = ["brainstorm", "requirementsAnalysis", "testPlanning", "taskDecomposition"]
+        for legacy in legacyValues {
+            let json = "\"\(legacy)\"".data(using: .utf8)!
+            let decoded = try JSONDecoder().decode(WorkflowIntent.self, from: json)
+            #expect(decoded == .research, "레거시 \(legacy) → .research 디코딩 실패")
+        }
+    }
+
+    @Test("알 수 없는 intent 문자열 → 디코딩 에러")
+    func unknownIntentDecoding() {
+        let json = "\"somethingRandom\"".data(using: .utf8)!
+        #expect(throws: DecodingError.self) {
+            _ = try JSONDecoder().decode(WorkflowIntent.self, from: json)
+        }
     }
 }

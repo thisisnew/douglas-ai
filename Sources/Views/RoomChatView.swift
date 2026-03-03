@@ -1087,14 +1087,10 @@ struct IntentSelectionCard: View {
 
     private func intentIcon(_ intent: WorkflowIntent) -> String {
         switch intent {
-        case .quickAnswer:          return "bolt"
-        case .research:             return "magnifyingglass"
-        case .brainstorm:           return "lightbulb"
-        case .documentation:        return "doc.text"
-        case .implementation:       return "hammer"
-        case .requirementsAnalysis: return "checklist"
-        case .testPlanning:         return "checkmark.shield"
-        case .taskDecomposition:    return "rectangle.3.group"
+        case .quickAnswer:     return "bolt"
+        case .research:        return "magnifyingglass"
+        case .documentation:   return "doc.text"
+        case .implementation:  return "hammer"
         }
     }
 }

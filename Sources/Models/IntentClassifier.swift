@@ -13,6 +13,7 @@ enum IntentClassifier {
         // 어간 "뭐/뭘/뭔" + 임의 어미, 의문 어미 "까|지|냐|나|가|야" 등
         (
             "뭐[야냐지임에요가는데니까란]|뭘[까]?|뭔[가데지]|"
+            + "무슨|뜻[이을]?[야이]?|의미[가를는]?|"
             + "알려[줘주달]|설명[해좀]|"
             + "번역|translate|翻訳|"
             + "몇[개번째]?\\s|어디[서에]?\\s|언제|누가|왜\\s|"
@@ -20,18 +21,17 @@ enum IntentClassifier {
             + "[이건뭔]가[요]?|[일될건]까",
             .quickAnswer, 100, true
         ),
-        // brainstorm
+        // research (브레인스토밍, 자문/상담/조언/궁금, 요건분석, 테스트계획, 작업분해 통합)
         (
             "브레인스토밍|아이디어|brainstorm|"
-            + "토론[하을]|회의[하을]|의견[을이]?\\s|같이\\s?생각",
-            .brainstorm, nil, false
-        ),
-        // research (자문/상담/조언/궁금 포함)
-        (
-            "조사[해하]?|리서치|research|트렌드|"
+            + "토론[하을]|회의[하을]|의견[을이]?\\s|같이\\s?생각|"
+            + "조사[해하]?|리서치|research|트렌드|"
             + "비교[해하]|분석[해하]|찾아[봐보]|서베이|survey|"
             + "자문|상담|조언|컨설팅|consulting|"
-            + "알고\\s?싶|궁금",
+            + "알고\\s?싶|궁금|"
+            + "테스트\\s?계획|test\\s?plan|"
+            + "요건\\s?분석|요구\\s?사항|requirements|"
+            + "작업\\s?분[해해]|task\\s?breakdown|쪼개",
             .research, nil, true
         ),
         // documentation
@@ -47,12 +47,6 @@ enum IntentClassifier {
             + "fix|implement|deploy|refactor",
             .implementation, nil, false
         ),
-        // testPlanning
-        ("테스트\\s?계획|test\\s?plan", .testPlanning, nil, false),
-        // requirementsAnalysis
-        ("요건\\s?분석|요구\\s?사항|requirements", .requirementsAnalysis, nil, false),
-        // taskDecomposition
-        ("작업\\s?분[해해]|task\\s?breakdown|쪼개", .taskDecomposition, nil, false),
     ]
 
     /// 컴파일된 정규식 캐시 (앱 생명주기 동안 1회만 생성)
@@ -99,7 +93,7 @@ enum IntentClassifier {
 
     // MARK: - LLM 기반 분류
 
-    /// LLM을 사용하여 의도 분류. 실패 시 implementation 폴백
+    /// LLM을 사용하여 의도 분류. 실패 시 quickAnswer 폴백
     static func classifyWithLLM(
         task: String,
         provider: any AIProvider,
@@ -110,13 +104,9 @@ enum IntentClassifier {
 
         카테고리:
         - quickAnswer: 단순 질문, 번역, 정보 확인 (짧은 답변으로 끝나는 것)
-        - research: 조사, 리서치, 트렌드 분석, 비교 분석, 자문, 상담, 조언, 전문가 의견
-        - brainstorm: 브레인스토밍, 아이디어 회의, 자유 토론
+        - research: 조사, 리서치, 분석, 비교, 브레인스토밍, 자문, 상담, 요건 분석, 테스트 계획, 작업 분해
         - documentation: 기획서, 문서 작성, PRD, 보고서
         - implementation: 코딩, 개발, 버그 수정, 구현, 배포
-        - requirementsAnalysis: 요건 분석, 요구사항 정리
-        - testPlanning: 테스트 계획 수립
-        - taskDecomposition: 작업 분해, 태스크 쪼개기
 
         카테고리 이름만 한 단어로 출력하세요. 다른 내용은 절대 출력하지 마세요.
         """
@@ -131,7 +121,7 @@ enum IntentClassifier {
             let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             return parseIntent(from: trimmed)
         } catch {
-            return .implementation
+            return .quickAnswer
         }
     }
 
@@ -141,15 +131,16 @@ enum IntentClassifier {
         switch text {
         case "quickanswer", "quick_answer":     return .quickAnswer
         case "research":                        return .research
-        case "brainstorm":                      return .brainstorm
         case "documentation":                   return .documentation
         case "implementation":                  return .implementation
+        // 레거시 매핑: LLM이 옛 이름을 반환할 경우 research로 흡수
+        case "brainstorm":                      return .research
         case "requirementsanalysis",
-             "requirements_analysis":           return .requirementsAnalysis
-        case "testplanning", "test_planning":   return .testPlanning
+             "requirements_analysis":           return .research
+        case "testplanning", "test_planning":   return .research
         case "taskdecomposition",
-             "task_decomposition":              return .taskDecomposition
-        default:                                return .implementation
+             "task_decomposition":              return .research
+        default:                                return .quickAnswer
         }
     }
 

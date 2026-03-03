@@ -43,7 +43,7 @@ DOUGLAS/
 │   │   ├── BuildResult.swift         # 빌드 결과 모델 + BuildLoopStatus + QAResult + QALoopStatus
 │   │   ├── FileWriteTracker.swift   # 병렬 실행 파일 쓰기 충돌 감지 (actor)
 │   │   ├── ToolExecutionContext.swift # 도구 실행 컨텍스트 (방/에이전트/프로젝트 정보 스냅샷, askUser, currentPhase)
-│   │   ├── WorkflowIntent.swift    # 워크플로우 의도 (WorkflowPhase, WorkflowIntent 8종, PlanMode)
+│   │   ├── WorkflowIntent.swift    # 워크플로우 의도 (WorkflowPhase, WorkflowIntent 4종, PlanMode)
 │   │   ├── IntentClassifier.swift # Intent 분류기 (규칙 기반 + LLM 폴백)
 │   │   ├── DecisionLog.swift      # 토론 결정 로그 (DecisionEntry)
 │   │   ├── WorkflowAssumption.swift # 가정 선언 (RiskLevel: low/medium/high) + UserAnswer
@@ -844,12 +844,12 @@ executeWithTools() 루프 (최대 10회):
   → ⑤~⑦: Intent별 분기 (PlanMode에 따라)
 ```
 
-- **Intent 분류** (`IntentClassifier`): 규칙 기반 즉시 분류 (`quickClassify`) → 실패 시 LLM 분류 (`classifyWithLLM`). `quickClassify`가 nil(판단 불가)이면 `executeIntentPhase`에서 LLM 추천 intent와 함께 **IntentSelectionCard** UI를 표시하여 사용자가 8종 intent 중 선택. `pendingIntentSelection` + `intentContinuations`으로 비동기 게이트 구현.
+- **Intent 분류** (`IntentClassifier`): 규칙 기반 즉시 분류 (`quickClassify`) → 실패 시 LLM 분류 (`classifyWithLLM`). `quickClassify`가 nil(판단 불가)이면 `executeIntentPhase`에서 LLM 추천 intent와 함께 **IntentSelectionCard** UI를 표시하여 사용자가 4종 intent 중 선택. `pendingIntentSelection` + `intentContinuations`으로 비동기 게이트 구현. 분류 실패 시 `.quickAnswer` 폴백 (가장 가벼운 워크플로우).
 - **복명복창 Clarify** (`executeClarifyPhase`): DOUGLAS가 요청을 요약 → 사용자 승인/거부 → 거부 시 피드백 반영 재요약 → 승인까지 무한 반복.
 - **PlanMode 분기** (`executePlanPhase`):
   - `.skip`: Plan 단계 건너뜀 (quickAnswer)
-  - `.lite`: 토론(필요 시) + 산출물 정리만 (brainstorm, 요건 분석 등)
-  - `.exec`: 토론(필요 시) + 계획 수립 + 승인(implementation만) (implementation, research, documentation)
+  - `.lite`: 토론(필요 시) + 산출물 정리만 (research)
+  - `.exec`: 토론(필요 시) + 계획 수립 + 승인(implementation만) (documentation, implementation)
 - **quickAnswer** (`executeQuickAnswer`): 전문가 1명이 도구 포함 즉답
 - **실행 시 마스터 제외** (`executingAgentIDs`): `agent.isMaster`이면 실행 대상에서 제외
 - **계획 수립**: 전문가가 생성 (마스터 제외). 계획 JSON은 사용자에게 숨김.
@@ -944,12 +944,12 @@ executeWithTools() 루프 (최대 10회):
 
 | 항목 | 내용 | 상태 |
 |------|------|------|
-| E-1 | **WorkflowIntent 8종 + PlanMode**: quickAnswer, research, brainstorm, documentation, implementation, requirementsAnalysis, testPlanning, taskDecomposition. `PlanMode` (skip/lite/exec)로 Plan 단계 동작 분기. | ✅ |
+| E-1 | **WorkflowIntent 4종 + PlanMode**: quickAnswer, research, documentation, implementation. `PlanMode` (skip/lite/exec)로 Plan 단계 동작 분기. 레거시 8종(brainstorm 등) → Codable 마이그레이션으로 research 흡수. | ✅ |
 | E-2 | **IntentClassifier**: 규칙 기반 키워드 즉시 분류 → LLM 폴백. `ChatViewModel.handleMasterMessage`에서 방 생성 전 호출. | ✅ |
 | E-3 | **복명복창 Clarify**: DOUGLAS가 이해한 내용 요약 → 사용자 승인까지 무한 루프. 거부 시 피드백 반영 재요약. | ✅ |
 | E-4 | **DecisionLog**: 토론 중 `[합의: 내용]` 파싱 → `DecisionEntry` 기록. `Room.decisionLog` 저장. | ✅ |
-| E-5 | **PlanMode 분기**: `.skip`(quickAnswer), `.lite`(brainstorm 등 산출물형), `.exec`(implementation 등 실행형). | ✅ |
-| E-6 | **레거시 제거**: `legacyStartRoomWorkflow` 삭제. `intent == nil` → `.implementation` 폴백. | ✅ |
+| E-5 | **PlanMode 분기**: `.skip`(quickAnswer), `.lite`(research 산출물형), `.exec`(documentation/implementation 실행형). | ✅ |
+| E-6 | **레거시 제거**: `legacyStartRoomWorkflow` 삭제. `intent == nil` → `.quickAnswer` 폴백 (가벼운 워크플로우 우선). | ✅ |
 | E-7 | **ArtifactType 확장**: `researchReport`, `brainstormResult`, `document` 추가. | ✅ |
 
 **7단계 워크플로우 (모든 Intent 공통 프리픽스)**:
@@ -966,16 +966,12 @@ executeWithTools() 루프 (최대 10회):
 **Intent별 경로**:
 | Intent | PlanMode | clarify | 토론 | 승인 | 실행 |
 |--------|----------|---------|------|------|------|
-| quickAnswer | skip | - | - | - | 즉답 |
-| research | lite | - | O | - | O |
-| brainstorm | lite | O | O | - | - |
-| documentation | exec | O | - | - | O |
+| quickAnswer | skip | O | - | - | 즉답 |
+| research | lite | O | O | - | - |
+| documentation | exec | O | O | - | O |
 | implementation | exec | O | O | O | O |
-| requirementsAnalysis | lite | O | - | - | - |
-| testPlanning | lite | O | - | - | - |
-| taskDecomposition | lite | O | - | - | - |
 
-**역호환**: `room.intent == nil` → `.implementation` 자동 폴백. 모든 새 Room 필드는 `decodeIfPresent` + 기본값.
+**역호환**: `room.intent == nil` → `.quickAnswer` 자동 폴백. 레거시 저장 데이터의 brainstorm/requirementsAnalysis/testPlanning/taskDecomposition → `.research` 자동 마이그레이션 (커스텀 Codable). 모든 새 Room 필드는 `decodeIfPresent` + 기본값.
 
 **Plan 승인 피드백 루프** (E-8~E-11):
 - `requestPlan(previousPlan:feedback:)`: 거부된 이전 계획과 사용자 피드백을 재계획 프롬프트에 주입.

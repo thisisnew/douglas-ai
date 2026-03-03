@@ -274,10 +274,10 @@ class RoomManager: ObservableObject {
             case .assemble:
                 await executeAssemblePhase(roomID: roomID, task: task)
             case .plan:
-                let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .implementation
+                let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .quickAnswer
                 await executePlanPhase(roomID: roomID, task: task, intent: intent)
             case .execute:
-                let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .implementation
+                let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .quickAnswer
                 await executeExecutePhase(roomID: roomID, task: task, intent: intent)
             case .review:
                 await executeReviewPhase(roomID: roomID, task: task)
@@ -537,7 +537,7 @@ class RoomManager: ObservableObject {
                 return
             }
 
-            let currentIntent = currentRoom.intent ?? .implementation
+            let currentIntent = currentRoom.intent ?? .quickAnswer
             // 현재 intent 기준으로 다음 미완료 phase 찾기
             let phases = currentIntent.requiredPhases
             guard let nextPhase = phases.first(where: { !completedPhases.contains($0) }) else { break }
@@ -558,10 +558,10 @@ class RoomManager: ObservableObject {
             case .assemble:
                 await executeAssemblePhase(roomID: roomID, task: task)
             case .plan:
-                let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .implementation
+                let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .quickAnswer
                 await executePlanPhase(roomID: roomID, task: task, intent: intent)
             case .execute:
-                let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .implementation
+                let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .quickAnswer
                 await executeExecutePhase(roomID: roomID, task: task, intent: intent)
             case .review:
                 await executeReviewPhase(roomID: roomID, task: task)
@@ -890,7 +890,7 @@ class RoomManager: ObservableObject {
         switch intent {
         case .quickAnswer:
             maxAgentHint = "이 작업은 즉답(quickAnswer)이므로 **반드시 1명만** 요청하세요. 가장 적합한 전문가 1명만 선택하세요."
-        case .research, .brainstorm, .documentation:
+        case .research, .documentation:
             maxAgentHint = "이 작업은 **최대 2명**이면 충분합니다."
         default:
             maxAgentHint = "불확실하면 적게 요청하세요 (1~2명이면 충분한 경우가 많습니다)."

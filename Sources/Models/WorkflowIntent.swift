@@ -37,40 +37,28 @@ enum PlanMode: String, Codable {
 // MARK: - 워크플로우 의도
 
 /// 사용자의 작업 목적에 따라 워크플로우 단계가 달라진다
-enum WorkflowIntent: String, Codable, CaseIterable {
+enum WorkflowIntent: String, CaseIterable {
     case quickAnswer            // 단순 질문/번역
-    case research               // 리서치/정보 조사
-    case brainstorm             // 브레인스토밍
+    case research               // 리서치/분석/토론 (brainstorm, 요건분석, 테스트계획, 작업분해 통합)
     case documentation          // 기획/문서 작성
     case implementation         // 구현: 전체 7단계
-    case requirementsAnalysis   // 요건 분석
-    case testPlanning           // 테스트 계획
-    case taskDecomposition      // 작업 분해
 
     var displayName: String {
         switch self {
-        case .quickAnswer:          return "즉답"
-        case .research:             return "리서치"
-        case .brainstorm:           return "브레인스토밍"
-        case .documentation:        return "문서 작성"
-        case .implementation:       return "구현"
-        case .requirementsAnalysis: return "요건 분석"
-        case .testPlanning:         return "테스트 계획"
-        case .taskDecomposition:    return "작업 분해"
+        case .quickAnswer:     return "즉답"
+        case .research:        return "리서치"
+        case .documentation:   return "문서 작성"
+        case .implementation:  return "구현"
         }
     }
 
     /// 사용자에게 보여줄 한 줄 설명
     var subtitle: String {
         switch self {
-        case .quickAnswer:          return "단순 질문에 바로 답변"
-        case .research:             return "정보 조사·비교 분석"
-        case .brainstorm:           return "아이디어 발산·토론"
-        case .documentation:        return "기획서·문서 작성"
-        case .implementation:       return "코드 구현·수정"
-        case .requirementsAnalysis: return "요건 정리·분석"
-        case .testPlanning:         return "테스트 전략·계획"
-        case .taskDecomposition:    return "작업 분해·일감 정리"
+        case .quickAnswer:     return "단순 질문에 바로 답변"
+        case .research:        return "조사·분석·토론·브레인스토밍"
+        case .documentation:   return "기획서·문서 작성"
+        case .implementation:  return "코드 구현·수정"
         }
     }
 
@@ -79,7 +67,7 @@ enum WorkflowIntent: String, Codable, CaseIterable {
         switch self {
         case .quickAnswer:
             return .skip
-        case .brainstorm, .research, .requirementsAnalysis, .testPlanning, .taskDecomposition:
+        case .research:
             return .lite
         case .documentation, .implementation:
             return .exec
@@ -114,11 +102,8 @@ enum WorkflowIntent: String, Codable, CaseIterable {
         case .quickAnswer:
             // 즉답도 요건 확인 포함 — UX 일관성 + 사용자 조정 기회 보장
             return [.intake, .intent, .clarify, .assemble, .execute, .review]
-        case .brainstorm, .requirementsAnalysis, .testPlanning, .taskDecomposition:
-            // Plan-lite → 토론/정리만, 실행 없음
-            return [.intake, .intent, .clarify, .assemble, .plan, .review]
         case .research:
-            // 리서치: 토론 정리가 최종 산출물 (실행 없음)
+            // Plan-lite → 토론/정리만, 실행 없음
             return [.intake, .intent, .clarify, .assemble, .plan, .review]
         case .documentation:
             // Plan-exec → 계획 수립 + 실행
@@ -137,5 +122,26 @@ enum WorkflowIntent: String, Codable, CaseIterable {
     /// 팀 구성 단계를 포함하는지
     var includesAssembly: Bool {
         requiredPhases.contains(.assemble)
+    }
+}
+
+// MARK: - Codable (하위 호환: 레거시 intent 마이그레이션)
+
+extension WorkflowIntent: Codable {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        switch raw {
+        case "brainstorm", "requirementsAnalysis", "testPlanning", "taskDecomposition":
+            self = .research
+        default:
+            guard let value = WorkflowIntent(rawValue: raw) else {
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "Unknown intent: \(raw)"
+                )
+            }
+            self = value
+        }
     }
 }

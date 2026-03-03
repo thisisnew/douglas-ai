@@ -118,9 +118,9 @@ enum UserRole: String, Codable, CaseIterable {
     var defaultIntent: WorkflowIntent {
         switch self {
         case .developer: return .implementation
-        case .planner:   return .requirementsAnalysis
-        case .qa:        return .testPlanning
-        case .pm:        return .taskDecomposition
+        case .planner:   return .research
+        case .qa:        return .research
+        case .pm:        return .research
         }
     }
 }

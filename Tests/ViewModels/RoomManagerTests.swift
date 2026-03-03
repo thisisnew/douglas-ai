@@ -495,7 +495,7 @@ struct RoomManagerTests {
 
     // MARK: - startRoomWorkflow (단일 에이전트)
 
-    @Test("startRoomWorkflow - 1인 → 자동 승인 → 폴백 실행")
+    @Test("startRoomWorkflow - 1인 → quickAnswer 폴백 → 즉답 실행")
     func startWorkflowSingleAgent() async {
         let (manager, store, providerManager) = makeConfiguredManager()
         let agent = makeTestAgent(name: "Solo", providerName: "MockProvider")
@@ -511,7 +511,8 @@ struct RoomManagerTests {
         let updated = manager.rooms.first(where: { $0.id == room.id })
         #expect(updated?.status == .completed)
         #expect(updated?.completedAt != nil)
-        #expect(updated?.plan != nil)
+        // quickAnswer 폴백이므로 plan 없이 즉답 실행
+        #expect(updated?.intent == .quickAnswer)
     }
 
     @Test("startRoomWorkflow - 1인 + 유효한 계획 → 정상 실행")

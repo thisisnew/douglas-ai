@@ -211,11 +211,11 @@ struct RoomListView: View {
                 Text("새 방")
                     .font(.system(size: 10, weight: .medium))
             }
-            .foregroundColor(.white)
+            .foregroundColor(palette.userBubbleText)
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .background(
-                Capsule().fill(Color.accentColor)
+                Capsule().fill(palette.accent)
             )
         }
         .buttonStyle(.plain)

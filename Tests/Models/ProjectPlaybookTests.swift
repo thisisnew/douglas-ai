@@ -51,7 +51,7 @@ struct ProjectPlaybookTests {
     func playbookCodable() throws {
         let pb = ProjectPlaybook(
             userRole: .qa,
-            defaultIntent: .testPlanning,
+            defaultIntent: .research,
             branchPattern: "test/{desc}",
             baseBranch: "develop",
             afterComplete: .createPR,
@@ -61,7 +61,7 @@ struct ProjectPlaybookTests {
         let data = try JSONEncoder().encode(pb)
         let decoded = try JSONDecoder().decode(ProjectPlaybook.self, from: data)
         #expect(decoded.userRole == .qa)
-        #expect(decoded.defaultIntent == .testPlanning)
+        #expect(decoded.defaultIntent == .research)
         #expect(decoded.branchPattern == "test/{desc}")
         #expect(decoded.baseBranch == "develop")
         #expect(decoded.afterComplete == .createPR)
@@ -144,9 +144,9 @@ struct ProjectPlaybookTests {
     @Test("UserRole defaultIntent 매핑")
     func userRoleDefaultIntents() {
         #expect(UserRole.developer.defaultIntent == .implementation)
-        #expect(UserRole.planner.defaultIntent == .requirementsAnalysis)
-        #expect(UserRole.qa.defaultIntent == .testPlanning)
-        #expect(UserRole.pm.defaultIntent == .taskDecomposition)
+        #expect(UserRole.planner.defaultIntent == .research)
+        #expect(UserRole.qa.defaultIntent == .research)
+        #expect(UserRole.pm.defaultIntent == .research)
     }
 
     @Test("UserRole Codable 라운드트립")
