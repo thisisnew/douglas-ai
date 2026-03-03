@@ -13,6 +13,7 @@ struct RoomChatView: View {
     @State private var showDeleteConfirm = false
     @State private var showCopiedFeedback = false
     @State private var selectedAgent: Agent?
+    @State private var mentionCandidates: [Agent] = []
     @FocusState private var isInputFocused: Bool
 
     private var room: Room? {
@@ -376,6 +377,38 @@ struct RoomChatView: View {
                 }
             }
 
+            // /@멘션 자동완성 팝오버
+            if !mentionCandidates.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(mentionCandidates) { agent in
+                        Button {
+                            insertMention(agent)
+                        } label: {
+                            HStack(spacing: 6) {
+                                AgentAvatarView(agent: agent, size: 18)
+                                Text(agent.name)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                if room.assignedAgentIDs.contains(agent.id) {
+                                    Text("참여중")
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .background(palette.inputBackground)
+                .cornerRadius(6)
+                .shadow(color: .black.opacity(0.15), radius: 4, y: -2)
+                .padding(.horizontal, 10)
+            }
+
             HStack(spacing: 8) {
                 // 이미지 첨부 버튼
                 Button(action: pickImage) {
@@ -391,6 +424,9 @@ struct RoomChatView: View {
                     .lineLimit(1...3)
                     .focused($isInputFocused)
                     .onSubmit { sendMessage() }
+                    .onChange(of: inputText) { _, newValue in
+                        updateMentionCandidates(newValue)
+                    }
 
                 SendButton(canSend: canSend, isLoading: false, action: sendMessage)
             }
@@ -409,7 +445,48 @@ struct RoomChatView: View {
         let attachments = pendingAttachments.isEmpty ? nil : pendingAttachments
         inputText = ""
         pendingAttachments = []
+        mentionCandidates = []
         Task { await roomManager.sendUserMessage(text.isEmpty ? "[이미지]" : text, to: roomID, attachments: attachments) }
+    }
+
+    // MARK: - /@멘션 자동완성
+
+    /// 입력 텍스트에서 마지막 `/@` 이후 쿼리를 추출하여 후보 목록 갱신
+    private func updateMentionCandidates(_ text: String) {
+        // 마지막 /@ 찾기
+        guard let atRange = text.range(of: "/@", options: .backwards) else {
+            mentionCandidates = []
+            return
+        }
+
+        let afterAt = text[atRange.upperBound...]
+        // /@ 뒤에 공백이 있으면 멘션 입력 완료 간주
+        if afterAt.contains(" ") {
+            mentionCandidates = []
+            return
+        }
+
+        let query = String(afterAt).lowercased()
+        let subAgents = agentStore.subAgents
+        if query.isEmpty {
+            // /@ 만 입력 → 전체 서브 에이전트 목록 (최대 6명)
+            mentionCandidates = Array(subAgents.prefix(6))
+        } else {
+            // 쿼리로 필터
+            mentionCandidates = subAgents.filter {
+                $0.name.lowercased().contains(query)
+            }
+        }
+    }
+
+    /// 자동완성에서 에이전트 선택 시 입력 필드에 멘션 삽입
+    private func insertMention(_ agent: Agent) {
+        // 마지막 /@ 위치 찾아서 교체
+        if let atRange = inputText.range(of: "/@", options: .backwards) {
+            inputText = String(inputText[inputText.startIndex..<atRange.lowerBound])
+                + "/@\(agent.name) "
+        }
+        mentionCandidates = []
     }
 
     // MARK: - 이미지 첨부

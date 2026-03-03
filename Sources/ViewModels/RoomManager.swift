@@ -196,6 +196,14 @@ class RoomManager: ObservableObject {
 
     /// 사용자가 방에 메시지 보내기
     func sendUserMessage(_ text: String, to roomID: UUID, attachments: [ImageAttachment]? = nil) async {
+        // /@멘션 파싱: 에이전트 초대 + 순수 텍스트 분리
+        let allSubAgents = agentStore?.subAgents ?? []
+        let parsed = MentionParser.parse(text, agents: allSubAgents)
+        for agent in parsed.mentions {
+            addAgent(agent.id, to: roomID)
+        }
+        let cleanText = parsed.cleanText
+
         let userMsg = ChatMessage(role: .user, content: text, attachments: attachments)
         appendMessage(userMsg, to: roomID)
 
@@ -212,10 +220,11 @@ class RoomManager: ObservableObject {
             return
         }
 
-        // 완료/실패 상태: 후속 사이클 시작 (assemble부터 경량 워크플로우)
+        // 완료/실패 상태: 후속 사이클 시작
+        let task = cleanText.isEmpty ? text : cleanText
         roomTasks[roomID]?.cancel()
         roomTasks[roomID] = Task {
-            await launchFollowUpCycle(roomID: roomID, task: text)
+            await launchFollowUpCycle(roomID: roomID, task: task)
             roomTasks.removeValue(forKey: roomID)
         }
     }
