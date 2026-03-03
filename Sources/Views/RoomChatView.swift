@@ -271,6 +271,22 @@ struct RoomChatView: View {
                     Text("진행 중인 작업이 있으면 즉시 중단됩니다.")
                 }
 
+                // Intent 배지
+                if let intent = room.intent {
+                    HStack(spacing: 2) {
+                        Image(systemName: intent.iconName)
+                            .font(.system(size: 8))
+                        Text(intent.displayName)
+                            .font(.system(size: 9, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(palette.accent.opacity(0.8))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(
+                        Capsule().fill(palette.accent.opacity(0.12))
+                    )
+                }
+
                 // 상태 + 생성일시
                 statusLabel(room)
             }
@@ -1086,12 +1102,7 @@ struct IntentSelectionCard: View {
     }
 
     private func intentIcon(_ intent: WorkflowIntent) -> String {
-        switch intent {
-        case .quickAnswer:     return "bolt"
-        case .research:        return "magnifyingglass"
-        case .documentation:   return "doc.text"
-        case .implementation:  return "hammer"
-        }
+        intent.iconName
     }
 }
 

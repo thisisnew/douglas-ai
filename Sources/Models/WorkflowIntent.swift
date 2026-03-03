@@ -52,6 +52,16 @@ enum WorkflowIntent: String, CaseIterable {
         }
     }
 
+    /// SF Symbol 아이콘 이름
+    var iconName: String {
+        switch self {
+        case .quickAnswer:     return "bolt"
+        case .research:        return "magnifyingglass"
+        case .documentation:   return "doc.text"
+        case .implementation:  return "hammer"
+        }
+    }
+
     /// 사용자에게 보여줄 한 줄 설명
     var subtitle: String {
         switch self {

@@ -236,23 +236,31 @@ class RoomManager: ObservableObject {
         rooms[idx].completedAt = nil
 
         // Intent 재분류 (새 질문 기준)
-        // quickClassify 실패 시 LLM 분류 시도, 최종 폴백은 .quickAnswer (후속 질문은 보통 가벼움)
-        var newIntent = IntentClassifier.quickClassify(task)
-        if newIntent == nil {
+        // quickClassify 성공 = 규칙 매칭(확신 높음), nil = LLM/fallback 필요(확신 낮음)
+        let ruleBasedIntent = IntentClassifier.quickClassify(task)
+        var resolvedIntent = ruleBasedIntent
+        if resolvedIntent == nil {
             if let firstAgentID = rooms[idx].assignedAgentIDs.first,
                let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
                let provider = providerManager?.provider(named: agent.providerName) {
-                newIntent = await IntentClassifier.classifyWithLLM(
+                resolvedIntent = await IntentClassifier.classifyWithLLM(
                     task: task, provider: provider, model: agent.modelName
                 )
             }
         }
-        rooms[idx].intent = newIntent ?? .quickAnswer
+        rooms[idx].intent = resolvedIntent ?? .quickAnswer
 
         syncAgentStatuses()
 
-        // assemble부터 시작 (intake/intent/clarify 스킵)
-        var completedPhases: Set<WorkflowPhase> = [.intake, .intent, .clarify]
+        // 후속 사이클 스킵 범위 결정:
+        // - 규칙 기반 quickAnswer 확정 + 이미 에이전트 있음 → clarify/assemble 스킵 (즉답은 빠르게)
+        // - 그 외 (LLM/fallback으로 분류됨) → clarify 수행 (의도 확인 필요)
+        var completedPhases: Set<WorkflowPhase> = [.intake, .intent]
+        let hasSpecialists = !executingAgentIDs(in: roomID).isEmpty
+        if ruleBasedIntent == .quickAnswer && hasSpecialists {
+            completedPhases.insert(.clarify)
+            completedPhases.insert(.assemble)
+        }
 
         while true {
             guard !Task.isCancelled,
@@ -269,8 +277,10 @@ class RoomManager: ObservableObject {
             scheduleSave()
 
             switch nextPhase {
-            case .intake, .intent, .clarify:
+            case .intake, .intent:
                 break
+            case .clarify:
+                await executeClarifyPhase(roomID: roomID, task: task)
             case .assemble:
                 await executeAssemblePhase(roomID: roomID, task: task)
             case .plan:
