@@ -2,6 +2,7 @@ import SwiftUI
 
 /// 사이드바 하단 퀵 인풋 — 마스터 에이전트에게 빠르게 메시지 전송
 struct SidebarQuickInputView: View {
+    @Environment(\.colorPalette) private var palette
     @Binding var text: String
     let isLoading: Bool
     let onSend: () -> Void
@@ -43,7 +44,7 @@ struct SidebarQuickInputView: View {
             }
         }
         .padding(8)
-        .background(DesignTokens.Colors.overlay)
+        .background(palette.overlay)
         .continuousRadius(DesignTokens.Radius.lg)
     }
 }

@@ -2,6 +2,7 @@ import SwiftUI
 
 /// ChatView와 ChatWindowView에서 공유하는 메시지 리스트 + 입력 영역
 struct ChatContentView: View {
+    @Environment(\.colorPalette) private var palette
     let agentID: UUID
     let agent: Agent?
     @EnvironmentObject var chatVM: ChatViewModel
@@ -74,7 +75,7 @@ struct ChatContentView: View {
                 )
             }
             .padding(10)
-            .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
+            .background(palette.inputBackground)
             .padding(.horizontal, 8)
             .padding(.vertical, 8)
         }

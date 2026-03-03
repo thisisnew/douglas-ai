@@ -2,6 +2,7 @@ import SwiftUI
 
 /// 사용자가 수동으로 방을 만들어 에이전트를 초대하고 작업을 지시하는 시트
 struct CreateRoomSheet: View {
+    @Environment(\.colorPalette) private var palette
     @EnvironmentObject var agentStore: AgentStore
     @EnvironmentObject var roomManager: RoomManager
     @Environment(\.dismiss) private var dismiss
@@ -52,7 +53,7 @@ struct CreateRoomSheet: View {
                 .textFieldStyle(.plain)
                 .font(.body)
                 .padding(10)
-                .background(DesignTokens.Colors.inputBackground)
+                .background(palette.inputBackground)
                 .continuousRadius(DesignTokens.Radius.lg)
         }
     }
@@ -83,7 +84,7 @@ struct CreateRoomSheet: View {
                     .padding(.vertical, 16)
                     Spacer()
                 }
-                .background(DesignTokens.Colors.surfaceTertiary)
+                .background(palette.surfaceTertiary)
                 .continuousRadius(DesignTokens.Radius.lg)
             } else {
                 VStack(spacing: 0) {
@@ -94,7 +95,7 @@ struct CreateRoomSheet: View {
                         agentRow(agent)
                     }
                 }
-                .background(DesignTokens.Colors.inputBackground)
+                .background(palette.inputBackground)
                 .continuousRadius(DesignTokens.Radius.lg)
             }
         }
@@ -108,7 +109,7 @@ struct CreateRoomSheet: View {
                 .scrollContentBackground(.hidden)
                 .frame(minHeight: 80, maxHeight: 120)
                 .padding(8)
-                .background(DesignTokens.Colors.inputBackground)
+                .background(palette.inputBackground)
                 .continuousRadius(DesignTokens.Radius.lg)
             Text("에이전트들이 먼저 토론한 후, 계획을 세우고 작업을 진행합니다.")
                 .font(.caption2)
@@ -135,7 +136,7 @@ struct CreateRoomSheet: View {
                 .font(.callout)
                 .frame(maxWidth: .infinity)
                 .padding(8)
-                .background(DesignTokens.Colors.inputBackground)
+                .background(palette.inputBackground)
                 .continuousRadius(DesignTokens.Radius.lg)
             }
             .buttonStyle(.plain)
@@ -155,7 +156,7 @@ struct CreateRoomSheet: View {
                 }
             }
         }
-        .background(DesignTokens.Colors.inputBackground)
+        .background(palette.inputBackground)
         .continuousRadius(DesignTokens.Radius.lg)
     }
 
@@ -208,7 +209,7 @@ struct CreateRoomSheet: View {
                     .textFieldStyle(.plain)
                     .font(.callout)
                     .padding(6)
-                    .background(DesignTokens.Colors.inputBackground)
+                    .background(palette.inputBackground)
                     .continuousRadius(DesignTokens.Radius.md)
             }
             HStack(spacing: 6) {
@@ -219,7 +220,7 @@ struct CreateRoomSheet: View {
                     .textFieldStyle(.plain)
                     .font(.callout)
                     .padding(6)
-                    .background(DesignTokens.Colors.inputBackground)
+                    .background(palette.inputBackground)
                     .continuousRadius(DesignTokens.Radius.md)
             }
             Text("빌드/테스트 명령은 첫 번째(주) 디렉토리에서 실행됩니다.")
@@ -257,7 +258,7 @@ struct CreateRoomSheet: View {
             }
 
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .foregroundColor(isSelected ? .accentColor : DesignTokens.Colors.stepInactive)
+                .foregroundColor(isSelected ? .accentColor : palette.stepInactive)
                 .font(.title3)
         }
         .padding(.horizontal, 12)

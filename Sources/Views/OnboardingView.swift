@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct OnboardingView: View {
+    @Environment(\.colorPalette) private var palette
     @StateObject private var viewModel = OnboardingViewModel()
     @EnvironmentObject var providerManager: ProviderManager
     @EnvironmentObject var agentStore: AgentStore
@@ -29,7 +30,7 @@ struct OnboardingView: View {
             }
         }
         .frame(width: 520, height: 560)
-        .background(DesignTokens.Colors.background)
+        .background(palette.background)
         .task {
             await viewModel.startClaudeSetup()
         }
@@ -58,13 +59,13 @@ struct OnboardingView: View {
 
     private func stepDot(active: Bool) -> some View {
         Circle()
-            .fill(active ? Color.accentColor : DesignTokens.Colors.stepInactive)
+            .fill(active ? palette.accent : palette.stepInactive)
             .frame(width: 8, height: 8)
     }
 
     private func stepLine(active: Bool) -> some View {
         Rectangle()
-            .fill(active ? Color.accentColor : DesignTokens.Colors.stepInactive)
+            .fill(active ? palette.accent : palette.stepInactive)
             .frame(width: 40, height: 2)
     }
 
@@ -153,7 +154,7 @@ struct OnboardingView: View {
                         if let url = dep.downloadURL, let link = URL(string: url) {
                             Link("다운로드", destination: link)
                                 .font(.caption2)
-                                .foregroundColor(.accentColor)
+                                .foregroundColor(palette.accent)
                         } else if let hint = dep.installHint {
                             Button(action: {
                                 viewModel.dependencyChecker.runInstallCommand(hint)
@@ -166,7 +167,7 @@ struct OnboardingView: View {
                                 }
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(.accentColor)
+                            .foregroundColor(palette.accent)
                             .help("클릭하여 실행")
                         }
                     }
@@ -183,14 +184,14 @@ struct OnboardingView: View {
                         Text("다시 확인")
                             .font(.caption2)
                     }
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(palette.accent)
                 }
                 .buttonStyle(.plain)
                 .padding(.top, 4)
             }
         }
         .padding(12)
-        .background(DesignTokens.Colors.surfaceTertiary)
+        .background(palette.surfaceTertiary)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
@@ -238,7 +239,7 @@ struct OnboardingView: View {
                     .lineLimit(3)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8)
-                    .background(DesignTokens.Colors.surfaceTertiary)
+                    .background(palette.surfaceTertiary)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
             }
 
@@ -317,7 +318,7 @@ struct OnboardingView: View {
                         Text("다시 확인")
                     }
                 }
-                .foregroundColor(.accentColor)
+                .foregroundColor(palette.accent)
                 .buttonStyle(.plain)
 
                 Button(action: {
@@ -356,7 +357,7 @@ struct OnboardingView: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
-                .background(Color.accentColor)
+                .background(palette.accent)
                 .foregroundColor(.white)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
@@ -477,7 +478,7 @@ struct OnboardingView: View {
         return HStack(spacing: 12) {
             // 체크박스
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .foregroundColor(isSelected ? .accentColor : DesignTokens.Colors.stepInactive)
+                .foregroundColor(isSelected ? .accentColor : palette.stepInactive)
                 .font(.title3)
                 .onTapGesture { viewModel.toggleProvider(type) }
 
@@ -504,7 +505,7 @@ struct OnboardingView: View {
                             .foregroundColor(.secondary)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
-                            .background(DesignTokens.Colors.messageBubbleBackground)
+                            .background(palette.messageBubbleBackground)
                             .clipShape(RoundedRectangle(cornerRadius: 3))
                     }
                 }
@@ -538,7 +539,7 @@ struct OnboardingView: View {
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.04) : DesignTokens.Colors.surfaceTertiary)
+                .fill(isSelected ? palette.accent.opacity(0.04) : palette.surfaceTertiary)
         )
         .contentShape(Rectangle())
         .onTapGesture { viewModel.toggleProvider(type) }
@@ -610,7 +611,7 @@ struct OnboardingView: View {
                     }
                     .padding(.horizontal, 20)
                     .padding(.vertical, 8)
-                    .background(Color.accentColor)
+                    .background(palette.accent)
                     .foregroundColor(.white)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
@@ -647,7 +648,7 @@ struct OnboardingView: View {
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)
-                        .background(DesignTokens.Colors.surfaceTertiary)
+                        .background(palette.surfaceTertiary)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
 
                     Spacer()
@@ -668,7 +669,7 @@ struct OnboardingView: View {
                     .textFieldStyle(.plain)
                     .font(.system(.caption, design: .monospaced))
                     .padding(8)
-                    .background(DesignTokens.Colors.surfaceTertiary)
+                    .background(palette.surfaceTertiary)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
             } else {
@@ -680,7 +681,7 @@ struct OnboardingView: View {
                 .textFieldStyle(.plain)
                 .font(.system(.caption, design: .monospaced))
                 .padding(8)
-                .background(DesignTokens.Colors.surfaceTertiary)
+                .background(palette.surfaceTertiary)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
                 Text("나중에 설정할 수 있습니다")
@@ -689,7 +690,7 @@ struct OnboardingView: View {
             }
         }
         .padding(12)
-        .background(DesignTokens.Colors.surfaceTertiary)
+        .background(palette.surfaceTertiary)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
@@ -710,7 +711,7 @@ struct OnboardingView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 8)
-        .background(Color.accentColor)
+        .background(palette.accent)
         .foregroundColor(.white)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }

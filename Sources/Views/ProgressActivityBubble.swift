@@ -2,6 +2,7 @@ import SwiftUI
 
 /// 확장형 진행 버블: 접힌 상태에서 "~하는 중..." 캡슐, 펼치면 상세 활동 로그 표시
 struct ProgressActivityBubble: View {
+    @Environment(\.colorPalette) private var palette
     let message: ChatMessage
     let activities: [ChatMessage]
     /// 현재 이 단계가 진행 중인지 (로딩 스피너 표시용)
@@ -69,7 +70,7 @@ struct ProgressActivityBubble: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
-        .background(DesignTokens.Colors.systemMessageBackground)
+        .background(palette.systemMessageBackground)
         .clipShape(Capsule())
         .contentShape(Capsule())
     }

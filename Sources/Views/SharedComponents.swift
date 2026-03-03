@@ -29,6 +29,7 @@ struct SheetNavHeader<Leading: View, Trailing: View>: View {
 
 /// RoomChatView 내 카드 공통 래퍼 (배경 + cornerRadius + 패딩)
 struct CardContainer<Content: View>: View {
+    @Environment(\.colorPalette) private var palette
     var accentColor: Color = .primary
     var opacity: Double = DesignTokens.Opacity.subtle
     @ViewBuilder let content: () -> Content
@@ -47,6 +48,7 @@ struct CardContainer<Content: View>: View {
 
 /// 48x48 이미지 미리보기 + 삭제 버튼
 struct AttachmentThumbnail: View {
+    @Environment(\.colorPalette) private var palette
     let attachment: ImageAttachment
     let onDelete: () -> Void
 
@@ -69,7 +71,7 @@ struct AttachmentThumbnail: View {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: DesignTokens.FontSize.icon))
                     .foregroundColor(.white)
-                    .background(Circle().fill(DesignTokens.Colors.thumbnailDelete))
+                    .background(Circle().fill(palette.thumbnailDelete))
             }
             .buttonStyle(.plain)
             .offset(x: 4, y: -4)
@@ -81,6 +83,7 @@ struct AttachmentThumbnail: View {
 
 /// arrow.up.circle.fill 전송 버튼
 struct SendButton: View {
+    @Environment(\.colorPalette) private var palette
     let canSend: Bool
     let isLoading: Bool
     let action: () -> Void
@@ -89,7 +92,7 @@ struct SendButton: View {
         Button(action: action) {
             Image(systemName: "arrow.up.circle.fill")
                 .font(.title2)
-                .foregroundColor(canSend ? .accentColor : .gray)
+                .foregroundColor(canSend ? palette.accent : .gray)
         }
         .buttonStyle(.plain)
         .disabled(!canSend || isLoading)

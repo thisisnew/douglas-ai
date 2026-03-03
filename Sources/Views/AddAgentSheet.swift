@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct AddAgentSheet: View {
+    @Environment(\.colorPalette) private var palette
     @EnvironmentObject var agentStore: AgentStore
     @EnvironmentObject var providerManager: ProviderManager
     @Environment(\.dismiss) private var dismiss
@@ -49,7 +50,7 @@ struct AddAgentSheet: View {
                             .textFieldStyle(.plain)
                             .font(.body)
                             .padding(10)
-                            .background(DesignTokens.Colors.inputBackground)
+                            .background(palette.inputBackground)
                             .continuousRadius(DesignTokens.Radius.lg)
 
                         if isDuplicateName {
@@ -65,7 +66,7 @@ struct AddAgentSheet: View {
                             .scrollContentBackground(.hidden)
                             .frame(minHeight: 80)
                             .padding(8)
-                            .background(DesignTokens.Colors.inputBackground)
+                            .background(palette.inputBackground)
                             .continuousRadius(DesignTokens.Radius.lg)
                             .overlay(
                                 Group {
@@ -141,7 +142,7 @@ struct AddAgentSheet: View {
                                 }
                             }
                         }
-                        .background(DesignTokens.Colors.inputBackground)
+                        .background(palette.inputBackground)
                         .continuousRadius(DesignTokens.Radius.lg)
 
                         if let errorMessage {
@@ -190,7 +191,7 @@ struct AddAgentSheet: View {
                 .scrollContentBackground(.hidden)
                 .frame(minHeight: 80)
                 .padding(8)
-                .background(DesignTokens.Colors.inputBackground)
+                .background(palette.inputBackground)
                 .continuousRadius(DesignTokens.Radius.lg)
                 .overlay(
                     Group {
@@ -258,7 +259,7 @@ struct AddAgentSheet: View {
                     }
                 }
             }
-            .background(DesignTokens.Colors.inputBackground)
+            .background(palette.inputBackground)
             .continuousRadius(DesignTokens.Radius.lg)
         }
 
@@ -272,7 +273,7 @@ struct AddAgentSheet: View {
             .font(.callout)
             .frame(maxWidth: .infinity)
             .padding(8)
-            .background(DesignTokens.Colors.inputBackground)
+            .background(palette.inputBackground)
             .continuousRadius(DesignTokens.Radius.lg)
         }
         .buttonStyle(.plain)
@@ -293,7 +294,7 @@ struct AddAgentSheet: View {
                         .clipShape(Circle())
                 } else {
                     Circle()
-                        .fill(DesignTokens.Colors.avatarFallback)
+                        .fill(palette.avatarFallback)
                         .frame(width: 72, height: 72)
                         .overlay(
                             Image(systemName: "person.fill")
@@ -303,7 +304,7 @@ struct AddAgentSheet: View {
                 }
 
                 Circle()
-                    .fill(Color.accentColor)
+                    .fill(palette.accent)
                     .frame(width: 24, height: 24)
                     .overlay(
                         Image(systemName: "camera.fill")
@@ -368,7 +369,7 @@ struct AddAgentSheet: View {
                         }
                     }
                 }
-                .background(DesignTokens.Colors.inputBackground)
+                .background(palette.inputBackground)
                 .continuousRadius(DesignTokens.Radius.lg)
             }
 
@@ -382,7 +383,7 @@ struct AddAgentSheet: View {
                 .font(.callout)
                 .frame(maxWidth: .infinity)
                 .padding(8)
-                .background(DesignTokens.Colors.inputBackground)
+                .background(palette.inputBackground)
                 .continuousRadius(DesignTokens.Radius.lg)
             }
             .buttonStyle(.plain)

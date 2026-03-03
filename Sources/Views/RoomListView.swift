@@ -30,6 +30,7 @@ enum RoomFilter: String, CaseIterable {
 }
 
 struct RoomListView: View {
+    @Environment(\.colorPalette) private var palette
     @EnvironmentObject var roomManager: RoomManager
     @EnvironmentObject var agentStore: AgentStore
     @State private var selectedFilter: RoomFilter = .all
@@ -255,7 +256,7 @@ struct RoomListView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
-        .background(DesignTokens.Colors.surfaceTertiary)
+        .background(palette.surfaceTertiary)
     }
 
     // MARK: - 하단 액션 바
@@ -318,7 +319,7 @@ struct RoomListView: View {
                 .fill(.ultraThinMaterial)
                 .overlay(alignment: .top) {
                     Rectangle()
-                        .fill(DesignTokens.Colors.avatarFallback)
+                        .fill(palette.avatarFallback)
                         .frame(height: 0.5)
                 }
         )
@@ -429,6 +430,7 @@ struct RoomRow: View {
 // MARK: - 방 목록 아이템 (메신저 스타일)
 
 struct RoomListItem: View {
+    @Environment(\.colorPalette) private var palette
     let room: Room
     @EnvironmentObject var agentStore: AgentStore
     @State private var isHovered = false
@@ -482,8 +484,8 @@ struct RoomListItem: View {
         .background(
             RoundedRectangle(cornerRadius: DesignTokens.Spacing.lg, style: .continuous)
                 .fill(isHovered
-                      ? DesignTokens.Colors.hoverBackground
-                      : (room.isActive ? DesignTokens.Colors.activeRowBackground : Color.clear))
+                      ? palette.hoverBackground
+                      : (room.isActive ? palette.activeRowBackground : Color.clear))
         )
         .onHover { hovering in
             withAnimation(.dgFast) {

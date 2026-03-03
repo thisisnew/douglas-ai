@@ -40,6 +40,7 @@ struct ChatView: View {
 // MARK: - 메시지 버블 (타입별 시각 차별화)
 
 struct MessageBubble: View {
+    @Environment(\.colorPalette) private var palette
     let message: ChatMessage
     @EnvironmentObject var agentStore: AgentStore
     @State private var enlargedImage: NSImage?
@@ -67,7 +68,7 @@ struct MessageBubble: View {
                             .help(agent.name)
                     } else {
                         Circle()
-                            .fill(DesignTokens.Colors.avatarFallback)
+                            .fill(palette.avatarFallback)
                             .frame(width: 26, height: 26)
                             .overlay(
                                 Image(systemName: "person.fill")
@@ -172,7 +173,7 @@ struct MessageBubble: View {
                 .foregroundColor(.secondary.opacity(0.6))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(DesignTokens.Colors.systemMessageBackground)
+                .background(palette.systemMessageBackground)
                 .clipShape(Capsule())
             Spacer()
         }
@@ -186,24 +187,24 @@ struct MessageBubble: View {
     }
 
     private var bubbleBackground: Color {
-        if message.role == .user { return .accentColor }
+        if message.role == .user { return palette.userBubble }
         switch message.messageType {
-        case .error:         return Color.red.opacity(0.1)
-        case .summary:       return Color.purple.opacity(0.1)
-        case .chainProgress: return Color.blue.opacity(0.1)
-        case .delegation:    return Color.orange.opacity(0.1)
-        case .suggestion:    return Color.orange.opacity(0.1)
-        case .toolActivity:  return Color.gray.opacity(0.08)
-        case .buildStatus:   return Color.orange.opacity(0.1)
-        case .qaStatus:      return Color.teal.opacity(0.1)
-        case .approvalRequest: return Color.yellow.opacity(0.1)
-        case .progress:      return Color.blue.opacity(0.06)
-        default:             return DesignTokens.Colors.messageBubbleBackground
+        case .error:         return palette.messageError.opacity(0.15)
+        case .summary:       return palette.messageSummary.opacity(0.15)
+        case .chainProgress: return palette.messageChainProgress.opacity(0.15)
+        case .delegation:    return palette.messageDelegation.opacity(0.15)
+        case .suggestion:    return palette.messageSuggestion.opacity(0.15)
+        case .toolActivity:  return palette.messageToolActivity.opacity(0.12)
+        case .buildStatus:   return palette.messageBuildStatus.opacity(0.15)
+        case .qaStatus:      return palette.messageQaStatus.opacity(0.15)
+        case .approvalRequest: return palette.messageApprovalRequest.opacity(0.15)
+        case .progress:      return palette.messageProgress.opacity(0.10)
+        default:             return palette.messageBubbleBackground
         }
     }
 
     private var bubbleForeground: Color {
-        message.role == .user ? .white : .primary
+        message.role == .user ? palette.userBubbleText : palette.textPrimary
     }
 
     private var typeIcon: String? {
@@ -224,23 +225,23 @@ struct MessageBubble: View {
 
     private var typeColor: Color {
         switch message.messageType {
-        case .delegation:    return .orange
-        case .summary:       return .purple
-        case .chainProgress: return .blue
-        case .error:         return .red
-        case .suggestion:    return .orange
-        case .toolActivity:  return .gray
-        case .buildStatus:   return .orange
-        case .qaStatus:      return .teal
-        case .approvalRequest: return .yellow
-        case .progress:      return .blue
-        default:             return .secondary
+        case .delegation:    return palette.messageDelegation
+        case .summary:       return palette.messageSummary
+        case .chainProgress: return palette.messageChainProgress
+        case .error:         return palette.messageError
+        case .suggestion:    return palette.messageSuggestion
+        case .toolActivity:  return palette.messageToolActivity
+        case .buildStatus:   return palette.messageBuildStatus
+        case .qaStatus:      return palette.messageQaStatus
+        case .approvalRequest: return palette.messageApprovalRequest
+        case .progress:      return palette.messageProgress
+        default:             return palette.textSecondary
         }
     }
 
     private var typeBorder: Color {
         switch message.messageType {
-        case .summary: return Color.purple.opacity(0.3)
+        case .summary: return palette.messageSummary.opacity(0.3)
         default:       return Color.clear
         }
     }
@@ -269,7 +270,7 @@ struct MessageBubble: View {
                 .markdownBlockStyle(\.codeBlock) { configuration in
                     configuration.label
                         .padding(8)
-                        .background(Color.primary.opacity(0.04))
+                        .background(palette.inputBackground)
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
         }

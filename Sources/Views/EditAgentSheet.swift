@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 
 struct EditAgentSheet: View {
+    @Environment(\.colorPalette) private var palette
     @EnvironmentObject var agentStore: AgentStore
     @EnvironmentObject var providerManager: ProviderManager
     @Environment(\.dismiss) private var dismiss
@@ -62,14 +63,14 @@ struct EditAgentSheet: View {
                                 .foregroundColor(.secondary)
                                 .padding(10)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(DesignTokens.Colors.surfaceTertiary)
+                                .background(palette.surfaceTertiary)
                                 .continuousRadius(DesignTokens.Radius.lg)
                         } else {
                             TextField("예) 백엔드 개발자, QA 담당, UI 디자이너", text: $name)
                                 .textFieldStyle(.plain)
                                 .font(.body)
                                 .padding(10)
-                                .background(DesignTokens.Colors.inputBackground)
+                                .background(palette.inputBackground)
                                 .continuousRadius(DesignTokens.Radius.lg)
                         }
                     }
@@ -82,7 +83,7 @@ struct EditAgentSheet: View {
                             .scrollContentBackground(.hidden)
                             .frame(minHeight: 80)
                             .padding(8)
-                            .background(DesignTokens.Colors.inputBackground)
+                            .background(palette.inputBackground)
                             .continuousRadius(DesignTokens.Radius.lg)
                     }
 
@@ -135,7 +136,7 @@ struct EditAgentSheet: View {
                                 }
                             }
                         }
-                        .background(DesignTokens.Colors.inputBackground)
+                        .background(palette.inputBackground)
                         .continuousRadius(DesignTokens.Radius.lg)
 
                         if let config = providerManager.configs.first(where: { $0.name == selectedProvider }),
@@ -189,7 +190,7 @@ struct EditAgentSheet: View {
                 .scrollContentBackground(.hidden)
                 .frame(minHeight: 80)
                 .padding(8)
-                .background(DesignTokens.Colors.inputBackground)
+                .background(palette.inputBackground)
                 .continuousRadius(DesignTokens.Radius.lg)
                 .overlay(
                     Group {
@@ -250,7 +251,7 @@ struct EditAgentSheet: View {
                     }
                 }
             }
-            .background(DesignTokens.Colors.inputBackground)
+            .background(palette.inputBackground)
             .continuousRadius(DesignTokens.Radius.lg)
         }
 
@@ -264,7 +265,7 @@ struct EditAgentSheet: View {
             .font(.callout)
             .frame(maxWidth: .infinity)
             .padding(8)
-            .background(DesignTokens.Colors.inputBackground)
+            .background(palette.inputBackground)
             .continuousRadius(DesignTokens.Radius.lg)
         }
         .buttonStyle(.plain)
@@ -285,7 +286,7 @@ struct EditAgentSheet: View {
                         .clipShape(Circle())
                 } else {
                     Circle()
-                        .fill(DesignTokens.Colors.avatarFallback)
+                        .fill(palette.avatarFallback)
                         .frame(width: 72, height: 72)
                         .overlay(
                             Image(systemName: agent.isMaster ? "brain.head.profile" : "person.fill")
@@ -295,7 +296,7 @@ struct EditAgentSheet: View {
                 }
 
                 Circle()
-                    .fill(Color.accentColor)
+                    .fill(palette.accent)
                     .frame(width: 24, height: 24)
                     .overlay(
                         Image(systemName: "camera.fill")
@@ -348,7 +349,7 @@ struct EditAgentSheet: View {
                         }
                     }
                 }
-                .background(DesignTokens.Colors.inputBackground)
+                .background(palette.inputBackground)
                 .continuousRadius(DesignTokens.Radius.lg)
             }
 
@@ -362,7 +363,7 @@ struct EditAgentSheet: View {
                 .font(.callout)
                 .frame(maxWidth: .infinity)
                 .padding(8)
-                .background(DesignTokens.Colors.inputBackground)
+                .background(palette.inputBackground)
                 .continuousRadius(DesignTokens.Radius.lg)
             }
             .buttonStyle(.plain)

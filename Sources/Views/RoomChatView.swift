@@ -7,6 +7,7 @@ struct RoomChatView: View {
     let roomID: UUID
     @EnvironmentObject var roomManager: RoomManager
     @EnvironmentObject var agentStore: AgentStore
+    @Environment(\.colorPalette) private var palette
     @State private var inputText = ""
     @State private var pendingAttachments: [ImageAttachment] = []
     @State private var showDeleteConfirm = false
@@ -282,7 +283,7 @@ struct RoomChatView: View {
                         AgentAvatarView(agent: agent, size: 20)
                             .overlay(
                                 Circle().stroke(
-                                    isSpeaking ? Color.green : Color(nsColor: .windowBackgroundColor),
+                                    isSpeaking ? Color.green : palette.background,
                                     lineWidth: isSpeaking ? 2 : 1
                                 )
                             )
@@ -303,7 +304,7 @@ struct RoomChatView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .background(palette.inputBackground.opacity(0.5))
     }
 
     private func copyRoomTranscript(_ room: Room) {
@@ -379,7 +380,7 @@ struct RoomChatView: View {
             }
         }
         .padding(10)
-        .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
+        .background(palette.inputBackground.opacity(0.5))
         .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
             handleImageDrop(providers)
             return true
@@ -459,7 +460,7 @@ struct RoomChatView: View {
                     .frame(width: 12, height: 12)
                 Text(room.phaseLabel)
                     .font(.caption2)
-                    .foregroundColor(DesignTokens.RoomStatusColor.color(for: .planning))
+                    .foregroundColor(DesignTokens.RoomStatusColor.color(for: .planning, palette: palette))
             case .inProgress:
                 Circle()
                     .fill(Color.orange.opacity(0.7))
@@ -767,6 +768,7 @@ struct BuildStatusCard: View {
 struct ApprovalCard: View {
     let roomID: UUID
     @EnvironmentObject var roomManager: RoomManager
+    @Environment(\.colorPalette) private var palette
     @State private var hoveredButton: String?
     @State private var showFeedbackInput = false
     @State private var feedbackText = ""
@@ -835,7 +837,7 @@ struct ApprovalCard: View {
                             .font(.system(size: 11))
                             .lineLimit(1...4)
                             .padding(8)
-                            .background(Color.primary.opacity(0.04))
+                            .background(palette.inputBackground)
                             .continuousRadius(8)
                             .focused($isFeedbackFocused)
                             .onSubmit {
@@ -870,8 +872,8 @@ struct ApprovalCard: View {
                                     .background(
                                         RoundedRectangle(cornerRadius: 10, style: .continuous)
                                             .fill(feedbackText.trimmingCharacters(in: .whitespaces).isEmpty
-                                                  ? Color.accentColor.opacity(0.4)
-                                                  : Color.accentColor)
+                                                  ? palette.accent.opacity(0.4)
+                                                  : palette.accent)
                                     )
                                     .contentShape(Rectangle())
                             }
@@ -901,11 +903,11 @@ struct ApprovalCard: View {
                                 .padding(.vertical, 6)
                                 .background(
                                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                        .fill(hoveredButton == "reject" ? Color.primary.opacity(0.08) : Color.primary.opacity(0.04))
+                                        .fill(hoveredButton == "reject" ? palette.separator : palette.inputBackground)
                                 )
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                        .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5)
+                                        .strokeBorder(palette.stepInactive, lineWidth: 0.5)
                                 )
                                 .contentShape(Rectangle())
                         }
@@ -928,11 +930,11 @@ struct ApprovalCard: View {
                                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                                         .fill(
                                             hoveredButton == "approve"
-                                                ? Color.accentColor.opacity(0.9)
-                                                : Color.accentColor
+                                                ? palette.accent.opacity(0.9)
+                                                : palette.accent
                                         )
                                 )
-                                .shadow(color: .accentColor.opacity(0.2), radius: 4, y: 2)
+                                .shadow(color: palette.accent.opacity(0.2), radius: 4, y: 2)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -952,7 +954,7 @@ struct ApprovalCard: View {
                     .fill(.ultraThinMaterial)
                     .shadow(color: .black.opacity(0.06), radius: 8, y: 2)
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+                    .strokeBorder(palette.avatarFallback, lineWidth: 0.5)
             }
         )
         .padding(.horizontal, DesignTokens.Spacing.lg)
@@ -974,6 +976,7 @@ struct ApprovalCard: View {
 struct UserInputCard: View {
     let roomID: UUID
     @EnvironmentObject var roomManager: RoomManager
+    @Environment(\.colorPalette) private var palette
     @State private var inputText = ""
     @FocusState private var isFocused: Bool
 
@@ -994,7 +997,7 @@ struct UserInputCard: View {
                         .textFieldStyle(.plain)
                         .font(.caption)
                         .padding(6)
-                        .background(Color.primary.opacity(DesignTokens.Opacity.inputBg))
+                        .background(palette.inputBackground)
                         .continuousRadius(DesignTokens.Radius.md)
                         .focused($isFocused)
                         .onSubmit { submit() }
@@ -1004,7 +1007,7 @@ struct UserInputCard: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
-                        .background(inputText.trimmingCharacters(in: .whitespaces).isEmpty ? Color.gray.opacity(0.6) : Color.accentColor)
+                        .background(inputText.trimmingCharacters(in: .whitespaces).isEmpty ? Color.gray.opacity(0.6) : palette.accent)
                         .continuousRadius(DesignTokens.Radius.md)
                         .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
@@ -1027,6 +1030,7 @@ struct IntentSelectionCard: View {
     let roomID: UUID
     let suggestedIntent: WorkflowIntent
     @EnvironmentObject var roomManager: RoomManager
+    @Environment(\.colorPalette) private var palette
 
     var body: some View {
         CardContainer(accentColor: .teal, opacity: 0.08) {
@@ -1070,7 +1074,7 @@ struct IntentSelectionCard: View {
                             }
                             .padding(.vertical, 6)
                             .padding(.horizontal, 8)
-                            .background(intent == suggestedIntent ? Color.teal.opacity(0.08) : Color.primary.opacity(0.04))
+                            .background(intent == suggestedIntent ? Color.teal.opacity(0.08) : palette.inputBackground)
                             .foregroundColor(intent == suggestedIntent ? .teal.opacity(0.7) : .primary)
                             .continuousRadius(DesignTokens.Radius.sm)
                         }

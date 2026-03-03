@@ -2,6 +2,7 @@ import SwiftUI
 
 /// 채팅 하단에 표시되는 작업 진행 중 애니메이션
 struct TypingIndicator: View {
+    @Environment(\.colorPalette) private var palette
     let room: Room
     let agentStore: AgentStore
     @EnvironmentObject var roomManager: RoomManager
@@ -99,7 +100,7 @@ struct TypingIndicator: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(DesignTokens.Colors.systemMessageBackground)
+        .background(palette.systemMessageBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {

@@ -23,6 +23,7 @@ final class UtilityWindowManager {
         providerManager: ProviderManager,
         chatVM: ChatViewModel,
         roomManager: RoomManager? = nil,
+        themeManager: ThemeManager? = nil,
         @ViewBuilder content: () -> Content
     ) {
         // 같은 identifier의 윈도우가 이미 열려 있으면 포커스만
@@ -49,6 +50,12 @@ final class UtilityWindowManager {
             .environmentObject(chatVM))
         if let roomMgr = roomManager {
             rootView = AnyView(rootView.environmentObject(roomMgr))
+        }
+        if let tm = themeManager {
+            rootView = AnyView(
+                ThemedView { rootView }
+                    .environmentObject(tm)
+            )
         }
         window.contentView = NSHostingView(rootView: rootView)
         window.center()
@@ -204,6 +211,8 @@ struct FloatingSidebarView: View {
     @EnvironmentObject var providerManager: ProviderManager
     @EnvironmentObject var chatVM: ChatViewModel
     @EnvironmentObject var roomManager: RoomManager
+    @EnvironmentObject var themeManager: ThemeManager
+    @Environment(\.colorPalette) private var palette
 
     @State private var inputText = ""
     @State private var previousInputText = ""
@@ -227,6 +236,7 @@ struct FloatingSidebarView: View {
     /// 아바타 확대 보기
     @State private var enlargedAvatarAgent: Agent?
     @State private var showEnlargedProfile = false
+    @State private var showThemePopover = false
 
     private var masterAgent: Agent? { agentStore.masterAgent }
     private var masterID: UUID? { masterAgent?.id }
@@ -240,7 +250,7 @@ struct FloatingSidebarView: View {
 
     private var separator: some View {
         Rectangle()
-            .fill(Color.primary.opacity(0.08))
+            .fill(palette.separator)
             .frame(height: 0.5)
             .padding(.horizontal, 16)
     }
@@ -313,9 +323,9 @@ struct FloatingSidebarView: View {
                 }
             }
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(palette.background)
         .continuousRadius(DesignTokens.Sidebar.cornerRadius)
-        .shadow(color: .black.opacity(DesignTokens.Sidebar.shadowOpacity), radius: DesignTokens.Sidebar.shadowRadius, x: -4, y: 0)
+        .shadow(color: palette.sidebarShadow, radius: DesignTokens.Sidebar.shadowRadius, x: -4, y: 0)
         .padding(.leading, 4)
         .padding(.trailing, 6)
         .padding(.vertical, 8)
@@ -427,6 +437,18 @@ struct FloatingSidebarView: View {
             .buttonStyle(.plain)
             .help("API 설정")
 
+            Button(action: { showThemePopover.toggle() }) {
+                Image(systemName: "paintpalette")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("테마 변경")
+            .popover(isPresented: $showThemePopover, arrowEdge: .bottom) {
+                ThemeSettingsView()
+                    .environmentObject(themeManager)
+                    .environment(\.colorPalette, themeManager.currentPalette)
+            }
 
             // 사이드바 숨기기
             Button(action: {
@@ -436,7 +458,7 @@ struct FloatingSidebarView: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(.secondary.opacity(0.6))
                     .frame(width: 20, height: 20)
-                    .background(DesignTokens.Colors.closeButton)
+                    .background(palette.closeButton)
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
@@ -475,7 +497,7 @@ struct FloatingSidebarView: View {
                         // 호버 시 하이라이트
                         .background(
                             RoundedRectangle(cornerRadius: 8)
-                                .fill(hoveredAgentID == agent.id ? Color.accentColor.opacity(0.08) : Color.clear)
+                                .fill(hoveredAgentID == agent.id ? palette.hoverBackground : Color.clear)
                                 .padding(-4)
                         )
                         .onHover { isHovered in
@@ -552,7 +574,7 @@ struct FloatingSidebarView: View {
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(.white)
                             .frame(width: 16, height: 16)
-                            .background(isBusy ? Color.red.opacity(0.7) : Color.accentColor)
+                            .background(isBusy ? Color.red.opacity(0.7) : palette.accent)
                             .clipShape(Circle())
                             .offset(x: 4, y: -4)
                     }
@@ -561,7 +583,7 @@ struct FloatingSidebarView: View {
                 .overlay {
                     if agent.status == .working || isBusy {
                         Circle().stroke(
-                            DesignTokens.StatusColor.color(for: agent.status).opacity(isBusy ? 0.7 : 0.5),
+                            DesignTokens.StatusColor.color(for: agent.status, palette: palette).opacity(isBusy ? 0.7 : 0.5),
                             lineWidth: isBusy ? 2.5 : 2
                         )
                     }
@@ -618,7 +640,7 @@ struct FloatingSidebarView: View {
     }
 
     private func statusColor(_ agent: Agent) -> Color {
-        DesignTokens.StatusColor.color(for: agent.status)
+        DesignTokens.StatusColor.color(for: agent.status, palette: palette)
     }
 
     /// 아바타 확대 보기 시트
@@ -812,7 +834,7 @@ struct FloatingSidebarView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
-                .background(DesignTokens.Colors.inputBackground)
+                .background(palette.inputBackground)
                 .continuousRadius(DesignTokens.Radius.lg)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -855,14 +877,14 @@ struct FloatingSidebarView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(slashMenu.selectedIndex == idx
-                        ? Color.accentColor.opacity(0.15)
+                        ? palette.hoverBackground
                         : Color.clear)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
-        .background(DesignTokens.Colors.inputBackground)
+        .background(palette.inputBackground)
         .continuousRadius(DesignTokens.Radius.xl)
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
@@ -1032,7 +1054,7 @@ struct FloatingSidebarView: View {
     private func openAddAgentWindow() {
         UtilityWindowManager.shared.open(title: "새 에이전트",
             width: DesignTokens.WindowSize.agentSheet.width, height: DesignTokens.WindowSize.agentSheet.height,
-            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM) {
+            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, themeManager: themeManager) {
             AddAgentSheet()
         }
     }
@@ -1040,7 +1062,7 @@ struct FloatingSidebarView: View {
     private func openProviderWindow() {
         UtilityWindowManager.shared.open(title: "API 설정",
             width: DesignTokens.WindowSize.providerSheet.width, height: DesignTokens.WindowSize.providerSheet.height,
-            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM) {
+            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, themeManager: themeManager) {
             AddProviderSheet()
         }
     }
@@ -1049,7 +1071,7 @@ struct FloatingSidebarView: View {
     private func openEditWindow(for agent: Agent) {
         UtilityWindowManager.shared.open(title: "\(agent.name) 편집",
             width: DesignTokens.WindowSize.agentSheet.width, height: DesignTokens.WindowSize.agentSheet.height,
-            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM) {
+            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, themeManager: themeManager) {
             EditAgentSheet(agent: agent)
         }
     }
@@ -1057,7 +1079,7 @@ struct FloatingSidebarView: View {
     private func openInfoWindow(for agent: Agent) {
         UtilityWindowManager.shared.open(title: "\(agent.name) 정보",
             width: DesignTokens.WindowSize.agentInfoSheet.width, height: DesignTokens.WindowSize.agentInfoSheet.height,
-            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM) {
+            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, themeManager: themeManager) {
             AgentInfoSheet(agent: agent)
         }
     }
@@ -1080,7 +1102,7 @@ struct FloatingSidebarView: View {
         let title = roomManager.rooms.first(where: { $0.id == roomID })?.title ?? "방"
         UtilityWindowManager.shared.open(title: title, identifier: roomID.uuidString,
             width: DesignTokens.WindowSize.roomChat.width, height: DesignTokens.WindowSize.roomChat.height,
-            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, roomManager: roomManager) {
+            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, roomManager: roomManager, themeManager: themeManager) {
             RoomChatView(roomID: roomID)
         }
     }
@@ -1088,7 +1110,7 @@ struct FloatingSidebarView: View {
     private func openWorkLogWindow() {
         UtilityWindowManager.shared.open(title: "작업일지",
             width: DesignTokens.WindowSize.workLog.width, height: DesignTokens.WindowSize.workLog.height,
-            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, roomManager: roomManager) {
+            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, roomManager: roomManager, themeManager: themeManager) {
             WorkLogView()
         }
     }
@@ -1096,7 +1118,7 @@ struct FloatingSidebarView: View {
     private func openCreateRoomWindow() {
         UtilityWindowManager.shared.open(title: "새 방 만들기",
             width: DesignTokens.WindowSize.createRoomSheet.width, height: DesignTokens.WindowSize.createRoomSheet.height,
-            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, roomManager: roomManager) {
+            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, roomManager: roomManager, themeManager: themeManager) {
             CreateRoomSheet()
         }
     }
@@ -1105,6 +1127,7 @@ struct FloatingSidebarView: View {
 // MARK: - 프로필 이미지
 
 struct ProfileImageView: View {
+    @Environment(\.colorPalette) private var palette
     let size: CGFloat
 
     private var nsImage: NSImage? {
@@ -1140,12 +1163,12 @@ struct ProfileImageView: View {
         } else {
             // 폴백: 이니셜
             Circle()
-                .fill(Color.accentColor.opacity(0.15))
+                .fill(palette.avatarFallback)
                 .frame(width: size, height: size)
                 .overlay(
                     Text("D")
                         .font(.system(size: size * 0.4, weight: .bold))
-                        .foregroundColor(.accentColor.opacity(0.7))
+                        .foregroundColor(palette.accent.opacity(0.7))
                 )
         }
     }
@@ -1284,6 +1307,7 @@ struct AgentReorderDropDelegate: DropDelegate {
 // MARK: - 방 열기 원형 프로그레스 (숫자 + 링, hover 시 정지 버튼)
 
 struct RoomOpenProgressRing: View {
+    @Environment(\.colorPalette) private var palette
     let progress: CGFloat
     var onCancel: (() -> Void)?
     private let size: CGFloat = 30
@@ -1303,14 +1327,14 @@ struct RoomOpenProgressRing: View {
                         .foregroundColor(.red.opacity(0.7))
                 } else {
                     Circle()
-                        .stroke(Color.accentColor.opacity(0.15), lineWidth: lineWidth)
+                        .stroke(palette.accent.opacity(0.15), lineWidth: lineWidth)
                     Circle()
                         .trim(from: 0, to: progress)
-                        .stroke(Color.accentColor, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                        .stroke(palette.accent, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                     Text("\(Int(progress * 100))")
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        .foregroundColor(.accentColor)
+                        .foregroundColor(palette.accent)
                 }
             }
             .frame(width: size, height: size)
@@ -1325,6 +1349,7 @@ struct RoomOpenProgressRing: View {
 // MARK: - 에이전트-방 매핑 팝오버
 
 struct AgentRoomPopover: View {
+    @Environment(\.colorPalette) private var palette
     let agent: Agent
     var onOpenRoom: ((UUID) -> Void)?
     var onInfo: (() -> Void)?
@@ -1379,7 +1404,7 @@ struct AgentRoomPopover: View {
                             } label: {
                                 HStack(spacing: 6) {
                                     Circle()
-                                        .fill(DesignTokens.RoomStatusColor.color(for: room.status))
+                                        .fill(DesignTokens.RoomStatusColor.color(for: room.status, palette: palette))
                                         .frame(width: 7, height: 7)
                                     Text(room.title)
                                         .font(.system(size: 11))
@@ -1428,7 +1453,7 @@ struct AgentRoomPopover: View {
                         .font(.system(size: 11))
                 }
                 .buttonStyle(.plain)
-                .foregroundColor(.accentColor)
+                .foregroundColor(palette.accent)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

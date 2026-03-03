@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct AddProviderSheet: View {
+    @Environment(\.colorPalette) private var palette
     @EnvironmentObject var providerManager: ProviderManager
     @Environment(\.dismiss) private var dismiss
 
@@ -74,7 +75,7 @@ struct AddProviderSheet: View {
                                 .textFieldStyle(.plain)
                                 .font(.body)
                                 .padding(10)
-                                .background(DesignTokens.Colors.inputBackground)
+                                .background(palette.inputBackground)
                                 .continuousRadius(DesignTokens.Radius.lg)
                                 .onAppear {
                                     openAIKey = providerManager.configs.first(where: { $0.type == .openAI })?.apiKey ?? ""
@@ -113,7 +114,7 @@ struct AddProviderSheet: View {
                                 .textFieldStyle(.plain)
                                 .font(.body)
                                 .padding(10)
-                                .background(DesignTokens.Colors.inputBackground)
+                                .background(palette.inputBackground)
                                 .continuousRadius(DesignTokens.Radius.lg)
                                 .onAppear {
                                     googleKey = providerManager.configs.first(where: { $0.type == .google })?.apiKey ?? ""
@@ -162,21 +163,21 @@ struct AddProviderSheet: View {
                                 .textFieldStyle(.plain)
                                 .font(.body)
                                 .padding(10)
-                                .background(DesignTokens.Colors.inputBackground)
+                                .background(palette.inputBackground)
                                 .continuousRadius(DesignTokens.Radius.lg)
 
                             TextField("이메일", text: $jiraEmail)
                                 .textFieldStyle(.plain)
                                 .font(.body)
                                 .padding(10)
-                                .background(DesignTokens.Colors.inputBackground)
+                                .background(palette.inputBackground)
                                 .continuousRadius(DesignTokens.Radius.lg)
 
                             SecureField("API Token", text: $jiraToken)
                                 .textFieldStyle(.plain)
                                 .font(.body)
                                 .padding(10)
-                                .background(DesignTokens.Colors.inputBackground)
+                                .background(palette.inputBackground)
                                 .continuousRadius(DesignTokens.Radius.lg)
 
                             HStack(spacing: 8) {
@@ -204,7 +205,7 @@ struct AddProviderSheet: View {
     private func providerCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
             .padding(16)
-            .background(DesignTokens.Colors.surfaceTertiary)
+            .background(palette.surfaceTertiary)
             .continuousRadius(DesignTokens.Radius.xl)
     }
 

@@ -145,28 +145,36 @@ enum DesignTokens {
     // MARK: - 에이전트 상태 색상
 
     enum StatusColor {
-        static func color(for status: AgentStatus) -> Color {
+        static func color(for status: AgentStatus, palette: ColorPalette) -> Color {
             switch status {
-            case .idle:    return .gray
-            case .working: return .orange
-            case .busy:    return .red
-            case .error:   return .red
+            case .idle:    return palette.statusIdle
+            case .working: return palette.statusWorking
+            case .busy:    return palette.statusBusy
+            case .error:   return palette.statusError
             }
+        }
+        /// 레거시 호환 (palette 없이 호출 시 기본 팔레트 사용)
+        static func color(for status: AgentStatus) -> Color {
+            color(for: status, palette: ThemePresets.pastel)
         }
     }
 
     // MARK: - 방 상태 색상
 
     enum RoomStatusColor {
-        static func color(for status: RoomStatus) -> Color {
+        static func color(for status: RoomStatus, palette: ColorPalette) -> Color {
             switch status {
-            case .planning:          return .purple
-            case .inProgress:        return .orange
-            case .awaitingApproval:  return .yellow
-            case .awaitingUserInput: return .cyan
-            case .completed:         return .green
-            case .failed:            return .red
+            case .planning:          return palette.roomPlanning
+            case .inProgress:        return palette.roomInProgress
+            case .awaitingApproval:  return palette.roomAwaitingApproval
+            case .awaitingUserInput: return palette.roomAwaitingUserInput
+            case .completed:         return palette.roomCompleted
+            case .failed:            return palette.roomFailed
             }
+        }
+        /// 레거시 호환
+        static func color(for status: RoomStatus) -> Color {
+            color(for: status, palette: ThemePresets.pastel)
         }
 
         static func label(for status: RoomStatus) -> String {
@@ -184,36 +192,44 @@ enum DesignTokens {
     // MARK: - 메시지 타입별 색상
 
     enum MessageColor {
-        static func background(for type: MessageType) -> Color {
+        static func background(for type: MessageType, palette: ColorPalette) -> Color {
             switch type {
-            case .error:           return .red
-            case .summary:         return .purple
-            case .chainProgress:   return .blue
-            case .delegation:      return .orange
-            case .suggestion:      return .orange
-            case .text:            return .gray
-            case .discussionRound: return .gray
-            case .toolActivity:    return .gray
-            case .buildStatus:     return .orange
-            case .qaStatus:        return .teal
-            case .approvalRequest: return .yellow
-            case .userQuestion:    return .cyan
-            case .phaseTransition: return .purple
-            case .assumption:      return .orange
-            case .progress:        return .blue
-            case .discussion:      return .gray
+            case .error:           return palette.messageError
+            case .summary:         return palette.messageSummary
+            case .chainProgress:   return palette.messageChainProgress
+            case .delegation:      return palette.messageDelegation
+            case .suggestion:      return palette.messageSuggestion
+            case .text:            return palette.messageDefault
+            case .discussionRound: return palette.messageDefault
+            case .toolActivity:    return palette.messageToolActivity
+            case .buildStatus:     return palette.messageBuildStatus
+            case .qaStatus:        return palette.messageQaStatus
+            case .approvalRequest: return palette.messageApprovalRequest
+            case .userQuestion:    return palette.roomAwaitingUserInput
+            case .phaseTransition: return palette.messageSummary
+            case .assumption:      return palette.messageDelegation
+            case .progress:        return palette.messageProgress
+            case .discussion:      return palette.messageDefault
             }
         }
+        /// 레거시 호환
+        static func background(for type: MessageType) -> Color {
+            background(for: type, palette: ThemePresets.pastel)
+        }
 
-        static func foreground(for type: MessageType) -> Color {
+        static func foreground(for type: MessageType, palette: ColorPalette) -> Color {
             switch type {
-            case .error:         return .red
-            case .summary:       return .purple
-            case .chainProgress: return .blue
-            case .delegation:    return .orange
-            case .suggestion:    return .orange
-            default:             return .secondary
+            case .error:         return palette.messageError
+            case .summary:       return palette.messageSummary
+            case .chainProgress: return palette.messageChainProgress
+            case .delegation:    return palette.messageDelegation
+            case .suggestion:    return palette.messageSuggestion
+            default:             return palette.textSecondary
             }
+        }
+        /// 레거시 호환
+        static func foreground(for type: MessageType) -> Color {
+            foreground(for: type, palette: ThemePresets.pastel)
         }
 
         static func icon(for type: MessageType) -> String? {

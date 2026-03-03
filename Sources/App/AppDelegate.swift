@@ -42,6 +42,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let providerManager = ProviderManager()
     let chatVM = ChatViewModel()
     let roomManager = RoomManager()
+    let themeManager = ThemeManager()
     private var statusItem: NSStatusItem?
     private var sidebarHotkeyMonitor: Any?
     private var sidebarGlobalMonitor: Any?
@@ -218,6 +219,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         })
         .environmentObject(providerManager)
         .environmentObject(agentStore)
+        .environmentObject(themeManager)
+        .environment(\.colorPalette, themeManager.currentPalette)
 
         window.contentView = NSHostingView(rootView: onboardingView)
         window.level = .floating
@@ -330,11 +333,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         sidebarPanel.minSize = NSSize(width: 320, height: 400)
         sidebarPanel.maxSize = NSSize(width: 800, height: screenFrame.height)
 
-        let sidebarView = FloatingSidebarView()
+        let sidebarView = ThemedView {
+            FloatingSidebarView()
+        }
             .environmentObject(agentStore)
             .environmentObject(providerManager)
             .environmentObject(chatVM)
             .environmentObject(roomManager)
+            .environmentObject(themeManager)
 
         let hostingView = ClickThroughHostingView(rootView: sidebarView)
         sidebarPanel.contentView = hostingView
@@ -363,6 +369,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         isSidebarVisible = true
         currentScreen = screen
         sidebarPanel.ignoresMouseEvents = false
+        sidebarPanel.orderFrontRegardless()
         let sf = screen.visibleFrame
         let w = currentPanelWidth
         let targetX = sf.maxX - w
