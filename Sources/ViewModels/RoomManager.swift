@@ -1,5 +1,42 @@
 import Foundation
 
+/// 에이전트 응답 끝에 붙은 선택지 텍스트 제거 (예: "1. 다음(구현) 2. 수정할래요 x. 나가기")
+private func stripTrailingOptions(_ text: String) -> String {
+    // 마지막 3줄 이내에서 번호+선택지 패턴을 감지하여 제거
+    let lines = text.components(separatedBy: "\n")
+    guard lines.count >= 2 else { return text }
+
+    // 뒤에서부터 빈 줄 스킵 후 선택지 블록 감지
+    var endIndex = lines.count
+    while endIndex > 0 && lines[endIndex - 1].trimmingCharacters(in: .whitespaces).isEmpty {
+        endIndex -= 1
+    }
+
+    // 선택지 라인 패턴: "1." "2." "x." 또는 "1)" 등으로 시작 + 짧은 텍스트
+    let optionPattern = #"^\s*(\d+|[xX])\s*[.)]\s*.+"#
+    guard let regex = try? NSRegularExpression(pattern: optionPattern) else { return text }
+
+    var optionStart = endIndex
+    var optionCount = 0
+    for i in stride(from: endIndex - 1, through: max(0, endIndex - 5), by: -1) {
+        let line = lines[i].trimmingCharacters(in: .whitespaces)
+        if line.isEmpty { continue }
+        let range = NSRange(line.startIndex..., in: line)
+        if regex.firstMatch(in: line, range: range) != nil {
+            optionStart = i
+            optionCount += 1
+        } else {
+            break
+        }
+    }
+
+    // 선택지 2개 이상일 때만 제거 (단일 번호 항목은 일반 내용일 수 있음)
+    guard optionCount >= 2 else { return text }
+
+    let kept = Array(lines[0..<optionStart])
+    return kept.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
 /// 스트리밍 청크 누적용 스레드-안전 버퍼
 private final class StreamBuffer: @unchecked Sendable {
     private var _value = ""
@@ -871,6 +908,7 @@ class RoomManager: ObservableObject {
         - 첨부파일(이미지, 문서)의 내용을 상세히 나열하거나 분석하지 마세요. "첨부 문서: design.md" 처럼 무엇인지만 간단히 언급하세요.
         - 번역, 계산, 코드 작성 등 실제 작업 결과물을 포함하지 마세요.
         - 위 형식 이후에 추가 텍스트를 붙이지 마세요.
+        - "1. 다음" "2. 수정" "x. 나가기" 같은 선택지/메뉴를 절대 출력하지 마세요. 사용자 선택은 UI 버튼으로 제공됩니다.
         """
 
         var currentSummary = ""
@@ -938,7 +976,7 @@ class RoomManager: ObservableObject {
                     case .toolCalls: response = "(요약 생성 실패)"
                     }
                 }
-                currentSummary = response
+                currentSummary = stripTrailingOptions(response)
 
                 // 복명복창 요약에서 방 제목 자동 추출 (첫 라운드만)
                 if currentSummary.isEmpty == false,
@@ -950,8 +988,8 @@ class RoomManager: ObservableObject {
                     }
                 }
 
-                // placeholder를 최종 텍스트로 업데이트
-                updateMessageContent(placeholderID, newContent: response, in: roomID)
+                // placeholder를 최종 텍스트로 업데이트 (선택지 텍스트 제거 후)
+                updateMessageContent(placeholderID, newContent: currentSummary, in: roomID)
             } catch {
                 let errorMsg = ChatMessage(
                     role: .assistant,
@@ -1517,7 +1555,7 @@ class RoomManager: ObservableObject {
                 },
                 useTools: false  // 즉답: 도구 없이 스트리밍 우선
             )
-            updateMessageContent(placeholderID, newContent: response, in: roomID)
+            updateMessageContent(placeholderID, newContent: stripTrailingOptions(response), in: roomID)
         } catch {
             updateMessageContent(
                 placeholderID,
@@ -1629,16 +1667,12 @@ class RoomManager: ObservableObject {
                 },
                 useTools: false  // 소로 분석: 도구 없이 스트리밍 우선
             )
-            updateMessageContent(placeholderID, newContent: response, in: roomID)
+            updateMessageContent(placeholderID, newContent: stripTrailingOptions(response), in: roomID)
         } catch {
-            updateMessageContent(
-                placeholderID,
-                newContent: "분석 오류: \(error.userFacingMessage)",
-                in: roomID
-            )
+            // 사전 분석 실패는 워크플로우에 영향 없음 — placeholder를 조용히 제거
             if let roomIdx = rooms.firstIndex(where: { $0.id == roomID }),
                let msgIdx = rooms[roomIdx].messages.firstIndex(where: { $0.id == placeholderID }) {
-                rooms[roomIdx].messages[msgIdx].messageType = .error
+                rooms[roomIdx].messages.remove(at: msgIdx)
             }
         }
 
@@ -2125,7 +2159,7 @@ class RoomManager: ObservableObject {
                 }.joined(separator: ", ")
                 let warnMsg = ChatMessage(
                     role: .system,
-                    content: "⚠️ 단계 \(stepIndex + 1): \(failedNames) 실패 (재시도 포함). 나머지 에이전트로 계속 진행합니다.",
+                    content: "단계 \(stepIndex + 1): \(failedNames) 실패 (재시도 포함). 나머지 에이전트로 계속 진행합니다.",
                     messageType: .error
                 )
                 appendMessage(warnMsg, to: roomID)

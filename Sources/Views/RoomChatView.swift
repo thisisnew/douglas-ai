@@ -426,7 +426,7 @@ struct RoomChatView: View {
                                     .foregroundColor(.primary)
                                 Spacer()
                                 if room.assignedAgentIDs.contains(agent.id) {
-                                    Text("참여중")
+                                    Text("참여 중")
                                         .font(.system(size: 9))
                                         .foregroundColor(.secondary)
                                 }
@@ -665,7 +665,7 @@ struct RoomChatView: View {
                 Circle()
                     .fill(Color.orange.opacity(0.7))
                     .frame(width: 6, height: 6)
-                Text("진행중")
+                Text("진행 중")
                     .font(.system(size: 10, weight: .medium, design: .rounded))
                     .foregroundColor(.orange.opacity(0.7))
             case .awaitingApproval:

@@ -180,7 +180,7 @@ enum DesignTokens {
         static func label(for status: RoomStatus) -> String {
             switch status {
             case .planning:          return "계획 중"
-            case .inProgress:        return "진행중"
+            case .inProgress:        return "진행 중"
             case .awaitingApproval:  return "승인 대기"
             case .awaitingUserInput: return "입력 대기"
             case .completed:         return "완료"
