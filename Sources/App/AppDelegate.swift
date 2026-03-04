@@ -323,27 +323,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - 버전 기반 데이터 리셋
 
-    /// 데이터 스키마 버전 — 이 값을 올리면 다음 앱 실행 시 에이전트/방/채팅 데이터 초기화
-    /// (프로바이더 설정·API 키는 보존)
-    private static let currentDataVersion = 2
+    /// 데이터 스키마 버전 — 이 값을 올리면 다음 앱 실행 시 전체 데이터 초기화
+    /// (프로바이더 설정·API 키만 보존)
+    /// 데이터 구조가 호환 불가능하게 바뀔 때만 올릴 것
+    private static let currentDataVersion = 3
 
-    /// 새 버전 설치 시 이전 데이터 자동 초기화 (프로바이더 설정만 보존)
-    /// - 스키마 버전(currentDataVersion) 변경 시 리셋
-    /// - 앱 버전(CFBundleShortVersionString) 변경 시에도 리셋
+    /// 스키마 버전 변경 시 전체 데이터 초기화 (프로바이더 설정만 보존)
     private func resetDataIfVersionChanged() {
-        let storedDataVersion = UserDefaults.standard.integer(forKey: "dataVersion")
-        let storedAppVersion = UserDefaults.standard.string(forKey: "lastInstalledAppVersion")
-        let currentAppVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
-            ?? Bundle.main.infoDictionary?["CFBundleVersion"] as? String
-            ?? "unknown"
-
-        let schemaChanged = storedDataVersion < Self.currentDataVersion
-        let appVersionChanged = storedAppVersion != nil && storedAppVersion != currentAppVersion
-
-        guard schemaChanged || appVersionChanged else {
-            // 최초 실행 시 버전만 기록 (데이터 없으므로 리셋 불필요)
-            if storedAppVersion == nil {
-                UserDefaults.standard.set(currentAppVersion, forKey: "lastInstalledAppVersion")
+        let stored = UserDefaults.standard.integer(forKey: "dataVersion")
+        guard stored != 0, stored < Self.currentDataVersion else {
+            // 최초 실행이거나 이미 최신 → 버전만 기록
+            if stored == 0 {
                 UserDefaults.standard.set(Self.currentDataVersion, forKey: "dataVersion")
             }
             return
@@ -353,16 +343,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let providerBackup = UserDefaults.standard.data(forKey: "providerConfigs")
         let onboardingDone = UserDefaults.standard.bool(forKey: "onboardingCompleted")
 
-        // 2. UserDefaults 전체 초기화
+        // 2. UserDefaults 전체 초기화 (에이전트 포함)
         if let domain = Bundle.main.bundleIdentifier {
             UserDefaults.standard.removePersistentDomain(forName: domain)
         }
-        // 번들 없이 실행 시 (swift run) fallback
         for key in ["savedAgents", "migrated_from_AgentManager"] {
             UserDefaults.standard.removeObject(forKey: key)
         }
 
-        // 3. 파일 기반 데이터 삭제 (방, 채팅, 아바타, 첨부파일)
+        // 3. 파일 기반 데이터 전체 삭제 (방, 채팅, 아바타, 첨부파일)
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
         if let douglasDir = appSupport?.appendingPathComponent("DOUGLAS") {
             for subdir in ["rooms", "chats", "avatars", "attachments"] {
@@ -380,7 +369,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 5. 버전 스탬프
         UserDefaults.standard.set(Self.currentDataVersion, forKey: "dataVersion")
-        UserDefaults.standard.set(currentAppVersion, forKey: "lastInstalledAppVersion")
         UserDefaults.standard.synchronize()
     }
 

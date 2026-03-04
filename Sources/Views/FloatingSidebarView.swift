@@ -285,6 +285,8 @@ struct FloatingSidebarView: View {
     @State private var hoveredAgentID: UUID?
     /// 에이전트 방 목록 팝오버
     @State private var popoverAgentID: UUID?
+    /// 에이전트 삭제 확인
+    @State private var agentToDelete: Agent?
     /// 아바타 확대 보기
     @State private var enlargedAvatarAgent: Agent?
     @State private var showEnlargedProfile = false
@@ -430,6 +432,27 @@ struct FloatingSidebarView: View {
         }
         .sheet(isPresented: $showEnlargedProfile) {
             profileEnlargedView
+        }
+        .alert(
+            "에이전트 삭제",
+            isPresented: Binding(
+                get: { agentToDelete != nil },
+                set: { if !$0 { agentToDelete = nil } }
+            )
+        ) {
+            Button("삭제", role: .destructive) {
+                if let agent = agentToDelete {
+                    agentStore.removeAgent(agent)
+                }
+                agentToDelete = nil
+            }
+            Button("취소", role: .cancel) {
+                agentToDelete = nil
+            }
+        } message: {
+            if let agent = agentToDelete {
+                Text("'\(agent.name)' 에이전트와 관련 채팅 기록이 모두 삭제됩니다.")
+            }
         }
     }
 
@@ -677,6 +700,10 @@ struct FloatingSidebarView: View {
                         onEdit: {
                             popoverAgentID = nil
                             openEditWindow(for: agent)
+                        },
+                        onDelete: agent.isMaster ? nil : {
+                            popoverAgentID = nil
+                            agentToDelete = agent
                         },
                         onShowAvatar: agent.hasImage ? {
                             popoverAgentID = nil
@@ -1531,6 +1558,7 @@ struct AgentRoomPopover: View {
     var onOpenRoom: ((UUID) -> Void)?
     var onInfo: (() -> Void)?
     var onEdit: (() -> Void)?
+    var onDelete: (() -> Void)?
     var onShowAvatar: (() -> Void)?
     var onExport: (() -> Void)?
     var onExportAll: (() -> Void)?
@@ -1650,6 +1678,16 @@ struct AgentRoomPopover: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(palette.accent)
+
+                if let onDelete, !agent.isMaster {
+                    Button { onDelete() } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.red.opacity(0.8))
+                    .help("에이전트 삭제")
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
