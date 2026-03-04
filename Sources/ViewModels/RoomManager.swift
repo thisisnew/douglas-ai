@@ -2,14 +2,19 @@ import Foundation
 
 /// 에이전트 응답 끝에 붙은 선택지 텍스트 제거 (예: "1. 다음(구현) 2. 수정할래요 x. 나가기")
 private func stripTrailingOptions(_ text: String) -> String {
-    // 마지막 3줄 이내에서 번호+선택지 패턴을 감지하여 제거
+    // 마지막 수 줄 이내에서 번호+선택지 패턴을 감지하여 제거
     let lines = text.components(separatedBy: "\n")
     guard lines.count >= 2 else { return text }
 
-    // 뒤에서부터 빈 줄 스킵 후 선택지 블록 감지
+    // 뒤에서부터 빈 줄 + 코드블록 닫는 마커(```) 스킵
     var endIndex = lines.count
-    while endIndex > 0 && lines[endIndex - 1].trimmingCharacters(in: .whitespaces).isEmpty {
-        endIndex -= 1
+    while endIndex > 0 {
+        let trimmed = lines[endIndex - 1].trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty || trimmed.allSatisfy({ $0 == "`" }) {
+            endIndex -= 1
+        } else {
+            break
+        }
     }
 
     // 선택지 라인 패턴: "1." "2." "x." 또는 "1)" 등으로 시작 + 짧은 텍스트
@@ -18,7 +23,7 @@ private func stripTrailingOptions(_ text: String) -> String {
 
     var optionStart = endIndex
     var optionCount = 0
-    for i in stride(from: endIndex - 1, through: max(0, endIndex - 5), by: -1) {
+    for i in stride(from: endIndex - 1, through: max(0, endIndex - 6), by: -1) {
         let line = lines[i].trimmingCharacters(in: .whitespaces)
         if line.isEmpty { continue }
         let range = NSRange(line.startIndex..., in: line)
@@ -33,7 +38,16 @@ private func stripTrailingOptions(_ text: String) -> String {
     // 선택지 2개 이상일 때만 제거 (단일 번호 항목은 일반 내용일 수 있음)
     guard optionCount >= 2 else { return text }
 
-    let kept = Array(lines[0..<optionStart])
+    // 선택지 바로 위의 구분선(---)도 함께 제거
+    var cleanStart = optionStart
+    if cleanStart > 0 {
+        let above = lines[cleanStart - 1].trimmingCharacters(in: .whitespaces)
+        if !above.isEmpty && above.allSatisfy({ $0 == "-" }) {
+            cleanStart -= 1
+        }
+    }
+
+    let kept = Array(lines[0..<cleanStart])
     return kept.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
@@ -2272,7 +2286,91 @@ class RoomManager: ObservableObject {
                 previousStepResponse = latestResponse
             }
 
-            // 빌드/QA 루프는 에이전트 주도로 실행 (계획 단계에서 에이전트가 직접 shell_exec으로 처리)
+            // 단계 완료 후 리뷰 게이트: 사용자 확인 → 거부 시 피드백 반영 재실행
+            // (2단계 이상 plan에서만 활성, 마지막 단계는 완료 메시지가 곧 확인)
+            if plan.steps.count >= 2 && stepIndex < plan.steps.count - 1 {
+                var stepApproved = false
+                while !stepApproved {
+                    guard !Task.isCancelled,
+                          let idx = rooms.firstIndex(where: { $0.id == roomID }),
+                          rooms[idx].isActive else { return }
+
+                    rooms[idx].transitionTo(.awaitingApproval)
+                    rooms[idx].pendingApprovalStepIndex = stepIndex
+                    syncAgentStatuses()
+
+                    let reviewMsg = ChatMessage(
+                        role: .system,
+                        content: "[\(stepIndex + 1)/\(plan.steps.count)] \"\(step.text)\" 완료 — 결과를 확인해주세요.",
+                        messageType: .approvalRequest
+                    )
+                    appendMessage(reviewMsg, to: roomID)
+                    scheduleSave()
+
+                    let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                        approvalContinuations[roomID] = continuation
+                    }
+                    approvalContinuations.removeValue(forKey: roomID)
+
+                    if let idx2 = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[idx2].pendingApprovalStepIndex = nil
+                    }
+
+                    guard !Task.isCancelled else { return }
+
+                    if approved {
+                        stepApproved = true
+                        if let idx2 = rooms.firstIndex(where: { $0.id == roomID }) {
+                            rooms[idx2].transitionTo(.inProgress)
+                        }
+                        let okMsg = ChatMessage(
+                            role: .system,
+                            content: "단계 \(stepIndex + 1) 확인. 다음 단계로 진행합니다."
+                        )
+                        appendMessage(okMsg, to: roomID)
+                    } else {
+                        // 거부 — 사용자 피드백을 반영하여 같은 단계 재실행
+                        let feedback = rooms.first(where: { $0.id == roomID })?
+                            .messages.last(where: { $0.role == .user })?.content ?? ""
+
+                        let retryNotice = ChatMessage(
+                            role: .system,
+                            content: "피드백을 반영하여 단계 \(stepIndex + 1)을 다시 실행합니다."
+                        )
+                        appendMessage(retryNotice, to: roomID)
+
+                        if let idx2 = rooms.firstIndex(where: { $0.id == roomID }) {
+                            rooms[idx2].transitionTo(.inProgress)
+                        }
+
+                        // 피드백이 반영된 단계 텍스트로 재실행
+                        let revisedStep = feedback.isEmpty
+                            ? step.text
+                            : "\(step.text)\n\n[사용자 피드백] \(feedback)\n위 피드백을 반영하여 다시 작업하세요. 이전 결과의 문제점을 수정해주세요."
+
+                        let retryProgressMsg = ChatMessage(
+                            role: .system,
+                            content: Self.shortenStepLabel(step.text) + " (재작업)",
+                            messageType: .progress
+                        )
+                        appendMessage(retryProgressMsg, to: roomID)
+
+                        await tracker.reset()
+                        for agentID in targetAgentIDs {
+                            _ = await executeStep(
+                                step: revisedStep,
+                                fullTask: task,
+                                agentID: agentID,
+                                roomID: roomID,
+                                stepIndex: stepIndex,
+                                totalSteps: plan.steps.count,
+                                fileWriteTracker: tracker,
+                                progressGroupID: retryProgressMsg.id
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         // 완료: 먼저 상태 변경 후 작업일지 생성 (상태가 inProgress인 동안 추가 메시지가 묻히는 문제 방지)
