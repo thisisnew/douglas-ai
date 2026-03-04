@@ -82,6 +82,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var onboardingWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Dock 표시명 보장 (번들 외 실행 시에도 "DOUGLAS"로 표시)
+        ProcessInfo.processInfo.processName = "DOUGLAS"
+        if let icon = NSImage(named: "AppIcon") {
+            NSApp.applicationIconImage = icon
+        }
+
         // 구 도메인(AgentManager) → 신 도메인(DOUGLAS) 마이그레이션
         migrateUserDefaultsIfNeeded()
 
