@@ -373,7 +373,9 @@ struct Room: Identifiable, Codable {
             return "요건 확인"
         case .plan:
             if currentRound > 0 { return "토론 중 (\(currentRound)R)" }
-            return plan != nil ? "계획 중" : "분석 중"
+            if plan != nil { return "계획 검토 중" }
+            if briefing != nil { return "계획 수립 중" }
+            return "분석 중"
         case .execute:
             return "실행 중"
         case nil:

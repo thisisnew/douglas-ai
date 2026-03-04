@@ -796,7 +796,10 @@ class RoomManager: ObservableObject {
         // 전문가 없이 취소된 경우 스킵 (실질적 작업 없음)
         let hasSpecialists2 = !executingAgentIDs(in: roomID).isEmpty
         if hasSpecialists2, let room = rooms.first(where: { $0.id == roomID }), room.workLog == nil {
-            await generateWorkLog(roomID: roomID, task: task)
+            // 완료 상태 확정 후 fire-and-forget (UI 지연 방지)
+            Task { [weak self] in
+                await self?.generateWorkLog(roomID: roomID, task: task)
+            }
         }
         if hasSpecialists2 { detectPlaybookOverrides(roomID: roomID) }
     }
@@ -1491,9 +1494,9 @@ class RoomManager: ObservableObject {
             guard !Task.isCancelled else { return }
         } else if specialistCount == 1 {
             // 전문가 1명: 혼자 분석
-            // documentation intent는 Execute에서 직접 문서를 작성하므로 사전 분석 스킵
-            // (soloAnalysis 결과가 히스토리에 남아 "이미 완성" 오판을 유발하는 것을 방지)
-            if intent != .documentation {
+            // documentation → Execute에서 직접 문서 작성 (soloAnalysis 히스토리가 "이미 완성" 오판 유발 방지)
+            // implementation → requestPlan이 브리핑 기반으로 계획 수립 (soloAnalysis 중복 방지 + API 1회 절감)
+            if intent != .documentation && intent != .implementation {
                 await executeSoloAnalysis(roomID: roomID, task: task)
                 guard !Task.isCancelled else { return }
             }
@@ -1932,8 +1935,11 @@ class RoomManager: ObservableObject {
 
         let artifactContext: String
         if !room.artifacts.isEmpty {
+            // 계획 수립용: 산출물 프리뷰만 전달 (토큰 절감, 전체 내용은 실행 단계에서 사용)
             artifactContext = "\n\n[참고 산출물]\n" + room.artifacts.map {
-                "[\($0.type.displayName)] \($0.title) (v\($0.version)):\n\($0.content)"
+                let preview = $0.content.prefix(200)
+                let suffix = $0.content.count > 200 ? "... (\($0.content.count)자)" : ""
+                return "[\($0.type.displayName)] \($0.title) (v\($0.version)):\n\(preview)\(suffix)"
             }.joined(separator: "\n---\n")
         } else {
             artifactContext = ""
@@ -2028,18 +2034,24 @@ class RoomManager: ObservableObject {
             ("user", "브리핑:\n\(briefingContext)\(artifactContext)\(playbookContext)\(attachmentContext)\(replanContext)\n\n실행 계획을 JSON으로 작성해주세요. 작업: \(task)")
         ]
 
+        speakingAgentIDByRoom[roomID] = firstAgentID
+
         do {
-            let response = try await provider.sendMessage(
+            // sendRouterMessage: 도구 비활성화 (계획 수립 중 파일 수정/셸 실행 방지)
+            let response = try await provider.sendRouterMessage(
                 model: agent.modelName,
                 systemPrompt: planSystemPrompt,
                 messages: planMessages
             )
+
+            speakingAgentIDByRoom.removeValue(forKey: roomID)
 
             // 계획 JSON은 내부 처리용 — 사용자에게 표시하지 않음
 
             // JSON 파싱
             return parsePlan(from: response)
         } catch {
+            speakingAgentIDByRoom.removeValue(forKey: roomID)
             let errorMsg = ChatMessage(
                 role: .assistant,
                 content: "계획 수립 실패: \(error.userFacingMessage)",
@@ -3380,13 +3392,18 @@ class RoomManager: ObservableObject {
         - 반드시 유효한 JSON으로만 응답하세요
         """
 
+        speakingAgentIDByRoom[roomID] = firstAgentID
+
         do {
             let lightModel = providerManager?.lightModelName(for: agent.providerName) ?? agent.modelName
-            let response = try await provider.sendMessage(
+            // sendRouterMessage: 도구 비활성화 (브리핑 요약 중 파일 수정 방지)
+            let response = try await provider.sendRouterMessage(
                 model: lightModel,
                 systemPrompt: briefingPrompt,
                 messages: history
             )
+
+            speakingAgentIDByRoom.removeValue(forKey: roomID)
 
             // JSON 파싱 → RoomBriefing
             if let briefing = parseBriefing(from: response) {
@@ -3420,6 +3437,7 @@ class RoomManager: ObservableObject {
                 appendMessage(reply, to: roomID)
             }
         } catch {
+            speakingAgentIDByRoom.removeValue(forKey: roomID)
             let errorMsg = ChatMessage(
                 role: .system,
                 content: "브리핑 생성 실패: \(error.userFacingMessage)",
@@ -3587,7 +3605,8 @@ class RoomManager: ObservableObject {
         """
 
         do {
-            let response = try await provider.sendMessage(
+            // sendRouterMessage: 도구 비활성화 (작업일지 생성 중 파일 수정 방지)
+            let response = try await provider.sendRouterMessage(
                 model: agent.modelName,
                 systemPrompt: logPrompt,
                 messages: history + [("user", "작업: \(task)")]

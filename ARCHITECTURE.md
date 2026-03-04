@@ -297,6 +297,7 @@ protocol AIProvider {
 - PATH에 nvm 경로 추가하여 node 의존성 해결
 - 시스템 프롬프트 + 대화 히스토리를 단일 프롬프트로 조합
 - **도구 활동 추적**: `onToolActivity` 콜백 전달 시 `--output-format stream-json`으로 NDJSON 스트리밍 → `StreamJsonHandler`가 실시간 `tool_use` 이벤트 파싱 → `ProgressActivityBubble`에 표시
+- **도구 정책**: `sendMessage()` = 도구 활성화 (`--allowedTools Edit Write Bash Read Glob Grep`), `sendRouterMessage()` = 도구 비활성화 (`--tools ""`). 계획 수립(`requestPlan`), 브리핑 생성(`generateBriefing`), 작업일지(`generateWorkLog`)는 `sendRouterMessage` 사용 — 계획 승인 전 파일 수정/셸 실행 방지.
 
 ### OpenAIProvider (`Providers/OpenAIProvider.swift`)
 
@@ -946,7 +947,7 @@ executeWithTools() 루프 (최대 10회):
 
 **승인 카드 UI** (`ApprovalCard`): 분석 결과 확인 + 추가 요구사항 입력 TextEditor + "승인"/"수정 요청" 버튼. 추가 입력이 있으면 "추가 후 승인" 표시. "수정 요청" 클릭 시 피드백이 방 메시지에 기록된 후 `rejectStep()`으로 재계획 트리거.
 
-**전문가 Solo 분석** (`executeSoloAnalysis`): 전문가 1명만 배정된 방에서 토론 대신 혼자 분석하여 결과 공유. `executePlanLite`/`executePlanExec`에서 `specialistCount == 1`일 때 자동 호출. **documentation intent는 스킵** — soloAnalysis 결과가 히스토리에 남아 Execute 단계에서 "이미 완성" 오판을 유발하므로 직접 문서 작성으로 진행.
+**전문가 Solo 분석** (`executeSoloAnalysis`): 전문가 1명만 배정된 방에서 토론 대신 혼자 분석하여 결과 공유. `executePlanLite`/`executePlanExec`에서 `specialistCount == 1`일 때 자동 호출. **documentation/implementation intent는 스킵** — documentation은 soloAnalysis 히스토리가 "이미 완성" 오판을 유발, implementation은 requestPlan이 브리핑 기반으로 계획 수립하므로 중복 방지 + API 1회 절감.
 
 **후속 사이클** (`launchFollowUpCycle`): 완료/실패 방에서 사용자 후속 질문 시 방 재활성화 → Intent 재분류 → clarify부터 워크플로우 재실행 (복명복창 포함). 규칙 기반 quickAnswer 확정 + 에이전트 변동 없으면 clarify/assemble 스킵 (즉답 빠른 경로). `previousCycleAgentCount`로 에이전트 추가/제거 감지.
 
@@ -960,13 +961,13 @@ executeWithTools() 루프 (최대 10회):
 - 단계 실행 실패(에러): `executeStep()` 반환값 `false` → 즉시 `.failed` 전환 + 중단.
 - 반복 응답 감지: 연속 단계에서 Jaccard 단어 유사도 > 60% → 에이전트가 stuck 상태로 판단 → `.failed` 전환 + 중단. (`wordOverlapSimilarity()`)
 
-**작업일지**: `executeRoomWork()` 완료 시 `generateWorkLog()` → 상태 전환 순서. `completeRoom()` (수동 완료)에서도 작업일지 생성.
+**작업일지**: `executePhaseWorkflow()` 완료 후 `generateWorkLog()`를 fire-and-forget `Task`로 비동기 실행 — 완료 UI 즉시 표시. `completeRoom()` (수동 완료)에서도 동일하게 비동기 생성.
 
 **QA 루프** (`runQALoop`): 빌드 루프 성공 후 `testCommand`가 있으면 자동 실행. `BuildLoopRunner.runTests()` → 실패 시 QA 에이전트(이름/페르소나에 "QA" 키워드 포함)에게 수정 프롬프트 → 재테스트 (최대 `maxQARetries`회).
 
 **컨텍스트 압축**: 토론 종료 후 `generateBriefing()`이 전체 히스토리를 JSON 브리핑으로 압축. 브리핑/계획 프롬프트에 `clarifySummary`(원래 사용자 요청) 포함 → 탈선 방지.
-- 계획 수립: 브리핑 + 산출물만 전달 (40msg → ~500토큰) + 원래 요청 앵커
-- 실행 단계: 브리핑 + 최근 5개 메시지 (`buildRoomHistory(limit: 5)`)
+- 계획 수립: 브리핑 + 산출물 프리뷰(200자) 전달 (40msg → ~500토큰) + 원래 요청 앵커
+- 실행 단계: 브리핑 + 최근 5개 메시지 (`buildRoomHistory(limit: 5)`) + 산출물 전체 내용
 - 브리핑 없으면 기존 히스토리 폴백
 
 **토론 산출물**: `executeDiscussionTurn()`에서 응답 파싱 → `ArtifactParser.extractArtifacts()` → `Room.artifacts` 저장. 같은 type+title이면 버전 증가.
@@ -1061,7 +1062,7 @@ executeWithTools() 루프 (최대 10회):
 **Plan 승인 피드백 루프** (E-8~E-11):
 - `requestPlan(previousPlan:feedback:)`: 거부된 이전 계획과 사용자 피드백을 재계획 프롬프트에 주입.
 - `executePlanExec` 승인 while 루프: 거부 → 피드백 추출 → 재계획 → 다시 승인 카드 (무제한).
-- `executeSoloAnalysis`: 전문가 1명 Solo 분석 (토론 대신). plan-lite/plan-exec에서 `specialistCount == 1`일 때 자동 호출. documentation intent는 스킵.
+- `executeSoloAnalysis`: 전문가 1명 Solo 분석 (토론 대신). plan-lite/plan-exec에서 `specialistCount == 1`일 때 자동 호출. documentation/implementation intent는 스킵.
 - `executeStep` documentation 강화: 문서 유형 템플릿 주입(`documentType.templatePromptBlock()`) + "이미 완성" 응답 금지 지침. Assemble에서 documentation은 코드 레벨 1명 제한.
 - `launchFollowUpCycle`: 완료/실패 방 후속 질문 → 방 재활성화 → assemble부터 경량 워크플로우.
 - `Room.canTransition`: `.completed → .planning`, `.failed → .planning` 전이 추가.
