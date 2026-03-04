@@ -43,6 +43,28 @@ class MockAIProvider: AIProvider {
         }
     }
 
+    // MARK: - 스트리밍 지원
+
+    var _supportsStreaming = false
+    var supportsStreaming: Bool { _supportsStreaming }
+    var streamingChunks: [String] = ["mock ", "stream ", "response"]
+
+    func sendMessageStreaming(
+        model: String,
+        systemPrompt: String,
+        messages: [(role: String, content: String)],
+        onChunk: @escaping @Sendable (String) -> Void
+    ) async throws -> String {
+        sendMessageCallCount += 1
+        lastSendMessageArgs = (model, systemPrompt, messages)
+        var full = ""
+        for chunk in streamingChunks {
+            onChunk(chunk)
+            full += chunk
+        }
+        return full
+    }
+
     // MARK: - Tool Use 지원
 
     var _supportsToolCalling = false

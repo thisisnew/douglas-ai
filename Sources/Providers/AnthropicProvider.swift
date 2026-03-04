@@ -48,6 +48,45 @@ class AnthropicProvider: AIProvider {
         return textContent ?? ""
     }
 
+    // MARK: - 스트리밍
+
+    var supportsStreaming: Bool { true }
+
+    func sendMessageStreaming(
+        model: String,
+        systemPrompt: String,
+        messages: [(role: String, content: String)],
+        onChunk: @escaping @Sendable (String) -> Void
+    ) async throws -> String {
+        guard let url = URL(string: "\(config.baseURL)/v1/messages") else {
+            throw AIProviderError.invalidURL
+        }
+        let apiMessages = messages.map { ["role": $0.role, "content": $0.content] }
+        var body: [String: Any] = [
+            "model": model, "max_tokens": 4096,
+            "messages": apiMessages, "stream": true
+        ]
+        if !systemPrompt.isEmpty { body["system"] = systemPrompt }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        request.timeoutInterval = 120
+        applyAuth(to: &request)
+
+        let (bytes, response) = try await session.bytes(for: request)
+        try validateHTTPResponse(response)
+
+        return try await SSEParser.consume(bytes: bytes, extractChunk: { payload in
+            guard let data = payload.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let delta = json["delta"] as? [String: Any],
+                  let text = delta["text"] as? String else { return nil }
+            return text
+        }, onChunk: onChunk)
+    }
+
     // MARK: - Tool Use 지원
 
     var supportsToolCalling: Bool { true }

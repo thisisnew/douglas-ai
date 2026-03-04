@@ -20,6 +20,17 @@ protocol AIProvider {
     /// 이 프로바이더가 네이티브 도구 호출을 지원하는지
     var supportsToolCalling: Bool { get }
 
+    /// 스트리밍 지원 여부
+    var supportsStreaming: Bool { get }
+
+    /// 텍스트를 청크 단위로 스트리밍 전송. 완성된 전체 텍스트를 반환.
+    func sendMessageStreaming(
+        model: String,
+        systemPrompt: String,
+        messages: [(role: String, content: String)],
+        onChunk: @escaping @Sendable (String) -> Void
+    ) async throws -> String
+
     /// 라우터 전용: 내장 도구 없이 메시지 전송 (Claude Code CLI에서 URL 직접 접근 방지)
     func sendRouterMessage(
         model: String,
@@ -49,9 +60,21 @@ enum AIProviderError: LocalizedError {
     }
 }
 
-/// 기본 구현: 도구 미지원 프로바이더용 폴백
+/// 기본 구현: 도구/스트리밍 미지원 프로바이더용 폴백
 extension AIProvider {
     var supportsToolCalling: Bool { false }
+    var supportsStreaming: Bool { false }
+
+    func sendMessageStreaming(
+        model: String,
+        systemPrompt: String,
+        messages: [(role: String, content: String)],
+        onChunk: @escaping @Sendable (String) -> Void
+    ) async throws -> String {
+        let result = try await sendMessage(model: model, systemPrompt: systemPrompt, messages: messages)
+        onChunk(result)
+        return result
+    }
 
     func sendRouterMessage(
         model: String,
@@ -164,6 +187,31 @@ private func classifyRawMessage(_ message: String) -> String {
     }
 
     return "일시적인 오류가 발생했습니다. 다시 시도해 주세요."
+}
+
+// MARK: - SSE 스트리밍 유틸리티
+
+/// SSE 라인 파서 (프로바이더 공용)
+enum SSEParser {
+    /// URLSession.AsyncBytes를 SSE 라인 단위로 파싱하여 청크 콜백 호출
+    static func consume(
+        bytes: URLSession.AsyncBytes,
+        extractChunk: @escaping (String) -> String?,
+        onChunk: @escaping @Sendable (String) -> Void
+    ) async throws -> String {
+        var accumulated = ""
+        for try await line in bytes.lines {
+            if line.hasPrefix("data: ") {
+                let payload = String(line.dropFirst(6))
+                if payload == "[DONE]" { break }
+                if let chunk = extractChunk(payload) {
+                    accumulated += chunk
+                    onChunk(chunk)
+                }
+            }
+        }
+        return accumulated
+    }
 }
 
 /// 공통 유틸리티 함수

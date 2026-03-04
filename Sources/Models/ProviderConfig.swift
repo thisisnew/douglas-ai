@@ -132,6 +132,17 @@ enum ProviderType: String, Codable, CaseIterable {
         }
     }
 
+    /// 분류, 라우팅, 브리핑 등 경량 작업용 기본 모델
+    var defaultLightModelName: String? {
+        switch self {
+        case .openAI:     return "gpt-4o-mini"
+        case .google:     return "gemini-2.0-flash"
+        case .anthropic:  return "claude-haiku-4-5"
+        case .claudeCode: return "claude-haiku-4-5"
+        default:          return nil
+        }
+    }
+
     var label: String {
         switch self {
         case .claudeCode: return "Claude Code (설치됨, 키 불필요)"

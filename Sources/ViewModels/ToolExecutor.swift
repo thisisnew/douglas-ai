@@ -140,25 +140,41 @@ enum ToolExecutor {
 
             case .toolCalls(let calls):
                 messages.append(.assistantToolCalls(calls, text: nil))
-                for call in calls {
-                    onToolActivity?("도구 호출: \(call.toolName)")
-                    let result = await executeSingleTool(call, context: context)
-                    onToolActivity?("도구 결과: \(call.toolName) → \(result.isError ? "오류" : "성공")")
+                let results = await executeToolCallsInParallel(calls, context: context)
+                for result in results {
+                    onToolActivity?("도구 결과: \(result.callID) → \(result.isError ? "오류" : "성공")")
                     messages.append(.toolResult(callID: result.callID, content: result.content, isError: result.isError))
                 }
 
             case .mixed(let text, let calls):
                 messages.append(.assistantToolCalls(calls, text: text))
-                for call in calls {
-                    onToolActivity?("도구 호출: \(call.toolName)")
-                    let result = await executeSingleTool(call, context: context)
-                    onToolActivity?("도구 결과: \(call.toolName) → \(result.isError ? "오류" : "성공")")
+                let results = await executeToolCallsInParallel(calls, context: context)
+                for result in results {
+                    onToolActivity?("도구 결과: \(result.callID) → \(result.isError ? "오류" : "성공")")
                     messages.append(.toolResult(callID: result.callID, content: result.content, isError: result.isError))
                 }
             }
         }
 
         throw AIProviderError.apiError("도구 호출 반복 횟수 초과 (최대 \(maxIterations)회)")
+    }
+
+    /// 도구 호출 병렬 실행: 결과를 원래 호출 순서대로 반환
+    private static func executeToolCallsInParallel(
+        _ calls: [ToolCall],
+        context: ToolExecutionContext
+    ) async -> [ToolResult] {
+        await withTaskGroup(of: (Int, ToolResult).self, returning: [ToolResult].self) { group in
+            for (idx, call) in calls.enumerated() {
+                group.addTask {
+                    let result = await executeSingleTool(call, context: context)
+                    return (idx, result)
+                }
+            }
+            var collected: [(Int, ToolResult)] = []
+            for await item in group { collected.append(item) }
+            return collected.sorted { $0.0 < $1.0 }.map(\.1)
+        }
     }
 
     // MARK: - 경로 검증

@@ -1,5 +1,14 @@
 import Foundation
 
+/// 스트리밍 청크 누적용 스레드-안전 버퍼
+private final class StreamBuffer: @unchecked Sendable {
+    private var _value = ""
+    func append(_ chunk: String) -> String {
+        _value += chunk
+        return _value
+    }
+}
+
 @MainActor
 class RoomManager: ObservableObject {
     @Published var rooms: [Room] = []
@@ -113,6 +122,13 @@ class RoomManager: ObservableObject {
         rooms[idx].messages.append(message)
         scheduleSave()
         pluginEventDelegate?(.messageAdded(roomID: roomID, message: message))
+    }
+
+    /// 스트리밍: 기존 메시지 content를 in-place로 업데이트
+    func updateMessageContent(_ messageID: UUID, newContent: String, in roomID: UUID) {
+        guard let roomIdx = rooms.firstIndex(where: { $0.id == roomID }),
+              let msgIdx = rooms[roomIdx].messages.firstIndex(where: { $0.id == messageID }) else { return }
+        rooms[roomIdx].messages[msgIdx].content = newContent
     }
 
     // MARK: - 승인 게이트
@@ -266,8 +282,9 @@ class RoomManager: ObservableObject {
             if let firstAgentID = rooms[idx].assignedAgentIDs.first,
                let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
                let provider = providerManager?.provider(named: agent.providerName) {
+                let lightModel = providerManager?.lightModelName(for: agent.providerName) ?? agent.modelName
                 resolvedIntent = await IntentClassifier.classifyWithLLM(
-                    task: task, provider: provider, model: agent.modelName
+                    task: task, provider: provider, model: lightModel
                 )
             }
         }
@@ -637,10 +654,11 @@ class RoomManager: ObservableObject {
                 return
             }
 
+            let lightModel = providerManager?.lightModelName(for: agent.providerName) ?? agent.modelName
             let suggested = await IntentClassifier.classifyWithLLM(
                 task: task,
                 provider: provider,
-                model: agent.modelName
+                model: lightModel
             )
 
             // 사용자 선택 UI 표시
@@ -670,10 +688,11 @@ class RoomManager: ObservableObject {
             return
         }
 
+        let lightModel = providerManager?.lightModelName(for: agent.providerName) ?? agent.modelName
         let newIntent = await IntentClassifier.classifyWithLLM(
             task: task,
             provider: provider,
-            model: agent.modelName
+            model: lightModel
         )
 
         // intent가 변경되면 업데이트 → while 루프가 새 requiredPhases로 재계산
@@ -809,17 +828,44 @@ class RoomManager: ObservableObject {
             }
 
             do {
-                let responseContent = try await provider.sendMessageWithTools(
-                    model: agent.modelName,
-                    systemPrompt: clarifySystemPrompt,
-                    messages: clarifyMessages,
-                    tools: []
+                // 스트리밍용 placeholder 메시지
+                let placeholderID = UUID()
+                let placeholder = ChatMessage(
+                    id: placeholderID, role: .assistant, content: "",
+                    agentName: agent.name
                 )
+                appendMessage(placeholder, to: roomID)
+
                 let response: String
-                switch responseContent {
-                case .text(let t): response = t
-                case .mixed(let t, _): response = t
-                case .toolCalls: response = "(요약 생성 실패)"
+                if provider.supportsStreaming {
+                    let simpleMessages = clarifyMessages.compactMap { msg -> (role: String, content: String)? in
+                        guard let content = msg.content else { return nil }
+                        return (role: msg.role, content: content)
+                    }
+                    let buffer = StreamBuffer()
+                    response = try await provider.sendMessageStreaming(
+                        model: agent.modelName,
+                        systemPrompt: clarifySystemPrompt,
+                        messages: simpleMessages,
+                        onChunk: { [weak self] chunk in
+                            let current = buffer.append(chunk)
+                            Task { @MainActor in
+                                self?.updateMessageContent(placeholderID, newContent: current, in: roomID)
+                            }
+                        }
+                    )
+                } else {
+                    let responseContent = try await provider.sendMessageWithTools(
+                        model: agent.modelName,
+                        systemPrompt: clarifySystemPrompt,
+                        messages: clarifyMessages,
+                        tools: []
+                    )
+                    switch responseContent {
+                    case .text(let t): response = t
+                    case .mixed(let t, _): response = t
+                    case .toolCalls: response = "(요약 생성 실패)"
+                    }
                 }
                 currentSummary = response
 
@@ -833,8 +879,8 @@ class RoomManager: ObservableObject {
                     }
                 }
 
-                let summaryMsg = ChatMessage(role: .assistant, content: response, agentName: agent.name)
-                appendMessage(summaryMsg, to: roomID)
+                // placeholder를 최종 텍스트로 업데이트
+                updateMessageContent(placeholderID, newContent: response, in: roomID)
             } catch {
                 let errorMsg = ChatMessage(
                     role: .assistant,
@@ -1042,8 +1088,9 @@ class RoomManager: ObservableObject {
         ]
 
         do {
+            let lightModel = providerManager?.lightModelName(for: agent.providerName) ?? agent.modelName
             let response = try await provider.sendMessage(
-                model: agent.modelName,
+                model: lightModel,
                 systemPrompt: assembleSystemPrompt,
                 messages: messages
             )
@@ -1454,8 +1501,9 @@ class RoomManager: ObservableObject {
         """
 
         do {
+            let lightModel = providerManager?.lightModelName(for: master.providerName) ?? master.modelName
             let response = try await provider.sendMessage(
-                model: master.modelName,
+                model: lightModel,
                 systemPrompt: "당신은 질문 라우터입니다. 전문가 이름만 한 줄로 출력하세요.",
                 messages: [("user", prompt)]
             )
@@ -2524,18 +2572,65 @@ class RoomManager: ObservableObject {
                 )
                 appendMessage(roundMsg, to: roomID)
 
-                // 각 에이전트 발언
-                for agentID in agentIDs {
-                    guard !Task.isCancelled,
-                          rooms.first(where: { $0.id == roomID })?.isActive == true else { break }
+                // 각 에이전트 발언 — 발산 라운드는 병렬, 수렴/합의는 순차
+                if roundType == .diverge && agentIDs.count > 1 {
+                    // 발산: 히스토리 스냅샷 기준으로 모든 에이전트 동시 실행
+                    let frozenHistory = buildDiscussionHistory(roomID: roomID, currentAgentName: nil)
+                        .map { msg in
+                            ConversationMessage(role: msg.role, content: msg.content,
+                                                toolCalls: nil, toolCallID: nil,
+                                                attachments: nil, isError: false)
+                        }
+                    // 첫 사용자 메시지를 히스토리 앞에 추가
+                    var fullHistory: [ConversationMessage] = []
+                    if let firstUserMsg = rooms.first(where: { $0.id == roomID })?.messages
+                        .first(where: { $0.role == .user && $0.messageType == .text }) {
+                        fullHistory.append(ConversationMessage.user(firstUserMsg.content))
+                    }
+                    fullHistory.append(contentsOf: frozenHistory)
 
-                    await executeDiscussionTurn(
-                        topic: topic,
-                        agentID: agentID,
-                        roomID: roomID,
-                        round: globalRound,
-                        roundType: roundType
-                    )
+                    var results: [(Int, ChatMessage, Bool)] = []
+                    await withTaskGroup(of: (Int, ChatMessage, Bool).self) { group in
+                        for (idx, agentID) in agentIDs.enumerated() {
+                            group.addTask { [weak self] in
+                                guard let self else {
+                                    return (idx, ChatMessage(role: .assistant, content: "", agentName: nil, messageType: .error), false)
+                                }
+                                let (msg, agreed) = await self.generateDiscussionResponse(
+                                    topic: topic, agentID: agentID, roomID: roomID,
+                                    round: globalRound, roundType: roundType,
+                                    frozenHistory: fullHistory
+                                )
+                                return (idx, msg, agreed)
+                            }
+                        }
+                        for await item in group { results.append(item) }
+                    }
+                    // 에이전트 순서대로 append
+                    for (_, msg, agreed) in results.sorted(by: { $0.0 < $1.0 }) {
+                        appendMessage(msg, to: roomID)
+                        if agreed, let agentName = msg.agentName,
+                           let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                            let decision = Self.parseDecisionContent(from: msg.content) ?? "합의 도달"
+                            rooms[i].decisionLog.append(DecisionEntry(
+                                round: globalRound, decision: decision, supporters: [agentName]
+                            ))
+                        }
+                    }
+                } else {
+                    // 수렴/합의: 순차 실행 (이전 에이전트 발언을 참고)
+                    for agentID in agentIDs {
+                        guard !Task.isCancelled,
+                              rooms.first(where: { $0.id == roomID })?.isActive == true else { break }
+
+                        await executeDiscussionTurn(
+                            topic: topic,
+                            agentID: agentID,
+                            roomID: roomID,
+                            round: globalRound,
+                            roundType: roundType
+                        )
+                    }
                 }
             }
 
@@ -2679,17 +2774,45 @@ class RoomManager: ObservableObject {
             agentStore?.updateStatus(agentID: agentID, status: .working)
             speakingAgentIDByRoom[roomID] = agentID
 
-            let responseContent = try await provider.sendMessageWithTools(
-                model: agent.modelName,
-                systemPrompt: discussionPrompt,
-                messages: history,
-                tools: []
+            // 스트리밍용 placeholder 메시지 — 청크가 실시간으로 표시됨
+            let placeholderID = UUID()
+            let placeholder = ChatMessage(
+                id: placeholderID, role: .assistant, content: "",
+                agentName: agent.name, messageType: .discussion
             )
+            appendMessage(placeholder, to: roomID)
+
+            // 스트리밍 전송: 청크마다 placeholder 업데이트
+            let simpleHistory = history.compactMap { msg -> (role: String, content: String)? in
+                guard let content = msg.content else { return nil }
+                return (role: msg.role, content: content)
+            }
+            let buffer = StreamBuffer()
             let response: String
-            switch responseContent {
-            case .text(let t): response = t
-            case .toolCalls: response = "[합의]"
-            case .mixed(let t, _): response = t
+            if provider.supportsStreaming {
+                response = try await provider.sendMessageStreaming(
+                    model: agent.modelName,
+                    systemPrompt: discussionPrompt,
+                    messages: simpleHistory,
+                    onChunk: { [weak self] chunk in
+                        let current = buffer.append(chunk)
+                        Task { @MainActor in
+                            self?.updateMessageContent(placeholderID, newContent: current, in: roomID)
+                        }
+                    }
+                )
+            } else {
+                let responseContent = try await provider.sendMessageWithTools(
+                    model: agent.modelName,
+                    systemPrompt: discussionPrompt,
+                    messages: history,
+                    tools: []
+                )
+                switch responseContent {
+                case .text(let t): response = t
+                case .toolCalls: response = "[합의]"
+                case .mixed(let t, _): response = t
+                }
             }
 
             speakingAgentIDByRoom.removeValue(forKey: roomID)
@@ -2727,8 +2850,8 @@ class RoomManager: ObservableObject {
             }
             let displayResponse = ArtifactParser.stripArtifactBlocks(from: cleanResponse)
 
-            let reply = ChatMessage(role: .assistant, content: displayResponse.isEmpty ? cleanResponse : displayResponse, agentName: agent.name, messageType: .discussion)
-            appendMessage(reply, to: roomID)
+            // placeholder를 최종 정리된 텍스트로 업데이트
+            updateMessageContent(placeholderID, newContent: displayResponse.isEmpty ? cleanResponse : displayResponse, in: roomID)
 
             return agreed
         } catch {
@@ -2741,6 +2864,123 @@ class RoomManager: ObservableObject {
             )
             appendMessage(errorMsg, to: roomID)
             return false
+        }
+    }
+
+    /// 병렬 실행용: 토론 응답만 생성하고 Room에 append하지 않음 (발산 라운드용)
+    private func generateDiscussionResponse(
+        topic: String,
+        agentID: UUID,
+        roomID: UUID,
+        round: Int,
+        roundType: DiscussionRoundType,
+        frozenHistory: [ConversationMessage]
+    ) async -> (message: ChatMessage, agreed: Bool) {
+        guard let agent = agentStore?.agents.first(where: { $0.id == agentID }),
+              let provider = providerManager?.provider(named: agent.providerName) else {
+            return (ChatMessage(role: .assistant, content: "에이전트 없음", agentName: nil, messageType: .error), false)
+        }
+
+        // 동료 정보 구성
+        let roomRef = rooms.first(where: { $0.id == roomID })
+        let otherAgents = roomRef?.assignedAgentIDs
+            .compactMap { id in agentStore?.agents.first(where: { $0.id == id }) }
+            .filter { $0.id != agentID } ?? []
+        let masterAgent = otherAgents.first(where: { $0.isMaster })
+        let specialists = otherAgents.filter { !$0.isMaster }
+        let specialistDesc = specialists.map { $0.name }.joined(separator: ", ")
+        let otherNames = otherAgents.map { $0.name }.joined(separator: ", ")
+        let isMasterAgent = agent.isMaster
+
+        let clarifyText = roomRef?.clarifySummary ?? ""
+        let anchorBlock = clarifyText.isEmpty ? "" : """
+
+        [사용자 확인 요약 — 이 범위를 벗어나지 마세요]
+        \(clarifyText)
+        """
+        let roundInstruction = roundType.instruction
+
+        let discussionPrompt: String
+        if isMasterAgent {
+            discussionPrompt = """
+            당신은 \(agent.name)입니다. 이 토론의 진행자 역할을 합니다:
+            - 전문가에게 사용자의 요구사항을 간결하게 전달
+            - 전문가의 질문에 답변
+            - 작업 방향이 맞는지 확인하고, 전문가의 업무를 대신 수행하지 않습니다
+            \(anchorBlock)
+
+            [절대 금지] 다른 에이전트(\(specialistDesc)) 역할로 발언하거나, 그들의 발언을 대신 작성
+            [절대 금지] **[백엔드 개발자]** 등 다른 이름으로 발언 — 반드시 \(agent.name)으로만 발언
+            [절대 금지] 번역, 코딩, 문서 작성 등 실제 작업 수행
+
+            [회의실] \(topic)
+            라운드 \(round + 1) | 전문가: \(specialistDesc)
+            \(roundInstruction)
+
+            \(agent.name)으로서 2문장 이내로 발언하세요. 전문가들은 별도로 자기 차례에 발언합니다.
+            이름 헤더(**[이름]** 등)를 붙이지 마세요. UI가 화자를 표시합니다.
+            발언 마지막 줄에 [합의] 또는 [계속] 태그를 붙이세요.
+            """
+        } else {
+            let masterNote = masterAgent != nil ? "\(masterAgent!.name)은 진행자입니다. 전문적인 질문은 다른 전문가에게 직접 하세요." : ""
+            discussionPrompt = """
+            \(agent.resolvedSystemPrompt)
+            \(anchorBlock)
+
+            [회의실] \(topic)
+            라운드 \(round + 1) | 동료: \(otherNames)
+            \(masterNote)
+            \(roundInstruction)
+
+            첨부된 이미지나 파일이 있으면 내용을 확인하고 참고하세요.
+            2-4문장으로 핵심만 말하세요.
+            이름 헤더(**[이름]** 등)를 붙이지 마세요. UI가 화자를 표시합니다.
+            발언 마지막 줄에 [합의] 또는 [계속] 태그를 붙이세요.
+            """
+        }
+
+        do {
+            agentStore?.updateStatus(agentID: agentID, status: .working)
+
+            // 병렬 실행이므로 비스트리밍 (placeholder 충돌 방지)
+            let responseContent = try await provider.sendMessageWithTools(
+                model: agent.modelName,
+                systemPrompt: discussionPrompt,
+                messages: frozenHistory,
+                tools: []
+            )
+            let response: String
+            switch responseContent {
+            case .text(let t): response = t
+            case .toolCalls: response = "[합의]"
+            case .mixed(let t, _): response = t
+            }
+
+            agentStore?.updateStatus(agentID: agentID, status: .idle)
+
+            let agreed = Self.detectConsensus(in: response)
+            let cleanResponse = response
+                .replacingOccurrences(of: "\\[합의(?::[^\\]]*)?\\]", with: "", options: .regularExpression)
+                .replacingOccurrences(of: "[계속]", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let displayResponse = ArtifactParser.stripArtifactBlocks(from: cleanResponse)
+
+            let msg = ChatMessage(
+                role: .assistant,
+                content: displayResponse.isEmpty ? cleanResponse : displayResponse,
+                agentName: agent.name,
+                messageType: .discussion
+            )
+            return (msg, agreed)
+        } catch {
+            agentStore?.updateStatus(agentID: agentID, status: .idle)
+            let errorMsg = ChatMessage(
+                role: .assistant,
+                content: "발언 실패: \(error.userFacingMessage)",
+                agentName: agent.name,
+                messageType: .error
+            )
+            return (errorMsg, false)
         }
     }
 
@@ -2783,8 +3023,9 @@ class RoomManager: ObservableObject {
         """
 
         do {
+            let lightModel = providerManager?.lightModelName(for: agent.providerName) ?? agent.modelName
             let response = try await provider.sendMessage(
-                model: agent.modelName,
+                model: lightModel,
                 systemPrompt: briefingPrompt,
                 messages: history
             )

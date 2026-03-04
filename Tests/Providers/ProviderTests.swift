@@ -216,10 +216,24 @@ struct ProviderTests {
 
     // MARK: - Google Provider
 
-    @Test("Google fetchModels - 하드코딩")
-    func googleFetchModels() async throws {
+    @Test("Google fetchModels - API 키 없으면 noAPIKey 에러")
+    func googleFetchModelsNoKey() async throws {
         let config = makeTestProviderConfig(type: .google, baseURL: "https://generativelanguage.googleapis.com")
         let provider = GoogleProvider(config: config)
+        await #expect(throws: AIProviderError.self) {
+            _ = try await provider.fetchModels()
+        }
+    }
+
+    @Test("Google fetchModels - fallback 모델 목록")
+    func googleFetchModelsFallback() async throws {
+        let (session, testID) = makeMockSession { request in
+            let body: [String: Any] = ["models": []]
+            return (mockHTTPResponse(url: request.url!.absoluteString), try! JSONSerialization.data(withJSONObject: body))
+        }
+        defer { MockURLProtocol.removeHandler(for: testID) }
+        let config = ProviderConfig(name: "Google", type: .google, baseURL: "https://generativelanguage.googleapis.com", authMethod: .apiKey, apiKey: "test-key-google")
+        let provider = GoogleProvider(config: config, session: session)
         let models = try await provider.fetchModels()
         #expect(models.contains("gemini-2.0-flash"))
     }

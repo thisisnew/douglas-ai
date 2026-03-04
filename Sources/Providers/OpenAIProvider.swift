@@ -67,6 +67,45 @@ class OpenAIProvider: AIProvider {
         return content ?? ""
     }
 
+    // MARK: - 스트리밍
+
+    var supportsStreaming: Bool { true }
+
+    func sendMessageStreaming(
+        model: String,
+        systemPrompt: String,
+        messages: [(role: String, content: String)],
+        onChunk: @escaping @Sendable (String) -> Void
+    ) async throws -> String {
+        guard let url = URL(string: "\(config.baseURL)/v1/chat/completions") else {
+            throw AIProviderError.invalidURL
+        }
+        var allMessages: [[String: String]] = []
+        if !systemPrompt.isEmpty { allMessages.append(["role": "system", "content": systemPrompt]) }
+        for msg in messages { allMessages.append(["role": msg.role, "content": msg.content]) }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": model, "messages": allMessages, "stream": true
+        ] as [String: Any])
+        request.timeoutInterval = 120
+        applyAuth(to: &request)
+
+        let (bytes, response) = try await session.bytes(for: request)
+        try validateHTTPResponse(response)
+
+        return try await SSEParser.consume(bytes: bytes, extractChunk: { payload in
+            guard let data = payload.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let choices = json["choices"] as? [[String: Any]],
+                  let delta = choices.first?["delta"] as? [String: Any],
+                  let content = delta["content"] as? String else { return nil }
+            return content
+        }, onChunk: onChunk)
+    }
+
     // MARK: - Tool Use 지원
 
     var supportsToolCalling: Bool { true }

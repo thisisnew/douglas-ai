@@ -28,7 +28,7 @@ enum MessageType: String, Codable {
 struct ChatMessage: Identifiable, Codable {
     let id: UUID
     let role: MessageRole
-    let content: String
+    var content: String
     let agentName: String?
     let timestamp: Date
     var messageType: MessageType

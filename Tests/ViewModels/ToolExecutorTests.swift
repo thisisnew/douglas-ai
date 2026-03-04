@@ -156,9 +156,9 @@ struct ToolExecutorTests {
             initialMessages: messages, tools: ToolRegistry.allTools,
             onToolActivity: { activities.append($0) }
         )
-        #expect(activities.count == 2)
-        #expect(activities[0].contains("도구 호출"))
-        #expect(activities[1].contains("도구 결과"))
+        // 병렬 실행: 결과 콜백만 호출됨
+        #expect(activities.count == 1)
+        #expect(activities[0].contains("도구 결과"))
     }
 
     @Test("executeWithTools — 여러 도구 동시 호출")
@@ -181,8 +181,8 @@ struct ToolExecutorTests {
             onToolActivity: { _ in activityCount += 1 }
         )
         #expect(result == "all done")
-        // 2 calls × 2 activities (호출 + 결과) = 4
-        #expect(activityCount == 4)
+        // 병렬 실행: 결과 콜백만 (도구 2개 × 1 결과)
+        #expect(activityCount == 2)
     }
 
     @Test("executeWithTools — 프로바이더 오류 전파")

@@ -81,6 +81,53 @@ class GoogleProvider: AIProvider {
         return result.candidates?.first?.content?.parts?.compactMap { $0.text }.joined() ?? ""
     }
 
+    // MARK: - 스트리밍
+
+    var supportsStreaming: Bool { true }
+
+    func sendMessageStreaming(
+        model: String,
+        systemPrompt: String,
+        messages: [(role: String, content: String)],
+        onChunk: @escaping @Sendable (String) -> Void
+    ) async throws -> String {
+        guard let key = config.apiKey, !key.isEmpty else { throw AIProviderError.noAPIKey }
+        let urlString = "\(config.baseURL)/v1beta/models/\(model):streamGenerateContent?alt=sse"
+        guard let url = URL(string: urlString) else { throw AIProviderError.invalidURL }
+
+        var contents: [[String: Any]] = []
+        for msg in messages {
+            contents.append([
+                "role": msg.role == "assistant" ? "model" : "user",
+                "parts": [["text": msg.content]]
+            ])
+        }
+        var body: [String: Any] = ["contents": contents]
+        if !systemPrompt.isEmpty {
+            body["systemInstruction"] = ["parts": [["text": systemPrompt]]]
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(key, forHTTPHeaderField: "x-goog-api-key")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        request.timeoutInterval = 120
+
+        let (bytes, response) = try await session.bytes(for: request)
+        try validateHTTPResponse(response)
+
+        return try await SSEParser.consume(bytes: bytes, extractChunk: { payload in
+            guard let data = payload.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let candidates = json["candidates"] as? [[String: Any]],
+                  let content = candidates.first?["content"] as? [String: Any],
+                  let parts = content["parts"] as? [[String: Any]],
+                  let text = parts.first?["text"] as? String else { return nil }
+            return text
+        }, onChunk: onChunk)
+    }
+
     // MARK: - Tool Use 지원
 
     var supportsToolCalling: Bool { true }

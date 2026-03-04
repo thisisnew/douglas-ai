@@ -116,6 +116,12 @@ class ProviderManager: ObservableObject {
         return createProvider(from: config)
     }
 
+    /// 경량 작업(분류, 라우팅, 브리핑)용 모델 이름 반환
+    func lightModelName(for providerName: String) -> String? {
+        guard let config = configs.first(where: { $0.name == providerName }) else { return nil }
+        return config.type.defaultLightModelName
+    }
+
     func createProvider(from config: ProviderConfig) -> AIProvider {
         switch config.type {
         case .claudeCode:  return ClaudeCodeProvider(config: config)

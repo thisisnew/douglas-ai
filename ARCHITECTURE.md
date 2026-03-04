@@ -269,6 +269,14 @@ protocol AIProvider {
 - `applyAuth(to:)` 확장: AuthMethod에 따라 Bearer/x-api-key/커스텀 헤더 자동 적용
 - `AIProviderError`: invalidURL, invalidResponse, apiError, networkError, noAPIKey
 - **Tool Use default 구현**: `supportsToolCalling = false`, tools 무시하고 기존 `sendMessage()` 폴백
+- **스트리밍**: `supportsStreaming`, `sendMessageStreaming(onChunk:)` — SSE 기반 실시간 텍스트 전송. `SSEParser.consume(bytes:extractChunk:onChunk:)` 공용 유틸리티. Anthropic/OpenAI/Google 3개 프로바이더 지원, ClaudeCode는 폴백.
+
+### 속도 최적화
+
+- **SSE 스트리밍** (`sendMessageStreaming`): 토론 턴/복명복창에서 placeholder 메시지 생성 → 청크마다 `updateMessageContent`로 실시간 업데이트. TTFT ~500ms.
+- **도구 병렬 실행** (`ToolExecutor.executeToolCallsInParallel`): 모델이 반환한 다중 도구 호출을 `withTaskGroup`으로 동시 실행. 인덱스 기준 정렬 후 순서 보장.
+- **모델 티어링**: `ProviderType.defaultLightModelName` (OpenAI→gpt-4o-mini, Google→gemini-2.0-flash, Anthropic→claude-haiku-4-5). `ProviderManager.lightModelName(for:)` 헬퍼. 적용 대상: IntentClassifier, routeQuickAnswer, executeAssemblePhase, generateBriefing.
+- **발산 라운드 병렬화**: `.diverge` 라운드에서 `generateDiscussionResponse` + `withTaskGroup`으로 에이전트 동시 실행. 수렴/합의는 순차 유지.
 
 ### ClaudeCodeProvider (`Providers/ClaudeCodeProvider.swift`)
 
@@ -904,7 +912,7 @@ executeWithTools() 루프 (최대 10회):
   - `.skip`: Plan 단계 건너뜀 (quickAnswer)
   - `.lite`: 토론(필요 시) + 산출물 정리만 (research)
   - `.exec`: 토론(필요 시) + 계획 수립 + 승인(implementation만) (documentation, implementation)
-- **토론 알고리즘** (`executeDiscussion`): 발산→수렴→합의 = 1사이클. 매 사이클 후 사용자 체크포인트 (DiscussionCheckpointCard). 사용자 피드백 시 새 사이클, "진행" 시 브리핑으로. 최대 3사이클 (9라운드). `DiscussionRoundType`: `.diverge`(발산) / `.converge`(수렴) / `.conclude`(합의) — 각 라운드마다 목적별 프롬프트 지시. 모든 에이전트 프롬프트에 `clarifySummary` 앵커링 포함.
+- **토론 알고리즘** (`executeDiscussion`): 발산→수렴→합의 = 1사이클. 매 사이클 후 사용자 체크포인트 (DiscussionCheckpointCard). 사용자 피드백 시 새 사이클, "진행" 시 브리핑으로. 최대 3사이클 (9라운드). `DiscussionRoundType`: `.diverge`(발산) / `.converge`(수렴) / `.conclude`(합의) — 각 라운드마다 목적별 프롬프트 지시. 모든 에이전트 프롬프트에 `clarifySummary` 앵커링 포함. **발산 라운드 병렬화**: `.diverge` 라운드에서 모든 에이전트가 동일 히스토리 스냅샷 기준으로 동시 실행 (`generateDiscussionResponse` + `withTaskGroup`). 수렴/합의는 순차 유지.
 - **quickAnswer** (`executeQuickAnswer`): 전문가 1명이 도구 포함 즉답
 - **실행 시 마스터 제외** (`executingAgentIDs`): `agent.isMaster`이면 실행 대상에서 제외
 - **계획 수립**: 전문가가 생성 (마스터 제외). 계획 JSON은 사용자에게 숨김.
