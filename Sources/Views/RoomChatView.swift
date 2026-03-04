@@ -1276,6 +1276,7 @@ struct UserInputCard: View {
                                     RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
                                         .strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1)
                                 )
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .onHover { hovering in
@@ -1396,6 +1397,10 @@ struct IntentSelectionCard: View {
     let suggestedIntent: WorkflowIntent
     @EnvironmentObject var roomManager: RoomManager
     @Environment(\.colorPalette) private var palette
+    @State private var selectedIndex: Int = 0
+    @FocusState private var isFocused: Bool
+
+    private let intents = WorkflowIntent.allCases
 
     var body: some View {
         CardContainer(accentColor: .teal, opacity: 0.08) {
@@ -1408,12 +1413,13 @@ struct IntentSelectionCard: View {
                         .font(.caption2.bold())
                         .foregroundColor(.primary)
                     Spacer()
+                    Text("↑↓ 선택  ↵ 확인")
+                        .font(.system(size: 9, design: .rounded))
+                        .foregroundColor(.secondary.opacity(0.6))
                 }
 
-                // Intent 버튼 리스트 (설명 포함)
-                let intents = WorkflowIntent.allCases
                 VStack(spacing: 4) {
-                    ForEach(intents, id: \.self) { intent in
+                    ForEach(Array(intents.enumerated()), id: \.element) { index, intent in
                         Button {
                             roomManager.selectIntent(roomID: roomID, intent: intent)
                         } label: {
@@ -1439,20 +1445,55 @@ struct IntentSelectionCard: View {
                             }
                             .padding(.vertical, 6)
                             .padding(.horizontal, 8)
-                            .background(intent == suggestedIntent ? Color.teal.opacity(0.08) : palette.inputBackground)
-                            .foregroundColor(intent == suggestedIntent ? .teal.opacity(0.7) : .primary)
+                            .background(
+                                index == selectedIndex
+                                    ? Color.teal.opacity(0.12)
+                                    : (intent == suggestedIntent ? Color.teal.opacity(0.08) : palette.inputBackground)
+                            )
+                            .foregroundColor(index == selectedIndex ? .teal : (intent == suggestedIntent ? .teal.opacity(0.7) : .primary))
                             .continuousRadius(DesignTokens.CozyGame.cardRadius)
                             .overlay(
                                 RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
                                     .strokeBorder(
-                                        intent == suggestedIntent ? Color.teal.opacity(0.2) : palette.cardBorder.opacity(0.1),
-                                        lineWidth: 1
+                                        index == selectedIndex ? Color.teal.opacity(0.4) : (intent == suggestedIntent ? Color.teal.opacity(0.2) : palette.cardBorder.opacity(0.1)),
+                                        lineWidth: index == selectedIndex ? 1.5 : 1
                                     )
                             )
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }
                 }
+            }
+        }
+        .focusable()
+        .focused($isFocused)
+        .onKeyPress(.upArrow) {
+            selectedIndex = max(0, selectedIndex - 1)
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            selectedIndex = min(intents.count - 1, selectedIndex + 1)
+            return .handled
+        }
+        .onKeyPress(.return) {
+            roomManager.selectIntent(roomID: roomID, intent: intents[selectedIndex])
+            return .handled
+        }
+        .onKeyPress(characters: .decimalDigits) { press in
+            if let num = Int(press.characters), num >= 1, num <= intents.count {
+                roomManager.selectIntent(roomID: roomID, intent: intents[num - 1])
+                return .handled
+            }
+            return .ignored
+        }
+        .onAppear {
+            // 추천 intent를 초기 선택으로
+            if let idx = intents.firstIndex(of: suggestedIntent) {
+                selectedIndex = idx
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isFocused = true
             }
         }
     }
