@@ -247,17 +247,19 @@ class ClaudeCodeProvider: AIProvider {
             args = ["-p", prompt, "--model", model]
         }
 
-        // 시스템 프롬프트가 있으면 --system-prompt로 분리 전달
-        if !systemPrompt.isEmpty {
-            args += ["--system-prompt", systemPrompt]
-        }
-
-        // 라우터 모드: 내장 도구 비활성화 (URL 직접 접근/파일 조작 방지)
+        // 라우터 모드: 내장 도구 비활성화 + 시스템 프롬프트 교체 (도구 지침 불필요)
         if disableTools {
+            if !systemPrompt.isEmpty {
+                args += ["--system-prompt", systemPrompt]
+            }
             args += ["--tools", ""]
         } else {
+            // 에이전트 모드: Claude Code 기본 프롬프트(도구 사용법 포함) 유지 + 페르소나 추가
+            if !systemPrompt.isEmpty {
+                args += ["--append-system-prompt", systemPrompt]
+            }
             // 비대화형 모드(-p)에서 도구 승인 프롬프트 없이 실행
-            args += ["--allowedTools", "Edit", "Write", "Bash"]
+            args += ["--allowedTools", "Edit", "Write", "Bash", "Read", "Glob", "Grep"]
         }
 
         // 특정 도구만 선택적으로 차단 (바이브코딩 유지하면서 WebFetch 등 차단)
