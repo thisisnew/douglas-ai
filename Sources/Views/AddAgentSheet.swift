@@ -29,36 +29,39 @@ struct AddAgentSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             SheetNavHeader(title: "새 에이전트") {
-                Button("취소") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                    .buttonStyle(.plain)
-                    .font(.system(size: DesignTokens.FontSize.body, weight: .medium, design: .rounded))
-                    .foregroundColor(palette.textSecondary)
-                Button {
-                    AgentPorter.importAgents(into: agentStore)
-                    dismiss()
-                } label: {
-                    Label("가져오기", systemImage: "square.and.arrow.down")
-                        .font(.system(size: DesignTokens.FontSize.body, weight: .medium, design: .rounded))
+                HStack(spacing: 12) {
+                    Button("취소") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
+
+                    Button {
+                        AgentPorter.importAgents(into: agentStore)
+                        dismiss()
+                    } label: {
+                        Image(systemName: "square.and.arrow.down")
+                    }
+                    .help("에이전트 가져오기")
                 }
                 .buttonStyle(.plain)
+                .font(.system(size: DesignTokens.FontSize.body, weight: .medium, design: .rounded))
                 .foregroundColor(palette.textSecondary)
             } trailing: {
-                Button("추가") {
+                Button {
                     if isFormValid {
                         addAgent()
                     } else {
                         withAnimation(.dgStandard) { showValidation = true }
                     }
+                } label: {
+                    Text("추가")
+                        .font(.system(size: DesignTokens.FontSize.body, weight: .semibold, design: .rounded))
+                        .foregroundColor(palette.userBubbleText)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(palette.accent, in: Capsule())
+                        .contentShape(Capsule())
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.plain)
-                .font(.system(size: DesignTokens.FontSize.body, weight: .semibold, design: .rounded))
-                .foregroundColor(palette.userBubbleText)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
-                .background(palette.accent, in: Capsule())
-                .contentShape(Capsule())
             }
 
             ScrollView {
