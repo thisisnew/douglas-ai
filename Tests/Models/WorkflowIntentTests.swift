@@ -10,14 +10,13 @@ struct WorkflowIntentTests {
     @Test("WorkflowPhase — 전체 케이스 존재")
     func workflowPhaseAllCases() {
         let all = WorkflowPhase.allCases
-        #expect(all.count == 7)
+        #expect(all.count == 6)
         #expect(all.contains(.intake))
         #expect(all.contains(.intent))
         #expect(all.contains(.clarify))
         #expect(all.contains(.assemble))
         #expect(all.contains(.plan))
         #expect(all.contains(.execute))
-        #expect(all.contains(.review))
     }
 
     @Test("WorkflowPhase rawValue")
@@ -28,7 +27,6 @@ struct WorkflowIntentTests {
         #expect(WorkflowPhase.assemble.rawValue == "assemble")
         #expect(WorkflowPhase.plan.rawValue == "plan")
         #expect(WorkflowPhase.execute.rawValue == "execute")
-        #expect(WorkflowPhase.review.rawValue == "review")
     }
 
     @Test("WorkflowPhase displayName 비어있지 않음")
@@ -93,14 +91,13 @@ struct WorkflowIntentTests {
             #expect(phases.contains(.intent))
             #expect(phases.contains(.clarify))
             #expect(phases.contains(.assemble))
-            #expect(phases.contains(.review))
         }
     }
 
-    @Test("implementation — 전체 7단계 포함")
+    @Test("implementation — 전체 6단계 포함")
     func implementationPhases() {
         let phases = WorkflowIntent.implementation.requiredPhases
-        #expect(phases.count == 7)
+        #expect(phases.count == 6)
         #expect(phases.contains(.plan))
         #expect(phases.contains(.execute))
     }
@@ -110,14 +107,14 @@ struct WorkflowIntentTests {
         let phases = WorkflowIntent.quickAnswer.requiredPhases
         #expect(!phases.contains(.plan))
         #expect(phases.contains(.execute))
-        #expect(phases.count == 6) // intake, intent, clarify, assemble, execute, review
+        #expect(phases.count == 5) // intake, intent, clarify, assemble, execute
     }
 
-    @Test("research — Plan 포함, Execute 미포함")
+    @Test("research — Execute 포함, Plan 미포함")
     func researchPhases() {
         let phases = WorkflowIntent.research.requiredPhases
-        #expect(phases.contains(.plan))
-        #expect(!phases.contains(.execute))
+        #expect(!phases.contains(.plan))
+        #expect(phases.contains(.execute))
     }
 
     // MARK: - PlanMode
@@ -157,15 +154,11 @@ struct WorkflowIntentTests {
         }
     }
 
-    @Test("실행 포함 여부")
+    @Test("실행 포함 여부 — 모든 Intent가 execute 포함")
     func includesExecution() {
-        // Execute 포함
-        #expect(WorkflowIntent.quickAnswer.includesExecution == true)
-        #expect(WorkflowIntent.documentation.includesExecution == true)
-        #expect(WorkflowIntent.implementation.includesExecution == true)
-
-        // Execute 미포함
-        #expect(WorkflowIntent.research.includesExecution == false)
+        for intent in WorkflowIntent.allCases {
+            #expect(intent.includesExecution == true)
+        }
     }
 
     // MARK: - 레거시 호환 (Codable)

@@ -2,15 +2,14 @@ import Foundation
 
 // MARK: - 워크플로우 단계
 
-/// 7단계 워크플로우의 개별 단계
+/// 6단계 워크플로우의 개별 단계
 enum WorkflowPhase: String, Codable, CaseIterable {
     case intake       // ① 입력 파싱 (Jira fetch 등)
     case intent       // ② 작업 목적 확인
     case clarify      // ③ 요구사항 컨펌 (사용자 확인까지 루프)
     case assemble     // ④ 역할 매칭 + 에이전트 초대
     case plan         // ⑤ 토론 + 계획 수립
-    case execute      // ⑥ 단계별 병렬 실행
-    case review       // ⑦ 검증 + 작업일지
+    case execute      // ⑥ 실행 (즉답 / 토론+브리핑 / 단계별 실행)
 
     var displayName: String {
         switch self {
@@ -20,7 +19,6 @@ enum WorkflowPhase: String, Codable, CaseIterable {
         case .assemble: return "팀 구성"
         case .plan:     return "계획 수립"
         case .execute:  return "실행"
-        case .review:   return "검토"
         }
     }
 }
@@ -41,7 +39,7 @@ enum WorkflowIntent: String, CaseIterable {
     case quickAnswer            // 단순 질문/번역
     case research               // 리서치/분석/토론 (brainstorm, 요건분석, 테스트계획, 작업분해 통합)
     case documentation          // 기획/문서 작성
-    case implementation         // 구현: 전체 7단계
+    case implementation         // 구현: 전체 6단계
 
     var displayName: String {
         switch self {
@@ -106,21 +104,21 @@ enum WorkflowIntent: String, CaseIterable {
 
     /// 이 의도에 필요한 워크플로우 단계 목록
     /// 공통: intake → intent → clarify → assemble
-    /// 분기: planMode에 따라 plan/execute/review 조합
+    /// 분기: planMode에 따라 plan/execute 조합
     var requiredPhases: [WorkflowPhase] {
         switch self {
         case .quickAnswer:
-            // 즉답도 요건 확인 포함 — UX 일관성 + 사용자 조정 기회 보장
-            return [.intake, .intent, .clarify, .assemble, .execute, .review]
+            // 즉답: plan 스킵, 바로 execute
+            return [.intake, .intent, .clarify, .assemble, .execute]
         case .research:
-            // Plan-lite → 토론/정리만, 실행 없음
-            return [.intake, .intent, .clarify, .assemble, .plan, .review]
+            // 리서치: 토론/분석 (execute에서 수행)
+            return [.intake, .intent, .clarify, .assemble, .execute]
         case .documentation:
             // Plan-exec → 계획 수립 + 실행
-            return [.intake, .intent, .clarify, .assemble, .plan, .execute, .review]
+            return [.intake, .intent, .clarify, .assemble, .plan, .execute]
         case .implementation:
             // 풀 워크플로우: 토론 + 계획 + 승인 + 실행
-            return [.intake, .intent, .clarify, .assemble, .plan, .execute, .review]
+            return [.intake, .intent, .clarify, .assemble, .plan, .execute]
         }
     }
 

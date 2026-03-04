@@ -69,7 +69,9 @@ struct RoomManagerTests {
 
             // 사용자 입력 대기 → 자동 응답
             if room.status == .awaitingUserInput {
-                manager.answerUserQuestion(roomID: roomID, answer: "확인")
+                // 토론 체크포인트 → 빈 문자열로 토론 종료, 그 외 → "확인"
+                let answer = room.isDiscussionCheckpoint ? "" : "확인"
+                manager.answerUserQuestion(roomID: roomID, answer: answer)
             }
 
             // 에이전트 제안 → 모든 제안 거절하여 continuation 해제
@@ -615,7 +617,8 @@ struct RoomManagerTests {
                 manager.approveStep(roomID: room.id)
             }
             if current.status == .awaitingUserInput {
-                manager.answerUserQuestion(roomID: room.id, answer: "확인")
+                let answer = current.isDiscussionCheckpoint ? "" : "확인"
+                manager.answerUserQuestion(roomID: room.id, answer: answer)
             }
             for s in current.pendingAgentSuggestions where s.status == .pending {
                 manager.rejectAgentSuggestion(suggestionID: s.id, in: room.id)

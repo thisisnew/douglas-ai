@@ -69,7 +69,7 @@ DOUGLAS/
 │   │   ├── OnboardingViewModel.swift # 첫 실행 온보딩 (의존성 체크 + Claude 설정 + 프로바이더 선택)
 │   │   ├── ProviderManager.swift    # 프로바이더 설정 관리
 │   │   ├── BuildLoopRunner.swift     # 빌드/테스트 실행 + 수정 프롬프트 생성 엔진
-│   │   ├── RoomManager.swift        # 프로젝트 방 생명주기, 7단계 워크플로우, 승인/입력 게이트
+│   │   ├── RoomManager.swift        # 프로젝트 방 생명주기, 6단계 워크플로우, 승인/입력 게이트
 │   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (templateID → persona 키워드 → unmatched)
 │   │   ├── ThemeManager.swift       # 테마 관리 (기본값: .cozyGame, UserDefaults 저장, 커스텀 팔레트)
 │   │   └── ToolExecutor.swift       # 도구 호출 루프 + smartSend + 경로 해석/충돌 추적
@@ -590,7 +590,6 @@ struct ProviderConfig: Identifiable, Codable {
 | plan (토론 라운드 > 0) | 토론 중 (NR) |
 | plan (계획 수립) | 계획 중 |
 | execute | 실행 중 |
-| review | 검토 중 |
 
 상태 전이:
 ```
@@ -912,7 +911,7 @@ executeWithTools() 루프 (최대 10회):
   - `.skip`: Plan 단계 건너뜀 (quickAnswer)
   - `.lite`: 토론(필요 시) + 산출물 정리만 (research)
   - `.exec`: 토론(필요 시) + 계획 수립 + 승인(implementation만) (documentation, implementation)
-- **토론 알고리즘** (`executeDiscussion`): 발산→수렴→합의 = 1사이클. 매 사이클 후 사용자 체크포인트 (DiscussionCheckpointCard). 사용자 피드백 시 새 사이클, "진행" 시 브리핑으로. 최대 3사이클 (9라운드). `DiscussionRoundType`: `.diverge`(발산) / `.converge`(수렴) / `.conclude`(합의) — 각 라운드마다 목적별 프롬프트 지시. 모든 에이전트 프롬프트에 `clarifySummary` 앵커링 포함. **발산 라운드 병렬화**: `.diverge` 라운드에서 모든 에이전트가 동일 히스토리 스냅샷 기준으로 동시 실행 (`generateDiscussionResponse` + `withTaskGroup`). 수렴/합의는 순차 유지.
+- **토론 알고리즘** (`executeDiscussion`): 발산→수렴→합의 = 1사이클. 매 사이클 후 사용자 체크포인트 (DiscussionCheckpointCard). 사용자 피드백 시 새 사이클, "진행"(빈 입력) 시 브리핑으로. 사이클 무제한 (사용자 주도 종료). `DiscussionRoundType`: `.diverge`(발산) / `.converge`(수렴) / `.conclude`(합의) — 각 라운드마다 목적별 프롬프트 지시. 모든 에이전트 프롬프트에 `clarifySummary` 앵커링 포함. **발산 라운드 병렬화**: `.diverge` 라운드에서 모든 에이전트가 동일 히스토리 스냅샷 기준으로 동시 실행 (`generateDiscussionResponse` + `withTaskGroup`). 수렴/합의는 순차 유지.
 - **quickAnswer** (`executeQuickAnswer`): 전문가 1명이 도구 포함 즉답
 - **실행 시 마스터 제외** (`executingAgentIDs`): `agent.isMaster`이면 실행 대상에서 제외
 - **계획 수립**: 전문가가 생성 (마스터 제외). 계획 JSON은 사용자에게 숨김.
@@ -921,9 +920,9 @@ executeWithTools() 루프 (최대 10회):
 - **방 shortID** (`Room.shortID`): UUID 앞 6자 소문자. 방 헤더(`RoomChatView`)와 방 목록(`RoomListView`)에 표시.
 - **CLI WebFetch 차단**: `ClaudeCodeProvider.sendMessage()`에서 `--disallowed-tools WebFetch` 적용
 
-**승인 게이트** (`executeRoomWork`): `step.requiresApproval == true`이면 `.awaitingApproval` 상태 전환 + `CheckedContinuation`으로 비동기 일시 정지. `approveStep(roomID:)` / `rejectStep(roomID:)` 호출 시 continuation resume. 거부 시 재분석 루프 (최대 3회).
+**승인 게이트** (`executeRoomWork`): `step.requiresApproval == true`이면 `.awaitingApproval` 상태 전환 + `CheckedContinuation`으로 비동기 일시 정지. `approveStep(roomID:)` / `rejectStep(roomID:)` 호출 시 continuation resume.
 
-**Plan 승인 루프** (`executePlanExec`): implementation Plan 승인 시 거부 → 피드백 추출 → `requestPlan(previousPlan:feedback:)`로 재계획 → 다시 승인 카드 표시 (최대 3회). 이전 계획과 사용자 피드백이 재계획 프롬프트에 주입됨.
+**Plan 승인 루프** (`executePlanExec`): implementation Plan 승인 시 거부 → 피드백 추출 → `requestPlan(previousPlan:feedback:)`로 재계획 → 다시 승인 카드 표시 (무제한). 이전 계획과 사용자 피드백이 재계획 프롬프트에 주입됨.
 
 **승인 카드 UI** (`ApprovalCard`): 분석 결과 확인 + 추가 요구사항 입력 TextEditor + "승인"/"수정 요청" 버튼. 추가 입력이 있으면 "추가 후 승인" 표시. "수정 요청" 클릭 시 피드백이 방 메시지에 기록된 후 `rejectStep()`으로 재계획 트리거.
 
@@ -1019,22 +1018,21 @@ executeWithTools() 루프 (최대 10회):
 | E-6 | **레거시 제거**: `legacyStartRoomWorkflow` 삭제. `intent == nil` → `.quickAnswer` 폴백 (가벼운 워크플로우 우선). | ✅ |
 | E-7 | **ArtifactType 확장**: `researchReport`, `brainstormResult`, `document` 추가. | ✅ |
 
-**7단계 워크플로우 (모든 Intent 공통 프리픽스)**:
+**6단계 워크플로우 (모든 Intent 공통 프리픽스)**:
 ```
 ① Intake ── 입력 파싱 (Jira fetch, URL 감지, IntakeData 저장, 플레이북 로드)
 ② Intent ── 작업 유형 표시 (방 생성 시 IntentClassifier가 분류)
 ③ Clarify ─ 복명복창 (DOUGLAS 요약 → 사용자 컨펌까지 무한 루프)
 ④ Assemble ─ 전문가 초대 (AgentMatcher → 미매칭 시 생성 제안)
-⑤ Plan ──── PlanMode 분기: skip / lite(토론→정리) / exec(토론→계획→승인) — 토론: 발산→수렴→합의 사이클 + 사용자 체크포인트
-⑥ Execute ── quickAnswer(즉답) / 표준 실행(단계별)
-⑦ Review ─── 작업일지 + 플레이북 override 감지
+⑤ Plan ──── PlanMode 분기: exec(토론→계획→승인) — 토론: 발산→수렴→합의 사이클(무제한) + 사용자 체크포인트
+⑥ Execute ── quickAnswer(즉답) / research(토론→브리핑) / 표준 실행(단계별)
 ```
 
 **Intent별 경로**:
 | Intent | PlanMode | clarify | 토론 | 승인 | 실행 |
 |--------|----------|---------|------|------|------|
 | quickAnswer | skip | O | - | - | 즉답 |
-| research | lite | O | O | - | - |
+| research | lite | O | O | - | 토론/정리 |
 | documentation | exec | O | O | - | O |
 | implementation | exec | O | O | O | O |
 
@@ -1042,7 +1040,7 @@ executeWithTools() 루프 (최대 10회):
 
 **Plan 승인 피드백 루프** (E-8~E-11):
 - `requestPlan(previousPlan:feedback:)`: 거부된 이전 계획과 사용자 피드백을 재계획 프롬프트에 주입.
-- `executePlanExec` 승인 while 루프: 거부 → 피드백 추출 → 재계획 → 다시 승인 카드 (최대 3회).
+- `executePlanExec` 승인 while 루프: 거부 → 피드백 추출 → 재계획 → 다시 승인 카드 (무제한).
 - `executeSoloAnalysis`: 전문가 1명 Solo 분석 (토론 대신). plan-lite/plan-exec에서 `specialistCount == 1`일 때 자동 호출.
 - `launchFollowUpCycle`: 완료/실패 방 후속 질문 → 방 재활성화 → assemble부터 경량 워크플로우.
 - `Room.canTransition`: `.completed → .planning`, `.failed → .planning` 전이 추가.

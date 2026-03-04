@@ -374,8 +374,6 @@ struct Room: Identifiable, Codable {
             return plan != nil ? "계획 중" : "분석 중"
         case .execute:
             return "실행 중"
-        case .review:
-            return "검토 중"
         case nil:
             return "준비 중"
         }
@@ -517,7 +515,7 @@ struct Room: Identifiable, Codable {
         lastQAResult = try container.decodeIfPresent(QAResult.self, forKey: .lastQAResult)
         workLog = try container.decodeIfPresent(WorkLog.self, forKey: .workLog)
         intent = try container.decodeIfPresent(WorkflowIntent.self, forKey: .intent)
-        currentPhase = try container.decodeIfPresent(WorkflowPhase.self, forKey: .currentPhase)
+        currentPhase = (try? container.decodeIfPresent(WorkflowPhase.self, forKey: .currentPhase)) ?? nil
         assumptions = try container.decodeIfPresent([WorkflowAssumption].self, forKey: .assumptions)
         userAnswers = try container.decodeIfPresent([UserAnswer].self, forKey: .userAnswers)
         playbook = try container.decodeIfPresent(ProjectPlaybook.self, forKey: .playbook)
