@@ -15,12 +15,13 @@ enum ToolExecutor {
         messages: [(role: String, content: String)],
         context: ToolExecutionContext = .empty,
         onToolActivity: ((String) -> Void)? = nil,
-        onStreamChunk: (@Sendable (String) -> Void)? = nil
+        onStreamChunk: (@Sendable (String) -> Void)? = nil,
+        useTools: Bool = true
     ) async throws -> String {
         let toolIDs = agent.resolvedToolIDs
 
-        // 도구 없거나 프로바이더가 도구 미지원 → 기존 경로
-        guard !toolIDs.isEmpty, provider.supportsToolCalling else {
+        // 도구 없거나 프로바이더가 도구 미지원 또는 명시적 비활성화 → 기존 경로
+        guard useTools, !toolIDs.isEmpty, provider.supportsToolCalling else {
             onToolActivity?("API 요청: \(agent.providerName) (\(agent.modelName))")
             let result: String
             if let claudeProvider = provider as? ClaudeCodeProvider {
@@ -79,14 +80,15 @@ enum ToolExecutor {
         conversationMessages: [ConversationMessage],
         context: ToolExecutionContext = .empty,
         onToolActivity: ((String) -> Void)? = nil,
-        onStreamChunk: (@Sendable (String) -> Void)? = nil
+        onStreamChunk: (@Sendable (String) -> Void)? = nil,
+        useTools: Bool = true
     ) async throws -> String {
         let toolIDs = agent.resolvedToolIDs
 
         // 이미지가 있으면 sendMessageWithTools 경로 사용 (Vision 지원)
         let hasAttachments = conversationMessages.contains { $0.attachments != nil && !($0.attachments?.isEmpty ?? true) }
 
-        guard hasAttachments || (!toolIDs.isEmpty && provider.supportsToolCalling) else {
+        guard useTools, hasAttachments || (!toolIDs.isEmpty && provider.supportsToolCalling) else {
             // 이미지도 도구도 없으면 기존 sendMessage
             let simple = conversationMessages.compactMap { msg -> (role: String, content: String)? in
                 guard let content = msg.content else { return nil }

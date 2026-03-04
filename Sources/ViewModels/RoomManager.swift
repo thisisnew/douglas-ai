@@ -334,14 +334,12 @@ class RoomManager: ObservableObject {
             case .execute:
                 let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .quickAnswer
                 await executeExecutePhase(roomID: roomID, task: task, intent: intent)
-            case .review:
-                await executeReviewPhase(roomID: roomID, task: task)
             }
 
             completedPhases.insert(nextPhase)
         }
 
-        // 완료 (review 단계에서 이미 완료 처리된 경우 스킵)
+        // 완료
         if let i = rooms.firstIndex(where: { $0.id == roomID }),
            rooms[i].status != .failed && rooms[i].status != .completed {
             rooms[i].currentPhase = nil
@@ -351,6 +349,12 @@ class RoomManager: ObservableObject {
         }
         syncAgentStatuses()
         scheduleSave()
+
+        // 작업일지 + 플레이북 감지 (완료 후 비동기)
+        if let room = rooms.first(where: { $0.id == roomID }), room.workLog == nil {
+            await generateWorkLog(roomID: roomID, task: task)
+        }
+        detectPlaybookOverrides(roomID: roomID)
     }
 
     // MARK: - 도구 실행 컨텍스트
@@ -619,8 +623,6 @@ class RoomManager: ObservableObject {
             case .execute:
                 let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .quickAnswer
                 await executeExecutePhase(roomID: roomID, task: task, intent: intent)
-            case .review:
-                await executeReviewPhase(roomID: roomID, task: task)
             }
 
             completedPhases.insert(nextPhase)
@@ -637,6 +639,12 @@ class RoomManager: ObservableObject {
         }
         syncAgentStatuses()
         scheduleSave()
+
+        // 작업일지 + 플레이북 감지 (완료 후 비동기)
+        if let room = rooms.first(where: { $0.id == roomID }), room.workLog == nil {
+            await generateWorkLog(roomID: roomID, task: task)
+        }
+        detectPlaybookOverrides(roomID: roomID)
     }
 
     /// Intent 단계: quickClassify 결과에 따라 LLM 재분류 또는 사용자 선택
@@ -1314,11 +1322,8 @@ class RoomManager: ObservableObject {
             }
         }
 
-        // 승인 (필요한 Intent만) — 거부 시 피드백 → 재계획 루프
+        // 승인 (필요한 Intent만) — 거부 시 피드백 → 재계획 무제한 루프
         if intent.requiresApproval, currentPlan != nil {
-            let maxAttempts = 3
-            var attempts = 0
-
             while true {
                 guard !Task.isCancelled,
                       let idx = rooms.firstIndex(where: { $0.id == roomID }),
@@ -1351,19 +1356,6 @@ class RoomManager: ObservableObject {
                 }
 
                 // 거부됨 — 피드백 추출 + 재계획
-                attempts += 1
-                if attempts >= maxAttempts {
-                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                        rooms[i].transitionTo(.failed)
-                        rooms[i].completedAt = Date()
-                    }
-                    let failMsg = ChatMessage(role: .system, content: "계획 수정 한도(\(maxAttempts)회)를 초과했습니다.")
-                    appendMessage(failMsg, to: roomID)
-                    syncAgentStatuses()
-                    scheduleSave()
-                    return
-                }
-
                 // 마지막 사용자 메시지에서 피드백 추출
                 let feedback = rooms.first(where: { $0.id == roomID })?
                     .messages.last(where: { $0.role == .user })?.content
@@ -1401,13 +1393,16 @@ class RoomManager: ObservableObject {
         scheduleSave()
     }
 
-    /// Execute 단계: Intent에 따라 즉답 vs 표준 실행 분기
+    /// Execute 단계: Intent에 따라 즉답 / 토론 / 표준 실행 분기
     private func executeExecutePhase(roomID: UUID, task: String, intent: WorkflowIntent) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
         if intent == .quickAnswer {
             // quickAnswer: 전문가 1명이 바로 답변
             await executeQuickAnswer(roomID: roomID, task: task)
+        } else if intent == .research {
+            // research: 토론/분석 (기존 executePlanLite 재사용)
+            await executePlanLite(roomID: roomID, task: task, intent: intent)
         } else {
             // 표준 실행: 계획 기반 단계별 실행
             if rooms[idx].plan == nil {
@@ -1477,7 +1472,8 @@ class RoomManager: ObservableObject {
                     Task { @MainActor in
                         self?.updateMessageContent(placeholderID, newContent: current, in: roomID)
                     }
-                }
+                },
+                useTools: false  // 즉답: 도구 없이 스트리밍 우선
             )
             updateMessageContent(placeholderID, newContent: response, in: roomID)
         } catch {
@@ -1582,7 +1578,8 @@ class RoomManager: ObservableObject {
                     Task { @MainActor in
                         self?.updateMessageContent(placeholderID, newContent: current, in: roomID)
                     }
-                }
+                },
+                useTools: false  // 소로 분석: 도구 없이 스트리밍 우선
             )
             updateMessageContent(placeholderID, newContent: response, in: roomID)
         } catch {
@@ -1600,23 +1597,8 @@ class RoomManager: ObservableObject {
         speakingAgentIDByRoom.removeValue(forKey: roomID)
     }
 
-    /// Review 단계: 방 완료 후 작업일지 비동기 생성 (TypingIndicator 노출 방지)
-    private func executeReviewPhase(roomID: UUID, task: String) async {
-        // 먼저 방 완료 처리 → TypingIndicator 숨김
-        if let i = rooms.firstIndex(where: { $0.id == roomID }),
-           rooms[i].status != .failed {
-            rooms[i].currentPhase = nil
-            rooms[i].status = .completed
-            rooms[i].completedAt = Date()
-            pluginEventDelegate?(.roomCompleted(roomID: roomID, title: rooms[i].title))
-        }
-        syncAgentStatuses()
-        scheduleSave()
-
-        // 완료 후 작업일지 비동기 생성 (UI에 "발언 중" 안 뜸)
-        await generateWorkLog(roomID: roomID, task: task)
-
-        // 플레이북 override 감지
+    /// 플레이북 override 감지 (완료 후 호출)
+    private func detectPlaybookOverrides(roomID: UUID) {
         guard let room = rooms.first(where: { $0.id == roomID }),
               let playbook = room.playbook,
               room.primaryProjectPath != nil else { return }
@@ -2565,14 +2547,14 @@ class RoomManager: ObservableObject {
 
     // MARK: - 토론 실행
 
-    /// 합의 기반 토론 실행 (합의 도달 시 자동 종료, 최대 3라운드)
+    /// 합의 기반 토론 실행 (사용자가 빈 피드백 입력 시 종료)
     /// 토론: 발산→수렴→합의 사이클 + 사용자 체크포인트
     private func executeDiscussion(roomID: UUID, topic: String) async {
         guard rooms.first(where: { $0.id == roomID }) != nil else { return }
-        let maxCycles = 3  // 안전 상한: 최대 3사이클 (9라운드)
         let roundTypes: [DiscussionRoundType] = [.diverge, .converge, .conclude]
 
-        for cycle in 0..<maxCycles {
+        var cycle = 0
+        while true {
             guard !Task.isCancelled,
                   let currentRoom = rooms.first(where: { $0.id == roomID }),
                   currentRoom.isActive else { break }
@@ -2702,9 +2684,10 @@ class RoomManager: ObservableObject {
                 )
                 appendMessage(feedbackNote, to: roomID)
             }
+            cycle += 1
         }
 
-        let doneMsg = ChatMessage(role: .system, content: "토론이 완료되었습니다. 계획 수립으로 넘어갑니다.")
+        let doneMsg = ChatMessage(role: .system, content: "토론이 완료되었습니다. 다음 단계로 넘어갑니다.")
         appendMessage(doneMsg, to: roomID)
         scheduleSave()
     }

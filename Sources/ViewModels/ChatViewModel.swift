@@ -207,7 +207,8 @@ class ChatViewModel: ObservableObject {
                     Task { @MainActor in
                         self?.updateMessageContent(placeholderID, newContent: current, for: agentID)
                     }
-                }
+                },
+                useTools: false  // 1:1 채팅: 도구 없이 스트리밍 우선
             )
 
             updateMessageContent(placeholderID, newContent: response, for: agentID)
