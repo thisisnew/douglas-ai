@@ -13,6 +13,7 @@ struct AddAgentSheet: View {
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
     @State private var errorMessage: String?
+    @State private var showValidation = false
     @State private var imageData: Data?
     @State private var referenceProjectPaths: [String] = []
 
@@ -32,10 +33,15 @@ struct AddAgentSheet: View {
                     .keyboardShortcut(.cancelAction)
                     .buttonStyle(CozyButtonStyle(.cream))
             } trailing: {
-                Button("추가") { addAgent() }
+                Button("추가") {
+                    if isFormValid {
+                        addAgent()
+                    } else {
+                        withAnimation(.dgStandard) { showValidation = true }
+                    }
+                }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(CozyButtonStyle(.accent))
-                    .disabled(!isFormValid)
             }
 
             ScrollView {
@@ -53,10 +59,15 @@ struct AddAgentSheet: View {
                             .padding(10)
                             .background(palette.inputBackground)
                             .continuousRadius(DesignTokens.CozyGame.cardRadius)
-                            .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous).strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1))
+                            .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous).strokeBorder(
+                                showValidation && name.isEmpty ? Color.orange.opacity(0.6) : palette.cardBorder.opacity(0.15), lineWidth: 1))
+                            .onChange(of: name) { _, _ in if showValidation { showValidation = false } }
 
                         if isDuplicateName {
                             inlineWarning("이미 같은 이름의 에이전트가 있습니다")
+                        }
+                        if showValidation && name.isEmpty {
+                            validationHint("이름을 입력하세요")
                         }
                     }
 
@@ -70,7 +81,8 @@ struct AddAgentSheet: View {
                             .padding(8)
                             .background(palette.inputBackground)
                             .continuousRadius(DesignTokens.CozyGame.cardRadius)
-                            .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous).strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1))
+                            .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous).strokeBorder(
+                                showValidation && persona.isEmpty ? Color.orange.opacity(0.6) : palette.cardBorder.opacity(0.15), lineWidth: 1))
                             .overlay(
                                 Group {
                                     if persona.isEmpty {
@@ -84,6 +96,9 @@ struct AddAgentSheet: View {
                                 },
                                 alignment: .topLeading
                             )
+                        if showValidation && persona.isEmpty {
+                            validationHint("역할 설명을 입력하세요")
+                        }
                     }
 
                     // 유사 에이전트 경고
@@ -150,7 +165,12 @@ struct AddAgentSheet: View {
                         }
                         .background(palette.inputBackground)
                         .continuousRadius(DesignTokens.Radius.lg)
+                        .overlay(RoundedRectangle(cornerRadius: DesignTokens.Radius.lg, style: .continuous).strokeBorder(
+                            showValidation && selectedModel.isEmpty ? Color.orange.opacity(0.6) : .clear, lineWidth: 1))
 
+                        if showValidation && selectedModel.isEmpty {
+                            validationHint(selectedProvider.isEmpty ? "제공자와 모델을 선택하세요" : "모델을 선택하세요")
+                        }
                         if let errorMessage {
                             inlineError(errorMessage)
                         }
@@ -199,7 +219,8 @@ struct AddAgentSheet: View {
                 .padding(8)
                 .background(palette.inputBackground)
                 .continuousRadius(DesignTokens.CozyGame.cardRadius)
-                .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous).strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous).strokeBorder(
+                    showValidation && !hasValidRules ? Color.orange.opacity(0.6) : palette.cardBorder.opacity(0.15), lineWidth: 1))
                 .overlay(
                     Group {
                         if inlineRules.isEmpty {
@@ -344,6 +365,13 @@ struct AddAgentSheet: View {
         Label(text, systemImage: "xmark.circle")
             .font(.caption)
             .foregroundColor(.red)
+    }
+
+    private func validationHint(_ text: String) -> some View {
+        Label(text, systemImage: "exclamationmark.circle")
+            .font(.caption)
+            .foregroundColor(.orange)
+            .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
     // MARK: - 참조 프로젝트
