@@ -438,7 +438,7 @@ struct PluginBuilderSheet: View {
     private func handlerBinding(for eventType: PluginEventType) -> Binding<HandlerConfig>? {
         guard handlers[eventType] != nil else { return nil }
         return Binding(
-            get: { handlers[eventType]! },
+            get: { handlers[eventType] ?? HandlerConfig(eventType: eventType) },
             set: { handlers[eventType] = $0 }
         )
     }
