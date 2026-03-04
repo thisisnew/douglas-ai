@@ -88,6 +88,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.applicationIconImage = icon
         }
 
+        // 새 버전 설치 시 이전 데이터 자동 초기화 (프로바이더 설정만 보존)
+        resetDataIfVersionChanged()
+
         // 구 도메인(AgentManager) → 신 도메인(DOUGLAS) 마이그레이션
         migrateUserDefaultsIfNeeded()
 
@@ -316,6 +319,69 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 try? FileManager.default.removeItem(at: file)
             }
         }
+    }
+
+    // MARK: - 버전 기반 데이터 리셋
+
+    /// 데이터 스키마 버전 — 이 값을 올리면 다음 앱 실행 시 에이전트/방/채팅 데이터 초기화
+    /// (프로바이더 설정·API 키는 보존)
+    private static let currentDataVersion = 2
+
+    /// 새 버전 설치 시 이전 데이터 자동 초기화 (프로바이더 설정만 보존)
+    /// - 스키마 버전(currentDataVersion) 변경 시 리셋
+    /// - 앱 버전(CFBundleShortVersionString) 변경 시에도 리셋
+    private func resetDataIfVersionChanged() {
+        let storedDataVersion = UserDefaults.standard.integer(forKey: "dataVersion")
+        let storedAppVersion = UserDefaults.standard.string(forKey: "lastInstalledAppVersion")
+        let currentAppVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+            ?? Bundle.main.infoDictionary?["CFBundleVersion"] as? String
+            ?? "unknown"
+
+        let schemaChanged = storedDataVersion < Self.currentDataVersion
+        let appVersionChanged = storedAppVersion != nil && storedAppVersion != currentAppVersion
+
+        guard schemaChanged || appVersionChanged else {
+            // 최초 실행 시 버전만 기록 (데이터 없으므로 리셋 불필요)
+            if storedAppVersion == nil {
+                UserDefaults.standard.set(currentAppVersion, forKey: "lastInstalledAppVersion")
+                UserDefaults.standard.set(Self.currentDataVersion, forKey: "dataVersion")
+            }
+            return
+        }
+
+        // 1. 프로바이더 설정 백업 (API 키 파일은 keys/ 디렉토리에 별도 보관되어 영향 없음)
+        let providerBackup = UserDefaults.standard.data(forKey: "providerConfigs")
+        let onboardingDone = UserDefaults.standard.bool(forKey: "onboardingCompleted")
+
+        // 2. UserDefaults 전체 초기화
+        if let domain = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: domain)
+        }
+        // 번들 없이 실행 시 (swift run) fallback
+        for key in ["savedAgents", "migrated_from_AgentManager"] {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+
+        // 3. 파일 기반 데이터 삭제 (방, 채팅, 아바타, 첨부파일)
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        if let douglasDir = appSupport?.appendingPathComponent("DOUGLAS") {
+            for subdir in ["rooms", "chats", "avatars", "attachments"] {
+                try? FileManager.default.removeItem(at: douglasDir.appendingPathComponent(subdir))
+            }
+        }
+
+        // 4. 프로바이더 설정 복원
+        if let backup = providerBackup {
+            UserDefaults.standard.set(backup, forKey: "providerConfigs")
+        }
+        if onboardingDone {
+            UserDefaults.standard.set(true, forKey: "onboardingCompleted")
+        }
+
+        // 5. 버전 스탬프
+        UserDefaults.standard.set(Self.currentDataVersion, forKey: "dataVersion")
+        UserDefaults.standard.set(currentAppVersion, forKey: "lastInstalledAppVersion")
+        UserDefaults.standard.synchronize()
     }
 
     // MARK: - UserDefaults 마이그레이션
