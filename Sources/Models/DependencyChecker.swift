@@ -134,28 +134,11 @@ class DependencyChecker: ObservableObject {
 
     private func findExecutable(_ name: String) -> String? {
         let homePath = NSHomeDirectory()
-        var candidates = [
-            "/opt/homebrew/bin/\(name)",
-            "/usr/local/bin/\(name)",
+        let extras = [
             "/usr/bin/\(name)",
             "\(homePath)/.volta/bin/\(name)",
             "\(homePath)/.local/bin/\(name)",
         ]
-
-        // nvm 버전별 경로 추가
-        let nvmDir = "\(homePath)/.nvm/versions/node"
-        if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
-            let sorted = versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
-            for version in sorted {
-                candidates.insert("\(nvmDir)/\(version)/bin/\(name)", at: 0)
-            }
-        }
-
-        for path in candidates {
-            if FileManager.default.isExecutableFile(atPath: path) {
-                return path
-            }
-        }
-        return nil
+        return ShellEnvironment.findExecutable(name, extraCandidates: extras)
     }
 }

@@ -197,25 +197,14 @@ class ClaudeCodeInstaller: ObservableObject {
     // MARK: - 프로세스 실행
 
     private func runProcess(_ executablePath: String, arguments: [String]) async -> (success: Bool, output: String) {
-        // PATH 보강
-        var env = ProcessInfo.processInfo.environment
-        let homePath = env["HOME"] ?? NSHomeDirectory()
-        var paths = ["/opt/homebrew/bin", "/usr/local/bin"]
-        let nvmDir = "\(homePath)/.nvm/versions/node"
-        if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
-            let sorted = versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
-            for version in sorted {
-                paths.insert("\(nvmDir)/\(version)/bin", at: 0)
-            }
-        }
-        let existing = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
-        env["PATH"] = paths.joined(separator: ":") + ":" + existing
+        // 캐싱된 PATH 사용
+        let env = ShellEnvironment.mergedEnvironment()
 
         let result = await ProcessRunner.run(
             executable: executablePath,
             args: arguments,
             env: env,
-            workDir: homePath
+            workDir: NSHomeDirectory()
         )
 
         let combined = (result.stdout + "\n" + result.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -226,26 +215,6 @@ class ClaudeCodeInstaller: ObservableObject {
 
     /// 실행 가능한 바이너리 경로 찾기
     private func findExecutable(_ name: String) -> String? {
-        let homePath = NSHomeDirectory()
-        var candidates = [
-            "/opt/homebrew/bin/\(name)",
-            "/usr/local/bin/\(name)"
-        ]
-
-        // nvm 경로도 탐색
-        let nvmDir = "\(homePath)/.nvm/versions/node"
-        if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
-            let sorted = versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
-            for version in sorted {
-                candidates.insert("\(nvmDir)/\(version)/bin/\(name)", at: 0)
-            }
-        }
-
-        for path in candidates {
-            if FileManager.default.isExecutableFile(atPath: path) {
-                return path
-            }
-        }
-        return nil
+        ShellEnvironment.findExecutable(name)
     }
 }

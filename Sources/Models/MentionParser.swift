@@ -3,6 +3,9 @@ import Foundation
 /// 채팅 입력에서 `@에이전트이름` 멘션을 파싱하는 유틸리티
 enum MentionParser {
 
+    /// 접두어 매칭용 정규식 (1회 컴파일)
+    private static let prefixPattern = try! NSRegularExpression(pattern: "(?:^|\\s)@(\\S+)", options: [])
+
     /// 파싱 결과: 매칭된 에이전트 목록 + 멘션 제거된 순수 텍스트
     struct Result {
         let mentions: [Agent]
@@ -38,7 +41,7 @@ enum MentionParser {
         }
 
         // Phase 2: 접두어 매칭 (남은 @패턴 → 단일 후보 시 매칭)
-        let pattern = try! NSRegularExpression(pattern: "(?:^|\\s)@(\\S+)", options: [])
+        let pattern = prefixPattern
         let nsClean = cleanText as NSString
         let prefixMatches = pattern.matches(in: cleanText, range: NSRange(location: 0, length: nsClean.length))
         var rangesToRemove: [Range<String.Index>] = []

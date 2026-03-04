@@ -839,23 +839,8 @@ enum ToolExecutor {
         // working_directory 미지정 시 projectPath를 기본값으로 사용
         let workDir = call.arguments["working_directory"]?.stringValue ?? context.projectPaths.first
 
-        // 환경 변수 구성
-        var env = ProcessInfo.processInfo.environment
-        let homePath = env["HOME"] ?? "/Users/\(NSUserName())"
-
-        var additionalPaths: [String] = []
-        let nvmDir = "\(homePath)/.nvm/versions/node"
-        if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
-            let sorted = versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
-            for version in sorted {
-                additionalPaths.append("\(nvmDir)/\(version)/bin")
-            }
-        }
-        additionalPaths.append(contentsOf: ["/opt/homebrew/bin", "/usr/local/bin"])
-
-        if let existingPath = env["PATH"] {
-            env["PATH"] = additionalPaths.joined(separator: ":") + ":" + existingPath
-        }
+        // 환경 변수 구성 (캐싱된 PATH 사용)
+        let env = ShellEnvironment.mergedEnvironment()
 
         let result = await ProcessRunner.run(
             executable: "/bin/zsh",

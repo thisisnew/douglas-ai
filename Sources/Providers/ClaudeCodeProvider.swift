@@ -103,30 +103,13 @@ class ClaudeCodeProvider: AIProvider {
         self.config = config
     }
 
-    /// 시스템에서 claude CLI 경로를 자동으로 찾는다
+    /// 시스템에서 claude CLI 경로를 자동으로 찾는다 (캐싱된 NVM 경로 사용)
     static func findClaudePath() -> String {
         let homePath = NSHomeDirectory()
-        var candidates = [
-            "/opt/homebrew/bin/claude",
-            "/usr/local/bin/claude",
+        let extras = [
             "\(homePath)/.local/bin/claude"
         ]
-
-        // nvm: 현재 활성 버전을 동적으로 탐색 (하드코딩 방지)
-        let nvmDir = "\(homePath)/.nvm/versions/node"
-        if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
-            let sorted = versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
-            for version in sorted {
-                candidates.insert("\(nvmDir)/\(version)/bin/claude", at: 0)
-            }
-        }
-
-        for path in candidates {
-            if FileManager.default.isExecutableFile(atPath: path) {
-                return path
-            }
-        }
-        return "claude"
+        return ShellEnvironment.findExecutable("claude", extraCandidates: extras) ?? "claude"
     }
 
     /// claude 바이너리와 같은 디렉토리에 있는 node 경로를 찾는다

@@ -4,23 +4,8 @@ import Foundation
 enum BuildLoopRunner {
     /// 빌드 명령 실행 후 BuildResult 반환
     static func runBuild(command: String, workingDirectory: String) async -> BuildResult {
-        // nvm/homebrew PATH 설정 (ToolExecutor.executeShellExec과 동일 패턴)
-        var env = ProcessInfo.processInfo.environment
-        let homePath = env["HOME"] ?? "/Users/\(NSUserName())"
-
-        var additionalPaths: [String] = []
-        let nvmDir = "\(homePath)/.nvm/versions/node"
-        if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
-            let sorted = versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
-            for version in sorted {
-                additionalPaths.append("\(nvmDir)/\(version)/bin")
-            }
-        }
-        additionalPaths.append(contentsOf: ["/opt/homebrew/bin", "/usr/local/bin"])
-
-        if let existingPath = env["PATH"] {
-            env["PATH"] = additionalPaths.joined(separator: ":") + ":" + existingPath
-        }
+        // 캐싱된 PATH 사용
+        let env = ShellEnvironment.mergedEnvironment()
 
         let result = await ProcessRunner.run(
             executable: "/bin/zsh",
@@ -54,22 +39,7 @@ enum BuildLoopRunner {
 
     /// 테스트 명령 실행 후 QAResult 반환 (runBuild와 동일 패턴)
     static func runTests(command: String, workingDirectory: String) async -> QAResult {
-        var env = ProcessInfo.processInfo.environment
-        let homePath = env["HOME"] ?? "/Users/\(NSUserName())"
-
-        var additionalPaths: [String] = []
-        let nvmDir = "\(homePath)/.nvm/versions/node"
-        if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
-            let sorted = versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
-            for version in sorted {
-                additionalPaths.append("\(nvmDir)/\(version)/bin")
-            }
-        }
-        additionalPaths.append(contentsOf: ["/opt/homebrew/bin", "/usr/local/bin"])
-
-        if let existingPath = env["PATH"] {
-            env["PATH"] = additionalPaths.joined(separator: ":") + ":" + existingPath
-        }
+        let env = ShellEnvironment.mergedEnvironment()
 
         let result = await ProcessRunner.run(
             executable: "/bin/zsh",

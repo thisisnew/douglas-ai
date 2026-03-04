@@ -4017,11 +4017,13 @@ class RoomManager: ObservableObject {
         }
     }
 
+    private static let roomEncoder = JSONEncoder()
+
     func saveRooms() {
         let dir = Self.roomDirectory
         for room in rooms {
             let file = dir.appendingPathComponent("\(room.id.uuidString).json")
-            if let data = try? JSONEncoder().encode(room) {
+            if let data = try? Self.roomEncoder.encode(room) {
                 try? data.write(to: file)
             }
         }

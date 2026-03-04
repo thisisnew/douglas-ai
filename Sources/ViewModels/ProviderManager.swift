@@ -98,6 +98,7 @@ class ProviderManager: ObservableObject {
 
     func updateConfig(_ updated: ProviderConfig) {
         if let idx = configs.firstIndex(where: { $0.id == updated.id }) {
+            providerCache.removeValue(forKey: configs[idx].name)
             configs[idx] = updated
             saveConfigs()
         }
@@ -106,14 +107,22 @@ class ProviderManager: ObservableObject {
     /// 테스트에서 MockAIProvider 주입용 (인스턴스별 격리)
     var testProviderOverrides: [String: AIProvider] = [:]
 
+    /// Provider 인스턴스 캐시 (config 변경 시 invalidate)
+    private var providerCache: [String: AIProvider] = [:]
+
     func provider(named name: String) -> AIProvider? {
         if let override = testProviderOverrides[name] {
             return override
         }
+        if let cached = providerCache[name] {
+            return cached
+        }
         guard let config = configs.first(where: { $0.name == name }) else {
             return nil
         }
-        return createProvider(from: config)
+        let instance = createProvider(from: config)
+        providerCache[name] = instance
+        return instance
     }
 
     /// 경량 작업(분류, 라우팅, 브리핑)용 모델 이름 반환
