@@ -1,63 +1,94 @@
 import Foundation
+import NaturalLanguage
 
 /// 사용자 요청의 의도를 분류하는 2단계 분류기
-/// 1단계: 규칙 기반 즉시 판별 (정규식 패턴 매칭)
-/// 2단계: LLM 분류 (규칙 판별 실패 시)
+/// 1단계: NLTokenizer + 가중치 점수 기반 즉시 판별
+/// 2단계: LLM 분류 (점수 판별 실패 시)
 enum IntentClassifier {
 
-    // MARK: - 정규식 패턴 (어간 기반, 한국어 어미 변형 자동 커버)
+    // MARK: - 키워드 사전 (어간 기반, 가중치 포함)
 
-    /// (패턴, intent) 튜플 — 순서대로 평가, 먼저 매칭된 것이 승리
-    private static let rules: [(pattern: String, intent: WorkflowIntent, maxLength: Int?, excludeAction: Bool)] = [
-        // quickAnswer: 단순 질문 / 번역 / 정보 확인
-        // 어간 "뭐/뭘/뭔" + 임의 어미, 의문 어미 "까|지|냐|나|가|야" 등
-        (
-            "뭐[야냐지임에요가는데니까란]|뭘[까]?|뭔[가데지]|"
-            + "무슨|뜻[이을]?[야이]?|의미[가를는]?|"
-            + "알려[줘주달]|설명[해좀]|"
-            + "번역|translate|翻訳|"
-            + "몇[개번째]?\\s|어디[서에]?\\s|언제|누가|왜\\s|"
-            + "어떻[게던]|어떤|차이[가점]|"
-            + "[이건뭔]가[요]?|[일될건]까",
-            .quickAnswer, 100, true
-        ),
-        // research (브레인스토밍, 자문/상담/조언/궁금, 요건분석, 테스트계획, 작업분해, 문서작성 통합)
-        (
-            "브레인스토밍|아이디어|brainstorm|"
-            + "토론[하을]|회의[하을]|의견[을이]?\\s|같이\\s?생각|"
-            + "조사[해하]?|리서치|research|트렌드|"
-            + "비교[해하]|분석[해하]|찾아[봐보]|서베이|survey|"
-            + "자문|상담|조언|컨설팅|consulting|"
-            + "알고\\s?싶|궁금|"
-            + "테스트\\s?계획|test\\s?plan|"
-            + "요건\\s?분석|요구\\s?사항|requirements|"
-            + "작업\\s?분[해해]|task\\s?breakdown|쪼개|"
-            + "기획서|문서\\s?작성|문서화|prd|스펙|"
-            + "제안서|보고서|정리[해하]|작성[해하]",
-            .research, nil, true
-        ),
-        // implementation (강한 코딩 신호)
-        (
-            "구현[해하]?|개발[해하]\\s|코딩|만들어[줘봐]?|빌드[해하]?|"
-            + "수정[해하]|버그|리팩토[링]?|배포[해하]?|"
-            + "fix|implement|deploy|refactor",
-            .implementation, nil, false
-        ),
+    /// 키워드 → 가중치. 어간(stem) 기반으로 정의하여 한국어 어미 변형을 prefix 매칭으로 커버
+    /// 예: "요약" → "요약해줘", "요약해서", "요약해봐" 모두 매칭
+    private struct ScoredKeywords {
+        /// (어간, 가중치) 배열. 가중치가 높을수록 해당 intent에 강한 신호
+        let stems: [(stem: String, weight: Int)]
+        /// 이 intent의 최소 점수 임계값
+        let threshold: Int
+    }
+
+    /// intent별 키워드 사전
+    private static let intentKeywords: [(intent: WorkflowIntent, keywords: ScoredKeywords)] = [
+        // quickAnswer: 단순 질문 / 번역 / 정보 확인 (짧은 텍스트에서만 유효)
+        (.quickAnswer, ScoredKeywords(stems: [
+            // 의문사
+            ("뭐", 3), ("뭘", 3), ("뭔", 3), ("무슨", 3),
+            ("몇", 2), ("어디", 2), ("언제", 2), ("누가", 2), ("왜", 2),
+            ("어떻", 2), ("어떤", 2),
+            // 설명/번역 요청
+            ("알려", 3), ("설명", 3), ("번역", 4),
+            ("translate", 4), ("翻訳", 4),
+            // 의미/뜻
+            ("뜻", 3), ("의미", 3), ("차이", 2),
+        ], threshold: 3)),
+
+        // research: 조사, 분석, 문서작성, 요약, 변환 등
+        (.research, ScoredKeywords(stems: [
+            // 조사/리서치
+            ("조사", 4), ("리서치", 4), ("research", 4), ("트렌드", 3),
+            ("서베이", 3), ("survey", 3),
+            // 분석/비교
+            ("분석", 4), ("비교", 3), ("찾아", 2),
+            // 토론/브레인스토밍
+            ("브레인스토밍", 4), ("brainstorm", 4), ("아이디어", 3),
+            ("토론", 3), ("회의", 3), ("의견", 2),
+            // 자문/상담
+            ("자문", 3), ("상담", 3), ("조언", 3), ("컨설팅", 3), ("consulting", 3),
+            ("궁금", 2),
+            // 요건/테스트/태스크
+            ("요건", 3), ("요구사항", 3), ("requirements", 3),
+            ("테스트계획", 4), ("test plan", 4),
+            ("작업분해", 3), ("task breakdown", 3), ("쪼개", 2),
+            // 문서 작성
+            ("기획서", 4), ("문서작성", 4), ("문서화", 4), ("prd", 4), ("스펙", 3),
+            ("제안서", 4), ("보고서", 4),
+            ("정리", 3), ("작성", 3),
+            // 요약
+            ("요약", 4), ("summarize", 4), ("summary", 4),
+            // 변환/포맷
+            ("바꿔", 3), ("변환", 4), ("convert", 4), ("컨버트", 4),
+            // 문서 포맷 (강한 research 신호)
+            ("pdf", 5), ("워드", 4), ("엑셀", 4),
+            ("word", 4), ("excel", 4), ("한글", 3), ("hwp", 4),
+            ("markdown", 3), ("마크다운", 3),
+        ], threshold: 3)),
+
+        // implementation: 코딩/개발/빌드
+        (.implementation, ScoredKeywords(stems: [
+            ("구현", 4), ("개발", 3), ("코딩", 5), ("coding", 5),
+            ("만들어", 3), ("빌드", 4), ("build", 4),
+            ("수정", 3), ("버그", 5), ("bug", 5),
+            ("리팩토", 4), ("refactor", 4),
+            ("배포", 4), ("deploy", 4),
+            ("fix", 5), ("implement", 4),
+            ("커밋", 3), ("commit", 3), ("pr", 2), ("push", 2),
+        ], threshold: 3)),
     ]
 
-    /// 컴파일된 정규식 캐시 (앱 생명주기 동안 1회만 생성)
-    private static let compiledRules: [(regex: NSRegularExpression, intent: WorkflowIntent, maxLength: Int?, excludeAction: Bool)] = {
-        rules.compactMap { rule in
-            guard let regex = try? NSRegularExpression(pattern: rule.pattern, options: [.caseInsensitive]) else {
-                return nil
-            }
-            return (regex, rule.intent, rule.maxLength, rule.excludeAction)
-        }
-    }()
+    /// 문서/변환 컨텍스트 키워드: 이 키워드가 있으면 "만들어" 등의 action 동사를 implementation이 아닌 research로 해석
+    private static let documentContextStems: Set<String> = [
+        "pdf", "워드", "엑셀", "word", "excel", "한글", "hwp",
+        "문서", "보고서", "기획서", "제안서", "스펙", "prd",
+        "요약", "정리", "작성", "변환", "바꿔", "convert",
+        "markdown", "마크다운",
+    ]
 
-    // MARK: - 규칙 기반 즉시 분류
+    /// implementation 점수를 감쇠시키는 문서 컨텍스트 보너스 (research에 가산)
+    private static let documentContextBonus = 5
 
-    /// 정규식 패턴 매칭으로 즉시 분류. 판별 불가 시 nil 반환
+    // MARK: - NLTokenizer 기반 분류
+
+    /// NLTokenizer + 가중치 점수 기반 즉시 분류. 판별 불가 시 nil 반환
     static func quickClassify(_ task: String) -> WorkflowIntent? {
         let text = task.lowercased()
 
@@ -66,22 +97,79 @@ enum IntentClassifier {
             return nil
         }
 
-        let range = NSRange(text.startIndex..., in: text)
+        // NLTokenizer로 토큰 추출
+        let tokens = tokenize(text)
+        guard !tokens.isEmpty else { return nil }
 
-        for rule in compiledRules {
-            // 글자 수 제한 체크
-            if let maxLen = rule.maxLength, task.count >= maxLen { continue }
-
-            // 정규식 매칭
-            guard rule.regex.firstMatch(in: text, range: range) != nil else { continue }
-
-            // action 키워드 제외 조건
-            if rule.excludeAction && matchesPattern(text, pattern: actionPattern) { continue }
-
-            return rule.intent
+        // 각 intent별 점수 계산
+        var scores: [(intent: WorkflowIntent, score: Int)] = []
+        let hasDocContext = tokens.contains { token in
+            documentContextStems.contains(where: { text.contains($0) })
         }
 
-        return nil
+        for entry in intentKeywords {
+            var score = 0
+
+            // quickAnswer는 긴 텍스트에서 약화 (100자 이상이면 점수 반감)
+            let lengthPenalty = (entry.intent == .quickAnswer && task.count >= 100) ? 0.5 : 1.0
+
+            for keyword in entry.keywords.stems {
+                // 어간 prefix 매칭: 토큰이 keyword.stem으로 시작하거나, 전체 텍스트에 keyword.stem 포함
+                let matched = tokens.contains { token in
+                    token.hasPrefix(keyword.stem) || token == keyword.stem
+                } || text.contains(keyword.stem)
+
+                if matched {
+                    score += keyword.weight
+                }
+            }
+
+            // 문서 컨텍스트 보정: implementation 점수 감쇠
+            if entry.intent == .implementation && hasDocContext {
+                score = max(0, score - documentContextBonus)
+            }
+            // 문서 컨텍스트 보정: research 점수 가산
+            if entry.intent == .research && hasDocContext {
+                score += documentContextBonus
+            }
+
+            let adjustedScore = Int(Double(score) * lengthPenalty)
+            if adjustedScore >= entry.keywords.threshold {
+                scores.append((entry.intent, adjustedScore))
+            }
+        }
+
+        // 최고 점수 intent 반환 (동점이면 research > implementation > quickAnswer 우선)
+        guard !scores.isEmpty else { return nil }
+        let maxScore = scores.max(by: { a, b in
+            if a.score != b.score { return a.score < b.score }
+            return intentPriority(a.intent) < intentPriority(b.intent)
+        })
+        return maxScore?.intent
+    }
+
+    /// intent 우선순위 (동점 해소용): research > implementation > quickAnswer
+    private static func intentPriority(_ intent: WorkflowIntent) -> Int {
+        switch intent {
+        case .research: return 3
+        case .implementation: return 2
+        case .quickAnswer: return 1
+        }
+    }
+
+    /// NLTokenizer로 텍스트를 단어 토큰으로 분리
+    private static func tokenize(_ text: String) -> [String] {
+        let tokenizer = NLTokenizer(unit: .word)
+        tokenizer.string = text
+        var tokens: [String] = []
+        tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
+            let token = String(text[range])
+            if token.count >= 1 {
+                tokens.append(token)
+            }
+            return true
+        }
+        return tokens
     }
 
     // MARK: - LLM 기반 분류
@@ -97,9 +185,10 @@ enum IntentClassifier {
 
         카테고리:
         - quickAnswer: 단순 질문, 번역, 정보 확인 (짧은 답변으로 끝나는 것)
-        - research: 조사, 리서치, 분석, 비교, 브레인스토밍, 자문, 상담, 요건 분석, 테스트 계획, 작업 분해, 기획서/문서 작성, PRD, 보고서
+        - research: 조사, 리서치, 분석, 비교, 브레인스토밍, 자문, 상담, 요건 분석, 테스트 계획, 작업 분해, 기획서/문서 작성, PRD, 보고서, 요약, 문서 변환(PDF/Word 등으로 바꿔줘/만들어줘)
         - implementation: 코딩, 개발, 버그 수정, 구현, 배포
 
+        주의: "~로 바꿔줘", "~로 만들어줘"처럼 문서 포맷 변환 요청은 research입니다.
         카테고리 이름만 한 단어로 출력하세요. 다른 내용은 절대 출력하지 마세요.
         """
 
@@ -134,17 +223,6 @@ enum IntentClassifier {
              "task_decomposition":              return .research
         default:                                return .quickAnswer
         }
-    }
-
-    // MARK: - 제외 조건 패턴 (컴파일 캐시)
-
-    private static let actionPattern: NSRegularExpression? =
-        try? NSRegularExpression(pattern: "구현[해하]?|개발[해하]\\s|만들어|코딩|수정[해하]|빌드|배포", options: .caseInsensitive)
-
-    private static func matchesPattern(_ text: String, pattern: NSRegularExpression?) -> Bool {
-        guard let pattern = pattern else { return false }
-        let range = NSRange(text.startIndex..., in: text)
-        return pattern.firstMatch(in: text, range: range) != nil
     }
 
     /// Jira/이슈 트래커 URL 포함 여부
