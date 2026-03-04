@@ -49,11 +49,12 @@ enum DocumentExporter {
             return ArtifactParser.stripArtifactBlocks(from: docArtifact.content)
         }
 
-        // 2차: 마지막 assistant .text 메시지
+        // 2차: 마지막 assistant .text 메시지 (최소 200자 이상이어야 문서로 간주)
         if let lastMsg = room.messages
             .reversed()
             .first(where: { $0.role == .assistant && $0.messageType == .text }) {
-            return ArtifactParser.stripArtifactBlocks(from: lastMsg.content)
+            let content = ArtifactParser.stripArtifactBlocks(from: lastMsg.content)
+            if content.count >= 200 { return content }
         }
 
         return nil

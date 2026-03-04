@@ -1265,8 +1265,8 @@ class RoomManager: ObservableObject {
         // 사전 매칭: 사용자 요청에서 기존 에이전트 이름 키워드 직접 탐색
         // "QA에게 자문" → "QA 전문가" 직접 매칭 (LLM 우회)
         // "프론트" → "프론트엔드 개발자" 접두어 매칭도 지원
-        // documentation intent는 도메인 키워드(백엔드, 프론트 등)로 직접 매칭하면 부정확 → LLM에 위임
-        let skipDirectMatch = intent == .documentation
+        // documentation intent에서도 사용자가 에이전트 이름을 직접 언급하면 매칭 허용
+        let skipDirectMatch = false
         let taskLowered = enrichedTask.lowercased()
         let taskWords = taskLowered
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
