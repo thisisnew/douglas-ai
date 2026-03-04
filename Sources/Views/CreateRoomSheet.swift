@@ -24,6 +24,7 @@ struct CreateRoomSheet: View {
             SheetNavHeader(title: "새 방 만들기") {
                 Button("취소") { dismiss() }
                     .keyboardShortcut(.cancelAction)
+                    .buttonStyle(CozyButtonStyle(.cream))
             } trailing: {
                 Button("만들기") { createRoom() }
                     .keyboardShortcut(.defaultAction)

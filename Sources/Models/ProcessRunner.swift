@@ -32,6 +32,75 @@ enum ProcessRunner {
         return await defaultRun(executable: executable, args: args, env: env, workDir: workDir)
     }
 
+    /// 스트리밍 프로세스 실행: stdout을 점진적으로 읽으며 onOutput 콜백 호출
+    static func runStreaming(
+        executable: String,
+        args: [String],
+        env: [String: String]? = nil,
+        workDir: String? = nil,
+        onOutput: @escaping @Sendable (String) -> Void
+    ) async -> (exitCode: Int32, stdout: String, stderr: String) {
+        if let handler {
+            let result = await handler(executable, args, env, workDir)
+            onOutput(result.stdout)
+            return result
+        }
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: executable)
+                process.arguments = args
+                if let env { process.environment = env }
+                if let workDir { process.currentDirectoryURL = URL(fileURLWithPath: workDir) }
+
+                let outputPipe = Pipe()
+                let errorPipe = Pipe()
+                process.standardOutput = outputPipe
+                process.standardError = errorPipe
+
+                do {
+                    try process.run()
+
+                    var accumulatedStdout = ""
+                    let lock = NSLock()
+                    let group = DispatchGroup()
+
+                    // stdout: 점진적 읽기 (availableData는 데이터가 올 때까지 블록)
+                    group.enter()
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        while true {
+                            let data = outputPipe.fileHandleForReading.availableData
+                            if data.isEmpty { break } // EOF
+                            if let text = String(data: data, encoding: .utf8) {
+                                lock.withLock { accumulatedStdout += text }
+                                onOutput(text)
+                            }
+                        }
+                        group.leave()
+                    }
+
+                    // stderr: 전체 읽기
+                    var stderrData = Data()
+                    group.enter()
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        stderrData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                        group.leave()
+                    }
+
+                    group.wait()
+                    process.waitUntilExit()
+
+                    var stdout = ""
+                    lock.withLock { stdout = accumulatedStdout }
+                    let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+                    continuation.resume(returning: (process.terminationStatus, stdout, stderr))
+                } catch {
+                    continuation.resume(returning: (-1, "", error.localizedDescription))
+                }
+            }
+        }
+    }
+
     /// 실제 Process 실행 (프로덕션 코드 경로)
     /// stdout/stderr를 별도 스레드에서 동시 읽기하여 파이프 버퍼(64KB) 데드락 방지.
     private static func defaultRun(

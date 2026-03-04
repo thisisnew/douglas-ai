@@ -351,10 +351,12 @@ class RoomManager: ObservableObject {
         scheduleSave()
 
         // 작업일지 + 플레이북 감지 (완료 후 비동기)
-        if let room = rooms.first(where: { $0.id == roomID }), room.workLog == nil {
+        // 전문가 없이 취소된 경우 스킵 (실질적 작업 없음)
+        let hasSpecialists1 = !executingAgentIDs(in: roomID).isEmpty
+        if hasSpecialists1, let room = rooms.first(where: { $0.id == roomID }), room.workLog == nil {
             await generateWorkLog(roomID: roomID, task: task)
         }
-        detectPlaybookOverrides(roomID: roomID)
+        if hasSpecialists1 { detectPlaybookOverrides(roomID: roomID) }
     }
 
     // MARK: - 도구 실행 컨텍스트
@@ -641,10 +643,12 @@ class RoomManager: ObservableObject {
         scheduleSave()
 
         // 작업일지 + 플레이북 감지 (완료 후 비동기)
-        if let room = rooms.first(where: { $0.id == roomID }), room.workLog == nil {
+        // 전문가 없이 취소된 경우 스킵 (실질적 작업 없음)
+        let hasSpecialists2 = !executingAgentIDs(in: roomID).isEmpty
+        if hasSpecialists2, let room = rooms.first(where: { $0.id == roomID }), room.workLog == nil {
             await generateWorkLog(roomID: roomID, task: task)
         }
-        detectPlaybookOverrides(roomID: roomID)
+        if hasSpecialists2 { detectPlaybookOverrides(roomID: roomID) }
     }
 
     /// Intent 단계: quickClassify 결과에 따라 LLM 재분류 또는 사용자 선택
@@ -845,7 +849,8 @@ class RoomManager: ObservableObject {
                 appendMessage(placeholder, to: roomID)
 
                 let response: String
-                if provider.supportsStreaming {
+                if provider.supportsStreaming && imageAttachments.isEmpty {
+                    // 이미지 없음 → 스트리밍 경로
                     let simpleMessages = clarifyMessages.compactMap { msg -> (role: String, content: String)? in
                         guard let content = msg.content else { return nil }
                         return (role: msg.role, content: content)
@@ -863,6 +868,7 @@ class RoomManager: ObservableObject {
                         }
                     )
                 } else {
+                    // 이미지 있음 또는 스트리밍 미지원 → sendMessageWithTools로 이미지 보존
                     let responseContent = try await provider.sendMessageWithTools(
                         model: agent.modelName,
                         systemPrompt: clarifySystemPrompt,
@@ -1132,13 +1138,16 @@ class RoomManager: ObservableObject {
                 addAgentSuggestion(suggestion, to: roomID)
                 await waitForSuggestionResponse(roomID: roomID)
 
-                // 취소 후 전문가 없으면 → 워크플로우 완료 처리
+                // 취소 후 전문가 없으면 → 워크플로우 즉시 완료
                 let postSkipSpecialists = executingAgentIDs(in: roomID)
                 if postSkipSpecialists.isEmpty {
                     if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].currentPhase = nil
                         rooms[i].status = .completed
                         rooms[i].completedAt = Date()
                     }
+                    syncAgentStatuses()
+                    scheduleSave()
                 }
                 return
             }
@@ -1176,13 +1185,16 @@ class RoomManager: ObservableObject {
             if hadUnmatched {
                 await waitForSuggestionResponse(roomID: roomID)
 
-                // 취소 후 전문가 없으면 → 워크플로우 완료 처리
+                // 취소 후 전문가 없으면 → 워크플로우 즉시 완료
                 let postSkipSpecialists = executingAgentIDs(in: roomID)
                 if postSkipSpecialists.isEmpty {
                     if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].currentPhase = nil
                         rooms[i].status = .completed
                         rooms[i].completedAt = Date()
                     }
+                    syncAgentStatuses()
+                    scheduleSave()
                 }
             }
 

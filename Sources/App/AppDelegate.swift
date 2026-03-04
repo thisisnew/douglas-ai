@@ -74,7 +74,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var sidebarHotkeyMonitor: Any?
     private var sidebarGlobalMonitor: Any?
 
-    private var isSidebarVisible = false
+    private(set) var isSidebarVisible = false
     private var panelWidth: CGFloat = 400
     /// 현재 사이드바가 표시 중인 화면
     private weak var currentScreen: NSScreen?
@@ -425,6 +425,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         currentScreen = screen
         sidebarPanel.ignoresMouseEvents = false
         sidebarPanel.orderFrontRegardless()
+        // Dock 아이콘 표시
+        if NSApp.activationPolicy() == .accessory {
+            NSApp.setActivationPolicy(.regular)
+        }
         let sf = screen.visibleFrame
         let w = currentPanelWidth
         let h = currentPanelHeight ?? sf.height
@@ -464,6 +468,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             })
         }
         currentScreen = nil
+        // 유틸리티 윈도우가 없으면 Dock 아이콘 숨김
+        if UtilityWindowManager.shared.windows.isEmpty {
+            NSApp.setActivationPolicy(.accessory)
+            // accessory 전환 후 사이드바 패널이 숨겨지지 않도록 복원
+            DispatchQueue.main.async { [weak self] in
+                self?.sidebarPanel?.orderFrontRegardless()
+            }
+        }
     }
 
     /// 사이드바를 오른쪽 끝으로 스냅 (더블클릭 시)

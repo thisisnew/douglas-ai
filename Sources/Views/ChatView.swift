@@ -78,10 +78,18 @@ struct MessageBubble: View {
         }
     }
 
+    /// placeholder 메시지 (빈 content) → 아바타/이름 표시 안 함
+    private var isEmptyPlaceholder: Bool {
+        message.role == .assistant && message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && (message.attachments ?? []).isEmpty
+    }
+
     var body: some View {
         // 시스템 메시지 — 별도 스타일
         if message.role == .system {
             systemMessageView
+        } else if isEmptyPlaceholder {
+            EmptyView()
         } else {
             HStack(alignment: .top, spacing: 8) {
                 if message.role == .user { Spacer(minLength: 48) }

@@ -24,7 +24,14 @@ enum ToolExecutor {
         guard useTools, !toolIDs.isEmpty, provider.supportsToolCalling else {
             onToolActivity?("API 요청: \(agent.providerName) (\(agent.modelName))")
             let result: String
-            if let claudeProvider = provider as? ClaudeCodeProvider {
+            if let onStreamChunk, provider.supportsStreaming {
+                result = try await provider.sendMessageStreaming(
+                    model: agent.modelName,
+                    systemPrompt: systemPrompt,
+                    messages: messages,
+                    onChunk: onStreamChunk
+                )
+            } else if let claudeProvider = provider as? ClaudeCodeProvider {
                 result = try await claudeProvider.sendMessage(
                     model: agent.modelName,
                     systemPrompt: systemPrompt,
@@ -32,13 +39,6 @@ enum ToolExecutor {
                     workingDirectory: context.projectPaths.first
                 )
                 if let onStreamChunk { onStreamChunk(result) }
-            } else if let onStreamChunk, provider.supportsStreaming {
-                result = try await provider.sendMessageStreaming(
-                    model: agent.modelName,
-                    systemPrompt: systemPrompt,
-                    messages: messages,
-                    onChunk: onStreamChunk
-                )
             } else {
                 result = try await provider.sendMessage(
                     model: agent.modelName,
@@ -96,7 +96,14 @@ enum ToolExecutor {
             }
             onToolActivity?("API 요청: \(agent.providerName) (\(agent.modelName))")
             let result: String
-            if let claudeProvider = provider as? ClaudeCodeProvider {
+            if let onStreamChunk, provider.supportsStreaming {
+                result = try await provider.sendMessageStreaming(
+                    model: agent.modelName,
+                    systemPrompt: systemPrompt,
+                    messages: simple,
+                    onChunk: onStreamChunk
+                )
+            } else if let claudeProvider = provider as? ClaudeCodeProvider {
                 result = try await claudeProvider.sendMessage(
                     model: agent.modelName,
                     systemPrompt: systemPrompt,
@@ -104,13 +111,6 @@ enum ToolExecutor {
                     workingDirectory: context.projectPaths.first
                 )
                 if let onStreamChunk { onStreamChunk(result) }
-            } else if let onStreamChunk, provider.supportsStreaming {
-                result = try await provider.sendMessageStreaming(
-                    model: agent.modelName,
-                    systemPrompt: systemPrompt,
-                    messages: simple,
-                    onChunk: onStreamChunk
-                )
             } else {
                 result = try await provider.sendMessage(
                     model: agent.modelName,

@@ -108,16 +108,11 @@ final class UtilityWindowManager {
         }
         windowIdentifiers.removeValue(forKey: window)
         windows.removeAll { $0 === window }
-        // 모든 유틸리티 윈도우가 닫히면 다시 accessory로 복원 (Dock 아이콘 숨김)
-        if windows.isEmpty {
+        // 모든 유틸리티 윈도우가 닫히고 사이드바도 숨겨져 있으면 accessory로 복원
+        if windows.isEmpty,
+           let delegate = NSApp.delegate as? AppDelegate,
+           !delegate.isSidebarVisible {
             NSApp.setActivationPolicy(.accessory)
-            // accessory 전환 시 사이드바 패널이 숨겨지지 않도록 복원
-            DispatchQueue.main.async {
-                if let delegate = NSApp.delegate as? AppDelegate,
-                   delegate.sidebarPanel?.alphaValue == 1 {
-                    delegate.sidebarPanel?.orderFrontRegardless()
-                }
-            }
         }
     }
 
