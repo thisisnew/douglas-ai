@@ -68,6 +68,11 @@ struct AddProviderSheet: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("OpenAI")
                                         .font(.body.weight(.medium))
+                                    if hasKey(.openAI) {
+                                        Label("연동됨", systemImage: "checkmark.circle.fill")
+                                            .font(.caption)
+                                            .foregroundColor(.green)
+                                    }
                                 }
                                 Spacer()
                                 testResultBadge(for: .openAI)
@@ -107,6 +112,11 @@ struct AddProviderSheet: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("Google Gemini")
                                         .font(.body.weight(.medium))
+                                    if hasKey(.google) {
+                                        Label("연동됨", systemImage: "checkmark.circle.fill")
+                                            .font(.caption)
+                                            .foregroundColor(.green)
+                                    }
                                 }
                                 Spacer()
                                 testResultBadge(for: .google)
@@ -289,6 +299,11 @@ struct AddProviderSheet: View {
 
     // MARK: - Logic
 
+    private func hasKey(_ type: ProviderType) -> Bool {
+        guard let key = providerManager.configs.first(where: { $0.type == type })?.apiKey else { return false }
+        return !key.isEmpty
+    }
+
     private func saveKey(_ type: ProviderType, key: String) {
         if var config = providerManager.configs.first(where: { $0.type == type }) {
             config.apiKey = key
@@ -314,6 +329,13 @@ struct AddProviderSheet: View {
             do {
                 let models = try await provider.fetchModels()
                 testResults[type] = "성공 · \(models.count)개 모델"
+            } catch let error as AIProviderError {
+                switch error {
+                case .noAPIKey: testResults[type] = "키 없음"
+                case .httpError(let code, _) where code == 400 || code == 401 || code == 403:
+                    testResults[type] = "인증 실패"
+                default: testResults[type] = "실패"
+                }
             } catch {
                 testResults[type] = "실패"
             }

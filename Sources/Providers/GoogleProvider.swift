@@ -9,8 +9,32 @@ class GoogleProvider: AIProvider {
         self.session = session
     }
 
+    /// 하드코딩 모델 목록 (API 실패 시 폴백)
+    private static let fallbackModels = ["gemini-2.0-flash", "gemini-2.0-pro", "gemini-1.5-flash", "gemini-1.5-pro"]
+
     func fetchModels() async throws -> [String] {
-        return ["gemini-2.0-flash", "gemini-2.0-pro", "gemini-1.5-flash", "gemini-1.5-pro"]
+        guard let key = config.apiKey, !key.isEmpty else { throw AIProviderError.noAPIKey }
+
+        let urlString = "\(config.baseURL)/v1beta/models"
+        guard let url = URL(string: urlString) else { throw AIProviderError.invalidURL }
+
+        var request = URLRequest(url: url)
+        request.setValue(key, forHTTPHeaderField: "x-goog-api-key")
+        request.timeoutInterval = 15
+
+        let (data, response) = try await session.data(for: request)
+        try validateHTTPResponse(response)
+
+        struct ModelList: Decodable {
+            struct Model: Decodable { let name: String }
+            let models: [Model]?
+        }
+        let result = try JSONDecoder().decode(ModelList.self, from: data)
+        let models = result.models?
+            .map { $0.name.replacingOccurrences(of: "models/", with: "") }
+            .filter { $0.contains("gemini") }
+            .sorted() ?? []
+        return models.isEmpty ? Self.fallbackModels : models
     }
 
     func sendMessage(model: String, systemPrompt: String, messages: [(role: String, content: String)]) async throws -> String {
