@@ -1819,6 +1819,9 @@ class RoomManager: ObservableObject {
 
         do {
             let response: String
+            // 웹 검색 지침 추가: 모르는 내용은 반드시 검색 후 답변
+            let searchPrompt = agent.resolvedSystemPrompt
+                + "\n\n[웹 검색 지침] 답을 확실히 알지 못하거나 최신 정보가 필요한 질문은 반드시 WebSearch 도구로 검색한 후 답변하세요. 인터넷 밈, 슬랭, 브랜드, 제품명, 또는 익숙하지 않은 용어는 검색을 먼저 수행하세요."
             if let claudeProvider = provider as? ClaudeCodeProvider {
                 // ClaudeCodeProvider: CLI 자체 WebSearch 사용 (검색+읽기만 허용)
                 let simple = history.compactMap { msg -> (role: String, content: String)? in
@@ -1827,7 +1830,7 @@ class RoomManager: ObservableObject {
                 }
                 response = try await claudeProvider.sendMessageWithSearch(
                     model: agent.modelName,
-                    systemPrompt: agent.resolvedSystemPrompt,
+                    systemPrompt: searchPrompt,
                     messages: simple
                 )
             } else {
@@ -1836,7 +1839,7 @@ class RoomManager: ObservableObject {
                 response = try await ToolExecutor.smartSend(
                     provider: provider,
                     agent: agent,
-                    systemPrompt: agent.resolvedSystemPrompt,
+                    systemPrompt: searchPrompt,
                     conversationMessages: history,
                     context: context,
                     onStreamChunk: { [weak self] chunk in
