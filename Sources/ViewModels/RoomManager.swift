@@ -2290,8 +2290,8 @@ class RoomManager: ObservableObject {
             firstClause = cleaned
         }
 
-        // 최대 20자로 자르고 "하는 중" 접미사
-        let maxLen = 20
+        // 최대 40자로 자르고 "하는 중" 접미사
+        let maxLen = 40
         let truncated: String
         if firstClause.count > maxLen {
             truncated = String(firstClause.prefix(maxLen)) + "…"

@@ -106,15 +106,17 @@ struct ProgressActivityBubble: View {
                 activityRow(activity)
             }
 
-            // 진행 중이고 활동이 있을 때 — 마지막 행 아래에 경과 시간
+            // 진행 중이고 활동이 있을 때 — 마지막 활동 요약 + 경과 시간
             if isActive && !activities.isEmpty {
                 HStack(spacing: 4) {
                     ProgressView()
                         .scaleEffect(0.4)
                         .frame(width: 10, height: 10)
-                    Text("실행 중...")
+                    Text(lastActivityLabel)
                         .font(.system(size: 10))
                         .foregroundColor(.secondary.opacity(0.5))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                     Spacer()
                     Text(elapsedLabel)
                         .font(.system(size: 9, design: .monospaced))
@@ -262,6 +264,17 @@ struct ProgressActivityBubble: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
         return formatter.string(from: date)
+    }
+
+    /// 마지막 활동 요약 (도구명 + 대상)
+    private var lastActivityLabel: String {
+        guard let last = activities.last else { return "실행 중..." }
+        if let detail = last.toolDetail {
+            let tool = detail.toolName
+            let subject = detail.subject.map { " → \($0)" } ?? ""
+            return "\(tool)\(subject)"
+        }
+        return last.content.isEmpty ? "실행 중..." : last.content
     }
 
     private var elapsedLabel: String {

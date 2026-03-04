@@ -255,6 +255,9 @@ class ClaudeCodeProvider: AIProvider {
         // 라우터 모드: 내장 도구 비활성화 (URL 직접 접근/파일 조작 방지)
         if disableTools {
             args += ["--tools", ""]
+        } else {
+            // 비대화형 모드(-p)에서 도구 승인 프롬프트 없이 실행
+            args += ["--allowedTools", "Edit", "Write", "Bash"]
         }
 
         // 특정 도구만 선택적으로 차단 (바이브코딩 유지하면서 WebFetch 등 차단)
