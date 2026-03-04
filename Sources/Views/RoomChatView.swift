@@ -1027,6 +1027,11 @@ struct ApprovalCard: View {
     @State private var feedbackText = ""
     @FocusState private var isFeedbackFocused: Bool
 
+    /// 자동 승인 카운트다운 (nil이면 타이머 없음)
+    private var autoApprovalRemaining: Int? {
+        roomManager.reviewAutoApprovalRemaining[roomID]
+    }
+
     /// 방의 최근 .approvalRequest 메시지에서 승인 제목과 내용을 추출
     private var approvalInfo: (title: String, detail: String?) {
         guard let room = roomManager.rooms.first(where: { $0.id == roomID }),
@@ -1138,6 +1143,7 @@ struct ApprovalCard: View {
                     HStack(spacing: 10) {
                         Spacer()
                         Button {
+                            roomManager.cancelReviewAutoApproval(roomID: roomID)
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 showFeedbackInput = true
                             }
@@ -1170,25 +1176,32 @@ struct ApprovalCard: View {
                         Button {
                             roomManager.approveStep(roomID: roomID)
                         } label: {
-                            Text("승인")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 6)
-                                .background(
-                                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
-                                        .fill(
-                                            LinearGradient(
-                                                colors: [
-                                                    hoveredButton == "approve" ? palette.accent.opacity(0.85) : palette.accent.opacity(0.9),
-                                                    palette.accent
-                                                ],
-                                                startPoint: .top, endPoint: .bottom
-                                            )
+                            HStack(spacing: 6) {
+                                Text("승인")
+                                    .font(.system(size: 11, weight: .semibold))
+                                if let remaining = autoApprovalRemaining {
+                                    Text("\(remaining)s")
+                                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                        .foregroundStyle(.white.opacity(0.7))
+                                }
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [
+                                                hoveredButton == "approve" ? palette.accent.opacity(0.85) : palette.accent.opacity(0.9),
+                                                palette.accent
+                                            ],
+                                            startPoint: .top, endPoint: .bottom
                                         )
-                                )
-                                .shadow(color: palette.buttonShadow.opacity(0.25), radius: 4, y: DesignTokens.CozyGame.buttonShadowY)
-                                .contentShape(Rectangle())
+                                    )
+                            )
+                            .shadow(color: palette.buttonShadow.opacity(0.25), radius: 4, y: DesignTokens.CozyGame.buttonShadowY)
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .onHover { hovering in

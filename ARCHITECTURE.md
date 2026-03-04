@@ -941,11 +941,11 @@ executeWithTools() 루프 (최대 10회):
 - **방 shortID** (`Room.shortID`): UUID 앞 6자 소문자. 방 헤더(`RoomChatView`)와 방 목록(`RoomListView`)에 표시.
 - **CLI WebFetch 차단**: `ClaudeCodeProvider.sendMessage()`에서 `--disallowed-tools WebFetch` 적용
 
-**승인 게이트** (`executeRoomWork`): `step.requiresApproval == true`이면 `.awaitingApproval` 상태 전환 + `CheckedContinuation`으로 비동기 일시 정지. `approveStep(roomID:)` / `rejectStep(roomID:)` 호출 시 continuation resume.
+**승인 게이트** (`executeRoomWork`): 첫 단계 + 마지막 단계 + 외부 영향 키워드(`hasExternalEffectKeywords`: PR, push, deploy, merge 등) 포함 단계에서 `.awaitingApproval` 상태 전환 + `CheckedContinuation`으로 비동기 일시 정지. `approveStep(roomID:)` / `rejectStep(roomID:)` 호출 시 continuation resume. **자동 승인 타이머**: 모든 리뷰 게이트에서 15초 카운트다운 후 자동 승인. 사용자가 "수정 요청" 클릭 시 타이머 취소 → 수동 응답 대기.
 
 **Plan 승인 루프** (`executePlanExec`): implementation Plan 승인 시 거부 → 피드백 추출 → `requestPlan(previousPlan:feedback:)`로 재계획 → 다시 승인 카드 표시 (무제한). 이전 계획과 사용자 피드백이 재계획 프롬프트에 주입됨.
 
-**승인 카드 UI** (`ApprovalCard`): 분석 결과 확인 + 추가 요구사항 입력 TextEditor + "승인"/"수정 요청" 버튼. 추가 입력이 있으면 "추가 후 승인" 표시. "수정 요청" 클릭 시 피드백이 방 메시지에 기록된 후 `rejectStep()`으로 재계획 트리거.
+**승인 카드 UI** (`ApprovalCard`): 단계 결과 확인 + "승인"/"수정 요청" 버튼. 자동 승인 카운트다운 표시 (승인 버튼에 "15s" 형태). "수정 요청" 클릭 시 타이머 취소 → 피드백 입력 → `rejectStep()`으로 재계획 트리거.
 
 **전문가 Solo 분석** (`executeSoloAnalysis`): 전문가 1명만 배정된 방에서 토론 대신 혼자 분석하여 결과 공유. `executePlanLite`/`executePlanExec`에서 `specialistCount == 1`일 때 자동 호출. **documentation/implementation intent는 스킵** — documentation은 soloAnalysis 히스토리가 "이미 완성" 오판을 유발, implementation은 requestPlan이 브리핑 기반으로 계획 수립하므로 중복 방지 + API 1회 절감.
 

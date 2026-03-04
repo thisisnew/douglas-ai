@@ -72,6 +72,8 @@ class RoomManager: ObservableObject {
     @Published var pendingIntentSelection: [UUID: WorkflowIntent] = [:]
     /// 문서 유형 선택 대기 중인 방
     @Published var pendingDocTypeSelection: [UUID: Bool] = [:]
+    /// 리뷰 게이트 자동 승인 카운트다운 (방 ID → 남은 초)
+    @Published var reviewAutoApprovalRemaining: [UUID: Int] = [:]
 
     private(set) var agentStore: AgentStore?
     private(set) var providerManager: ProviderManager?
@@ -81,6 +83,8 @@ class RoomManager: ObservableObject {
     private var roomTasks: [UUID: Task<Void, Never>] = [:]
     /// 승인 게이트 대기 중인 continuation (방 ID → continuation)
     private var approvalContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
+    /// 리뷰 게이트 자동 승인 타이머 태스크 (취소용)
+    private var reviewAutoApprovalTasks: [UUID: Task<Void, Never>] = [:]
     /// 사용자 입력 대기 중인 continuation (방 ID → continuation)
     private var userInputContinuations: [UUID: CheckedContinuation<String, Never>] = [:]
     /// 에이전트 생성 제안 승인 대기 continuation (방 ID → continuation, Bool = 사용자 응답 여부)
@@ -192,6 +196,7 @@ class RoomManager: ObservableObject {
 
     /// 승인 대기 중인 단계를 승인
     func approveStep(roomID: UUID) {
+        cancelReviewAutoApproval(roomID: roomID)
         let msg = ChatMessage(role: .user, content: "승인")
         appendMessage(msg, to: roomID)
 
@@ -208,6 +213,7 @@ class RoomManager: ObservableObject {
 
     /// 승인 대기 중인 단계를 거부 (수정 요청)
     func rejectStep(roomID: UUID) {
+        cancelReviewAutoApproval(roomID: roomID)
         let msg = ChatMessage(role: .system, content: "수정 요청")
         appendMessage(msg, to: roomID)
 
@@ -229,6 +235,34 @@ class RoomManager: ObservableObject {
     func appendAdditionalInput(roomID: UUID, text: String) {
         let msg = ChatMessage(role: .user, content: text)
         appendMessage(msg, to: roomID)
+    }
+
+    // MARK: - 리뷰 자동 승인 타이머
+
+    /// 리뷰 게이트 자동 승인 타이머 시작 (초)
+    func startReviewAutoApproval(roomID: UUID, seconds: Int = 15) {
+        cancelReviewAutoApproval(roomID: roomID)
+        reviewAutoApprovalRemaining[roomID] = seconds
+
+        reviewAutoApprovalTasks[roomID] = Task { @MainActor [weak self] in
+            for remaining in stride(from: seconds - 1, through: 0, by: -1) {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                self?.reviewAutoApprovalRemaining[roomID] = remaining
+            }
+            guard !Task.isCancelled else { return }
+            // 타이머 만료 → 자동 승인
+            self?.reviewAutoApprovalRemaining.removeValue(forKey: roomID)
+            self?.reviewAutoApprovalTasks.removeValue(forKey: roomID)
+            self?.approveStep(roomID: roomID)
+        }
+    }
+
+    /// 사용자 상호작용 감지 시 자동 승인 타이머 취소
+    func cancelReviewAutoApproval(roomID: UUID) {
+        reviewAutoApprovalTasks[roomID]?.cancel()
+        reviewAutoApprovalTasks.removeValue(forKey: roomID)
+        reviewAutoApprovalRemaining.removeValue(forKey: roomID)
     }
 
     // MARK: - Intent 선택 게이트
@@ -2349,6 +2383,9 @@ class RoomManager: ObservableObject {
                     )
                     appendMessage(reviewMsg, to: roomID)
                     scheduleSave()
+
+                    // 자동 승인 타이머: 15초 후 자동 승인 (사용자 개입 시 취소)
+                    startReviewAutoApproval(roomID: roomID, seconds: 15)
 
                     let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
                         approvalContinuations[roomID] = continuation
