@@ -186,7 +186,13 @@ private func classifyRawMessage(_ message: String) -> String {
         return "네트워크 연결을 확인해 주세요."
     }
 
-    return "일시적인 오류가 발생했습니다. 다시 시도해 주세요."
+    // 원본 메시지가 있으면 포함하여 디버깅 용이하게
+    let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.isEmpty {
+        return "일시적인 오류가 발생했습니다. 다시 시도해 주세요."
+    }
+    let preview = trimmed.count > 200 ? String(trimmed.prefix(200)) + "…" : trimmed
+    return "오류: \(preview)"
 }
 
 // MARK: - SSE 스트리밍 유틸리티

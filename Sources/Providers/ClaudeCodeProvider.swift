@@ -52,6 +52,16 @@ private final class StreamJsonHandler: @unchecked Sendable {
             lock.lock()
             _resultText = resultText
             lock.unlock()
+        } else if type == "error" {
+            // CLI 에러 이벤트: 활동으로 표시
+            let errorMsg = (json["error"] as? [String: Any])?["message"] as? String
+                ?? json["error"] as? String
+                ?? "알 수 없는 오류"
+            let detail = ToolActivityDetail(
+                toolName: "error", subject: errorMsg,
+                contentPreview: nil, isError: true
+            )
+            onActivity("오류: \(errorMsg)", detail)
         }
     }
 
@@ -252,10 +262,10 @@ class ClaudeCodeProvider: AIProvider {
             args += ["--disallowed-tools", tool]
         }
 
-        // 도구 활동 추적 모드: stream-json NDJSON 출력
+        // 도구 활동 추적 모드: stream-json NDJSON 출력 (--verbose 필수)
         let useStreaming = onToolActivity != nil
         if useStreaming {
-            args += ["--output-format", "stream-json"]
+            args += ["--output-format", "stream-json", "--verbose"]
         }
 
         // 환경변수 상속

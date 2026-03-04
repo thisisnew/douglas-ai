@@ -461,7 +461,7 @@ struct FloatingSidebarView: View {
     private func sectionResizeHandle(sidebarHeight: CGFloat) -> some View {
         Rectangle()
             .fill(Color.clear)
-            .frame(height: 14)
+            .frame(height: 28)
             .overlay(
                 Capsule()
                     .fill(Color.primary.opacity(sectionHandleHovered ? 0.3 : 0.12))
@@ -532,12 +532,6 @@ struct FloatingSidebarView: View {
                 label: "추가",
                 tint: Color(red: 0.55, green: 0.80, blue: 0.62)
             ) { openAddAgentWindow() }
-
-            cuteHeaderButton(
-                icon: "square.and.arrow.down",
-                label: "가져오기",
-                tint: Color(red: 0.55, green: 0.70, blue: 0.85)
-            ) { AgentPorter.importAgents(into: agentStore) }
 
             cuteHeaderButton(
                 icon: "text.book.closed",

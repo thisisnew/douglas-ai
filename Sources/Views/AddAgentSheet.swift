@@ -32,6 +32,11 @@ struct AddAgentSheet: View {
                 Button("취소") { dismiss() }
                     .keyboardShortcut(.cancelAction)
                     .buttonStyle(CozyButtonStyle(.cream))
+                Button("가져오기") {
+                    AgentPorter.importAgents(into: agentStore)
+                    dismiss()
+                }
+                .buttonStyle(CozyButtonStyle(.cream))
             } trailing: {
                 Button("추가") {
                     if isFormValid {
