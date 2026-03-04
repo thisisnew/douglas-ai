@@ -42,7 +42,7 @@ enum WorkflowIntent: String, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .quickAnswer:     return "즉답"
+        case .quickAnswer:     return "질의응답"
         case .research:        return "리서치"
         case .implementation:  return "구현"
         }
@@ -104,8 +104,8 @@ enum WorkflowIntent: String, CaseIterable {
     var requiredPhases: [WorkflowPhase] {
         switch self {
         case .quickAnswer:
-            // 즉답: plan 스킵, 바로 execute
-            return [.intake, .intent, .clarify, .assemble, .execute]
+            // 질의응답: 복명복창 없이 최적 에이전트가 바로 답변
+            return [.intake, .intent, .assemble, .execute]
         case .research:
             // 리서치: 토론/분석 (execute에서 수행), 문서 요청 시 자동 문서화
             return [.intake, .intent, .clarify, .assemble, .execute]

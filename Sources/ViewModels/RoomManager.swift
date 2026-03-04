@@ -597,15 +597,14 @@ class RoomManager: ObservableObject {
         syncAgentStatuses()
 
         // 후속 사이클 스킵 범위 결정:
-        // - 규칙 기반 quickAnswer 확정 + 에이전트 변동 없음 → clarify/assemble 스킵 (즉답은 빠르게)
+        // - quickAnswer (질의응답): clarify 없음 + 에이전트 변동 없으면 assemble도 스킵
         // - 에이전트가 새로 추가됐으면 → assemble 수행 (새 에이전트 통합)
-        // - 그 외 (LLM/fallback으로 분류됨) → clarify 수행 (의도 확인 필요)
+        // - 그 외 → clarify 수행 (의도 확인 필요)
         var completedPhases: Set<WorkflowPhase> = [.intake, .intent]
         let specialists = executingAgentIDs(in: roomID)
         let previousAgentCount = previousCycleAgentCount[roomID] ?? specialists.count
         let agentsChanged = specialists.count != previousAgentCount
-        if ruleBasedIntent == .quickAnswer && !specialists.isEmpty && !agentsChanged {
-            completedPhases.insert(.clarify)
+        if resolvedIntent == .quickAnswer && !specialists.isEmpty && !agentsChanged {
             completedPhases.insert(.assemble)
         }
         // Room에 동기화
