@@ -37,15 +37,13 @@ enum PlanMode: String, Codable {
 /// 사용자의 작업 목적에 따라 워크플로우 단계가 달라진다
 enum WorkflowIntent: String, CaseIterable {
     case quickAnswer            // 단순 질문/번역
-    case research               // 리서치/분석/토론 (brainstorm, 요건분석, 테스트계획, 작업분해 통합)
-    case documentation          // 기획/문서 작성
+    case research               // 리서치/분석/토론/문서 정리 (brainstorm, 요건분석, 테스트계획, 작업분해, 문서작성 통합)
     case implementation         // 구현: 전체 6단계
 
     var displayName: String {
         switch self {
         case .quickAnswer:     return "즉답"
         case .research:        return "리서치"
-        case .documentation:   return "문서 작성"
         case .implementation:  return "구현"
         }
     }
@@ -55,7 +53,6 @@ enum WorkflowIntent: String, CaseIterable {
         switch self {
         case .quickAnswer:     return "bolt"
         case .research:        return "magnifyingglass"
-        case .documentation:   return "doc.text"
         case .implementation:  return "hammer"
         }
     }
@@ -64,8 +61,7 @@ enum WorkflowIntent: String, CaseIterable {
     var subtitle: String {
         switch self {
         case .quickAnswer:     return "단순 질문에 바로 답변"
-        case .research:        return "조사·분석·토론·브레인스토밍"
-        case .documentation:   return "기획서·문서 작성"
+        case .research:        return "조사·분석·토론·문서 정리"
         case .implementation:  return "코드 구현·수정"
         }
     }
@@ -77,7 +73,7 @@ enum WorkflowIntent: String, CaseIterable {
             return .skip
         case .research:
             return .lite
-        case .documentation, .implementation:
+        case .implementation:
             return .exec
         }
     }
@@ -111,11 +107,8 @@ enum WorkflowIntent: String, CaseIterable {
             // 즉답: plan 스킵, 바로 execute
             return [.intake, .intent, .clarify, .assemble, .execute]
         case .research:
-            // 리서치: 토론/분석 (execute에서 수행)
+            // 리서치: 토론/분석 (execute에서 수행), 문서 요청 시 자동 문서화
             return [.intake, .intent, .clarify, .assemble, .execute]
-        case .documentation:
-            // Plan-exec → 계획 수립 + 실행
-            return [.intake, .intent, .clarify, .assemble, .plan, .execute]
         case .implementation:
             // 풀 워크플로우: 토론 + 계획 + 승인 + 실행
             return [.intake, .intent, .clarify, .assemble, .plan, .execute]
@@ -148,7 +141,7 @@ extension WorkflowIntent: Codable {
         let container = try decoder.singleValueContainer()
         let raw = try container.decode(String.self)
         switch raw {
-        case "brainstorm", "requirementsAnalysis", "testPlanning", "taskDecomposition":
+        case "brainstorm", "requirementsAnalysis", "testPlanning", "taskDecomposition", "documentation":
             self = .research
         default:
             guard let value = WorkflowIntent(rawValue: raw) else {

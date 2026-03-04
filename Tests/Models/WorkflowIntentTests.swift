@@ -47,13 +47,12 @@ struct WorkflowIntentTests {
 
     // MARK: - WorkflowIntent
 
-    @Test("WorkflowIntent — 전체 케이스 존재 (4종)")
+    @Test("WorkflowIntent — 전체 케이스 존재 (3종)")
     func workflowIntentAllCases() {
         let all = WorkflowIntent.allCases
-        #expect(all.count == 4)
+        #expect(all.count == 3)
         #expect(all.contains(.quickAnswer))
         #expect(all.contains(.research))
-        #expect(all.contains(.documentation))
         #expect(all.contains(.implementation))
     }
 
@@ -61,7 +60,6 @@ struct WorkflowIntentTests {
     func workflowIntentRawValues() {
         #expect(WorkflowIntent.quickAnswer.rawValue == "quickAnswer")
         #expect(WorkflowIntent.research.rawValue == "research")
-        #expect(WorkflowIntent.documentation.rawValue == "documentation")
         #expect(WorkflowIntent.implementation.rawValue == "implementation")
     }
 
@@ -123,7 +121,6 @@ struct WorkflowIntentTests {
     func planModeMapping() {
         #expect(WorkflowIntent.quickAnswer.planMode == .skip)
         #expect(WorkflowIntent.research.planMode == .lite)
-        #expect(WorkflowIntent.documentation.planMode == .exec)
         #expect(WorkflowIntent.implementation.planMode == .exec)
     }
 
@@ -133,7 +130,6 @@ struct WorkflowIntentTests {
     func requiresDiscussion() {
         #expect(WorkflowIntent.quickAnswer.requiresDiscussion == false)
         #expect(WorkflowIntent.research.requiresDiscussion == true)
-        #expect(WorkflowIntent.documentation.requiresDiscussion == true)
         #expect(WorkflowIntent.implementation.requiresDiscussion == true)
     }
 
@@ -142,7 +138,6 @@ struct WorkflowIntentTests {
         #expect(WorkflowIntent.implementation.requiresApproval == true)
         #expect(WorkflowIntent.quickAnswer.requiresApproval == false)
         #expect(WorkflowIntent.research.requiresApproval == false)
-        #expect(WorkflowIntent.documentation.requiresApproval == false)
     }
 
     // MARK: - includesExecution / includesAssembly
@@ -165,7 +160,7 @@ struct WorkflowIntentTests {
 
     @Test("레거시 intent 문자열 → research로 디코딩")
     func legacyIntentDecoding() throws {
-        let legacyValues = ["brainstorm", "requirementsAnalysis", "testPlanning", "taskDecomposition"]
+        let legacyValues = ["brainstorm", "requirementsAnalysis", "testPlanning", "taskDecomposition", "documentation"]
         for legacy in legacyValues {
             let json = "\"\(legacy)\"".data(using: .utf8)!
             let decoded = try JSONDecoder().decode(WorkflowIntent.self, from: json)

@@ -99,14 +99,20 @@ DOUGLAS/
 
 ### AgentMatcher 도메인 키워드 블록리스트
 - `AgentMatcher.domainKeywords`에 도메인 키워드 목록 관리 (백엔드, 프론트엔드, 인프라 등)
-- documentation intent일 때 역할명에서 도메인 키워드를 제거하여 도메인 개발자 대신 문서 전문가 매칭
+- `room.documentType`이 설정되면 역할명에서 도메인 키워드를 제거하여 도메인 개발자 대신 문서 전문가 매칭
 - `DocumentType.preferredKeywords`로 문서 유형별 선호 키워드 보너스 (+2) 적용
-- non-documentation intent에서는 기존 동작 유지 (하위호환)
+- `documentType == nil`이면 기존 동작 유지 (하위호환)
+
+### 문서화 요청 감지 (DocumentRequestDetector)
+- 사용자가 "문서로 정리해줘", "pdf로 뽑아줘" 등 문서화를 요청하면 감지
+- 1차: NLTokenizer + 키워드 매칭 (빠른 감지)
+- 2차: LLM 폴백 (애매한 표현 처리)
+- 초기 메시지에서 문서 신호 감지 시 `room.autoDocOutput = true` → 리서치 완료 후 자동 문서화
+- 후속 사이클에서도 문서화 요청 감지 가능
 
 ### 문서 파일 저장 (DocumentExporter)
-- documentation intent 워크플로우 완료 시 `offerDocumentSave()`로 파일 저장 제안
-- 사용자가 확장자 선택 (.md/.txt) → NSSavePanel → 파일 저장
-- `extractDocumentContent(from:)`: artifact(.document) 우선, fallback으로 마지막 assistant 메시지
+- 문서화 완료 후 `offerDocumentSave()`로 NSSavePanel 자동 호출
+- `extractDocumentContent(from:)`: artifact(.document) 우선, fallback으로 마지막 assistant 메시지 (200자 이상)
 
 ### 에이전트 생성 제안 관례
 - 분석가가 `suggest_agent_creation` 도구로 에이전트 생성 제안
@@ -275,7 +281,7 @@ make install-hooks    # pre-commit + commit-msg 훅 설치
 
 ### 문서 유형 템플릿 (DocumentType)
 
-`documentation` intent 선택 시 **DocTypeSelectionCard**로 문서 유형을 선택한다.
+사용자가 문서화를 요청하면 `DocumentRequestDetector`가 감지하고 적절한 문서 유형을 자동 설정한다.
 
 - **6종**: PRD, 기술 설계서, API 문서, 테스트 계획서, 보고서, 자유 형식
 - **템플릿은 프롬프트 수준**: 섹션 구조 가이드라인이며, 빈칸 채우기 폼이 아님

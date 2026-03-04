@@ -70,7 +70,7 @@ class RoomManager: ObservableObject {
     @Published var speakingAgentIDByRoom: [UUID: UUID] = [:]
     /// Intent 선택 대기 중인 방 (방 ID → LLM 추천 intent)
     @Published var pendingIntentSelection: [UUID: WorkflowIntent] = [:]
-    /// 문서 유형 선택 대기 중인 방
+    /// 문서 유형 선택 대기 중인 방 (향후 재활용 가능)
     @Published var pendingDocTypeSelection: [UUID: Bool] = [:]
     /// 리뷰 게이트 자동 승인 카운트다운 (방 ID → 남은 초)
     @Published var reviewAutoApprovalRemaining: [UUID: Int] = [:]
@@ -310,10 +310,10 @@ class RoomManager: ObservableObject {
 
     // MARK: - 문서 파일 저장
 
-    /// documentation intent 완료 후 자동 파일 저장 (NSSavePanel)
+    /// documentType이 설정된 방에서 자동 파일 저장 (NSSavePanel)
     private func offerDocumentSave(roomID: UUID) async {
         guard let room = rooms.first(where: { $0.id == roomID }),
-              room.intent == .documentation,
+              room.documentType != nil,
               room.status != .failed,
               let content = DocumentExporter.extractDocumentContent(from: room) else { return }
 
@@ -326,6 +326,98 @@ class RoomManager: ObservableObject {
             let doneMsg = ChatMessage(role: .assistant, content: "문서가 저장되었습니다: \(url.lastPathComponent)", messageType: .text)
             appendMessage(doneMsg, to: roomID)
         }
+    }
+
+    // MARK: - 문서화 요청 처리
+
+    /// 사용자의 명시적 문서화 요청 처리 (토론 히스토리 기반 문서 작성 + 자동 저장)
+    private func handleDocumentOutput(roomID: UUID, task: String, suggestedType: DocumentType?) async {
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
+
+        let docType = suggestedType ?? .freeform
+        rooms[idx].documentType = docType
+        rooms[idx].transitionTo(.inProgress)
+        rooms[idx].completedAt = nil
+
+        let phaseMsg = ChatMessage(
+            role: .system,
+            content: "문서 작성을 시작합니다…",
+            messageType: .phaseTransition
+        )
+        appendMessage(phaseMsg, to: roomID)
+        scheduleSave()
+
+        // 기존 에이전트로 토론 히스토리 기반 문서 작성
+        await executeDocumentWritingStep(roomID: roomID, docType: docType, task: task)
+
+        // 자동 저장
+        await offerDocumentSave(roomID: roomID)
+
+        // 완료
+        if let i = rooms.firstIndex(where: { $0.id == roomID }),
+           rooms[i].status != .failed {
+            rooms[i].status = .completed
+            rooms[i].completedAt = Date()
+        }
+        scheduleSave()
+    }
+
+    /// 토론 히스토리 기반 문서 작성 실행
+    private func executeDocumentWritingStep(roomID: UUID, docType: DocumentType, task: String) async {
+        guard let room = rooms.first(where: { $0.id == roomID }) else { return }
+
+        // 에이전트 선택: 첫 번째 전문가 → 마스터 폴백
+        let specialistIDs = executingAgentIDs(in: roomID)
+        let agentID = specialistIDs.first ?? room.assignedAgentIDs.first
+        guard let id = agentID,
+              let agent = agentStore?.agents.first(where: { $0.id == id }),
+              let provider = providerManager?.provider(named: agent.providerName) else { return }
+
+        speakingAgentIDByRoom[roomID] = id
+
+        let templateBlock = docType != .freeform ? "\n" + docType.templatePromptBlock() : ""
+        let history = buildRoomHistory(roomID: roomID)
+
+        let docPrompt = """
+        \(agent.resolvedSystemPrompt)
+
+        이전 대화와 분석 내용을 바탕으로 문서를 작성합니다.
+        \(templateBlock)
+
+        [작업]
+        \(task)
+
+        [중요 — 문서 작성 지침]
+        이전 대화의 분석·요약은 참고 자료일 뿐입니다.
+        완전한 문서를 처음부터 끝까지 빠짐없이 작성하세요.
+        "이미 완성되었습니다", "추가 작업이 필요하신가요?" 등의 응답은 금지합니다.
+        반드시 전체 문서 본문을 출력하세요.
+        """
+
+        do {
+            let msgID = UUID()
+            let placeholder = ChatMessage(id: msgID, role: .assistant, content: "", agentName: agent.name)
+            appendMessage(placeholder, to: roomID)
+
+            _ = try await provider.sendMessageStreaming(
+                model: agent.modelName,
+                systemPrompt: docPrompt,
+                messages: history.map { (role: $0.role, content: $0.content ?? "") }
+            ) { [weak self] chunk in
+                Task { @MainActor in
+                    guard let self else { return }
+                    if let i = self.rooms.firstIndex(where: { $0.id == roomID }),
+                       let mi = self.rooms[i].messages.lastIndex(where: { $0.id == msgID }) {
+                        self.rooms[i].messages[mi].content += chunk
+                    }
+                }
+            }
+        } catch {
+            let errMsg = ChatMessage(role: .system, content: "문서 작성 중 오류: \(error.localizedDescription)", messageType: .error)
+            appendMessage(errMsg, to: roomID)
+        }
+
+        speakingAgentIDByRoom.removeValue(forKey: roomID)
     }
 
     // MARK: - 사용자 입력 게이트
@@ -404,6 +496,26 @@ class RoomManager: ObservableObject {
     /// 후속 사이클: 완료/실패 방에서 후속 질문 시 assemble부터 경량 워크플로우 재실행
     private func launchFollowUpCycle(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
+
+        // 문서화 요청 감지 (intent 재분류 전에 우선 체크)
+        if let docResult = DocumentRequestDetector.quickDetect(task), docResult.isDocumentRequest {
+            await handleDocumentOutput(roomID: roomID, task: task, suggestedType: docResult.suggestedDocType)
+            return
+        }
+        // 1차 감지 실패 시 LLM 폴백 (짧은 메시지가 아닌 경우만)
+        if task.count >= 20,
+           let firstAgentID = rooms[idx].assignedAgentIDs.first,
+           let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
+           let provider = providerManager?.provider(named: agent.providerName) {
+            let lightModel = providerManager?.lightModelName(for: agent.providerName) ?? agent.modelName
+            let llmResult = await DocumentRequestDetector.detectWithLLM(
+                text: task, provider: provider, model: lightModel
+            )
+            if llmResult.isDocumentRequest {
+                await handleDocumentOutput(roomID: roomID, task: task, suggestedType: llmResult.suggestedDocType)
+                return
+            }
+        }
 
         // 이전 작업 컨텍스트는 LLM에 직접 전달 (executeFollowUpAgentTurn에서 workLog 주입)
         // UI에는 표시하지 않음
@@ -486,9 +598,6 @@ class RoomManager: ObservableObject {
                 rooms[i].completedPhases = completedPhases
             }
         }
-
-        // 문서 저장 제안 (documentation intent만)
-        await offerDocumentSave(roomID: roomID)
 
         // 완료
         if let i = rooms.firstIndex(where: { $0.id == roomID }),
@@ -788,9 +897,6 @@ class RoomManager: ObservableObject {
             workflowStart = Date() // 단계 완료 후 타이머 리셋 (사용자 대기 시간으로 인한 타임아웃 방지)
         }
 
-        // 문서 저장 제안 (documentation intent만)
-        await offerDocumentSave(roomID: roomID)
-
         // 워크플로우 완료
         if let i = rooms.firstIndex(where: { $0.id == roomID }),
            rooms[i].status != .failed {
@@ -869,34 +975,15 @@ class RoomManager: ObservableObject {
             postIntentExplanation(roomID: roomID)
         }
 
-        // documentation intent → 문서 유형 선택
-        if let resolvedIdx = rooms.firstIndex(where: { $0.id == roomID }),
-           rooms[resolvedIdx].intent == .documentation {
-            await selectDocumentType(roomID: roomID)
-        }
-    }
-
-    /// Documentation intent 전용: 문서 유형 선택 UI 표시 + 사용자 대기
-    private func selectDocumentType(roomID: UUID) async {
-        guard rooms.contains(where: { $0.id == roomID }) else { return }
-
-        pendingDocTypeSelection[roomID] = true
-
-        let selectedType = await withCheckedContinuation { (cont: CheckedContinuation<DocumentType, Never>) in
-            docTypeContinuations[roomID] = cont
-        }
-
-        guard let idx2 = rooms.firstIndex(where: { $0.id == roomID }) else { return }
-        rooms[idx2].documentType = selectedType
-        scheduleSave()
-
-        if selectedType != .freeform {
-            let msg = ChatMessage(
-                role: .system,
-                content: "[\(selectedType.displayName)] 템플릿이 적용됩니다.",
-                messageType: .phaseTransition
-            )
-            appendMessage(msg, to: roomID)
+        // 초기 메시지에서 문서 요청 감지 → autoDocOutput 플래그 설정
+        if let resolvedIdx = rooms.firstIndex(where: { $0.id == roomID }) {
+            let currentTask = rooms[resolvedIdx].title
+            if let docResult = DocumentRequestDetector.quickDetect(currentTask), docResult.isDocumentRequest {
+                rooms[resolvedIdx].autoDocOutput = true
+                if let dt = docResult.suggestedDocType {
+                    rooms[resolvedIdx].documentType = dt
+                }
+            }
         }
     }
 
@@ -1223,8 +1310,6 @@ class RoomManager: ObservableObject {
         switch intent {
         case .quickAnswer:
             maxAgentHint = "이 작업은 즉답(quickAnswer)이므로 **반드시 1명만** 요청하세요. 가장 적합한 전문가 1명만 선택하세요."
-        case .documentation:
-            maxAgentHint = "이 작업은 문서 작성이므로 **반드시 1명만** 요청하세요. 문서 유형에 가장 적합한 전문가 1명만 선택하세요. 도메인 전문가(백엔드, 프론트 등)가 아닌 문서 작성 역량이 있는 전문가를 선택하세요."
         case .research:
             maxAgentHint = "이 작업은 **최대 2명**이면 충분합니다."
         default:
@@ -1278,7 +1363,7 @@ class RoomManager: ObservableObject {
         // 사전 매칭: 사용자 요청에서 기존 에이전트 이름 키워드 직접 탐색
         // "QA에게 자문" → "QA 전문가" 직접 매칭 (LLM 우회)
         // "프론트" → "프론트엔드 개발자" 접두어 매칭도 지원
-        // documentation intent에서도 사용자가 에이전트 이름을 직접 언급하면 매칭 허용
+        // 사용자가 에이전트 이름을 직접 언급하면 항상 매칭 허용
         let skipDirectMatch = false
         let taskLowered = enrichedTask.lowercased()
         let taskWords = taskLowered
@@ -1341,8 +1426,8 @@ class RoomManager: ObservableObject {
                 requirements.append(contentsOf: AgentMatcher.parseRoleRequirements(from: artifact.content))
             }
 
-            // documentation intent: 최대 1명만 허용 (LLM이 여러 역할을 출력해도 첫 번째 필수 역할만 유지)
-            if intent == .documentation, requirements.count > 1 {
+            // documentType이 설정된 경우: 최대 1명만 허용 (문서 작성은 1인 전문가로 충분)
+            if rooms[idx].documentType != nil, requirements.count > 1 {
                 if let firstRequired = requirements.first(where: { $0.priority == .required }) {
                     requirements = [firstRequired]
                 } else {
@@ -1504,9 +1589,8 @@ class RoomManager: ObservableObject {
             guard !Task.isCancelled else { return }
         } else if specialistCount == 1 {
             // 전문가 1명: 혼자 분석
-            // documentation → Execute에서 직접 문서 작성 (soloAnalysis 히스토리가 "이미 완성" 오판 유발 방지)
             // implementation → requestPlan이 브리핑 기반으로 계획 수립 (soloAnalysis 중복 방지 + API 1회 절감)
-            if intent != .documentation && intent != .implementation {
+            if intent != .implementation {
                 await executeSoloAnalysis(roomID: roomID, task: task)
                 guard !Task.isCancelled else { return }
             }
@@ -1603,6 +1687,11 @@ class RoomManager: ObservableObject {
         } else if intent == .research {
             // research: 토론/분석 (기존 executePlanLite 재사용)
             await executePlanLite(roomID: roomID, task: task, intent: intent)
+
+            // autoDocOutput 플래그가 설정된 경우 자동 문서화
+            if let room = rooms.first(where: { $0.id == roomID }), room.autoDocOutput {
+                await handleDocumentOutput(roomID: roomID, task: task, suggestedType: room.documentType)
+            }
         } else {
             // 표준 실행: 계획 기반 단계별 실행
             if rooms[idx].plan == nil {
@@ -2568,14 +2657,14 @@ class RoomManager: ObservableObject {
             artifactContext = ""
         }
 
-        // 문서 유형 템플릿 (documentation intent — 섹션 가이드 주입)
+        // 문서 유형 템플릿 (documentType 설정 시 섹션 가이드 주입)
         let docTemplateBlock: String
-        if let docType = room?.documentType, room?.intent == .documentation, docType != .freeform {
+        if let docType = room?.documentType, docType != .freeform {
             docTemplateBlock = "\n" + docType.templatePromptBlock()
         } else {
             docTemplateBlock = ""
         }
-        let isDocumentation = room?.intent == .documentation
+        let isDocumentation = room?.documentType != nil
 
         let isLastStep = stepIndex == totalSteps - 1
         let stepPrompt: String

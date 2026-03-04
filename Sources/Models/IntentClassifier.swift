@@ -21,7 +21,7 @@ enum IntentClassifier {
             + "[이건뭔]가[요]?|[일될건]까",
             .quickAnswer, 100, true
         ),
-        // research (브레인스토밍, 자문/상담/조언/궁금, 요건분석, 테스트계획, 작업분해 통합)
+        // research (브레인스토밍, 자문/상담/조언/궁금, 요건분석, 테스트계획, 작업분해, 문서작성 통합)
         (
             "브레인스토밍|아이디어|brainstorm|"
             + "토론[하을]|회의[하을]|의견[을이]?\\s|같이\\s?생각|"
@@ -31,14 +31,10 @@ enum IntentClassifier {
             + "알고\\s?싶|궁금|"
             + "테스트\\s?계획|test\\s?plan|"
             + "요건\\s?분석|요구\\s?사항|requirements|"
-            + "작업\\s?분[해해]|task\\s?breakdown|쪼개",
-            .research, nil, true
-        ),
-        // documentation
-        (
-            "기획서|문서\\s?작성|문서화|prd|스펙|"
+            + "작업\\s?분[해해]|task\\s?breakdown|쪼개|"
+            + "기획서|문서\\s?작성|문서화|prd|스펙|"
             + "제안서|보고서|정리[해하]|작성[해하]",
-            .documentation, nil, false  // excludeCoding은 별도 체크
+            .research, nil, true
         ),
         // implementation (강한 코딩 신호)
         (
@@ -82,9 +78,6 @@ enum IntentClassifier {
             // action 키워드 제외 조건
             if rule.excludeAction && matchesPattern(text, pattern: actionPattern) { continue }
 
-            // documentation은 코딩 키워드와 겹치면 스킵
-            if rule.intent == .documentation && matchesPattern(text, pattern: codingPattern) { continue }
-
             return rule.intent
         }
 
@@ -104,8 +97,7 @@ enum IntentClassifier {
 
         카테고리:
         - quickAnswer: 단순 질문, 번역, 정보 확인 (짧은 답변으로 끝나는 것)
-        - research: 조사, 리서치, 분석, 비교, 브레인스토밍, 자문, 상담, 요건 분석, 테스트 계획, 작업 분해
-        - documentation: 기획서, 문서 작성, PRD, 보고서
+        - research: 조사, 리서치, 분석, 비교, 브레인스토밍, 자문, 상담, 요건 분석, 테스트 계획, 작업 분해, 기획서/문서 작성, PRD, 보고서
         - implementation: 코딩, 개발, 버그 수정, 구현, 배포
 
         카테고리 이름만 한 단어로 출력하세요. 다른 내용은 절대 출력하지 마세요.
@@ -131,7 +123,7 @@ enum IntentClassifier {
         switch text {
         case "quickanswer", "quick_answer":     return .quickAnswer
         case "research":                        return .research
-        case "documentation":                   return .documentation
+        case "documentation":                   return .research  // 레거시: documentation → research로 흡수
         case "implementation":                  return .implementation
         // 레거시 매핑: LLM이 옛 이름을 반환할 경우 research로 흡수
         case "brainstorm":                      return .research
@@ -148,9 +140,6 @@ enum IntentClassifier {
 
     private static let actionPattern: NSRegularExpression? =
         try? NSRegularExpression(pattern: "구현[해하]?|개발[해하]\\s|만들어|코딩|수정[해하]|빌드|배포", options: .caseInsensitive)
-
-    private static let codingPattern: NSRegularExpression? =
-        try? NSRegularExpression(pattern: "코[드딩]|구현|개발|빌드|\\.swift|\\.ts|\\.py", options: .caseInsensitive)
 
     private static func matchesPattern(_ text: String, pattern: NSRegularExpression?) -> Bool {
         guard let pattern = pattern else { return false }

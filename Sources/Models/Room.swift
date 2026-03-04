@@ -314,6 +314,8 @@ struct Room: Identifiable, Codable {
     // 워크플로우 (Phase E)
     var intent: WorkflowIntent?
     var documentType: DocumentType?
+    /// 초기 메시지에서 문서 요청 감지 시 설정 (리서치 완료 후 자동 문서화)
+    var autoDocOutput: Bool
     var currentPhase: WorkflowPhase?
     var completedPhases: Set<WorkflowPhase>
     var assumptions: [WorkflowAssumption]?
@@ -463,6 +465,7 @@ struct Room: Identifiable, Codable {
         self.workLog = nil
         self.intent = nil
         self.documentType = nil
+        self.autoDocOutput = false
         self.currentPhase = nil
         self.completedPhases = []
         self.assumptions = nil
@@ -522,6 +525,7 @@ struct Room: Identifiable, Codable {
         workLog = try container.decodeIfPresent(WorkLog.self, forKey: .workLog)
         intent = try container.decodeIfPresent(WorkflowIntent.self, forKey: .intent)
         documentType = try container.decodeIfPresent(DocumentType.self, forKey: .documentType)
+        autoDocOutput = try container.decodeIfPresent(Bool.self, forKey: .autoDocOutput) ?? false
         currentPhase = (try? container.decodeIfPresent(WorkflowPhase.self, forKey: .currentPhase)) ?? nil
         completedPhases = try container.decodeIfPresent(Set<WorkflowPhase>.self, forKey: .completedPhases) ?? []
         assumptions = try container.decodeIfPresent([WorkflowAssumption].self, forKey: .assumptions)

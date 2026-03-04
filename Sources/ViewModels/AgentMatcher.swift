@@ -110,14 +110,14 @@ enum AgentMatcher {
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { $0.count >= 2 && !genericSuffixes.contains($0) }
 
-        // Documentation intent: 도메인 키워드 제거 (백엔드/프론트엔드 등)
-        if intent == .documentation {
+        // documentType이 설정된 경우: 도메인 키워드 제거 (백엔드/프론트엔드 등)
+        if documentType != nil {
             keywords = keywords.filter { !domainKeywords.contains($0) }
         }
 
         guard !keywords.isEmpty else { return nil }
 
-        let preferredKWs = (intent == .documentation) ? (documentType?.preferredKeywords ?? []) : []
+        let preferredKWs = documentType?.preferredKeywords ?? []
 
         var bestMatch: (agent: Agent, score: Int)?
 
