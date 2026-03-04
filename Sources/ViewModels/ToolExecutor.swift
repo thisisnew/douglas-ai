@@ -36,7 +36,8 @@ enum ToolExecutor {
                     model: agent.modelName,
                     systemPrompt: systemPrompt,
                     messages: messages,
-                    workingDirectory: context.projectPaths.first
+                    workingDirectory: context.projectPaths.first,
+                    onToolActivity: onToolActivity
                 )
                 if let onStreamChunk { onStreamChunk(result) }
             } else {
@@ -108,7 +109,8 @@ enum ToolExecutor {
                     model: agent.modelName,
                     systemPrompt: systemPrompt,
                     messages: simple,
-                    workingDirectory: context.projectPaths.first
+                    workingDirectory: context.projectPaths.first,
+                    onToolActivity: onToolActivity
                 )
                 if let onStreamChunk { onStreamChunk(result) }
             } else {

@@ -289,6 +289,7 @@ protocol AIProvider {
 - 환경변수 `CLAUDECODE`를 제거하여 중첩 세션 감지 우회
 - PATH에 nvm 경로 추가하여 node 의존성 해결
 - 시스템 프롬프트 + 대화 히스토리를 단일 프롬프트로 조합
+- **도구 활동 추적**: `onToolActivity` 콜백 전달 시 `--output-format stream-json`으로 NDJSON 스트리밍 → `StreamJsonHandler`가 실시간 `tool_use` 이벤트 파싱 → `ProgressActivityBubble`에 표시
 
 ### OpenAIProvider (`Providers/OpenAIProvider.swift`)
 

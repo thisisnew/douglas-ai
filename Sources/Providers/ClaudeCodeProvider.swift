@@ -1,5 +1,86 @@
 import Foundation
 
+/// Claude Code stream-json NDJSON 이벤트를 실시간 파싱하여 도구 활동 추적
+private final class StreamJsonHandler: @unchecked Sendable {
+    private let lock = NSLock()
+    private var buffer = ""
+    private var _resultText = ""
+    private let onActivity: (String, ToolActivityDetail?) -> Void
+
+    var resultText: String { lock.withLock { _resultText } }
+
+    init(onActivity: @escaping (String, ToolActivityDetail?) -> Void) {
+        self.onActivity = onActivity
+    }
+
+    func feed(_ chunk: String) {
+        lock.lock()
+        buffer += chunk
+        while let idx = buffer.firstIndex(of: "\n") {
+            let line = String(buffer[buffer.startIndex..<idx])
+            buffer = String(buffer[buffer.index(after: idx)...])
+            lock.unlock()
+            processLine(line)
+            lock.lock()
+        }
+        lock.unlock()
+    }
+
+    private func processLine(_ rawLine: String) {
+        let line = rawLine.trimmingCharacters(in: .whitespaces)
+        guard !line.isEmpty,
+              let data = line.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+
+        let type = json["type"] as? String
+
+        if type == "assistant", let message = json["message"] as? [String: Any] {
+            if message["type"] as? String == "tool_use" {
+                let toolName = message["name"] as? String ?? "unknown"
+                let input = message["input"] as? [String: Any]
+                let subject = Self.extractSubject(toolName: toolName, input: input)
+                let label = "도구 사용: \(toolName)\(subject.map { " → \($0)" } ?? "")"
+                let detail = ToolActivityDetail(
+                    toolName: toolName, subject: subject,
+                    contentPreview: nil, isError: false
+                )
+                onActivity(label, detail)
+            }
+        } else if type == "result", let resultText = json["result"] as? String {
+            lock.lock()
+            _resultText = resultText
+            lock.unlock()
+        }
+    }
+
+    private static func extractSubject(toolName: String, input: [String: Any]?) -> String? {
+        guard let input else { return nil }
+        switch toolName {
+        case "Read", "file_read":
+            return input["file_path"] as? String ?? input["path"] as? String
+        case "Write", "file_write":
+            return input["file_path"] as? String ?? input["path"] as? String
+        case "Edit":
+            return input["file_path"] as? String
+        case "Bash", "shell_exec":
+            let cmd = input["command"] as? String ?? ""
+            return cmd.count > 80 ? String(cmd.prefix(77)) + "..." : cmd
+        case "Glob":
+            return input["pattern"] as? String
+        case "Grep":
+            return input["pattern"] as? String
+        case "WebFetch", "web_fetch":
+            return input["url"] as? String
+        case "WebSearch", "web_search":
+            return input["query"] as? String
+        default:
+            return nil
+        }
+    }
+}
+
 /// 이미 설치된 Claude Code CLI를 활용하는 프로바이더
 /// API 키 불필요 - 기존 claude 로그인 세션을 그대로 사용
 class ClaudeCodeProvider: AIProvider {
@@ -68,18 +149,20 @@ class ClaudeCodeProvider: AIProvider {
         )
     }
 
-    /// 프로젝트 경로를 작업 디렉토리로 사용하는 sendMessage
+    /// 프로젝트 경로를 작업 디렉토리로 사용하는 sendMessage (도구 활동 추적 지원)
     func sendMessage(
         model: String,
         systemPrompt: String,
         messages: [(role: String, content: String)],
-        workingDirectory: String?
+        workingDirectory: String?,
+        onToolActivity: ((String, ToolActivityDetail?) -> Void)? = nil
     ) async throws -> String {
         let userPrompt = buildUserPrompt(from: messages)
         return try await runClaude(
             path: config.baseURL, prompt: userPrompt, model: model,
             systemPrompt: systemPrompt, disallowedTools: ["WebFetch"],
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            onToolActivity: onToolActivity
         )
     }
 
@@ -140,7 +223,8 @@ class ClaudeCodeProvider: AIProvider {
         path: String, prompt: String, model: String,
         systemPrompt: String = "", disableTools: Bool = false,
         disallowedTools: [String] = [],
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        onToolActivity: ((String, ToolActivityDetail?) -> Void)? = nil
     ) async throws -> String {
         // claude CLI는 Node.js 스크립트 → 같은 디렉토리의 node를 직접 사용
         let executable: String
@@ -168,6 +252,12 @@ class ClaudeCodeProvider: AIProvider {
             args += ["--disallowed-tools", tool]
         }
 
+        // 도구 활동 추적 모드: stream-json NDJSON 출력
+        let useStreaming = onToolActivity != nil
+        if useStreaming {
+            args += ["--output-format", "stream-json"]
+        }
+
         // 환경변수 상속
         var env = ProcessInfo.processInfo.environment
         env.removeValue(forKey: "CLAUDECODE")
@@ -189,6 +279,36 @@ class ClaudeCodeProvider: AIProvider {
 
         let effectiveWorkDir = workingDirectory ?? homePath
 
+        // 스트리밍 모드: NDJSON 실시간 파싱으로 도구 활동 추적
+        if useStreaming, let onToolActivity {
+            let handler = StreamJsonHandler(onActivity: onToolActivity)
+            let result = await ProcessRunner.runStreaming(
+                executable: executable, args: args, env: env,
+                workDir: effectiveWorkDir,
+                onOutput: { chunk in handler.feed(chunk) }
+            )
+
+            // stream-json result 이벤트에서 최종 텍스트 추출
+            let finalText = handler.resultText
+            if !finalText.isEmpty {
+                return finalText
+            }
+
+            // 폴백: stdout NDJSON에서 result 이벤트 재파싱
+            if let parsed = Self.extractResultFromNdjson(result.stdout) {
+                return parsed
+            }
+
+            if result.exitCode == 15 {
+                throw AIProviderError.apiError("Claude Code 응답 시간 초과 (\(Int(timeoutSeconds))초)")
+            } else if result.exitCode != 0 {
+                let msg = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                throw AIProviderError.apiError(msg.isEmpty ? "Claude Code 실행 실패 (코드: \(result.exitCode))" : msg)
+            }
+            throw AIProviderError.invalidResponse
+        }
+
+        // 일반 모드: 기존 동작
         let result = await ProcessRunner.run(
             executable: executable,
             args: args,
@@ -209,5 +329,21 @@ class ClaudeCodeProvider: AIProvider {
             throw AIProviderError.invalidResponse
         }
         return output
+    }
+
+    /// NDJSON stdout에서 마지막 result 이벤트의 텍스트 추출
+    private static func extractResultFromNdjson(_ output: String) -> String? {
+        for line in output.components(separatedBy: "\n").reversed() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty,
+                  let data = trimmed.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  json["type"] as? String == "result",
+                  let result = json["result"] as? String else {
+                continue
+            }
+            return result
+        }
+        return nil
     }
 }

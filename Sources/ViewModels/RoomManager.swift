@@ -1143,7 +1143,9 @@ class RoomManager: ObservableObject {
         switch intent {
         case .quickAnswer:
             maxAgentHint = "이 작업은 즉답(quickAnswer)이므로 **반드시 1명만** 요청하세요. 가장 적합한 전문가 1명만 선택하세요."
-        case .research, .documentation:
+        case .documentation:
+            maxAgentHint = "이 작업은 문서 작성이므로 **반드시 1명만** 요청하세요. 문서 유형에 가장 적합한 전문가 1명만 선택하세요. 도메인 전문가(백엔드, 프론트 등)가 아닌 문서 작성 역량이 있는 전문가를 선택하세요."
+        case .research:
             maxAgentHint = "이 작업은 **최대 2명**이면 충분합니다."
         default:
             maxAgentHint = "불확실하면 적게 요청하세요 (1~2명이면 충분한 경우가 많습니다)."
