@@ -2348,8 +2348,10 @@ class RoomManager: ObservableObject {
                 previousStepResponse = latestResponse
             }
 
-            // 단계 완료 후 리뷰 게이트: 사용자 확인 → 거부 시 피드백 반영 재실행
-            if true {
+            // 단계 완료 후 리뷰 게이트: 첫 단계(방향 검증) + 마지막 단계(최종 산출물 확인)
+            let isFirstStep = stepIndex == 0
+            let isLastStep2 = stepIndex == plan.steps.count - 1
+            if isFirstStep || isLastStep2 {
                 var stepApproved = false
                 while !stepApproved {
                     guard !Task.isCancelled,
