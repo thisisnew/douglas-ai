@@ -14,7 +14,8 @@ enum ToolExecutor {
         systemPrompt: String,
         messages: [(role: String, content: String)],
         context: ToolExecutionContext = .empty,
-        onToolActivity: ((String) -> Void)? = nil
+        onToolActivity: ((String) -> Void)? = nil,
+        onStreamChunk: (@Sendable (String) -> Void)? = nil
     ) async throws -> String {
         let toolIDs = agent.resolvedToolIDs
 
@@ -29,12 +30,21 @@ enum ToolExecutor {
                     messages: messages,
                     workingDirectory: context.projectPaths.first
                 )
+                if let onStreamChunk { onStreamChunk(result) }
+            } else if let onStreamChunk, provider.supportsStreaming {
+                result = try await provider.sendMessageStreaming(
+                    model: agent.modelName,
+                    systemPrompt: systemPrompt,
+                    messages: messages,
+                    onChunk: onStreamChunk
+                )
             } else {
                 result = try await provider.sendMessage(
                     model: agent.modelName,
                     systemPrompt: systemPrompt,
                     messages: messages
                 )
+                if let onStreamChunk { onStreamChunk(result) }
             }
             onToolActivity?("응답 수신 성공 (\(result.count)자)")
             return result
@@ -68,7 +78,8 @@ enum ToolExecutor {
         systemPrompt: String,
         conversationMessages: [ConversationMessage],
         context: ToolExecutionContext = .empty,
-        onToolActivity: ((String) -> Void)? = nil
+        onToolActivity: ((String) -> Void)? = nil,
+        onStreamChunk: (@Sendable (String) -> Void)? = nil
     ) async throws -> String {
         let toolIDs = agent.resolvedToolIDs
 
@@ -90,12 +101,21 @@ enum ToolExecutor {
                     messages: simple,
                     workingDirectory: context.projectPaths.first
                 )
+                if let onStreamChunk { onStreamChunk(result) }
+            } else if let onStreamChunk, provider.supportsStreaming {
+                result = try await provider.sendMessageStreaming(
+                    model: agent.modelName,
+                    systemPrompt: systemPrompt,
+                    messages: simple,
+                    onChunk: onStreamChunk
+                )
             } else {
                 result = try await provider.sendMessage(
                     model: agent.modelName,
                     systemPrompt: systemPrompt,
                     messages: simple
                 )
+                if let onStreamChunk { onStreamChunk(result) }
             }
             onToolActivity?("응답 수신 성공 (\(result.count)자)")
             return result

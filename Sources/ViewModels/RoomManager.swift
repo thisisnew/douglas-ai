@@ -1456,24 +1456,40 @@ class RoomManager: ObservableObject {
         }
         history.append(contentsOf: buildRoomHistory(roomID: roomID))
 
+        // 스트리밍용 placeholder 메시지
+        let placeholderID = UUID()
+        let placeholder = ChatMessage(
+            id: placeholderID, role: .assistant, content: "",
+            agentName: agent.name
+        )
+        appendMessage(placeholder, to: roomID)
+
         do {
+            let buffer = StreamBuffer()
             let response = try await ToolExecutor.smartSend(
                 provider: provider,
                 agent: agent,
                 systemPrompt: agent.resolvedSystemPrompt,
                 conversationMessages: history,
-                context: context
+                context: context,
+                onStreamChunk: { [weak self] chunk in
+                    let current = buffer.append(chunk)
+                    Task { @MainActor in
+                        self?.updateMessageContent(placeholderID, newContent: current, in: roomID)
+                    }
+                }
             )
-            let reply = ChatMessage(role: .assistant, content: response, agentName: agent.name)
-            appendMessage(reply, to: roomID)
+            updateMessageContent(placeholderID, newContent: response, in: roomID)
         } catch {
-            let errorMsg = ChatMessage(
-                role: .assistant,
-                content: "오류: \(error.userFacingMessage)",
-                agentName: agent.name,
-                messageType: .error
+            updateMessageContent(
+                placeholderID,
+                newContent: "오류: \(error.userFacingMessage)",
+                in: roomID
             )
-            appendMessage(errorMsg, to: roomID)
+            if let roomIdx = rooms.firstIndex(where: { $0.id == roomID }),
+               let msgIdx = rooms[roomIdx].messages.firstIndex(where: { $0.id == placeholderID }) {
+                rooms[roomIdx].messages[msgIdx].messageType = .error
+            }
         }
 
         speakingAgentIDByRoom.removeValue(forKey: roomID)
@@ -1545,24 +1561,40 @@ class RoomManager: ObservableObject {
         let history = buildRoomHistory(roomID: roomID)
         let context = makeToolContext(roomID: roomID, currentAgentID: agentID)
 
+        // 스트리밍용 placeholder 메시지
+        let placeholderID = UUID()
+        let placeholder = ChatMessage(
+            id: placeholderID, role: .assistant, content: "",
+            agentName: agent.name
+        )
+        appendMessage(placeholder, to: roomID)
+
         do {
+            let buffer = StreamBuffer()
             let response = try await ToolExecutor.smartSend(
                 provider: provider,
                 agent: agent,
                 systemPrompt: soloPrompt,
                 conversationMessages: history,
-                context: context
+                context: context,
+                onStreamChunk: { [weak self] chunk in
+                    let current = buffer.append(chunk)
+                    Task { @MainActor in
+                        self?.updateMessageContent(placeholderID, newContent: current, in: roomID)
+                    }
+                }
             )
-            let reply = ChatMessage(role: .assistant, content: response, agentName: agent.name)
-            appendMessage(reply, to: roomID)
+            updateMessageContent(placeholderID, newContent: response, in: roomID)
         } catch {
-            let errorMsg = ChatMessage(
-                role: .assistant,
-                content: "분석 오류: \(error.userFacingMessage)",
-                agentName: agent.name,
-                messageType: .error
+            updateMessageContent(
+                placeholderID,
+                newContent: "분석 오류: \(error.userFacingMessage)",
+                in: roomID
             )
-            appendMessage(errorMsg, to: roomID)
+            if let roomIdx = rooms.firstIndex(where: { $0.id == roomID }),
+               let msgIdx = rooms[roomIdx].messages.firstIndex(where: { $0.id == placeholderID }) {
+                rooms[roomIdx].messages[msgIdx].messageType = .error
+            }
         }
 
         speakingAgentIDByRoom.removeValue(forKey: roomID)

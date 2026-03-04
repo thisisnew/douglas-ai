@@ -273,7 +273,7 @@ protocol AIProvider {
 
 ### 속도 최적화
 
-- **SSE 스트리밍** (`sendMessageStreaming`): 토론 턴/복명복창에서 placeholder 메시지 생성 → 청크마다 `updateMessageContent`로 실시간 업데이트. TTFT ~500ms.
+- **SSE 스트리밍** (`sendMessageStreaming`): 전체 응답 경로(즉답/소로분석/토론/복명복창/1:1채팅)에서 placeholder 메시지 생성 → 청크마다 `updateMessageContent`로 실시간 업데이트. `ToolExecutor.smartSend`에 `onStreamChunk` 콜백 추가로 도구 미사용 경로에서 자동 스트리밍.
 - **도구 병렬 실행** (`ToolExecutor.executeToolCallsInParallel`): 모델이 반환한 다중 도구 호출을 `withTaskGroup`으로 동시 실행. 인덱스 기준 정렬 후 순서 보장.
 - **모델 티어링**: `ProviderType.defaultLightModelName` (OpenAI→gpt-4o-mini, Google→gemini-2.0-flash, Anthropic→claude-haiku-4-5). `ProviderManager.lightModelName(for:)` 헬퍼. 적용 대상: IntentClassifier, routeQuickAnswer, executeAssemblePhase, generateBriefing.
 - **발산 라운드 병렬화**: `.diverge` 라운드에서 `generateDiscussionResponse` + `withTaskGroup`으로 에이전트 동시 실행. 수렴/합의는 순차 유지.
@@ -1207,8 +1207,7 @@ executeWithTools() 루프 (최대 10회):
 ## 확장 포인트
 
 1. **새 프로바이더 추가**: `AIProvider` 프로토콜 구현 + `ProviderType` enum 케이스 추가 + `ProviderManager.createProvider()` 분기 추가
-2. **스트리밍 응답**: `sendMessage()`를 `AsyncSequence` 반환으로 변경하면 토큰 단위 출력 가능
-3. **마스터 프롬프트 커스터마이징**: EditAgentSheet에서 마스터 페르소나 수정 시 위임 전략도 변경됨
+2. **마스터 프롬프트 커스터마이징**: EditAgentSheet에서 마스터 페르소나 수정 시 위임 전략도 변경됨
 4. **에이전트 간 직접 통신**: 현재는 마스터를 통해서만 위임. `invite_agent` 도구로 방 내 에이전트 초대 가능
 5. **새 도구 추가**: `ToolRegistry`에 `AgentTool` 추가 + `ToolExecutor.executeSingleTool()`에 case 추가
 6. **MCP (Model Context Protocol)**: 현재 내장 도구 방식. 외부 MCP 서버 연동으로 확장 가능

@@ -1,6 +1,15 @@
 import Foundation
 import UserNotifications
 
+/// 스트리밍 청크 누적용 스레드-안전 버퍼
+private final class StreamBuffer: @unchecked Sendable {
+    private var _value = ""
+    func append(_ chunk: String) -> String {
+        _value += chunk
+        return _value
+    }
+}
+
 // MARK: - ChatViewModel
 
 @MainActor
@@ -167,13 +176,21 @@ class ChatViewModel: ObservableObject {
     ) async {
         agentStore?.updateStatus(agentID: agent.id, status: .working)
 
-        do {
-            guard let provider = providerManager.provider(named: agent.providerName) else {
-                throw AIProviderError.apiError("프로바이더 '\(agent.providerName)'을(를) 찾을 수 없습니다.")
-            }
+        guard let provider = providerManager.provider(named: agent.providerName) else {
+            agentStore?.updateStatus(agentID: agent.id, status: .error, errorMessage: "프로바이더를 찾을 수 없습니다.")
+            return
+        }
 
-            let history = buildConversationHistory(for: agent.id)
-            let agentID = agent.id
+        let history = buildConversationHistory(for: agent.id)
+        let agentID = agent.id
+
+        // 스트리밍용 placeholder 메시지
+        let placeholderID = UUID()
+        let placeholder = ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: agent.name)
+        appendMessage(placeholder, for: agentID)
+
+        do {
+            let buffer = StreamBuffer()
             let response = try await ToolExecutor.smartSend(
                 provider: provider,
                 agent: agent,
@@ -184,11 +201,16 @@ class ChatViewModel: ObservableObject {
                         let toolMsg = ChatMessage(role: .assistant, content: activity, agentName: agent.name, messageType: .toolActivity)
                         self?.appendMessage(toolMsg, for: agentID)
                     }
+                },
+                onStreamChunk: { [weak self] chunk in
+                    let current = buffer.append(chunk)
+                    Task { @MainActor in
+                        self?.updateMessageContent(placeholderID, newContent: current, for: agentID)
+                    }
                 }
             )
 
-            let reply = ChatMessage(role: .assistant, content: response, agentName: agent.name)
-            appendMessage(reply, for: agent.id)
+            updateMessageContent(placeholderID, newContent: response, for: agentID)
             agentStore?.updateStatus(agentID: agent.id, status: .idle)
             sendNotification(agentName: agent.name, message: response)
 
@@ -197,13 +219,12 @@ class ChatViewModel: ObservableObject {
             showToastMessage("\(agent.name) 오류: \(error.userFacingMessage)")
             sendErrorNotification(agentName: agent.name, error: error.userFacingMessage)
 
-            let errorReply = ChatMessage(
-                role: .assistant,
-                content: "오류가 발생했습니다: \(error.userFacingMessage)",
-                agentName: agent.name,
-                messageType: .error
-            )
-            appendMessage(errorReply, for: agent.id)
+            updateMessageContent(placeholderID, newContent: "오류가 발생했습니다: \(error.userFacingMessage)", for: agentID)
+            if var messages = messagesByAgent[agentID],
+               let idx = messages.firstIndex(where: { $0.id == placeholderID }) {
+                messages[idx].messageType = .error
+                messagesByAgent[agentID] = messages
+            }
         }
     }
 
@@ -215,6 +236,13 @@ class ChatViewModel: ObservableObject {
         }
         messagesByAgent[agentID]?.append(message)
         scheduleSave()
+    }
+
+    private func updateMessageContent(_ messageID: UUID, newContent: String, for agentID: UUID) {
+        guard var messages = messagesByAgent[agentID],
+              let idx = messages.firstIndex(where: { $0.id == messageID }) else { return }
+        messages[idx].content = newContent
+        messagesByAgent[agentID] = messages
     }
 
     // MARK: - 대화 기록 영속화
