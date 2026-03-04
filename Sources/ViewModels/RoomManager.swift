@@ -344,12 +344,15 @@ class RoomManager: ObservableObject {
         rooms[idx].transitionTo(.planning)
         rooms[idx].completedAt = nil
 
-        // Intent 재분류 (새 질문 기준)
-        // quickClassify 성공 = 규칙 매칭(확신 높음), nil = LLM/fallback 필요(확신 낮음)
+        // Intent 재분류 (후속 사이클 특화)
+        // 짧은 후속 메시지(< 60자)는 즉답으로 처리 (기존 컨텍스트 내 빠른 액션)
         let ruleBasedIntent = IntentClassifier.quickClassify(task)
         var resolvedIntent = ruleBasedIntent
         if resolvedIntent == nil {
-            if let firstAgentID = rooms[idx].assignedAgentIDs.first,
+            if task.count < 60 {
+                // 후속 짧은 메시지: LLM 분류 없이 quickAnswer (pr해, 커밋해, 수정해줘 등)
+                resolvedIntent = .quickAnswer
+            } else if let firstAgentID = rooms[idx].assignedAgentIDs.first,
                let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
                let provider = providerManager?.provider(named: agent.providerName) {
                 let lightModel = providerManager?.lightModelName(for: agent.providerName) ?? agent.modelName
@@ -2430,11 +2433,12 @@ class RoomManager: ObservableObject {
             }
 
             // 중간 단계는 toolActivity(접힘), 마지막 단계만 일반 메시지로 표시
+            let cleanedResponse = stripTrailingOptions(response)
             if isLastStep || totalSteps == 1 {
-                let reply = ChatMessage(role: .assistant, content: response, agentName: agent.name)
+                let reply = ChatMessage(role: .assistant, content: cleanedResponse, agentName: agent.name)
                 appendMessage(reply, to: roomID)
             } else {
-                let reply = ChatMessage(role: .assistant, content: response, agentName: agent.name, messageType: .toolActivity)
+                let reply = ChatMessage(role: .assistant, content: cleanedResponse, agentName: agent.name, messageType: .toolActivity)
                 appendMessage(reply, to: roomID)
             }
             return true
@@ -3150,9 +3154,10 @@ class RoomManager: ObservableObject {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let displayResponse = ArtifactParser.stripArtifactBlocks(from: cleanResponse)
 
+            let finalText = stripTrailingOptions(displayResponse.isEmpty ? cleanResponse : displayResponse)
             let msg = ChatMessage(
                 role: .assistant,
-                content: displayResponse.isEmpty ? cleanResponse : displayResponse,
+                content: finalText,
                 agentName: agent.name,
                 messageType: .discussion
             )
