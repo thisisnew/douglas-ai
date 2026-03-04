@@ -68,6 +68,7 @@ DOUGLAS/
 │   │   ├── ProviderDetector.swift   # 시스템 AI 프로바이더 자동 감지
 │   │   ├── ClaudeCodeInstaller.swift # Claude Code CLI 설치/검증 유틸리티
 │   │   ├── PluginTemplate.swift     # 플러그인 빌더 모델 (PluginActionType, HandlerConfig, ScriptGenerator, PluginSlug)
+│   │   ├── ShellEnvironment.swift   # 셸 환경 캐싱 (NVM 경로 1회 스캔, PATH 병합, 실행 파일 탐색)
 │   │   ├── ProcessRunner.swift      # 테스트 가능한 프로세스 실행기 (DI seam)
 │   │   ├── Room.swift               # 프로젝트 방 모델 (상태 전이, 타이머, 토론 모드, RoomBriefing, RoomStep 승인 게이트)
 │   │   └── KeychainHelper.swift     # 파일 기반 API 키 저장 (Keychain 레거시 마이그레이션)
@@ -254,6 +255,7 @@ DOUGLAS/
 
 - `ensureDefaultProviders()`: 3개 기본 프로바이더 보장, 비활성 프로바이더 (Ollama, LM Studio 등) 자동 제거
 - `createProvider(from:)`: ProviderType에 따른 팩토리 메서드
+- **인스턴스 캐싱**: `provider(named:)`가 `providerCache` 딕셔너리에 인스턴스 캐싱. `updateConfig()` 시 해당 캐시 invalidate. Provider는 stateless(대화 상태 미보유)이므로 방 간 간섭 없음.
 
 ---
 
