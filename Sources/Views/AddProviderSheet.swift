@@ -68,7 +68,7 @@ struct AddProviderSheet: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("OpenAI")
                                         .font(.body.weight(.medium))
-                                    if hasKey(.openAI) {
+                                    if hasValidKey(.openAI) {
                                         Label("연동됨", systemImage: "checkmark.circle.fill")
                                             .font(.caption)
                                             .foregroundColor(.green)
@@ -112,7 +112,7 @@ struct AddProviderSheet: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("Google Gemini")
                                         .font(.body.weight(.medium))
-                                    if hasKey(.google) {
+                                    if hasValidKey(.google) {
                                         Label("연동됨", systemImage: "checkmark.circle.fill")
                                             .font(.caption)
                                             .foregroundColor(.green)
@@ -299,17 +299,19 @@ struct AddProviderSheet: View {
 
     // MARK: - Logic
 
-    private func hasKey(_ type: ProviderType) -> Bool {
-        guard let key = providerManager.configs.first(where: { $0.type == type })?.apiKey else { return false }
-        return !key.isEmpty
+    private func hasValidKey(_ type: ProviderType) -> Bool {
+        // 테스트 성공 시에만 "연동됨" 표시
+        guard let result = testResults[type] else { return false }
+        return result.contains("성공")
     }
 
     private func saveKey(_ type: ProviderType, key: String) {
         if var config = providerManager.configs.first(where: { $0.type == type }) {
             config.apiKey = key
             providerManager.updateConfig(config)
-            testResults[type] = "저장 완료"
         }
+        // 저장 후 자동 테스트
+        testProvider(type)
     }
 
     private func testProvider(_ type: ProviderType) {
