@@ -1,0 +1,53 @@
+# 릴리즈 태그 푸시 시에만 실행 — macOS runner 비용 최소화
+# 트리거: git tag v1.0.0 && git push origin v1.0.0
+# 수동 실행: Actions 탭 → "Release Build & Test" → "Run workflow"
+
+name: Release Build & Test
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: '테스트 건너뜀 (빌드만)'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  build-and-test:
+    name: Build & Test (macOS)
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Swift 버전 확인
+        run: swift --version
+
+      - name: SPM 캐시 복원
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: ${{ runner.os }}-spm-${{ hashFiles('Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Release 빌드
+        run: swift build -c release
+
+      - name: 테스트 실행
+        if: ${{ github.event.inputs.skip_tests != 'true' }}
+        run: swift test --parallel
+
+      - name: 테스트 리포트 업로드 (실패 시)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: .build/**/tests/
+          retention-days: 1
