@@ -104,10 +104,10 @@ struct ConversationMessage {
     let content: String?
     let toolCalls: [ToolCall]?
     let toolCallID: String?     // role == "tool"일 때 참조하는 ToolCall.id
-    let attachments: [ImageAttachment]?
+    let attachments: [FileAttachment]?
     let isError: Bool           // tool result 에러 여부 (프로바이더에 전달)
 
-    static func user(_ content: String, attachments: [ImageAttachment]? = nil) -> ConversationMessage {
+    static func user(_ content: String, attachments: [FileAttachment]? = nil) -> ConversationMessage {
         ConversationMessage(role: "user", content: content, toolCalls: nil, toolCallID: nil, attachments: attachments, isError: false)
     }
 

@@ -72,7 +72,7 @@ class ChatViewModel: ObservableObject {
 
     // MARK: - 메시지 전송 (진입점)
 
-    func sendMessage(_ text: String, agentID: UUID? = nil, attachments: [ImageAttachment]? = nil) {
+    func sendMessage(_ text: String, agentID: UUID? = nil, attachments: [FileAttachment]? = nil) {
         guard let agentStore = agentStore,
               let providerManager = providerManager else { return }
 
@@ -114,7 +114,7 @@ class ChatViewModel: ObservableObject {
 
     private func handleMasterMessage(
         _ text: String,
-        attachments: [ImageAttachment]? = nil,
+        attachments: [FileAttachment]? = nil,
         agent: Agent,
         agentStore: AgentStore
     ) async {

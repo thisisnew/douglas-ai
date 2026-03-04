@@ -113,7 +113,7 @@ struct ChatMessageTests {
     @Test("attachments - Codable 라운드트립")
     func attachmentsCodableRoundTrip() throws {
         let data = Data("test image".utf8)
-        let att = try ImageAttachment.save(data: data, mimeType: "image/png")
+        let att = try FileAttachment.save(data: data, mimeType: "image/png")
         defer { att.delete() }
 
         let msg = ChatMessage(role: .user, content: "look at this", attachments: [att])

@@ -266,7 +266,7 @@ struct FloatingSidebarView: View {
 
     @State private var inputText = ""
     @State private var previousInputText = ""
-    @State private var pendingAttachments: [ImageAttachment] = []
+    @State private var pendingAttachments: [FileAttachment] = []
     @State private var showSlashMenu = false
     @State private var filteredCommands: [SlashCommand] = SlashCommand.all
     @StateObject private var slashMenu = SlashMenuState()
@@ -854,14 +854,14 @@ struct FloatingSidebarView: View {
                     }
 
                     HStack(spacing: 8) {
-                        // 이미지 첨부 버튼
-                        Button(action: pickImage) {
-                            Image(systemName: "photo.badge.plus")
+                        // 파일 첨부 버튼
+                        Button(action: pickFile) {
+                            Image(systemName: "paperclip")
                                 .font(.system(size: 14))
                                 .foregroundColor(.secondary)
                         }
                         .buttonStyle(.plain)
-                        .help("이미지 첨부 (JPG, PNG, GIF, WebP)")
+                        .help("파일 첨부")
 
                         TextField("Tell Don't Ask", text: $inputText, axis: .vertical)
                             .textFieldStyle(.plain)
@@ -875,8 +875,8 @@ struct FloatingSidebarView: View {
                                 }
                             }
                             .onChange(of: inputText) { _, newValue in
-                                // 드롭된 파일 경로 감지 → 이미지 첨부로 변환
-                                if let remaining = extractDroppedImagePath(from: newValue) {
+                                // 드롭된 파일 경로 감지 → 파일 첨부로 변환
+                                if let remaining = extractDroppedFilePath(from: newValue) {
                                     inputText = remaining
                                     previousInputText = remaining
                                     return
@@ -922,7 +922,7 @@ struct FloatingSidebarView: View {
                 .disabled(pendingRoomToOpen != nil)
                 .opacity(pendingRoomToOpen != nil ? 0.5 : 1.0)
                 .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
-                    handleImageDrop(providers)
+                    handleFileDrop(providers)
                     return true
                 }
             }
@@ -1031,9 +1031,9 @@ struct FloatingSidebarView: View {
         chatVM.sendMessage(text, agentID: id, attachments: attachments)
     }
 
-    // MARK: - 이미지 첨부
+    // MARK: - 파일 첨부
 
-    private func pickImage() {
+    private func pickFile() {
         // .nonactivatingPanel이 NSOpenPanel 클릭을 방해하므로 임시 해제 (NSColorPanel 제외)
         if NSColorPanel.shared.isVisible { NSColorPanel.shared.orderOut(nil) }
         let panels = NSApp.windows.compactMap { $0 as? NSPanel }.filter { $0.styleMask.contains(.nonactivatingPanel) && !($0 is NSColorPanel) }
@@ -1044,10 +1044,13 @@ struct FloatingSidebarView: View {
         NSApp.activate(ignoringOtherApps: true)
 
         let openPanel = NSOpenPanel()
-        openPanel.allowedContentTypes = [.jpeg, .png, .gif, .webP]
+        var types: [UTType] = [.jpeg, .png, .gif, .webP, .pdf, .plainText, .commaSeparatedText, .json, .html, .xml, .sourceCode, .shellScript]
+        if let yaml = UTType(filenameExtension: "yaml") { types.append(yaml) }
+        if let md = UTType(filenameExtension: "md") { types.append(md) }
+        openPanel.allowedContentTypes = types
         openPanel.allowsMultipleSelection = true
         openPanel.canChooseDirectories = false
-        openPanel.message = "첨부할 이미지를 선택하세요"
+        openPanel.message = "첨부할 파일을 선택하세요"
         let response = openPanel.runModal()
 
         // 복원
@@ -1057,21 +1060,25 @@ struct FloatingSidebarView: View {
         }
         guard response == .OK else { return }
         for url in openPanel.urls {
-            addImageFromURL(url)
+            addFileFromURL(url)
         }
     }
 
-    private func addImageFromURL(_ url: URL) {
+    private func addFileFromURL(_ url: URL) {
         guard let data = try? Data(contentsOf: url) else { return }
-        guard let mime = ImageAttachment.mimeType(for: data) else { return }
-        guard let attachment = try? ImageAttachment.save(data: data, mimeType: mime) else { return }
+        guard let mime = FileAttachment.detectMimeType(for: url, data: data) else { return }
+        guard let attachment = try? FileAttachment.save(data: data, mimeType: mime, originalFilename: url.lastPathComponent) else { return }
         pendingAttachments.append(attachment)
     }
 
-    /// 이전 텍스트와 비교하여 드롭으로 삽입된 이미지 경로를 감지 → 첨부로 변환
+    /// 이전 텍스트와 비교하여 드롭으로 삽입된 파일 경로를 감지 → 첨부로 변환
     /// 성공 시 경로를 제거한 텍스트 반환, 실패 시 nil
-    private func extractDroppedImagePath(from text: String) -> String? {
-        let imageExtensions = Set(["jpg", "jpeg", "png", "gif", "webp", "heic", "tiff", "bmp"])
+    private func extractDroppedFilePath(from text: String) -> String? {
+        let supportedExtensions = Set([
+            "jpg", "jpeg", "png", "gif", "webp", "heic", "tiff", "bmp",
+            "pdf", "txt", "csv", "json", "md", "xml", "yaml", "yml",
+            "html", "htm", "css", "js", "ts", "swift", "py", "sh"
+        ])
 
         // 이전 텍스트와 비교하여 삽입된 부분 추출
         let oldText = previousInputText
@@ -1095,40 +1102,38 @@ struct FloatingSidebarView: View {
         }
         path = path.removingPercentEncoding ?? path
 
-        // 이미지 확장자 확인
+        // 파일 확장자 확인
         let ext = (path as NSString).pathExtension.lowercased()
-        guard imageExtensions.contains(ext) else { return nil }
+        guard supportedExtensions.contains(ext) else { return nil }
 
         // 파일 존재 확인
         guard path.hasPrefix("/"), FileManager.default.fileExists(atPath: path) else { return nil }
 
-        // 이미지 로드 + 첨부 생성
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-              let mime = ImageAttachment.mimeType(for: data),
-              let attachment = try? ImageAttachment.save(data: data, mimeType: mime) else { return nil }
+        // 파일 로드 + 첨부 생성
+        let url = URL(fileURLWithPath: path)
+        guard let data = try? Data(contentsOf: url),
+              let mime = FileAttachment.detectMimeType(for: url, data: data),
+              let attachment = try? FileAttachment.save(data: data, mimeType: mime, originalFilename: url.lastPathComponent) else { return nil }
 
         pendingAttachments.append(attachment)
         return oldText // 삽입 전 텍스트로 복원
     }
 
-    private func handleImageDrop(_ providers: [NSItemProvider]) {
+    private func handleFileDrop(_ providers: [NSItemProvider]) {
         for provider in providers {
-            if provider.hasItemConformingToTypeIdentifier("public.image") {
-                provider.loadDataRepresentation(forTypeIdentifier: "public.image") { data, _ in
-                    guard let data = data,
-                          let mime = ImageAttachment.mimeType(for: data),
-                          let attachment = try? ImageAttachment.save(data: data, mimeType: mime) else { return }
-                    DispatchQueue.main.async {
-                        pendingAttachments.append(attachment)
-                    }
-                }
-            } else if provider.hasItemConformingToTypeIdentifier("public.file-url") {
+            if provider.hasItemConformingToTypeIdentifier("public.file-url") {
                 provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, _ in
                     guard let data = item as? Data,
-                          let url = URL(dataRepresentation: data, relativeTo: nil),
-                          let fileData = try? Data(contentsOf: url),
-                          let mime = ImageAttachment.mimeType(for: fileData),
-                          let attachment = try? ImageAttachment.save(data: fileData, mimeType: mime) else { return }
+                          let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
+                    DispatchQueue.main.async {
+                        addFileFromURL(url)
+                    }
+                }
+            } else if provider.hasItemConformingToTypeIdentifier("public.image") {
+                provider.loadDataRepresentation(forTypeIdentifier: "public.image") { data, _ in
+                    guard let data = data,
+                          let mime = FileAttachment.mimeType(for: data),
+                          let attachment = try? FileAttachment.save(data: data, mimeType: mime) else { return }
                     DispatchQueue.main.async {
                         pendingAttachments.append(attachment)
                     }

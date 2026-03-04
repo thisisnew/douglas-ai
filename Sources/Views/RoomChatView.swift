@@ -9,7 +9,7 @@ struct RoomChatView: View {
     @EnvironmentObject var agentStore: AgentStore
     @Environment(\.colorPalette) private var palette
     @State private var inputText = ""
-    @State private var pendingAttachments: [ImageAttachment] = []
+    @State private var pendingAttachments: [FileAttachment] = []
     @State private var showDeleteConfirm = false
     @State private var showCopiedFeedback = false
     @State private var selectedAgent: Agent?
@@ -431,14 +431,14 @@ struct RoomChatView: View {
             }
 
             HStack(spacing: 8) {
-                // 이미지 첨부 버튼
-                Button(action: pickImage) {
-                    Image(systemName: "photo.badge.plus")
+                // 파일 첨부 버튼
+                Button(action: pickFile) {
+                    Image(systemName: "paperclip")
                         .font(.system(size: 14))
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("이미지 첨부")
+                .help("파일 첨부")
 
                 TextField(room.status == .inProgress ? "추가 요건을 입력하세요..." : "메시지를 입력하세요...", text: $inputText, axis: .vertical)
                     .textFieldStyle(.plain)
@@ -492,7 +492,7 @@ struct RoomChatView: View {
         .padding(.horizontal, 6)
         .padding(.bottom, 6)
         .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
-            handleImageDrop(providers)
+            handleFileDrop(providers)
             return true
         }
     }
@@ -559,9 +559,9 @@ struct RoomChatView: View {
         mentionCandidates = []
     }
 
-    // MARK: - 이미지 첨부
+    // MARK: - 파일 첨부
 
-    private func pickImage() {
+    private func pickFile() {
         // .nonactivatingPanel이 NSOpenPanel 클릭을 방해하므로 임시 해제 (NSColorPanel 제외)
         if NSColorPanel.shared.isVisible { NSColorPanel.shared.orderOut(nil) }
         let panels = NSApp.windows.compactMap { $0 as? NSPanel }.filter { $0.styleMask.contains(.nonactivatingPanel) && !($0 is NSColorPanel) }
@@ -572,10 +572,13 @@ struct RoomChatView: View {
         NSApp.activate(ignoringOtherApps: true)
 
         let openPanel = NSOpenPanel()
-        openPanel.allowedContentTypes = [.jpeg, .png, .gif, .webP]
+        var types: [UTType] = [.jpeg, .png, .gif, .webP, .pdf, .plainText, .commaSeparatedText, .json, .html, .xml, .sourceCode, .shellScript]
+        if let yaml = UTType(filenameExtension: "yaml") { types.append(yaml) }
+        if let md = UTType(filenameExtension: "md") { types.append(md) }
+        openPanel.allowedContentTypes = types
         openPanel.allowsMultipleSelection = true
         openPanel.canChooseDirectories = false
-        openPanel.message = "첨부할 이미지를 선택하세요"
+        openPanel.message = "첨부할 파일을 선택하세요"
         let response = openPanel.runModal()
 
         // 복원
@@ -585,24 +588,32 @@ struct RoomChatView: View {
         }
         guard response == .OK else { return }
         for url in openPanel.urls {
-            addImageFromURL(url)
+            addFileFromURL(url)
         }
     }
 
-    private func addImageFromURL(_ url: URL) {
+    private func addFileFromURL(_ url: URL) {
         guard let data = try? Data(contentsOf: url) else { return }
-        guard let mime = ImageAttachment.mimeType(for: data) else { return }
-        guard let attachment = try? ImageAttachment.save(data: data, mimeType: mime) else { return }
+        guard let mime = FileAttachment.detectMimeType(for: url, data: data) else { return }
+        guard let attachment = try? FileAttachment.save(data: data, mimeType: mime, originalFilename: url.lastPathComponent) else { return }
         pendingAttachments.append(attachment)
     }
 
-    private func handleImageDrop(_ providers: [NSItemProvider]) {
+    private func handleFileDrop(_ providers: [NSItemProvider]) {
         for provider in providers {
-            if provider.hasItemConformingToTypeIdentifier("public.image") {
+            if provider.hasItemConformingToTypeIdentifier("public.file-url") {
+                provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, _ in
+                    guard let data = item as? Data,
+                          let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
+                    DispatchQueue.main.async {
+                        addFileFromURL(url)
+                    }
+                }
+            } else if provider.hasItemConformingToTypeIdentifier("public.image") {
                 provider.loadDataRepresentation(forTypeIdentifier: "public.image") { data, _ in
                     guard let data = data,
-                          let mime = ImageAttachment.mimeType(for: data),
-                          let attachment = try? ImageAttachment.save(data: data, mimeType: mime) else { return }
+                          let mime = FileAttachment.mimeType(for: data),
+                          let attachment = try? FileAttachment.save(data: data, mimeType: mime) else { return }
                     DispatchQueue.main.async {
                         pendingAttachments.append(attachment)
                     }

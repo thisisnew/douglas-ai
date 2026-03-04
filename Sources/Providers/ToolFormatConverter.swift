@@ -152,21 +152,36 @@ enum ToolFormatConverter {
         ]
     }
 
-    // MARK: - Vision (이미지) 메시지 빌드
+    // MARK: - 첨부 파일 메시지 빌드 (이미지 + 문서)
 
-    /// Anthropic 형식: user 메시지에 이미지 content block 포함
-    static func anthropicContentBlocks(text: String?, attachments: [ImageAttachment]) -> [[String: Any]] {
+    /// Anthropic 형식: 이미지 → image 블록, PDF → document 블록, 텍스트 → text 블록
+    static func anthropicContentBlocks(text: String?, attachments: [FileAttachment]) -> [[String: Any]] {
         var blocks: [[String: Any]] = []
         for attachment in attachments {
-            guard let base64 = try? attachment.loadBase64() else { continue }
-            blocks.append([
-                "type": "image",
-                "source": [
-                    "type": "base64",
-                    "media_type": attachment.mimeType,
-                    "data": base64
-                ] as [String: Any]
-            ])
+            if attachment.isImage {
+                guard let base64 = try? attachment.loadBase64() else { continue }
+                blocks.append([
+                    "type": "image",
+                    "source": [
+                        "type": "base64",
+                        "media_type": attachment.mimeType,
+                        "data": base64
+                    ] as [String: Any]
+                ])
+            } else if attachment.mimeType == "application/pdf" {
+                guard let base64 = try? attachment.loadBase64() else { continue }
+                blocks.append([
+                    "type": "document",
+                    "source": [
+                        "type": "base64",
+                        "media_type": "application/pdf",
+                        "data": base64
+                    ] as [String: Any]
+                ])
+            } else if let textContent = attachment.loadTextContent() {
+                let label = attachment.displayName
+                blocks.append(["type": "text", "text": "[\(label)]\n```\n\(textContent)\n```"])
+            }
         }
         if let text = text, !text.isEmpty {
             blocks.append(["type": "text", "text": text])
@@ -174,15 +189,29 @@ enum ToolFormatConverter {
         return blocks
     }
 
-    /// OpenAI 형식: user 메시지에 이미지 content array 포함
-    static func openAIContentArray(text: String?, attachments: [ImageAttachment]) -> [[String: Any]] {
+    /// OpenAI 형식: 이미지 → image_url, PDF → data URI, 텍스트 → text 블록
+    static func openAIContentArray(text: String?, attachments: [FileAttachment]) -> [[String: Any]] {
         var parts: [[String: Any]] = []
         for attachment in attachments {
-            guard let base64 = try? attachment.loadBase64() else { continue }
-            parts.append([
-                "type": "image_url",
-                "image_url": ["url": "data:\(attachment.mimeType);base64,\(base64)"]
-            ])
+            if attachment.isImage {
+                guard let base64 = try? attachment.loadBase64() else { continue }
+                parts.append([
+                    "type": "image_url",
+                    "image_url": ["url": "data:\(attachment.mimeType);base64,\(base64)"]
+                ])
+            } else if attachment.mimeType == "application/pdf" {
+                guard let base64 = try? attachment.loadBase64() else { continue }
+                parts.append([
+                    "type": "file",
+                    "file": [
+                        "filename": attachment.displayName,
+                        "file_data": "data:application/pdf;base64,\(base64)"
+                    ]
+                ])
+            } else if let textContent = attachment.loadTextContent() {
+                let label = attachment.displayName
+                parts.append(["type": "text", "text": "[\(label)]\n```\n\(textContent)\n```"])
+            }
         }
         if let text = text, !text.isEmpty {
             parts.append(["type": "text", "text": text])
@@ -190,17 +219,22 @@ enum ToolFormatConverter {
         return parts
     }
 
-    /// Google 형식: user 메시지에 inlineData parts 포함
-    static func googleParts(text: String?, attachments: [ImageAttachment]) -> [[String: Any]] {
+    /// Google 형식: 이미지/PDF → inlineData, 텍스트 → text 파트
+    static func googleParts(text: String?, attachments: [FileAttachment]) -> [[String: Any]] {
         var parts: [[String: Any]] = []
         for attachment in attachments {
-            guard let base64 = try? attachment.loadBase64() else { continue }
-            parts.append([
-                "inlineData": [
-                    "mimeType": attachment.mimeType,
-                    "data": base64
-                ] as [String: Any]
-            ])
+            if attachment.isImage || attachment.mimeType == "application/pdf" {
+                guard let base64 = try? attachment.loadBase64() else { continue }
+                parts.append([
+                    "inlineData": [
+                        "mimeType": attachment.mimeType,
+                        "data": base64
+                    ] as [String: Any]
+                ])
+            } else if let textContent = attachment.loadTextContent() {
+                let label = attachment.displayName
+                parts.append(["text": "[\(label)]\n```\n\(textContent)\n```"])
+            }
         }
         if let text = text, !text.isEmpty {
             parts.append(["text": text])

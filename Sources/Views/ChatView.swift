@@ -139,45 +139,89 @@ struct MessageBubble: View {
                             .foregroundColor(.secondary.opacity(0.35))
                     }
 
-                    // 첨부 이미지
+                    // 첨부 파일
                     if let attachments = message.attachments, !attachments.isEmpty {
-                        HStack(spacing: 6) {
-                            ForEach(attachments) { att in
-                                if let data = try? att.loadData(), let nsImage = NSImage(data: data) {
-                                    let maxW: CGFloat = 220
-                                    let maxH: CGFloat = 160
-                                    let ratio = nsImage.size.width / max(nsImage.size.height, 1)
-                                    let w = min(maxW, maxH * ratio)
-                                    let h = min(maxH, maxW / ratio)
+                        let images = attachments.filter { $0.isImage }
+                        let documents = attachments.filter { !$0.isImage }
 
-                                    Image(nsImage: nsImage)
+                        // 이미지 첨부
+                        if !images.isEmpty {
+                            HStack(spacing: 6) {
+                                ForEach(images) { att in
+                                    if let data = try? att.loadData(), let nsImage = NSImage(data: data) {
+                                        let maxW: CGFloat = 220
+                                        let maxH: CGFloat = 160
+                                        let ratio = nsImage.size.width / max(nsImage.size.height, 1)
+                                        let w = min(maxW, maxH * ratio)
+                                        let h = min(maxH, maxW / ratio)
+
+                                        Image(nsImage: nsImage)
+                                            .resizable()
+                                            .frame(width: w, height: h)
+                                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                    .strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1)
+                                            )
+                                            .shadow(color: palette.sidebarShadow.opacity(0.3), radius: 3, y: 2)
+                                            .onTapGesture { enlargedImage = nsImage }
+                                            .onHover { hovering in
+                                                if hovering { NSCursor.pointingHand.push() }
+                                                else { NSCursor.pop() }
+                                            }
+                                    }
+                                }
+                            }
+                            .frame(maxWidth: 220, alignment: message.role == .user ? .trailing : .leading)
+                            .popover(isPresented: Binding(
+                                get: { enlargedImage != nil },
+                                set: { if !$0 { enlargedImage = nil } }
+                            )) {
+                                if let img = enlargedImage {
+                                    Image(nsImage: img)
                                         .resizable()
-                                        .frame(width: w, height: h)
-                                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                                .strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1)
-                                        )
-                                        .shadow(color: palette.sidebarShadow.opacity(0.3), radius: 3, y: 2)
-                                        .onTapGesture { enlargedImage = nsImage }
-                                        .onHover { hovering in
-                                            if hovering { NSCursor.pointingHand.push() }
-                                            else { NSCursor.pop() }
-                                        }
+                                        .aspectRatio(contentMode: .fit)
+                                        .frame(maxWidth: 500, maxHeight: 400)
+                                        .padding(8)
                                 }
                             }
                         }
-                        .frame(maxWidth: 220, alignment: message.role == .user ? .trailing : .leading)
-                        .popover(isPresented: Binding(
-                            get: { enlargedImage != nil },
-                            set: { if !$0 { enlargedImage = nil } }
-                        )) {
-                            if let img = enlargedImage {
-                                Image(nsImage: img)
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(maxWidth: 500, maxHeight: 400)
-                                    .padding(8)
+
+                        // 문서 첨부
+                        if !documents.isEmpty {
+                            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
+                                ForEach(documents) { att in
+                                    HStack(spacing: 6) {
+                                        Image(systemName: att.fileIcon)
+                                            .font(.system(size: 14))
+                                            .foregroundColor(palette.accent)
+                                        VStack(alignment: .leading, spacing: 1) {
+                                            Text(att.displayName)
+                                                .font(.system(size: 11, weight: .medium, design: .rounded))
+                                                .lineLimit(1)
+                                            Text(FileAttachment.formatFileSize(att.fileSizeBytes))
+                                                .font(.system(size: 9, design: .rounded))
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                            .fill(palette.inputBackground.opacity(0.5))
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                            .strokeBorder(palette.cardBorder.opacity(0.12), lineWidth: 0.5)
+                                    )
+                                    .onTapGesture {
+                                        NSWorkspace.shared.open(att.diskPath)
+                                    }
+                                    .onHover { hovering in
+                                        if hovering { NSCursor.pointingHand.push() }
+                                        else { NSCursor.pop() }
+                                    }
+                                }
                             }
                         }
                     }

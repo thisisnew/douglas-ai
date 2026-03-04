@@ -5,9 +5,9 @@ import Foundation
 @Suite("ToolFormatConverter Image Tests")
 struct ToolFormatConverterImageTests {
 
-    private func makeTempAttachment(mimeType: String = "image/png") throws -> ImageAttachment {
+    private func makeTempAttachment(mimeType: String = "image/png", originalFilename: String? = nil) throws -> FileAttachment {
         let data = Data("fake image data".utf8)
-        return try ImageAttachment.save(data: data, mimeType: mimeType)
+        return try FileAttachment.save(data: data, mimeType: mimeType, originalFilename: originalFilename)
     }
 
     // MARK: - Anthropic 이미지 블록
@@ -108,5 +108,89 @@ struct ToolFormatConverterImageTests {
 
         let blocks = ToolFormatConverter.anthropicContentBlocks(text: "compare", attachments: [att1, att2])
         #expect(blocks.count == 3) // 2 images + 1 text
+    }
+
+    // MARK: - 문서 첨부
+
+    @Test("anthropicContentBlocks - PDF → document 블록")
+    func anthropicPDFDocument() throws {
+        let att = try makeTempAttachment(mimeType: "application/pdf", originalFilename: "report.pdf")
+        defer { att.delete() }
+
+        let blocks = ToolFormatConverter.anthropicContentBlocks(text: "분석해줘", attachments: [att])
+        #expect(blocks.count == 2) // document + text
+        #expect(blocks[0]["type"] as? String == "document")
+        let source = blocks[0]["source"] as? [String: Any]
+        #expect(source?["media_type"] as? String == "application/pdf")
+        #expect(blocks[1]["type"] as? String == "text")
+    }
+
+    @Test("anthropicContentBlocks - 텍스트 파일 → text 블록")
+    func anthropicTextFile() throws {
+        let att = try makeTempAttachment(mimeType: "text/plain", originalFilename: "notes.txt")
+        defer { att.delete() }
+
+        let blocks = ToolFormatConverter.anthropicContentBlocks(text: nil, attachments: [att])
+        #expect(blocks.count == 1)
+        #expect(blocks[0]["type"] as? String == "text")
+        let text = blocks[0]["text"] as? String
+        #expect(text?.contains("[notes.txt]") == true)
+    }
+
+    @Test("openAIContentArray - PDF → file 블록")
+    func openAIPDFFile() throws {
+        let att = try makeTempAttachment(mimeType: "application/pdf", originalFilename: "doc.pdf")
+        defer { att.delete() }
+
+        let parts = ToolFormatConverter.openAIContentArray(text: nil, attachments: [att])
+        #expect(parts.count == 1)
+        #expect(parts[0]["type"] as? String == "file")
+    }
+
+    @Test("openAIContentArray - 텍스트 파일 → text 블록")
+    func openAITextFile() throws {
+        let att = try makeTempAttachment(mimeType: "text/plain", originalFilename: "readme.txt")
+        defer { att.delete() }
+
+        let parts = ToolFormatConverter.openAIContentArray(text: nil, attachments: [att])
+        #expect(parts.count == 1)
+        #expect(parts[0]["type"] as? String == "text")
+    }
+
+    @Test("googleParts - PDF → inlineData")
+    func googlePDFInline() throws {
+        let att = try makeTempAttachment(mimeType: "application/pdf")
+        defer { att.delete() }
+
+        let parts = ToolFormatConverter.googleParts(text: nil, attachments: [att])
+        #expect(parts.count == 1)
+        let inlineData = parts[0]["inlineData"] as? [String: Any]
+        #expect(inlineData?["mimeType"] as? String == "application/pdf")
+    }
+
+    @Test("googleParts - 텍스트 파일 → text 파트")
+    func googleTextFile() throws {
+        let att = try makeTempAttachment(mimeType: "text/plain", originalFilename: "data.txt")
+        defer { att.delete() }
+
+        let parts = ToolFormatConverter.googleParts(text: nil, attachments: [att])
+        #expect(parts.count == 1)
+        let text = parts[0]["text"] as? String
+        #expect(text?.contains("[data.txt]") == true)
+    }
+
+    @Test("혼합 첨부 - 이미지 + PDF + 텍스트")
+    func mixedAttachments() throws {
+        let img = try makeTempAttachment(mimeType: "image/png")
+        let pdf = try makeTempAttachment(mimeType: "application/pdf", originalFilename: "doc.pdf")
+        let txt = try makeTempAttachment(mimeType: "text/plain", originalFilename: "note.txt")
+        defer { img.delete(); pdf.delete(); txt.delete() }
+
+        let blocks = ToolFormatConverter.anthropicContentBlocks(text: "분석", attachments: [img, pdf, txt])
+        #expect(blocks.count == 4) // image + document + text file + user text
+        #expect(blocks[0]["type"] as? String == "image")
+        #expect(blocks[1]["type"] as? String == "document")
+        #expect(blocks[2]["type"] as? String == "text") // text file content
+        #expect(blocks[3]["type"] as? String == "text") // user text
     }
 }

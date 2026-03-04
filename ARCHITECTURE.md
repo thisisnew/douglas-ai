@@ -38,9 +38,9 @@ DOUGLAS/
 │   │   ├── WorkingRules.swift       # 작업 규칙 (WorkingRulesSource — 인라인+파일 동시 지원)
 │   │   ├── AgentTool.swift          # 도구 시스템 (AgentTool, ToolCall, ToolResult, ToolRegistry, ConversationMessage)
 │   │   ├── ArtifactParser.swift     # 토론 산출물 파서 (artifact 블록 추출/제거)
-│   │   ├── ChatMessage.swift        # 메시지 모델 (MessageType 포함: toolActivity, buildStatus, qaStatus, approvalRequest 등, ImageAttachment 첨부)
+│   │   ├── ChatMessage.swift        # 메시지 모델 (MessageType 포함: toolActivity, buildStatus, qaStatus, approvalRequest 등, FileAttachment 첨부)
 │   │   ├── DiscussionArtifact.swift # 토론 산출물 모델 (ArtifactType, 버전 관리)
-│   │   ├── ImageAttachment.swift    # 이미지 첨부 모델 (디스크 저장, base64 로드, MIME 판별)
+│   │   ├── FileAttachment.swift     # 파일 첨부 모델 (이미지+문서, 디스크 저장, base64 로드, MIME 판별)
 │   │   ├── BuildResult.swift         # 빌드 결과 모델 + BuildLoopStatus + QAResult + QALoopStatus
 │   │   ├── FileWriteTracker.swift   # 병렬 실행 파일 쓰기 충돌 감지 (actor)
 │   │   ├── ToolExecutionContext.swift # 도구 실행 컨텍스트 (방/에이전트/프로젝트 정보 스냅샷, askUser, currentPhase)
@@ -372,34 +372,39 @@ struct ChatMessage: Identifiable, Codable {
     let agentName: String?       // 응답한 에이전트 이름
     let timestamp: Date
     var messageType: MessageType // text / delegation / summary / chainProgress / suggestion / error / discussionRound / toolActivity
-    let attachments: [ImageAttachment]?  // 이미지 첨부 (Vision API용)
+    let attachments: [FileAttachment]?   // 파일 첨부 (이미지+문서, Vision/Document API용)
     let activityGroupID: UUID?   // 부모 .progress 메시지 ID (활동 그룹핑)
 }
 ```
 
 - `init(from decoder:)`: messageType, attachments, activityGroupID가 없는 기존 데이터와 역호환 (`.text` 기본값, `nil`)
 - MessageType에 따라 채팅 버블의 색상, 아이콘, 테두리가 달라짐
-- `attachments`: 이미지 첨부 시 메시지 버블에 썸네일 표시
+- `attachments`: 파일 첨부 시 메시지 버블에 이미지 썸네일 또는 문서 아이콘 표시
 - `activityGroupID`: `.toolActivity` 메시지가 부모 `.progress` 메시지에 소속됨을 표시. 메인 채팅에서는 숨기고, progress 버블 확장 시 인라인 표시
 
-### ImageAttachment (`Models/ImageAttachment.swift`)
+### FileAttachment (`Models/FileAttachment.swift`)
 
 ```swift
-struct ImageAttachment: Codable, Identifiable {
+struct FileAttachment: Codable, Identifiable {
     let id: UUID
-    let filename: String        // UUID.ext
-    let mimeType: String        // "image/jpeg", "image/png", "image/gif", "image/webp"
+    let filename: String            // UUID.ext (디스크 저장용)
+    let originalFilename: String?   // 원래 파일 이름 (표시용)
+    let mimeType: String            // "image/jpeg", "application/pdf", "text/plain" 등
     let fileSizeBytes: Int
 }
 ```
 
+- 지원 파일: 이미지(JPEG/PNG/GIF/WebP) + 문서(PDF/TXT/CSV/JSON/MD/XML/YAML/HTML/CSS) + 코드(JS/TS/Swift/Python/Shell)
 - 디스크 저장: `~/Library/Application Support/DOUGLAS/attachments/{filename}`
-- `save(data:mimeType:)`: 데이터를 디스크에 저장하고 메타데이터 반환
-- `loadBase64()` / `loadData()`: API 호출 시점에 디스크에서 로드 (메모리 절약)
+- `save(data:mimeType:originalFilename:)`: 데이터를 디스크에 저장하고 메타데이터 반환
+- `loadBase64()` / `loadData()` / `loadTextContent()`: API 호출 시점에 디스크에서 로드
 - `delete()`: 디스크 파일 삭제
-- `mimeType(for:)`: 매직바이트로 MIME 타입 판별 (JPEG/PNG/GIF/WebP)
-- 크기 제한: 이미지당 최대 20MB
-- `ImageAttachmentError`: `.fileTooLarge`, `.unsupportedFormat`
+- `mimeType(for:)`: 매직바이트로 판별 (이미지+PDF), `mimeType(forExtension:)`: 확장자로 판별 (텍스트/코드)
+- `detectMimeType(for:data:)`: 매직바이트 우선 → 확장자 fallback 통합 판별
+- `isImage`, `displayName`, `fileIcon`: UI 렌더링 헬퍼
+- 크기 제한: 파일당 최대 20MB
+- `FileAttachmentError`: `.fileTooLarge`, `.unsupportedFormat`
+- `typealias ImageAttachment = FileAttachment` (하위 호환)
 
 ### WorkingRulesSource (`Models/WorkingRules.swift`) — struct
 
@@ -1232,7 +1237,7 @@ executeWithTools() 루프 (최대 10회):
 | AgentStore.swift | ~140 | 에이전트 상태 관리 + 마스터 생명주기 |
 | ChatContentView.swift | ~130 | 공유 채팅 UI 컴포넌트 |
 | ClaudeCodeProvider.swift | ~123 | CLI 실행 |
-| ImageAttachment.swift | ~120 | 이미지 첨부 모델 (디스크 저장, MIME 판별) |
+| FileAttachment.swift | ~220 | 파일 첨부 모델 (이미지+문서, 디스크 저장, MIME 판별) |
 | ProviderConfig.swift | ~110 | 설정 모델 (Keychain 연동) |
 | ChatWindowView.swift | ~110 | 독립 채팅 윈도우 |
 | ProviderManager.swift | ~107 | 프로바이더 관리 |
@@ -1274,7 +1279,7 @@ Tests/
 │   ├── ChatMessageTests.swift        # 12 tests — 모든 MessageType, Codable 라운드트립, 이미지 첨부 호환
 │   ├── ClaudeCodeInstallerTests.swift # 32 tests — detect/install (ProcessRunner mock), 경로 탐색, 상태 전이
 │   ├── DependencyCheckerTests.swift  # 15 tests — allRequiredFound, checkAll, shellWhichAll (ProcessRunner mock)
-│   ├── ImageAttachmentTests.swift    # 25 tests — MIME 판별, save/load 라운드트립, 크기 제한, 파일 확장자, tempFileURL
+│   ├── FileAttachmentTests.swift     # 35+ tests — MIME 판별(매직바이트+확장자), save/load, 크기 제한, 파일 확장자, isImage, displayName, fileIcon, loadTextContent, 하위호환
 │   ├── JiraConfigTests.swift         # 28 tests — apiToken Keychain, authHeader, isConfigured, baseURL
 │   ├── KeychainHelperTests.swift     # 23 tests — 파일 기반 저장/로드/삭제, 특수 문자, 에러 타입, 암호화 키 관리
 │   ├── ProviderConfigTests.swift     # 23 tests — AuthMethod, Keychain 분리, 레거시 호환, isConnected, apiKey 라운드트립
@@ -1315,7 +1320,7 @@ Tests/
 
 | 계층 | 테스트 수 | 주요 커버리지 |
 |------|----------|-------------|
-| Models | 397 | Agent, WorkingRules, AgentTool, ArtifactParser, ChatMessage, ClaudeCodeInstaller, DependencyChecker, DiscussionArtifact, ImageAttachment, JiraConfig, KeychainHelper, ProviderConfig, ProviderDetector, Room, RoomBriefing, RoomStep, ToolExecutionContext, BuildResult (QA 포함) |
+| Models | 397 | Agent, WorkingRules, AgentTool, ArtifactParser, ChatMessage, ClaudeCodeInstaller, DependencyChecker, DiscussionArtifact, FileAttachment, JiraConfig, KeychainHelper, ProviderConfig, ProviderDetector, Room, RoomBriefing, RoomStep, ToolExecutionContext, BuildResult (QA 포함) |
 | ViewModels | 302 | ChatViewModel (통합+파싱+상태), AgentStore, ProviderManager, RoomManager, OnboardingViewModel, ToolExecutor (Jira 도구 포함), BuildLoopRunner (QA 포함) |
-| Providers | 91 | OpenAI, Anthropic, Google, Ollama, LM Studio, Custom, ClaudeCode, ToolFormatConverter (도구 + 이미지) |
+| Providers | 91 | OpenAI, Anthropic, Google, Ollama, LM Studio, Custom, ClaudeCode, ToolFormatConverter (도구 + 이미지 + 문서) |
 | **합계** | **789** | 테스트 가능 코드 87% 라인 커버리지 (View/App 레이어는 UI 특성상 제외) |

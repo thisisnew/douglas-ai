@@ -60,31 +60,20 @@ struct CardContainer<Content: View>: View {
     }
 }
 
-// MARK: - 첨부 이미지 썸네일
+// MARK: - 첨부 파일 썸네일
 
-/// 48x48 이미지 미리보기 + 삭제 버튼
+/// 48x48 파일 미리보기 + 삭제 버튼 (이미지: 썸네일, 문서: 아이콘+파일명)
 struct AttachmentThumbnail: View {
     @Environment(\.colorPalette) private var palette
-    let attachment: ImageAttachment
+    let attachment: FileAttachment
     let onDelete: () -> Void
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            if let data = try? attachment.loadData(), let nsImage = NSImage(data: data) {
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 48, height: 48)
-                    .continuousRadius(DesignTokens.Radius.lg)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: DesignTokens.Radius.lg, style: .continuous)
-                            .strokeBorder(palette.cardBorder.opacity(0.12), lineWidth: 0.5)
-                    )
+            if attachment.isImage {
+                imagePreview
             } else {
-                RoundedRectangle(cornerRadius: DesignTokens.Radius.lg, style: .continuous)
-                    .fill(Color.gray.opacity(0.15))
-                    .frame(width: 48, height: 48)
-                    .overlay(Image(systemName: "photo").foregroundColor(.secondary.opacity(0.5)))
+                documentPreview
             }
 
             Button(action: onDelete) {
@@ -96,6 +85,48 @@ struct AttachmentThumbnail: View {
             .buttonStyle(.plain)
             .offset(x: 4, y: -4)
         }
+    }
+
+    @ViewBuilder
+    private var imagePreview: some View {
+        if let data = try? attachment.loadData(), let nsImage = NSImage(data: data) {
+            Image(nsImage: nsImage)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 48, height: 48)
+                .continuousRadius(DesignTokens.Radius.lg)
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignTokens.Radius.lg, style: .continuous)
+                        .strokeBorder(palette.cardBorder.opacity(0.12), lineWidth: 0.5)
+                )
+        } else {
+            RoundedRectangle(cornerRadius: DesignTokens.Radius.lg, style: .continuous)
+                .fill(Color.gray.opacity(0.15))
+                .frame(width: 48, height: 48)
+                .overlay(Image(systemName: "photo").foregroundColor(.secondary.opacity(0.5)))
+        }
+    }
+
+    private var documentPreview: some View {
+        VStack(spacing: 2) {
+            Image(systemName: attachment.fileIcon)
+                .font(.system(size: 16))
+                .foregroundColor(palette.accent)
+            Text(attachment.displayName)
+                .font(.system(size: 8))
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .foregroundColor(.secondary)
+        }
+        .frame(width: 56, height: 48)
+        .background(
+            RoundedRectangle(cornerRadius: DesignTokens.Radius.lg, style: .continuous)
+                .fill(palette.inputBackground.opacity(0.6))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DesignTokens.Radius.lg, style: .continuous)
+                .strokeBorder(palette.cardBorder.opacity(0.12), lineWidth: 0.5)
+        )
     }
 }
 

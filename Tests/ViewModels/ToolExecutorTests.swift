@@ -777,7 +777,7 @@ struct ToolExecutorTests {
         provider.sendMessageWithToolsResults = [.success(.text("image analyzed"))]
         let agent = makeAgent() // 도구 없음
 
-        let attachment = try ImageAttachment.save(data: Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]), mimeType: "image/png")
+        let attachment = try FileAttachment.save(data: Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]), mimeType: "image/png")
         defer { attachment.delete() }
         let messages = [ConversationMessage.user("이미지 분석해줘", attachments: [attachment])]
         let result = try await ToolExecutor.smartSend(

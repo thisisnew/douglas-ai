@@ -225,7 +225,7 @@ class RoomManager: ObservableObject {
     }
 
     /// 사용자가 방에 메시지 보내기
-    func sendUserMessage(_ text: String, to roomID: UUID, attachments: [ImageAttachment]? = nil) async {
+    func sendUserMessage(_ text: String, to roomID: UUID, attachments: [FileAttachment]? = nil) async {
         // @멘션 파싱: 에이전트 초대 + 순수 텍스트 분리
         let allSubAgents = agentStore?.subAgents ?? []
         let parsed = MentionParser.parse(text, agents: allSubAgents)
@@ -792,8 +792,8 @@ class RoomManager: ObservableObject {
         // Intent 정보
         let intentName = rooms[idx].intent?.displayName ?? "구현"
 
-        // 이미지 첨부 파일 수집 (LLM에 직접 전달)
-        let imageAttachments = rooms[idx].messages
+        // 첨부 파일 수집 (LLM에 직접 전달)
+        let fileAttachments = rooms[idx].messages
             .compactMap { $0.attachments }
             .flatMap { $0 }
 
@@ -828,7 +828,7 @@ class RoomManager: ObservableObject {
             let clarifyMessages: [ConversationMessage]
             if currentSummary.isEmpty {
                 let userContent = "\(contextString)\n\n위 요청을 분석하고, 이해한 내용을 정리해주세요. 작업: \(task)"
-                clarifyMessages = [ConversationMessage.user(userContent, attachments: imageAttachments.isEmpty ? nil : imageAttachments)]
+                clarifyMessages = [ConversationMessage.user(userContent, attachments: fileAttachments.isEmpty ? nil : fileAttachments)]
             } else {
                 // 사용자 피드백 반영 재요약
                 let history = buildRoomHistory(roomID: roomID)
@@ -836,7 +836,7 @@ class RoomManager: ObservableObject {
                     .suffix(5)
                     .joined(separator: "\n")
                 let feedbackContent = "이전 요약:\n\(currentSummary)\n\n사용자 피드백:\n\(history)\n\n피드백을 반영하여 다시 요약하세요."
-                clarifyMessages = [ConversationMessage.user(feedbackContent, attachments: imageAttachments.isEmpty ? nil : imageAttachments)]
+                clarifyMessages = [ConversationMessage.user(feedbackContent, attachments: fileAttachments.isEmpty ? nil : fileAttachments)]
             }
 
             do {
@@ -849,8 +849,8 @@ class RoomManager: ObservableObject {
                 appendMessage(placeholder, to: roomID)
 
                 let response: String
-                if provider.supportsStreaming && imageAttachments.isEmpty {
-                    // 이미지 없음 → 스트리밍 경로
+                if provider.supportsStreaming && fileAttachments.isEmpty {
+                    // 첨부 없음 → 스트리밍 경로
                     let simpleMessages = clarifyMessages.compactMap { msg -> (role: String, content: String)? in
                         guard let content = msg.content else { return nil }
                         return (role: msg.role, content: content)
@@ -1759,14 +1759,24 @@ class RoomManager: ObservableObject {
         - 반드시 유효한 JSON으로만 응답하세요
         """
 
-        // 이미지 첨부 정보 포함 (첨부된 내용을 "확인하라"는 불필요한 단계 방지)
+        // 첨부 파일 정보 포함 (첨부된 내용을 "확인하라"는 불필요한 단계 방지)
         let attachmentContext: String
-        let imageAttachments = room.messages
+        let fileAttachments = room.messages
             .compactMap { $0.attachments }
             .flatMap { $0 }
-        if !imageAttachments.isEmpty {
-            attachmentContext = "\n\n[사용자 첨부 이미지 \(imageAttachments.count)장 — 이미 제공됨]\n" +
-                "(이미지가 이미 제공되었으므로, 사용자에게 다시 요청하지 마세요. 바로 작업하세요. 계획의 step에 파일 경로를 포함하지 마세요.)"
+        if !fileAttachments.isEmpty {
+            let imageCount = fileAttachments.filter { $0.isImage }.count
+            let docCount = fileAttachments.count - imageCount
+            var desc = "사용자 첨부 파일 \(fileAttachments.count)개"
+            if imageCount > 0 && docCount > 0 {
+                desc += " (이미지 \(imageCount)장, 문서 \(docCount)개)"
+            } else if imageCount > 0 {
+                desc += " (이미지 \(imageCount)장)"
+            } else {
+                desc += " (문서 \(docCount)개)"
+            }
+            attachmentContext = "\n\n[\(desc) — 이미 제공됨]\n" +
+                "(파일이 이미 제공되었으므로, 사용자에게 다시 요청하지 마세요. 바로 작업하세요. 계획의 step에 파일 경로를 포함하지 마세요.)"
         } else {
             attachmentContext = ""
         }
