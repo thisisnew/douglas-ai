@@ -14,7 +14,7 @@ enum ToolExecutor {
         systemPrompt: String,
         messages: [(role: String, content: String)],
         context: ToolExecutionContext = .empty,
-        onToolActivity: ((String) -> Void)? = nil,
+        onToolActivity: ((String, ToolActivityDetail?) -> Void)? = nil,
         onStreamChunk: (@Sendable (String) -> Void)? = nil,
         useTools: Bool = true
     ) async throws -> String {
@@ -22,7 +22,7 @@ enum ToolExecutor {
 
         // 도구 없거나 프로바이더가 도구 미지원 또는 명시적 비활성화 → 기존 경로
         guard useTools, !toolIDs.isEmpty, provider.supportsToolCalling else {
-            onToolActivity?("API 요청: \(agent.providerName) (\(agent.modelName))")
+            onToolActivity?("API 요청: \(agent.providerName) (\(agent.modelName))", nil)
             let result: String
             if let onStreamChunk, provider.supportsStreaming {
                 result = try await provider.sendMessageStreaming(
@@ -47,7 +47,7 @@ enum ToolExecutor {
                 )
                 if let onStreamChunk { onStreamChunk(result) }
             }
-            onToolActivity?("응답 수신 성공 (\(result.count)자)")
+            onToolActivity?("응답 수신 성공 (\(result.count)자)", nil)
             return result
         }
 
@@ -79,7 +79,7 @@ enum ToolExecutor {
         systemPrompt: String,
         conversationMessages: [ConversationMessage],
         context: ToolExecutionContext = .empty,
-        onToolActivity: ((String) -> Void)? = nil,
+        onToolActivity: ((String, ToolActivityDetail?) -> Void)? = nil,
         onStreamChunk: (@Sendable (String) -> Void)? = nil,
         useTools: Bool = true
     ) async throws -> String {
@@ -94,7 +94,7 @@ enum ToolExecutor {
                 guard let content = msg.content else { return nil }
                 return (role: msg.role, content: content)
             }
-            onToolActivity?("API 요청: \(agent.providerName) (\(agent.modelName))")
+            onToolActivity?("API 요청: \(agent.providerName) (\(agent.modelName))", nil)
             let result: String
             if let onStreamChunk, provider.supportsStreaming {
                 result = try await provider.sendMessageStreaming(
@@ -119,7 +119,7 @@ enum ToolExecutor {
                 )
                 if let onStreamChunk { onStreamChunk(result) }
             }
-            onToolActivity?("응답 수신 성공 (\(result.count)자)")
+            onToolActivity?("응답 수신 성공 (\(result.count)자)", nil)
             return result
         }
 
@@ -144,7 +144,7 @@ enum ToolExecutor {
         initialMessages: [ConversationMessage],
         tools: [AgentTool],
         context: ToolExecutionContext = .empty,
-        onToolActivity: ((String) -> Void)? = nil
+        onToolActivity: ((String, ToolActivityDetail?) -> Void)? = nil
     ) async throws -> String {
         var messages = initialMessages
 
@@ -164,7 +164,10 @@ enum ToolExecutor {
                 messages.append(.assistantToolCalls(calls, text: nil))
                 let results = await executeToolCallsInParallel(calls, context: context)
                 for result in results {
-                    onToolActivity?("도구 결과: \(result.callID) → \(result.isError ? "오류" : "성공")")
+                    let call = calls.first(where: { $0.id == result.callID })
+                    let detail = buildActivityDetail(call: call, result: result)
+                    let toolLabel = call?.toolName ?? result.callID
+                    onToolActivity?("도구 결과: \(toolLabel) → \(result.isError ? "오류" : "성공")", detail)
                     messages.append(.toolResult(callID: result.callID, content: result.content, isError: result.isError))
                 }
 
@@ -172,7 +175,10 @@ enum ToolExecutor {
                 messages.append(.assistantToolCalls(calls, text: text))
                 let results = await executeToolCallsInParallel(calls, context: context)
                 for result in results {
-                    onToolActivity?("도구 결과: \(result.callID) → \(result.isError ? "오류" : "성공")")
+                    let call = calls.first(where: { $0.id == result.callID })
+                    let detail = buildActivityDetail(call: call, result: result)
+                    let toolLabel = call?.toolName ?? result.callID
+                    onToolActivity?("도구 결과: \(toolLabel) → \(result.isError ? "오류" : "성공")", detail)
                     messages.append(.toolResult(callID: result.callID, content: result.content, isError: result.isError))
                 }
             }
@@ -768,6 +774,54 @@ enum ToolExecutor {
             return ToolResult(callID: call.id, content: "(사용자가 응답하지 않았습니다. 이 항목에 대해 가정을 선언하세요.)", isError: false)
         }
         return ToolResult(callID: call.id, content: "사용자 답변: \(answer)", isError: false)
+    }
+
+    // MARK: - 도구 활동 상세 생성
+
+    /// 도구 호출 결과에서 UI 표시용 상세 정보 생성
+    private static func buildActivityDetail(call: ToolCall?, result: ToolResult) -> ToolActivityDetail {
+        let toolName = call?.toolName ?? "unknown"
+        let subject: String?
+        let preview: String?
+        let maxPreview = 2000
+
+        switch toolName {
+        case "file_write":
+            subject = call?.arguments["path"]?.stringValue
+            let written = call?.arguments["content"]?.stringValue ?? ""
+            preview = truncatePreview(written, max: maxPreview)
+        case "file_read":
+            subject = call?.arguments["path"]?.stringValue
+            preview = truncatePreview(result.content, max: maxPreview)
+        case "shell_exec":
+            subject = call?.arguments["command"]?.stringValue
+            preview = truncatePreview(result.content, max: maxPreview)
+        case "web_fetch":
+            subject = call?.arguments["url"]?.stringValue
+            preview = truncatePreview(result.content, max: maxPreview)
+        default:
+            subject = nil
+            preview = result.content.isEmpty ? nil : truncatePreview(result.content, max: maxPreview)
+        }
+
+        return ToolActivityDetail(
+            toolName: toolName,
+            subject: subject,
+            contentPreview: preview,
+            isError: result.isError
+        )
+    }
+
+    /// 긴 텍스트를 앞/뒤 보존하고 중간 생략
+    private static func truncatePreview(_ text: String, max: Int) -> String? {
+        guard !text.isEmpty else { return nil }
+        if text.count <= max { return text }
+        let headLen = max * 3 / 4
+        let tailLen = max / 4
+        let head = String(text.prefix(headLen))
+        let tail = String(text.suffix(tailLen))
+        let omitted = text.count - headLen - tailLen
+        return "\(head)\n\n... (\(omitted)자 생략) ...\n\n\(tail)"
     }
 
     // MARK: - shell_exec

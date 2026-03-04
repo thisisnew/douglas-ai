@@ -9,6 +9,7 @@ struct ProgressActivityBubble: View {
     var isActive: Bool = false
 
     @State private var isExpanded = false
+    @State private var expandedActivityIDs: Set<UUID> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -129,38 +130,129 @@ struct ProgressActivityBubble: View {
 
     // MARK: - 활동 행
 
+    @ViewBuilder
     private func activityRow(_ activity: ChatMessage) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            Image(systemName: activityIcon(activity.content))
-                .font(.system(size: 9))
-                .foregroundColor(activityColor(activity.content))
-                .frame(width: 12)
+        let hasPreview = activity.toolDetail?.contentPreview != nil
+        let isDetailExpanded = expandedActivityIDs.contains(activity.id)
 
-            Text(activity.content)
-                .font(.system(size: 10))
-                .foregroundColor(.secondary.opacity(0.6))
-                .lineLimit(2)
+        VStack(alignment: .leading, spacing: 0) {
+            // 요약 행 (항상 보임)
+            Button {
+                guard hasPreview else { return }
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    if isDetailExpanded {
+                        expandedActivityIDs.remove(activity.id)
+                    } else {
+                        expandedActivityIDs.insert(activity.id)
+                    }
+                }
+            } label: {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: detailAwareIcon(activity))
+                        .font(.system(size: 9))
+                        .foregroundColor(detailAwareColor(activity))
+                        .frame(width: 12)
 
-            Spacer()
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(activity.content)
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary.opacity(0.6))
+                            .lineLimit(2)
 
-            Text(timeLabel(activity.timestamp))
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundColor(.secondary.opacity(0.3))
+                        // 파일 경로 / 명령어 / URL
+                        if let subject = activity.toolDetail?.subject {
+                            Text(subject)
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundColor(.secondary.opacity(0.45))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+
+                    Spacer()
+
+                    if hasPreview {
+                        Image(systemName: isDetailExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 7))
+                            .foregroundColor(.secondary.opacity(0.3))
+                    }
+
+                    Text(timeLabel(activity.timestamp))
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.secondary.opacity(0.3))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 1)
+
+            // 상세 미리보기 (확장 시)
+            if isDetailExpanded, let preview = activity.toolDetail?.contentPreview {
+                toolDetailPreview(preview)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 1)
+    }
+
+    /// 도구 실행 결과 미리보기
+    private func toolDetailPreview(_ preview: String) -> some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            Text(preview)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(.secondary.opacity(0.7))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+        }
+        .frame(maxHeight: 200)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(palette.inputBackground.opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(palette.cardBorder.opacity(0.1), lineWidth: 0.5)
+        )
+        .padding(.leading, 30)
+        .padding(.trailing, 12)
+        .padding(.vertical, 2)
     }
 
     // MARK: - Helpers
 
-    private func activityIcon(_ content: String) -> String {
+    /// toolDetail이 있으면 도구별 아이콘, 없으면 기존 문자열 매칭
+    private func detailAwareIcon(_ activity: ChatMessage) -> String {
+        if let detail = activity.toolDetail {
+            if detail.isError { return "xmark.circle" }
+            switch detail.toolName {
+            case "file_read":  return "doc.text"
+            case "file_write": return "doc.badge.plus"
+            case "shell_exec": return "terminal"
+            case "web_fetch":  return "globe"
+            default:           return "checkmark.circle"
+            }
+        }
+        return activityIconFallback(activity.content)
+    }
+
+    /// toolDetail이 있으면 상태별 색상, 없으면 기존 문자열 매칭
+    private func detailAwareColor(_ activity: ChatMessage) -> Color {
+        if let detail = activity.toolDetail {
+            return detail.isError ? .red.opacity(0.6) : .green.opacity(0.6)
+        }
+        return activityColorFallback(activity.content)
+    }
+
+    // 기존 문자열 매칭 (하위 호환)
+    private func activityIconFallback(_ content: String) -> String {
         if content.contains("도구 호출") { return "wrench.and.screwdriver" }
         if content.contains("성공") { return "checkmark.circle" }
         if content.contains("오류") || content.contains("실패") { return "xmark.circle" }
         return "arrow.right.circle"
     }
 
-    private func activityColor(_ content: String) -> Color {
+    private func activityColorFallback(_ content: String) -> Color {
         if content.contains("성공") { return .green.opacity(0.6) }
         if content.contains("오류") || content.contains("실패") { return .red.opacity(0.6) }
         return .secondary.opacity(0.5)

@@ -374,13 +374,15 @@ struct ChatMessage: Identifiable, Codable {
     var messageType: MessageType // text / delegation / summary / chainProgress / suggestion / error / discussionRound / toolActivity
     let attachments: [FileAttachment]?   // 파일 첨부 (이미지+문서, Vision/Document API용)
     let activityGroupID: UUID?   // 부모 .progress 메시지 ID (활동 그룹핑)
+    let toolDetail: ToolActivityDetail?  // 도구 실행 상세 (파일 경로, 내용 미리보기)
 }
 ```
 
-- `init(from decoder:)`: messageType, attachments, activityGroupID가 없는 기존 데이터와 역호환 (`.text` 기본값, `nil`)
+- `init(from decoder:)`: messageType, attachments, activityGroupID, toolDetail이 없는 기존 데이터와 역호환 (`.text` 기본값, `nil`)
 - MessageType에 따라 채팅 버블의 색상, 아이콘, 테두리가 달라짐
 - `attachments`: 파일 첨부 시 메시지 버블에 이미지 썸네일 또는 문서 아이콘 표시
 - `activityGroupID`: `.toolActivity` 메시지가 부모 `.progress` 메시지에 소속됨을 표시. 메인 채팅에서는 숨기고, progress 버블 확장 시 인라인 표시
+- `toolDetail`: 도구 실행 시 구조화된 상세 정보 (`ToolActivityDetail` — 도구명, 파일 경로/명령어, 내용 미리보기 최대 2000자). progress 버블에서 클릭으로 펼쳐 확인 가능
 
 ### FileAttachment (`Models/FileAttachment.swift`)
 
@@ -722,6 +724,8 @@ MessageType에 따른 시각 차별화:
 `.progress` 메시지를 확장형 버블로 렌더링:
 - **접힌 상태**: 기존 캡슐 스타일 + 활동 개수 뱃지 + 화살표 (클릭으로 토글)
 - **펼친 상태**: 소속된 `.toolActivity` 메시지들을 시간순으로 인라인 표시 (도구 호출/결과, 아이콘 구분, 타임스탬프)
+- **도구 상세 펼치기**: `toolDetail`이 있는 활동 행 클릭 시 2단계 확장 — 파일 경로 + 내용 미리보기 (모노스페이스, 최대 200pt 높이 ScrollView)
+- 도구별 아이콘: file_read → `doc.text`, file_write → `doc.badge.plus`, shell_exec → `terminal`, web_fetch → `globe`
 - `activityGroupID`로 부모-자식 관계 연결: `.toolActivity` 메시지의 `activityGroupID`가 `.progress` 메시지의 `id`와 일치
 - 메인 채팅에서는 `activityGroupID != nil`인 메시지를 필터링하여 숨김
 

@@ -2295,14 +2295,15 @@ class RoomManager: ObservableObject {
                 systemPrompt: agent.resolvedSystemPrompt,
                 conversationMessages: messagesWithStep,
                 context: context,
-                onToolActivity: { [weak self] activity in
+                onToolActivity: { [weak self] activity, detail in
                     Task { @MainActor in
                         let toolMsg = ChatMessage(
                             role: .assistant,
                             content: activity,
                             agentName: agent.name,
                             messageType: .toolActivity,
-                            activityGroupID: progressGroupID
+                            activityGroupID: progressGroupID,
+                            toolDetail: detail
                         )
                         self?.appendMessage(toolMsg, to: roomID)
                     }

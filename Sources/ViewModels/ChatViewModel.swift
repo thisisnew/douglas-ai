@@ -196,9 +196,9 @@ class ChatViewModel: ObservableObject {
                 agent: agent,
                 systemPrompt: agent.resolvedSystemPrompt,
                 conversationMessages: history,
-                onToolActivity: { [weak self] activity in
+                onToolActivity: { [weak self] activity, detail in
                     Task { @MainActor in
-                        let toolMsg = ChatMessage(role: .assistant, content: activity, agentName: agent.name, messageType: .toolActivity)
+                        let toolMsg = ChatMessage(role: .assistant, content: activity, agentName: agent.name, messageType: .toolActivity, toolDetail: detail)
                         self?.appendMessage(toolMsg, for: agentID)
                     }
                 },
