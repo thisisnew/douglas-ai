@@ -1133,6 +1133,7 @@ class RoomManager: ObservableObject {
         }
 
         let intentName = rooms[idx].intent?.displayName ?? "구현"
+        let docTypeName = rooms[idx].documentType?.displayName
         // 기존 에이전트 목록 구성
         let subAgents = agentStore?.subAgents ?? []
         let agentRoster = subAgents.isEmpty ? "(없음)" : subAgents.map { "- \($0.name)" }.joined(separator: "\n")
@@ -1148,15 +1149,29 @@ class RoomManager: ObservableObject {
             maxAgentHint = "불확실하면 적게 요청하세요 (1~2명이면 충분한 경우가 많습니다)."
         }
 
+        // 문서 유형 컨텍스트
+        let docTypeHint: String
+        if let docType = rooms[idx].documentType, docType != .freeform {
+            docTypeHint = """
+
+            이 작업은 **\(docType.displayName)** 문서를 작성하는 작업입니다.
+            문서를 잘 작성할 수 있는 전문가를 선택하세요.
+            작업 대상 도메인(예: 백엔드, 프론트엔드)의 개발자가 아니라, 해당 문서 유형을 작성할 역량이 있는 전문가를 우선하세요.
+            예: 테스트 계획서 → QA/테스트 전문가, PRD → 기획/PM 전문가, 기술 설계서 → 시니어 개발자/아키텍트.
+            """
+        } else {
+            docTypeHint = ""
+        }
+
         let assembleSystemPrompt = """
         \(agent.resolvedSystemPrompt)
 
         당신은 Assemble(팀 구성) 단계를 수행하고 있습니다.
-        작업 유형은 **\(intentName)**입니다.
+        작업 유형은 **\(intentName)**\(docTypeName != nil ? " (\(docTypeName!))" : "")입니다.
 
         작업에 **직접적으로** 필요한 역할만 최소한으로 요청하세요.
         작업과 무관한 역할은 절대 포함하지 마세요.
-        \(maxAgentHint)
+        \(maxAgentHint)\(docTypeHint)
 
         사용자의 요청을 정확히 읽고, 요청된 관점의 전문가만 초대하세요.
         예: "프론트엔드 관점에서" → 프론트엔드 전문가만. 백엔드 전문가는 불필요.
@@ -1179,11 +1194,13 @@ class RoomManager: ObservableObject {
         // 사전 매칭: 사용자 요청에서 기존 에이전트 이름 키워드 직접 탐색
         // "QA에게 자문" → "QA 전문가" 직접 매칭 (LLM 우회)
         // "프론트" → "프론트엔드 개발자" 접두어 매칭도 지원
+        // documentation intent는 도메인 키워드(백엔드, 프론트 등)로 직접 매칭하면 부정확 → LLM에 위임
+        let skipDirectMatch = intent == .documentation
         let taskLowered = enrichedTask.lowercased()
         let taskWords = taskLowered
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { $0.count >= 2 }
-        let directMatches = subAgents.filter { sub in
+        let directMatches: [Agent] = skipDirectMatch ? [] : subAgents.filter { sub in
             let nameKeywords = sub.name.lowercased()
                 .components(separatedBy: CharacterSet.alphanumerics.inverted)
                 .filter { $0.count >= 2 && !AgentMatcher.isGenericSuffix($0) }
@@ -2993,7 +3010,8 @@ class RoomManager: ObservableObject {
             let displayResponse = ArtifactParser.stripArtifactBlocks(from: cleanResponse)
 
             // placeholder를 최종 정리된 텍스트로 업데이트
-            updateMessageContent(placeholderID, newContent: displayResponse.isEmpty ? cleanResponse : displayResponse, in: roomID)
+            let finalText = stripTrailingOptions(displayResponse.isEmpty ? cleanResponse : displayResponse)
+            updateMessageContent(placeholderID, newContent: finalText, in: roomID)
 
             return agreed
         } catch {
