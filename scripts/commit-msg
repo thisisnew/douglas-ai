@@ -1,0 +1,23 @@
+#!/bin/bash
+# DOUGLAS 커밋 메시지 형식 검증
+# 형식: [DG] <type>: <설명>
+# 허용 type: feat, fix, refactor, style, docs
+
+COMMIT_MSG_FILE="$1"
+COMMIT_MSG=$(head -1 "$COMMIT_MSG_FILE")
+
+# Merge, Revert, Co-Authored-By 커밋은 건너뜀
+if echo "$COMMIT_MSG" | grep -qE "^(Merge|Revert|auto merge)"; then
+    exit 0
+fi
+
+# 형식 검증
+if ! echo "$COMMIT_MSG" | grep -qE "^\[DG\] (feat|fix|refactor|style|docs): .+"; then
+    echo ""
+    echo "[FAIL] 커밋 메시지 형식 오류"
+    echo "  요구 형식: [DG] <type>: <설명>"
+    echo "  허용 type: feat, fix, refactor, style, docs"
+    echo "  입력된 메시지: $COMMIT_MSG"
+    exit 1
+fi
+exit 0

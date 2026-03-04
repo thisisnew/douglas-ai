@@ -1,0 +1,36 @@
+#!/bin/bash
+# DOUGLAS pre-commit 훅
+# 설치: make install-hooks
+# 건너뛰기: SKIP_BUILD=1 git commit ...
+
+set -e
+
+if [ "${SKIP_BUILD:-0}" = "1" ]; then
+    echo "[SKIP] 빌드 검증 건너뜀 (SKIP_BUILD=1)"
+    exit 0
+fi
+
+PROJECT_DIR="$(git rev-parse --show-toplevel)"
+cd "$PROJECT_DIR"
+
+echo "=== pre-commit: 릴리즈 빌드 검증 ==="
+if ! swift build -c release 2>&1; then
+    echo ""
+    echo "[FAIL] 빌드 실패. 오류를 수정한 후 커밋하세요."
+    exit 1
+fi
+echo "[OK] 빌드 성공"
+
+# SwiftLint (설치된 경우에만)
+if command -v swiftlint >/dev/null 2>&1; then
+    echo ""
+    echo "=== pre-commit: SwiftLint ==="
+    if ! swiftlint lint --config "$PROJECT_DIR/.swiftlint.yml" --quiet 2>/dev/null; then
+        echo ""
+        echo "[WARN] SwiftLint 경고 발견. 'make lint-fix'로 자동 수정을 시도하세요."
+        # 경고는 커밋 차단하지 않음 — 에러만 차단
+    fi
+fi
+
+echo ""
+echo "[OK] pre-commit 검증 완료"
