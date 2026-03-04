@@ -946,7 +946,7 @@ executeWithTools() 루프 (최대 10회):
 
 **승인 카드 UI** (`ApprovalCard`): 분석 결과 확인 + 추가 요구사항 입력 TextEditor + "승인"/"수정 요청" 버튼. 추가 입력이 있으면 "추가 후 승인" 표시. "수정 요청" 클릭 시 피드백이 방 메시지에 기록된 후 `rejectStep()`으로 재계획 트리거.
 
-**전문가 Solo 분석** (`executeSoloAnalysis`): 전문가 1명만 배정된 방에서 토론 대신 혼자 분석하여 결과 공유. `executePlanLite`/`executePlanExec`에서 `specialistCount == 1`일 때 자동 호출.
+**전문가 Solo 분석** (`executeSoloAnalysis`): 전문가 1명만 배정된 방에서 토론 대신 혼자 분석하여 결과 공유. `executePlanLite`/`executePlanExec`에서 `specialistCount == 1`일 때 자동 호출. **documentation intent는 스킵** — soloAnalysis 결과가 히스토리에 남아 Execute 단계에서 "이미 완성" 오판을 유발하므로 직접 문서 작성으로 진행.
 
 **후속 사이클** (`launchFollowUpCycle`): 완료/실패 방에서 사용자 후속 질문 시 방 재활성화 → Intent 재분류 → clarify부터 워크플로우 재실행 (복명복창 포함). 규칙 기반 quickAnswer 확정 + 에이전트 변동 없으면 clarify/assemble 스킵 (즉답 빠른 경로). `previousCycleAgentCount`로 에이전트 추가/제거 감지.
 
@@ -1043,9 +1043,9 @@ executeWithTools() 루프 (최대 10회):
 ① Intake ── 입력 파싱 (Jira fetch, URL 감지, IntakeData 저장, 플레이북 로드)
 ② Intent ── 작업 유형 표시 (방 생성 시 IntentClassifier가 분류)
 ③ Clarify ─ 복명복창 (DOUGLAS 요약 → 사용자 컨펌까지 무한 루프)
-④ Assemble ─ 전문가 초대 (AgentMatcher intent-aware 매칭: documentation 시 도메인 키워드 필터링 → 미매칭 시 생성 제안)
+④ Assemble ─ 전문가 초대 (AgentMatcher intent-aware 매칭: documentation 시 도메인 키워드 필터링 + 1명 제한 → 미매칭 시 생성 제안)
 ⑤ Plan ──── PlanMode 분기: exec(토론→계획→승인) — 토론: 발산→수렴→합의 사이클(무제한) + 사용자 체크포인트
-⑥ Execute ── quickAnswer(즉답) / research(토론→브리핑) / 표준 실행(단계별)
+⑥ Execute ── quickAnswer(즉답) / research(토론→브리핑) / 표준 실행(단계별, documentation 시 문서 템플릿 주입)
 ```
 
 **Intent별 경로**:
@@ -1053,7 +1053,7 @@ executeWithTools() 루프 (최대 10회):
 |--------|----------|---------|------|------|------|
 | quickAnswer | skip | O | - | - | 즉답 |
 | research | lite | O | O | - | 토론/정리 |
-| documentation | exec | O | O | - | O |
+| documentation | exec | O | - | - | O (문서 템플릿 주입) |
 | implementation | exec | O | O | O | O |
 
 **역호환**: `room.intent == nil` → `.quickAnswer` 자동 폴백. 레거시 저장 데이터의 brainstorm/requirementsAnalysis/testPlanning/taskDecomposition → `.research` 자동 마이그레이션 (커스텀 Codable). 모든 새 Room 필드는 `decodeIfPresent` + 기본값.
@@ -1061,7 +1061,8 @@ executeWithTools() 루프 (최대 10회):
 **Plan 승인 피드백 루프** (E-8~E-11):
 - `requestPlan(previousPlan:feedback:)`: 거부된 이전 계획과 사용자 피드백을 재계획 프롬프트에 주입.
 - `executePlanExec` 승인 while 루프: 거부 → 피드백 추출 → 재계획 → 다시 승인 카드 (무제한).
-- `executeSoloAnalysis`: 전문가 1명 Solo 분석 (토론 대신). plan-lite/plan-exec에서 `specialistCount == 1`일 때 자동 호출.
+- `executeSoloAnalysis`: 전문가 1명 Solo 분석 (토론 대신). plan-lite/plan-exec에서 `specialistCount == 1`일 때 자동 호출. documentation intent는 스킵.
+- `executeStep` documentation 강화: 문서 유형 템플릿 주입(`documentType.templatePromptBlock()`) + "이미 완성" 응답 금지 지침. Assemble에서 documentation은 코드 레벨 1명 제한.
 - `launchFollowUpCycle`: 완료/실패 방 후속 질문 → 방 재활성화 → assemble부터 경량 워크플로우.
 - `Room.canTransition`: `.completed → .planning`, `.failed → .planning` 전이 추가.
 

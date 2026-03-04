@@ -1328,6 +1328,15 @@ class RoomManager: ObservableObject {
                 requirements.append(contentsOf: AgentMatcher.parseRoleRequirements(from: artifact.content))
             }
 
+            // documentation intent: 최대 1명만 허용 (LLM이 여러 역할을 출력해도 첫 번째 필수 역할만 유지)
+            if intent == .documentation, requirements.count > 1 {
+                if let firstRequired = requirements.first(where: { $0.priority == .required }) {
+                    requirements = [firstRequired]
+                } else {
+                    requirements = [requirements[0]]
+                }
+            }
+
             if requirements.isEmpty {
                 // 기존 전문가가 있으면 그대로 진행
                 let existingSpecialists = executingAgentIDs(in: roomID)
@@ -1410,28 +1419,6 @@ class RoomManager: ObservableObject {
                 }
             }
 
-            // 5) 커버리지 게이트 (생성 제안이 처리된 경우 스킵 — 사용자가 이미 결정함)
-            if !hadUnmatched, !AgentMatcher.checkMinimumCoverage(matched) {
-                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].transitionTo(.awaitingUserInput)
-                }
-                let gateMsg = ChatMessage(
-                    role: .system,
-                    content: "필수 역할 커버리지가 50% 미만입니다. 에이전트 생성 제안을 검토하거나, 현재 구성으로 계속하시겠습니까?",
-                    messageType: .userQuestion
-                )
-                appendMessage(gateMsg, to: roomID)
-                scheduleSave()
-
-                // 사용자 답변 대기
-                let _ = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
-                    userInputContinuations[roomID] = continuation
-                }
-                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].transitionTo(.planning)
-                }
-            }
-
         } catch {
             let errorMsg = ChatMessage(
                 role: .assistant,
@@ -1504,8 +1491,12 @@ class RoomManager: ObservableObject {
             guard !Task.isCancelled else { return }
         } else if specialistCount == 1 {
             // 전문가 1명: 혼자 분석
-            await executeSoloAnalysis(roomID: roomID, task: task)
-            guard !Task.isCancelled else { return }
+            // documentation intent는 Execute에서 직접 문서를 작성하므로 사전 분석 스킵
+            // (soloAnalysis 결과가 히스토리에 남아 "이미 완성" 오판을 유발하는 것을 방지)
+            if intent != .documentation {
+                await executeSoloAnalysis(roomID: roomID, task: task)
+                guard !Task.isCancelled else { return }
+            }
         }
 
         // 계획 수립 (PlanCard UI로 표시되므로 별도 메시지 불필요)
@@ -1987,9 +1978,11 @@ class RoomManager: ObservableObject {
         방 내 전문가: \(specialistNames)
 
         규칙:
-        - 단계를 최소화하세요. 한 번에 할 수 있는 작업은 한 단계로 묶으세요.
-        - 번역, 요약, 분석 등 단일 작업은 반드시 1단계로 작성하세요.
-        - 여러 단계로 쪼개야 하는 경우는 "서로 다른 전문가가 순서대로" 작업할 때뿐입니다.
+        - 각 단계는 **한 가지 명확한 산출물**을 가져야 합니다 (코드 작성, 테스트, PR 오픈 등).
+        - 사용자 검수/승인이 필요한 지점마다 반드시 새 단계를 시작하세요.
+        - 구현, PR 오픈, 코드 리뷰, 배포 등은 **반드시 별개 단계**로 분할하세요.
+        - 번역, 요약, 분석 등 단일 작업은 1단계로 작성하세요.
+        - 같은 에이전트가 연속 수행해도, 산출물이 다르면 단계를 나누세요.
         - estimated_minutes는 현실적으로 추정하세요 (1~30분)
         - 각 step에 "agent" 필드로 담당 전문가를 지정하세요 (위 목록에서 정확한 이름 사용)
         - 마스터(진행자/오케스트레이터)는 실행 대상이 아닙니다. 마스터에게 step을 배정하지 마세요.
@@ -2344,8 +2337,7 @@ class RoomManager: ObservableObject {
             }
 
             // 단계 완료 후 리뷰 게이트: 사용자 확인 → 거부 시 피드백 반영 재실행
-            // (2단계 이상 plan에서만 활성, 마지막 단계는 완료 메시지가 곧 확인)
-            if plan.steps.count >= 2 && stepIndex < plan.steps.count - 1 {
+            if true {
                 var stepApproved = false
                 while !stepApproved {
                     guard !Task.isCancelled,
@@ -2380,9 +2372,12 @@ class RoomManager: ObservableObject {
                         if let idx2 = rooms.firstIndex(where: { $0.id == roomID }) {
                             rooms[idx2].transitionTo(.inProgress)
                         }
+                        let isLastStep = stepIndex == plan.steps.count - 1
                         let okMsg = ChatMessage(
                             role: .system,
-                            content: "단계 \(stepIndex + 1) 확인. 다음 단계로 진행합니다."
+                            content: isLastStep
+                                ? "단계 \(stepIndex + 1) 확인. 작업을 완료합니다."
+                                : "단계 \(stepIndex + 1) 확인. 다음 단계로 진행합니다."
                         )
                         appendMessage(okMsg, to: roomID)
                     } else {
@@ -2535,12 +2530,30 @@ class RoomManager: ObservableObject {
             artifactContext = ""
         }
 
+        // 문서 유형 템플릿 (documentation intent — 섹션 가이드 주입)
+        let docTemplateBlock: String
+        if let docType = room?.documentType, room?.intent == .documentation, docType != .freeform {
+            docTemplateBlock = "\n" + docType.templatePromptBlock()
+        } else {
+            docTemplateBlock = ""
+        }
+        let isDocumentation = room?.intent == .documentation
+
         let isLastStep = stepIndex == totalSteps - 1
         let stepPrompt: String
         if isLastStep || totalSteps == 1 {
+            let docWriteInstruction = isDocumentation ? """
+
+            [중요 — 문서 작성 지침]
+            이전 대화의 분석·요약은 참고 자료일 뿐입니다.
+            완전한 문서를 처음부터 끝까지 빠짐없이 작성하세요.
+            "이미 완성되었습니다", "추가 작업이 필요하신가요?" 등의 응답은 금지합니다.
+            반드시 전체 문서 본문을 출력하세요.
+            """ : ""
+
             stepPrompt = """
             [작업 \(stepIndex + 1)/\(totalSteps)] \(step)
-            \(artifactContext)
+            \(artifactContext)\(docTemplateBlock)\(docWriteInstruction)
 
             이것이 최종 단계입니다. 사용자에게 전달할 완성된 결과물을 직접 작성하세요.
             과정 설명이나 단계 번호 없이, 결과물만 깔끔하게 출력하세요.
@@ -2548,7 +2561,7 @@ class RoomManager: ObservableObject {
         } else {
             stepPrompt = """
             [작업 \(stepIndex + 1)/\(totalSteps)] \(step)
-            \(artifactContext)
+            \(artifactContext)\(docTemplateBlock)
 
             중간 단계입니다. 다음 단계에 필요한 핵심 데이터만 간결하게 출력하세요 (3줄 이내).
             전체 결과물은 마지막 단계에서 작성합니다.
