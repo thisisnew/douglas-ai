@@ -25,9 +25,10 @@ enum ToolExecutor {
         context: ToolExecutionContext = .empty,
         onToolActivity: ((String, ToolActivityDetail?) -> Void)? = nil,
         onStreamChunk: (@Sendable (String) -> Void)? = nil,
-        useTools: Bool = true
+        useTools: Bool = true,
+        allowedToolIDs: [String]? = nil
     ) async throws -> String {
-        let toolIDs = agent.resolvedToolIDs
+        let toolIDs = allowedToolIDs ?? agent.resolvedToolIDs
 
         // 도구 없거나 프로바이더가 도구 미지원 또는 명시적 비활성화 → 기존 경로
         guard useTools, !toolIDs.isEmpty, provider.supportsToolCalling else {
@@ -91,9 +92,10 @@ enum ToolExecutor {
         context: ToolExecutionContext = .empty,
         onToolActivity: ((String, ToolActivityDetail?) -> Void)? = nil,
         onStreamChunk: (@Sendable (String) -> Void)? = nil,
-        useTools: Bool = true
+        useTools: Bool = true,
+        allowedToolIDs: [String]? = nil
     ) async throws -> String {
-        let toolIDs = agent.resolvedToolIDs
+        let toolIDs = allowedToolIDs ?? agent.resolvedToolIDs
 
         // 이미지가 있으면 sendMessageWithTools 경로 사용 (Vision 지원)
         let hasAttachments = conversationMessages.contains { $0.attachments != nil && !($0.attachments?.isEmpty ?? true) }
@@ -270,7 +272,7 @@ enum ToolExecutor {
         case "shell_exec":
             return await executeShellExec(call, context: context)
         case "web_search":
-            return ToolResult(callID: call.id, content: "웹 검색 기능은 아직 구현되지 않았습니다.", isError: true)
+            return await executeWebSearch(call)
         case "web_fetch":
             return await executeWebFetch(call)
         case "invite_agent":
@@ -435,6 +437,98 @@ enum ToolExecutor {
         } catch {
             return ToolResult(callID: call.id, content: "파일 쓰기 실패: \(error.localizedDescription)", isError: true)
         }
+    }
+
+    // MARK: - web_search
+
+    private static func executeWebSearch(_ call: ToolCall) async -> ToolResult {
+        guard let query = call.arguments["query"]?.stringValue, !query.isEmpty else {
+            return ToolResult(callID: call.id, content: "query 파라미터가 필요합니다.", isError: true)
+        }
+
+        // DuckDuckGo HTML 검색 (API 키 불필요)
+        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "https://html.duckduckgo.com/html/?q=\(encoded)") else {
+            return ToolResult(callID: call.id, content: "검색 쿼리 인코딩 실패", isError: true)
+        }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+
+        do {
+            let (data, response) = try await urlSession.data(for: request)
+            let httpResponse = response as? HTTPURLResponse
+            guard (200..<400).contains(httpResponse?.statusCode ?? 0) else {
+                return ToolResult(callID: call.id, content: "검색 요청 실패 (HTTP \(httpResponse?.statusCode ?? 0))", isError: true)
+            }
+
+            guard let html = String(data: data, encoding: .utf8) else {
+                return ToolResult(callID: call.id, content: "응답 디코딩 실패", isError: true)
+            }
+
+            let results = parseDuckDuckGoResults(html)
+            if results.isEmpty {
+                return ToolResult(callID: call.id, content: "검색 결과가 없습니다: \(query)", isError: false)
+            }
+
+            let formatted = results.prefix(8).enumerated().map { i, r in
+                "\(i + 1). \(r.title)\n   \(r.url)\n   \(r.snippet)"
+            }.joined(separator: "\n\n")
+
+            return ToolResult(callID: call.id, content: "검색 결과 (\(query)):\n\n\(formatted)", isError: false)
+        } catch {
+            return ToolResult(callID: call.id, content: "검색 오류: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    private static func parseDuckDuckGoResults(_ html: String) -> [(title: String, url: String, snippet: String)] {
+        var results: [(title: String, url: String, snippet: String)] = []
+
+        // DuckDuckGo HTML 결과에서 result__a (제목+링크) + result__snippet (요약) 추출
+        let blocks = html.components(separatedBy: "class=\"result__body")
+        for block in blocks.dropFirst() {
+            // 제목 + URL
+            var title = ""
+            var url = ""
+            if let aStart = block.range(of: "class=\"result__a\""),
+               let hrefStart = block[..<aStart.lowerBound].range(of: "href=\"", options: .backwards) {
+                let hrefContent = block[hrefStart.upperBound...]
+                if let hrefEnd = hrefContent.range(of: "\"") {
+                    let rawURL = String(hrefContent[..<hrefEnd.lowerBound])
+                    // DuckDuckGo 리다이렉트 URL에서 실제 URL 추출
+                    if let udParam = rawURL.range(of: "uddg=") {
+                        let encoded = String(rawURL[udParam.upperBound...]).components(separatedBy: "&").first ?? ""
+                        url = encoded.removingPercentEncoding ?? encoded
+                    } else {
+                        url = rawURL
+                    }
+                }
+                // 제목: <a> 태그 내부 텍스트
+                if let tagEnd = block[aStart.upperBound...].range(of: ">"),
+                   let closeTag = block[tagEnd.upperBound...].range(of: "</a>") {
+                    title = String(block[tagEnd.upperBound..<closeTag.lowerBound])
+                        .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+
+            // 스니펫
+            var snippet = ""
+            if let snippetStart = block.range(of: "class=\"result__snippet\"") {
+                if let tagEnd = block[snippetStart.upperBound...].range(of: ">"),
+                   let closeTag = block[tagEnd.upperBound...].range(of: "</") {
+                    snippet = String(block[tagEnd.upperBound..<closeTag.lowerBound])
+                        .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+
+            if !title.isEmpty && !url.isEmpty {
+                results.append((title: title, url: url, snippet: snippet))
+            }
+        }
+        return results
     }
 
     // MARK: - web_fetch

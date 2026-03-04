@@ -1832,7 +1832,7 @@ class RoomManager: ObservableObject {
                         self.updateMessageContent(placeholderID, newContent: current, in: roomID)
                     }
                 },
-                useTools: false  // 즉답: 도구 없이 스트리밍 우선
+                allowedToolIDs: ["web_search", "web_fetch"]  // 질의응답: 검색만 허용 (파일 쓰기/셸 차단)
             )
             updateMessageContent(placeholderID, newContent: stripTrailingOptions(response), in: roomID)
         } catch {

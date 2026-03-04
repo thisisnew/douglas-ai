@@ -231,6 +231,7 @@ struct ProgressActivityBubble: View {
             case "file_read":  return "doc.text"
             case "file_write": return "doc.badge.plus"
             case "shell_exec": return "terminal"
+            case "web_search": return "magnifyingglass"
             case "web_fetch":  return "globe"
             default:           return "checkmark.circle"
             }
