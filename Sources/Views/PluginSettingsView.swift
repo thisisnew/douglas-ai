@@ -20,14 +20,14 @@ struct PluginSettingsView: View {
                     .font(.system(size: DesignTokens.FontSize.icon, weight: .bold, design: .rounded))
                     .foregroundColor(palette.textPrimary)
                 Spacer()
-                Button {
-                    showBuilder = true
-                } label: {
-                    Label("만들기", systemImage: "hammer")
+                Button {} label: {
+                    Label("만들기 (준비 중)", systemImage: "hammer")
                         .font(.system(size: DesignTokens.FontSize.xs, weight: .medium, design: .rounded))
                 }
                 .buttonStyle(.plain)
-                .foregroundColor(palette.accent)
+                .foregroundColor(palette.textSecondary.opacity(0.4))
+                .disabled(true)
+                .help("플러그인 만들기 기능을 준비하고 있습니다")
 
                 Button {
                     installFromFolder()

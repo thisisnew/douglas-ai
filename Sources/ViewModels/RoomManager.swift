@@ -304,6 +304,10 @@ class RoomManager: ObservableObject {
             completedPhases.insert(.clarify)
             completedPhases.insert(.assemble)
         }
+        // Room에 동기화
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].completedPhases = completedPhases
+        }
         // 현재 에이전트 수 기록 (다음 후속 사이클 비교용)
         previousCycleAgentCount[roomID] = specialists.count
 
@@ -337,6 +341,9 @@ class RoomManager: ObservableObject {
             }
 
             completedPhases.insert(nextPhase)
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].completedPhases = completedPhases
+            }
         }
 
         // 완료
@@ -628,6 +635,9 @@ class RoomManager: ObservableObject {
             }
 
             completedPhases.insert(nextPhase)
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].completedPhases = completedPhases
+            }
             workflowStart = Date() // 단계 완료 후 타이머 리셋 (사용자 대기 시간으로 인한 타임아웃 방지)
         }
 
@@ -1547,7 +1557,12 @@ class RoomManager: ObservableObject {
         \(agent.resolvedSystemPrompt)
 
         현재 작업방에서 아래 작업에 대해 혼자 분석합니다.
-        핵심 사항, 접근 방향, 주의점을 정리해주세요.
+
+        [작업]
+        \(task)
+
+        대화 히스토리를 참고하여 핵심 사항, 접근 방향, 주의점을 정리해주세요.
+        작업과 무관한 내용을 절대 생성하지 마세요.
         """
 
         let history = buildRoomHistory(roomID: roomID)
@@ -2739,6 +2754,10 @@ class RoomManager: ObservableObject {
         // 마스터(오케스트레이터) 여부 판별
         let isMasterAgent = agent.isMaster
 
+        // intake 데이터 (JIRA 티켓 등 원본 컨텍스트)
+        let intakeText = roomRef?.intakeData?.asContextString() ?? ""
+        let intakeBlock = intakeText.isEmpty ? "" : "\n\(intakeText)"
+
         // clarify 요약 앵커링 (토론 범위 제한)
         let clarifyText = roomRef?.clarifySummary ?? ""
         let anchorBlock = clarifyText.isEmpty ? "" : """
@@ -2758,7 +2777,7 @@ class RoomManager: ObservableObject {
             - 전문가에게 사용자의 요구사항을 간결하게 전달
             - 전문가의 질문에 답변
             - 작업 방향이 맞는지 확인하고, 전문가의 업무를 대신 수행하지 않습니다
-            \(anchorBlock)
+            \(intakeBlock)\(anchorBlock)
 
             [절대 금지] 다른 에이전트(\(specialistDesc)) 역할로 발언하거나, 그들의 발언을 대신 작성
             [절대 금지] **[백엔드 개발자]** 등 다른 이름으로 발언 — 반드시 \(agent.name)으로만 발언
@@ -2777,7 +2796,7 @@ class RoomManager: ObservableObject {
             let masterNote = masterAgent != nil ? "\(masterAgent!.name)은 진행자입니다. 전문적인 질문은 다른 전문가에게 직접 하세요." : ""
             discussionPrompt = """
             \(agent.resolvedSystemPrompt)
-            \(anchorBlock)
+            \(intakeBlock)\(anchorBlock)
 
             [회의실] \(topic)
             라운드 \(round + 1) | 동료: \(otherNames)

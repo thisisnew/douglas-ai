@@ -158,6 +158,9 @@ class ClaudeCodeProvider: AIProvider {
             args += ["--system-prompt", systemPrompt]
         }
 
+        // DOUGLAS가 오케스트레이션하므로 CLI 권한 승인 자동 허용
+        args += ["--dangerously-skip-permissions"]
+
         // 라우터 모드: 내장 도구 비활성화 (URL 직접 접근/파일 조작 방지)
         if disableTools {
             args += ["--tools", ""]

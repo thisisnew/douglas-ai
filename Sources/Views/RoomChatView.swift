@@ -33,8 +33,8 @@ struct RoomChatView: View {
                     .fill(LinearGradient(colors: [.clear, palette.separator.opacity(0.3), .clear], startPoint: .leading, endPoint: .trailing))
                     .frame(height: 1)
 
-                // 토론 진행 바 (계획 수립 전)
-                if room.plan == nil && room.status == .planning {
+                // 워크플로우 단계 체크리스트
+                if room.intent != nil && room.isActive {
                     DiscussionProgressBar(room: room)
                 }
 
@@ -830,52 +830,95 @@ struct DiscussionProgressBar: View {
     @EnvironmentObject var roomManager: RoomManager
     @EnvironmentObject var agentStore: AgentStore
 
+    /// 표시할 단계 (intake/intent 제외)
+    private var visiblePhases: [WorkflowPhase] {
+        (room.intent?.requiredPhases ?? [])
+            .filter { $0 != .intake && $0 != .intent }
+    }
+
     var body: some View {
         CardContainer(accentColor: .blue) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                    Image(systemName: "list.bullet.clipboard")
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
                         .foregroundColor(.blue.opacity(0.7))
                     Text("작업 진행")
                         .font(.system(size: 10, weight: .bold, design: .rounded))
                         .foregroundColor(.blue.opacity(0.7))
                     Spacer()
-                    Text(room.phaseLabel)
+                    Text("\(completedCount)/\(visiblePhases.count)")
                         .font(DesignTokens.Typography.monoBadge)
                         .foregroundColor(.secondary)
                 }
 
-            // 프로그레스 바
-            CozyProgressBar(
-                progress: Double(progressRatio),
-                fillColor: Color.blue.opacity(0.7),
-                fillEndColor: Color.blue.opacity(0.5)
-            )
-
-            // 현재 발언 중인 에이전트 또는 참여자 수
-            if let speakingName = speakingAgentName {
-                HStack(spacing: 4) {
-                    ProgressView()
-                        .scaleEffect(0.4)
-                        .frame(width: 12, height: 12)
-                    Text("\(speakingName) 발언 중...")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                // 단계별 체크리스트
+                HStack(spacing: 0) {
+                    ForEach(Array(visiblePhases.enumerated()), id: \.element) { index, phase in
+                        if index > 0 {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 7, weight: .medium))
+                                .foregroundColor(.secondary.opacity(0.4))
+                                .padding(.horizontal, 3)
+                        }
+                        HStack(spacing: 3) {
+                            phaseIcon(phase)
+                            Text(phase.displayName)
+                                .font(.system(size: DesignTokens.FontSize.nano, weight: phaseWeight(phase), design: .rounded))
+                                .foregroundColor(phaseTextColor(phase))
+                                .lineLimit(1)
+                        }
+                    }
                 }
-            } else {
-                Text("\(room.assignedAgentIDs.count)명 참여")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-            }
+
+                // 현재 발언 중인 에이전트
+                if let speakingName = speakingAgentName {
+                    HStack(spacing: 4) {
+                        ProgressView()
+                            .scaleEffect(0.4)
+                            .frame(width: 12, height: 12)
+                        Text("\(speakingName) 발언 중...")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
             }
         }
     }
 
-    private var progressRatio: CGFloat {
-        let maxRounds = 3
-        return CGFloat(min(room.currentRound, maxRounds)) / CGFloat(maxRounds)
+    private var completedCount: Int {
+        if room.status == .completed { return visiblePhases.count }
+        return visiblePhases.filter { room.completedPhases.contains($0) }.count
+    }
+
+    @ViewBuilder
+    private func phaseIcon(_ phase: WorkflowPhase) -> some View {
+        if room.status == .completed || room.completedPhases.contains(phase) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 9))
+                .foregroundColor(.green.opacity(0.7))
+        } else if phase == room.currentPhase {
+            Image(systemName: "play.circle.fill")
+                .font(.system(size: 9))
+                .foregroundColor(.orange.opacity(0.7))
+        } else {
+            Image(systemName: "circle")
+                .font(.system(size: 9))
+                .foregroundColor(.gray.opacity(0.4))
+        }
+    }
+
+    private func phaseWeight(_ phase: WorkflowPhase) -> Font.Weight {
+        phase == room.currentPhase ? .bold : .regular
+    }
+
+    private func phaseTextColor(_ phase: WorkflowPhase) -> Color {
+        if room.completedPhases.contains(phase) || room.status == .completed {
+            return .secondary
+        } else if phase == room.currentPhase {
+            return .primary
+        }
+        return .secondary.opacity(0.6)
     }
 
     private var speakingAgentName: String? {
@@ -1267,12 +1310,8 @@ struct DiscussionCheckpointCard: View {
                     .disabled(!canSubmit)
 
                     Button("진행") { proceed() }
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(Color.green.opacity(0.8))
-                        .continuousRadius(DesignTokens.CozyGame.buttonRadius)
+                        .buttonStyle(CozyButtonStyle(.green))
+                        .controlSize(.small)
                 }
             }
         }

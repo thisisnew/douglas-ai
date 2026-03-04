@@ -314,6 +314,7 @@ struct Room: Identifiable, Codable {
     // 워크플로우 (Phase E)
     var intent: WorkflowIntent?
     var currentPhase: WorkflowPhase?
+    var completedPhases: Set<WorkflowPhase>
     var assumptions: [WorkflowAssumption]?
     var userAnswers: [UserAnswer]?
     var playbook: ProjectPlaybook?
@@ -459,6 +460,7 @@ struct Room: Identifiable, Codable {
         self.workLog = nil
         self.intent = nil
         self.currentPhase = nil
+        self.completedPhases = []
         self.assumptions = nil
         self.userAnswers = nil
         self.playbook = nil
@@ -516,6 +518,7 @@ struct Room: Identifiable, Codable {
         workLog = try container.decodeIfPresent(WorkLog.self, forKey: .workLog)
         intent = try container.decodeIfPresent(WorkflowIntent.self, forKey: .intent)
         currentPhase = (try? container.decodeIfPresent(WorkflowPhase.self, forKey: .currentPhase)) ?? nil
+        completedPhases = try container.decodeIfPresent(Set<WorkflowPhase>.self, forKey: .completedPhases) ?? []
         assumptions = try container.decodeIfPresent([WorkflowAssumption].self, forKey: .assumptions)
         userAnswers = try container.decodeIfPresent([UserAnswer].self, forKey: .userAnswers)
         playbook = try container.decodeIfPresent(ProjectPlaybook.self, forKey: .playbook)
