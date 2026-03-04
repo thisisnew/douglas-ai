@@ -431,6 +431,32 @@ class RoomManager: ObservableObject {
                 }
                 return answer
             },
+            approveFileWrite: { @Sendable [weak self] (path: String, contentPreview: String) -> Bool in
+                // 1) 승인 요청 메시지 + 상태 전이
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    let content = "📄 \(path)\n\n\(contentPreview)"
+                    let msg = ChatMessage(role: .system, content: content, messageType: .fileWriteApproval)
+                    self.appendMessage(msg, to: roomID)
+                    if let idx = self.rooms.firstIndex(where: { $0.id == roomID }) {
+                        self.rooms[idx].transitionTo(.awaitingApproval)
+                    }
+                    self.scheduleSave()
+                }
+                // 2) 사용자 승인 대기 (continuation)
+                let approved: Bool = await withCheckedContinuation { continuation in
+                    Task { @MainActor [weak self] in
+                        self?.approvalContinuations[roomID] = continuation
+                    }
+                }
+                // 3) 상태 복귀
+                await MainActor.run { [weak self] in
+                    if let self, let idx = self.rooms.firstIndex(where: { $0.id == roomID }) {
+                        self.rooms[idx].transitionTo(.inProgress)
+                    }
+                }
+                return approved
+            },
             currentPhase: room?.currentPhase
         )
     }

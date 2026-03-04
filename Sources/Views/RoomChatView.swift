@@ -1014,8 +1014,11 @@ struct ApprovalCard: View {
     /// 방의 최근 .approvalRequest 메시지에서 승인 제목과 내용을 추출
     private var approvalInfo: (title: String, detail: String?) {
         guard let room = roomManager.rooms.first(where: { $0.id == roomID }),
-              let msg = room.messages.last(where: { $0.messageType == .approvalRequest }) else {
+              let msg = room.messages.last(where: { $0.messageType == .approvalRequest || $0.messageType == .fileWriteApproval }) else {
             return ("이해한 내용이 맞는지 확인해주세요", nil)
+        }
+        if msg.messageType == .fileWriteApproval {
+            return ("파일 쓰기 승인", msg.content)
         }
         let content = msg.content
         if content.hasPrefix("실행 계획:") {

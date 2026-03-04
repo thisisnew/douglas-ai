@@ -13,6 +13,7 @@ struct ToolExecutionContext: Sendable {
     let fileWriteTracker: FileWriteTracker?  // 파일 쓰기 충돌 추적
     // 워크플로우 (Phase E)
     let askUser: @Sendable (String, String?, [String]?) async -> String  // 사용자에게 질문
+    let approveFileWrite: @Sendable (String, String) async -> Bool  // 파일 쓰기 승인 (path, preview) -> approved
     let currentPhase: WorkflowPhase?      // 현재 워크플로우 단계
 
     init(
@@ -26,6 +27,7 @@ struct ToolExecutionContext: Sendable {
         currentAgentName: String? = nil,
         fileWriteTracker: FileWriteTracker? = nil,
         askUser: @escaping @Sendable (String, String?, [String]?) async -> String = { _, _, _ in "" },
+        approveFileWrite: @escaping @Sendable (String, String) async -> Bool = { _, _ in true },
         currentPhase: WorkflowPhase? = nil
     ) {
         self.roomID = roomID
@@ -38,6 +40,7 @@ struct ToolExecutionContext: Sendable {
         self.currentAgentName = currentAgentName
         self.fileWriteTracker = fileWriteTracker
         self.askUser = askUser
+        self.approveFileWrite = approveFileWrite
         self.currentPhase = currentPhase
     }
 

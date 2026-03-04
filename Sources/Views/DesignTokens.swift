@@ -205,6 +205,7 @@ enum DesignTokens {
             case .buildStatus:     return palette.messageBuildStatus
             case .qaStatus:        return palette.messageQaStatus
             case .approvalRequest: return palette.messageApprovalRequest
+            case .fileWriteApproval: return palette.messageApprovalRequest
             case .userQuestion:    return palette.roomAwaitingUserInput
             case .phaseTransition: return palette.messageSummary
             case .assumption:      return palette.messageDelegation
