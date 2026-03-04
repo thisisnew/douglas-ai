@@ -559,10 +559,14 @@ class RoomManager: ObservableObject {
                 text: task, provider: provider, model: lightModel
             )
             if llmResult.isDocumentRequest {
+                speakingAgentIDByRoom.removeValue(forKey: roomID)
                 await handleDocumentOutput(roomID: roomID, task: task, suggestedType: llmResult.suggestedDocType)
                 return
             }
         }
+
+        // 타이핑 인디케이터 해제 (이후 각 phase에서 개별 설정)
+        speakingAgentIDByRoom.removeValue(forKey: roomID)
 
         // 이전 작업 컨텍스트는 LLM에 직접 전달 (executeFollowUpAgentTurn에서 workLog 주입)
         // UI에는 표시하지 않음
@@ -1100,6 +1104,8 @@ class RoomManager: ObservableObject {
               let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return }
 
+        speakingAgentIDByRoom[roomID] = firstAgentID
+
         // 컨텍스트 구성: IntakeData + 플레이북
         var contextParts: [String] = []
         if let intakeData = rooms[idx].intakeData {
@@ -1231,6 +1237,7 @@ class RoomManager: ObservableObject {
                 // placeholder를 최종 텍스트로 업데이트 (선택지 텍스트 제거 후)
                 updateMessageContent(placeholderID, newContent: currentSummary, in: roomID)
             } catch {
+                speakingAgentIDByRoom.removeValue(forKey: roomID)
                 let errorMsg = ChatMessage(
                     role: .assistant,
                     content: "요건 확인 오류: \(error.userFacingMessage)",
@@ -1242,6 +1249,7 @@ class RoomManager: ObservableObject {
             }
 
             // 2) 사용자에게 컨펌 요청 (복명복창 요약 자체가 확인 요청)
+            speakingAgentIDByRoom.removeValue(forKey: roomID)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].transitionTo(.awaitingApproval)
             }
