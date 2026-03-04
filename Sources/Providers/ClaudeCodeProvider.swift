@@ -159,6 +159,20 @@ class ClaudeCodeProvider: AIProvider {
         )
     }
 
+    /// 검색 허용 모드: WebSearch를 allowedTools에 포함
+    func sendMessageWithSearch(
+        model: String,
+        systemPrompt: String,
+        messages: [(role: String, content: String)]
+    ) async throws -> String {
+        let userPrompt = buildUserPrompt(from: messages)
+        return try await runClaude(
+            path: config.baseURL, prompt: userPrompt, model: model,
+            systemPrompt: systemPrompt,
+            allowedTools: ["Read", "WebSearch", "WebFetch"]
+        )
+    }
+
     /// 이미지 첨부를 파일 경로로 변환하여 CLI에 전달
     func sendMessageWithTools(
         model: String,
@@ -216,6 +230,7 @@ class ClaudeCodeProvider: AIProvider {
         path: String, prompt: String, model: String,
         systemPrompt: String = "", disableTools: Bool = false,
         disallowedTools: [String] = [],
+        allowedTools: [String]? = nil,
         workingDirectory: String? = nil,
         onToolActivity: ((String, ToolActivityDetail?) -> Void)? = nil
     ) async throws -> String {
@@ -242,7 +257,8 @@ class ClaudeCodeProvider: AIProvider {
                 args += ["--append-system-prompt", systemPrompt]
             }
             // 비대화형 모드(-p)에서 도구 승인 프롬프트 없이 실행
-            args += ["--allowedTools", "Edit", "Write", "Bash", "Read", "Glob", "Grep"]
+            let tools = allowedTools ?? ["Edit", "Write", "Bash", "Read", "Glob", "Grep"]
+            args += ["--allowedTools"] + tools
         }
 
         // 특정 도구만 선택적으로 차단 (바이브코딩 유지하면서 WebFetch 등 차단)

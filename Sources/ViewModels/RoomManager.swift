@@ -1818,22 +1818,37 @@ class RoomManager: ObservableObject {
         appendMessage(placeholder, to: roomID)
 
         do {
-            let buffer = StreamBuffer()
-            let response = try await ToolExecutor.smartSend(
-                provider: provider,
-                agent: agent,
-                systemPrompt: agent.resolvedSystemPrompt,
-                conversationMessages: history,
-                context: context,
-                onStreamChunk: { [weak self] chunk in
-                    guard let self else { return }
-                    let current = buffer.append(chunk)
-                    Task { @MainActor in
-                        self.updateMessageContent(placeholderID, newContent: current, in: roomID)
-                    }
-                },
-                allowedToolIDs: ["web_search", "web_fetch"]  // 질의응답: 검색만 허용 (파일 쓰기/셸 차단)
-            )
+            let response: String
+            if let claudeProvider = provider as? ClaudeCodeProvider {
+                // ClaudeCodeProvider: CLI 자체 WebSearch 사용 (검색+읽기만 허용)
+                let simple = history.compactMap { msg -> (role: String, content: String)? in
+                    guard let content = msg.content else { return nil }
+                    return (role: msg.role, content: content)
+                }
+                response = try await claudeProvider.sendMessageWithSearch(
+                    model: agent.modelName,
+                    systemPrompt: agent.resolvedSystemPrompt,
+                    messages: simple
+                )
+            } else {
+                // 다른 프로바이더: DOUGLAS 내장 도구 사용
+                let buffer = StreamBuffer()
+                response = try await ToolExecutor.smartSend(
+                    provider: provider,
+                    agent: agent,
+                    systemPrompt: agent.resolvedSystemPrompt,
+                    conversationMessages: history,
+                    context: context,
+                    onStreamChunk: { [weak self] chunk in
+                        guard let self else { return }
+                        let current = buffer.append(chunk)
+                        Task { @MainActor in
+                            self.updateMessageContent(placeholderID, newContent: current, in: roomID)
+                        }
+                    },
+                    allowedToolIDs: ["web_search", "web_fetch"]
+                )
+            }
             updateMessageContent(placeholderID, newContent: stripTrailingOptions(response), in: roomID)
         } catch {
             updateMessageContent(
