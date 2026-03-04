@@ -1568,6 +1568,9 @@ class RoomManager: ObservableObject {
 
         let context = makeToolContext(roomID: roomID, currentAgentID: agentID)
         var history: [ConversationMessage] = []
+        if let intakeData = room?.intakeData, intakeData.sourceType != .text {
+            history.append(ConversationMessage.user(intakeData.asContextString()))
+        }
         if let workLog = rooms.first(where: { $0.id == roomID })?.workLog {
             history.append(ConversationMessage.user("[이전 작업 컨텍스트]\n\(workLog.asContextString())"))
         }
@@ -1670,10 +1673,19 @@ class RoomManager: ObservableObject {
 
         speakingAgentIDByRoom[roomID] = agentID
 
+        // intake 데이터 (Jira 티켓 등 원본 컨텍스트)
+        let intakeBlock: String
+        if let intakeData = room?.intakeData, intakeData.sourceType != .text {
+            intakeBlock = "\n" + intakeData.asContextString()
+        } else {
+            intakeBlock = ""
+        }
+
         let soloPrompt = """
         \(agent.resolvedSystemPrompt)
 
         현재 작업방에서 아래 작업에 대해 혼자 분석합니다.
+        \(intakeBlock)
 
         [작업]
         \(task)
@@ -1835,6 +1847,14 @@ class RoomManager: ObservableObject {
             return nil
         }
 
+        // intake 데이터 (Jira 티켓 등 원본 컨텍스트)
+        let intakeContext: String
+        if let intakeData = room.intakeData {
+            intakeContext = "\n" + intakeData.asContextString()
+        } else {
+            intakeContext = ""
+        }
+
         // 브리핑 + 산출물 기반 컨텍스트 구성 (압축)
         let briefingContext: String
         if let briefing = room.briefing {
@@ -1884,7 +1904,7 @@ class RoomManager: ObservableObject {
 
         let planSystemPrompt = """
         \(agent.resolvedSystemPrompt)
-        \(clarifyContext)\(docTemplateContext.isEmpty ? "" : "\n\(docTemplateContext)\n")
+        \(intakeContext)\(clarifyContext)\(docTemplateContext.isEmpty ? "" : "\n\(docTemplateContext)\n")
         현재 작업방에 배정되었습니다. 팀원들과의 토론이 완료되었습니다.
         토론 내용을 바탕으로, 원래 사용자 요청 범위 안에서 실행 계획을 제출하세요:
 
@@ -2326,6 +2346,9 @@ class RoomManager: ObservableObject {
 
         // 브리핑 기반 컨텍스트 (압축) + 최근 메시지 + 첫 사용자 메시지(이미지 포함) 보장
         var history: [ConversationMessage] = []
+        if let intakeData = room?.intakeData, intakeData.sourceType != .text {
+            history.append(ConversationMessage.user(intakeData.asContextString()))
+        }
         if let briefing = room?.briefing {
             history.append(ConversationMessage.user("작업 브리핑:\n\(briefing.asContextString())"))
         }
