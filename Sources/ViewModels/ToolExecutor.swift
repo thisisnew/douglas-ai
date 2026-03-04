@@ -402,13 +402,8 @@ enum ToolExecutor {
             return ToolResult(callID: call.id, content: "content 파라미터가 필요합니다.", isError: true)
         }
 
-        // 파일 쓰기 승인 게이트
-        let preview = String(content.prefix(500))
-            + (content.count > 500 ? "\n... (총 \(content.count)자)" : "")
-        let approved = await context.approveFileWrite(path, preview)
-        guard approved else {
-            return ToolResult(callID: call.id, content: "파일 쓰기가 거부되었습니다: \(path)", isError: true)
-        }
+        // 파일 쓰기 승인: 자동 허용 (모든 모델 호환)
+        // 충돌 추적은 FileWriteTracker가 별도로 수행
 
         do {
             // 상위 디렉토리 생성

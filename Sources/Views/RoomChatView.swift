@@ -718,29 +718,30 @@ struct PlanCard: View {
     let currentStep: Int
     let status: RoomStatus
     var agentStore: AgentStore?
+    @Environment(\.colorPalette) private var palette
 
     @State private var isExpanded = true
 
     var body: some View {
         CardContainer(accentColor: .purple) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 8) {
                 // 헤더 (접이식)
                 Button {
                     withAnimation(.dgStandard) { isExpanded.toggle() }
                 } label: {
                     HStack {
                         Image(systemName: "list.bullet.clipboard")
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
                             .foregroundColor(.purple.opacity(0.7))
                         Text("작업 계획")
-                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundColor(.purple.opacity(0.7))
                         Spacer()
                         Text("\(completedStepCount)/\(plan.steps.count)")
-                            .font(DesignTokens.Typography.mono(DesignTokens.FontSize.nano))
+                            .font(DesignTokens.Typography.mono(DesignTokens.FontSize.xs))
                             .foregroundColor(.secondary)
                         Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: DesignTokens.FontSize.nano))
+                            .font(.system(size: 9))
                             .foregroundColor(.secondary)
                     }
                 }
@@ -748,29 +749,44 @@ struct PlanCard: View {
 
                 if isExpanded {
                     Text(plan.summary)
-                        .font(.caption2)
+                        .font(.system(size: 11, design: .rounded))
                         .foregroundColor(.secondary)
-                        .lineLimit(2)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
 
-                    ForEach(Array(plan.steps.enumerated()), id: \.offset) { index, step in
-                        HStack(spacing: 6) {
-                            stepIcon(index: index)
-                            if step.requiresApproval {
-                                Image(systemName: "hand.raised.fill")
-                                    .font(.system(size: DesignTokens.FontSize.nano))
-                                    .foregroundColor(.orange.opacity(0.7))
+                    VStack(spacing: 3) {
+                        ForEach(Array(plan.steps.enumerated()), id: \.offset) { index, step in
+                            HStack(alignment: .top, spacing: 8) {
+                                stepIcon(index: index)
+                                    .padding(.top, 2)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(step.text)
+                                        .font(.system(size: 11, weight: index == currentStep && status == .inProgress ? .semibold : .regular, design: .rounded))
+                                        .foregroundColor(stepColor(index: index))
+                                        .lineLimit(3)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    if let name = agentName(for: step) {
+                                        Text(name)
+                                            .font(.system(size: 9, weight: .medium))
+                                            .foregroundColor(index == currentStep && status == .inProgress ? .orange.opacity(0.7) : .secondary.opacity(0.5))
+                                    }
+                                }
+                                Spacer(minLength: 0)
+                                if step.requiresApproval {
+                                    Image(systemName: "hand.raised.fill")
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.orange.opacity(0.6))
+                                        .padding(.top, 2)
+                                }
                             }
-                            Text(step.text)
-                                .font(.caption2)
-                                .foregroundColor(stepColor(index: index))
-                                .lineLimit(1)
-                            Spacer()
-                            if let name = agentName(for: step) {
-                                Text(name)
-                                    .font(.system(size: 9))
-                                    .foregroundColor(index == currentStep && status == .inProgress ? .orange.opacity(0.7) : .secondary.opacity(0.6))
-                                    .lineLimit(1)
-                            }
+                            .padding(.vertical, 4)
+                            .padding(.horizontal, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(index == currentStep && status == .inProgress
+                                          ? Color.purple.opacity(0.06)
+                                          : Color.clear)
+                            )
                         }
                     }
                 }
@@ -793,16 +809,16 @@ struct PlanCard: View {
     private func stepIcon(index: Int) -> some View {
         if status == .completed || index < currentStep {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 9))
+                .font(.system(size: 11))
                 .foregroundColor(.green.opacity(0.7))
         } else if index == currentStep && status == .inProgress {
             Image(systemName: "play.circle.fill")
-                .font(.system(size: 9))
+                .font(.system(size: 11))
                 .foregroundColor(.orange.opacity(0.7))
         } else {
             Image(systemName: "circle")
-                .font(.system(size: 9))
-                .foregroundColor(.gray)
+                .font(.system(size: 11))
+                .foregroundColor(.gray.opacity(0.4))
         }
     }
 
@@ -814,12 +830,6 @@ struct PlanCard: View {
         } else {
             return .secondary.opacity(0.7)
         }
-    }
-
-    private func formatTime(_ seconds: Int) -> String {
-        let min = seconds / 60
-        let sec = seconds % 60
-        return String(format: "%d:%02d 예상", min, sec)
     }
 }
 
@@ -1219,6 +1229,11 @@ struct UserInputCard: View {
     @Environment(\.colorPalette) private var palette
     @State private var inputText = ""
     @FocusState private var isFocused: Bool
+    @State private var hoveredOption: Int?
+
+    private var options: [String] {
+        roomManager.pendingQuestionOptions[roomID] ?? []
+    }
 
     var body: some View {
         CardContainer(accentColor: .cyan, opacity: 0.08) {
@@ -1232,8 +1247,49 @@ struct UserInputCard: View {
                         .foregroundColor(.primary)
                 }
 
+                // 선택지 버튼
+                if !options.isEmpty {
+                    VStack(spacing: 4) {
+                        ForEach(Array(options.enumerated()), id: \.offset) { index, option in
+                            Button {
+                                roomManager.answerUserQuestion(roomID: roomID, answer: option)
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Text("\(index + 1)")
+                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 16, height: 16)
+                                        .background(palette.inputBackground)
+                                        .continuousRadius(4)
+                                    Text(option)
+                                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                }
+                                .padding(.vertical, 6)
+                                .padding(.horizontal, 8)
+                                .background(
+                                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                                        .fill(hoveredOption == index ? palette.hoverBackground : palette.inputBackground.opacity(0.5))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                                        .strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { hovering in
+                                withAnimation(.easeInOut(duration: 0.1)) {
+                                    hoveredOption = hovering ? index : (hoveredOption == index ? nil : hoveredOption)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 자유 입력
                 HStack(spacing: 8) {
-                    TextField("답변을 입력하세요...", text: $inputText)
+                    TextField(options.isEmpty ? "답변을 입력하세요..." : "또는 직접 입력...", text: $inputText)
                         .textFieldStyle(.plain)
                         .font(.system(size: 12, design: .rounded))
                         .padding(6)

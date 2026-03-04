@@ -38,6 +38,8 @@ class RoomManager: ObservableObject {
     private var previousCycleAgentCount: [UUID: Int] = [:]
     /// 멘션으로 지명된 에이전트 (라우팅 우선권 — executeQuickAnswer/executeSoloAnalysis에서 소비)
     private var mentionedAgentIDsByRoom: [UUID: [UUID]] = [:]
+    /// ask_user 도구의 선택지 (방 ID → 옵션 목록) — UserInputCard에서 버튼으로 표시
+    @Published var pendingQuestionOptions: [UUID: [String]] = [:]
 
     /// 플러그인 이벤트 디스패치 (PluginManager가 설정)
     var pluginEventDelegate: ((PluginEvent) -> Void)?
@@ -200,6 +202,7 @@ class RoomManager: ObservableObject {
 
     /// ask_user 도구에 대한 사용자 답변 제출
     func answerUserQuestion(roomID: UUID, answer: String) {
+        pendingQuestionOptions.removeValue(forKey: roomID)
         let msg = ChatMessage(role: .user, content: answer)
         appendMessage(msg, to: roomID)
         // userAnswers에 저장 (질문은 메시지에서 역추적)
@@ -412,8 +415,11 @@ class RoomManager: ObservableObject {
                     guard let self else { return }
                     var content = question
                     if let ctx = context { content += "\n\n배경: \(ctx)" }
+                    // 선택지는 메시지에 텍스트로 넣지 않고 UI 버튼으로 표시
                     if let opts = options, !opts.isEmpty {
-                        content += "\n\n선택지:\n" + opts.enumerated().map { "  \($0.offset + 1). \($0.element)" }.joined(separator: "\n")
+                        self.pendingQuestionOptions[roomID] = opts
+                    } else {
+                        self.pendingQuestionOptions.removeValue(forKey: roomID)
                     }
                     let msg = ChatMessage(role: .assistant, content: content, agentName: currentAgentName, messageType: .userQuestion)
                     self.appendMessage(msg, to: roomID)
