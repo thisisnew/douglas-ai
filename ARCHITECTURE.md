@@ -46,6 +46,7 @@ DOUGLAS/
 │   │   ├── FileWriteTracker.swift   # 병렬 실행 파일 쓰기 충돌 감지 (actor)
 │   │   ├── ToolExecutionContext.swift # 도구 실행 컨텍스트 (방/에이전트/프로젝트 정보 스냅샷, askUser, currentPhase)
 │   │   ├── WorkflowIntent.swift    # 워크플로우 의도 (WorkflowPhase, WorkflowIntent 4종, PlanMode)
+│   │   ├── DocumentType.swift     # 문서 유형 (documentation intent용, 6종 + 섹션 템플릿)
 │   │   ├── IntentClassifier.swift # Intent 분류기 (규칙 기반 + LLM 폴백)
 │   │   ├── DecisionLog.swift      # 토론 결정 로그 (DecisionEntry)
 │   │   ├── WorkflowAssumption.swift # 가정 선언 (RiskLevel: low/medium/high) + UserAnswer
@@ -909,13 +910,14 @@ executeWithTools() 루프 (최대 10회):
 ```
 사용자 입력 → Intent 분류 (규칙 + LLM) → 방 생성
   → ① Intake: 입력 파싱 (Jira fetch, URL 감지)
-  → ② Intent: 작업 유형 표시
+  → ② Intent: 작업 유형 표시 (documentation → 문서 유형 선택 카드)
   → ③ Clarify: 복명복창 (DOUGLAS가 이해한 내용 요약 → 사용자 컨펌까지 무한 루프)
   → ④ Assemble: 전문가 초대 (역할 매칭 + 생성 제안)
   → ⑤~⑦: Intent별 분기 (PlanMode에 따라)
 ```
 
 - **Intent 분류** (`IntentClassifier`): 규칙 기반 즉시 분류 (`quickClassify`) → 실패 시 LLM 분류 (`classifyWithLLM`). `quickClassify`가 nil(판단 불가)이면 `executeIntentPhase`에서 LLM 추천 intent와 함께 **IntentSelectionCard** UI를 표시하여 사용자가 4종 intent 중 선택. `pendingIntentSelection` + `intentContinuations`으로 비동기 게이트 구현. 분류 실패 시 `.quickAnswer` 폴백 (가장 가벼운 워크플로우).
+- **문서 유형 선택** (`DocumentType`): documentation intent 확정 후 **DocTypeSelectionCard**로 문서 유형(PRD, 기술설계서, API문서, 테스트계획서, 보고서, 자유형식) 선택. 선택된 유형의 섹션 구조 템플릿이 Clarify·Plan·Execute 프롬프트에 주입되어 일관된 문서 품질 확보. `pendingDocTypeSelection` + `docTypeContinuations`으로 비동기 게이트 구현.
 - **복명복창 Clarify** (`executeClarifyPhase`): DOUGLAS가 요청을 요약 → 사용자 승인/거부 → 거부 시 피드백 반영 재요약 → 승인까지 무한 반복. 승인 시 `room.clarifySummary`에 저장 → 이후 토론/브리핑/계획 프롬프트에서 의도 앵커링용으로 참조.
 - **PlanMode 분기** (`executePlanPhase`):
   - `.skip`: Plan 단계 건너뜀 (quickAnswer)

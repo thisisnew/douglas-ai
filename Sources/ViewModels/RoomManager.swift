@@ -56,6 +56,8 @@ class RoomManager: ObservableObject {
     @Published var speakingAgentIDByRoom: [UUID: UUID] = [:]
     /// Intent 선택 대기 중인 방 (방 ID → LLM 추천 intent)
     @Published var pendingIntentSelection: [UUID: WorkflowIntent] = [:]
+    /// 문서 유형 선택 대기 중인 방
+    @Published var pendingDocTypeSelection: [UUID: Bool] = [:]
 
     private(set) var agentStore: AgentStore?
     private(set) var providerManager: ProviderManager?
@@ -71,6 +73,8 @@ class RoomManager: ObservableObject {
     private var suggestionContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
     /// Intent 선택 대기 중인 continuation (방 ID → continuation)
     private var intentContinuations: [UUID: CheckedContinuation<WorkflowIntent, Never>] = [:]
+    /// 문서 유형 선택 대기 중인 continuation
+    private var docTypeContinuations: [UUID: CheckedContinuation<DocumentType, Never>] = [:]
     /// 이전 사이클 완료 시점의 에이전트 수 (후속 사이클에서 에이전트 변동 감지용)
     private var previousCycleAgentCount: [UUID: Int] = [:]
     /// 멘션으로 지명된 에이전트 (라우팅 우선권 — executeQuickAnswer/executeSoloAnalysis에서 소비)
@@ -230,6 +234,27 @@ class RoomManager: ObservableObject {
             // 워크플로우 없음 (앱 재시작 등) → intent 설정 후 워크플로우 재시작
             guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
             rooms[idx].intent = intent
+            rooms[idx].transitionTo(.planning)
+            launchWorkflow(roomID: roomID, task: rooms[idx].title)
+        }
+    }
+
+    // MARK: - 문서 유형 선택 게이트
+
+    /// 사용자가 문서 유형을 선택
+    func selectDocType(roomID: UUID, docType: DocumentType) {
+        pendingDocTypeSelection.removeValue(forKey: roomID)
+        let msg = ChatMessage(role: .user, content: "\(docType.displayName) 선택")
+        appendMessage(msg, to: roomID)
+
+        if let cont = docTypeContinuations.removeValue(forKey: roomID) {
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.planning)
+            }
+            cont.resume(returning: docType)
+        } else {
+            guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
+            rooms[idx].documentType = docType
             rooms[idx].transitionTo(.planning)
             launchWorkflow(roomID: roomID, task: rooms[idx].title)
         }
@@ -479,32 +504,6 @@ class RoomManager: ObservableObject {
                 }
                 return answer
             },
-            approveFileWrite: { @Sendable [weak self] (path: String, contentPreview: String) -> Bool in
-                // 1) 승인 요청 메시지 + 상태 전이
-                await MainActor.run { [weak self] in
-                    guard let self else { return }
-                    let content = "📄 \(path)\n\n\(contentPreview)"
-                    let msg = ChatMessage(role: .system, content: content, messageType: .fileWriteApproval)
-                    self.appendMessage(msg, to: roomID)
-                    if let idx = self.rooms.firstIndex(where: { $0.id == roomID }) {
-                        self.rooms[idx].transitionTo(.awaitingApproval)
-                    }
-                    self.scheduleSave()
-                }
-                // 2) 사용자 승인 대기 (continuation)
-                let approved: Bool = await withCheckedContinuation { continuation in
-                    Task { @MainActor [weak self] in
-                        self?.approvalContinuations[roomID] = continuation
-                    }
-                }
-                // 3) 상태 복귀
-                await MainActor.run { [weak self] in
-                    if let self, let idx = self.rooms.firstIndex(where: { $0.id == roomID }) {
-                        self.rooms[idx].transitionTo(.inProgress)
-                    }
-                }
-                return approved
-            },
             currentPhase: room?.currentPhase
         )
     }
@@ -747,6 +746,7 @@ class RoomManager: ObservableObject {
                   let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
                   let provider = providerManager?.provider(named: agent.providerName) else {
                 rooms[idx].intent = .implementation
+                postIntentExplanation(roomID: roomID)
                 return
             }
 
@@ -767,36 +767,57 @@ class RoomManager: ObservableObject {
             rooms[idx].intent = selectedIntent
             postIntentExplanation(roomID: roomID)
             scheduleSave()
-            return
-        }
-
-        // 2) quickClassify가 정확한 결과를 반환한 경우 (implementation이 아닌 경우) 재분류 불필요
-        guard currentIntent == .implementation else {
+        } else if currentIntent == .implementation {
+            // 3) implementation → LLM으로 재분류 시도
+            if let firstAgentID = rooms[idx].assignedAgentIDs.first,
+               let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
+               let provider = providerManager?.provider(named: agent.providerName) {
+                let lightModel = providerManager?.lightModelName(for: agent.providerName) ?? agent.modelName
+                let newIntent = await IntentClassifier.classifyWithLLM(
+                    task: task,
+                    provider: provider,
+                    model: lightModel
+                )
+                if newIntent != currentIntent {
+                    rooms[idx].intent = newIntent
+                }
+            }
             postIntentExplanation(roomID: roomID)
-            return
-        }
-
-        // 3) implementation → LLM으로 재분류 시도
-        guard let firstAgentID = rooms[idx].assignedAgentIDs.first,
-              let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
-              let provider = providerManager?.provider(named: agent.providerName) else {
+            scheduleSave()
+        } else {
+            // 2) quickClassify가 정확한 결과를 반환한 경우 (implementation이 아닌 경우) 재분류 불필요
             postIntentExplanation(roomID: roomID)
-            return
         }
 
-        let lightModel = providerManager?.lightModelName(for: agent.providerName) ?? agent.modelName
-        let newIntent = await IntentClassifier.classifyWithLLM(
-            task: task,
-            provider: provider,
-            model: lightModel
-        )
-
-        // intent가 변경되면 업데이트 → while 루프가 새 requiredPhases로 재계산
-        if newIntent != currentIntent {
-            rooms[idx].intent = newIntent
+        // documentation intent → 문서 유형 선택
+        if let resolvedIdx = rooms.firstIndex(where: { $0.id == roomID }),
+           rooms[resolvedIdx].intent == .documentation {
+            await selectDocumentType(roomID: roomID)
         }
-        postIntentExplanation(roomID: roomID)
+    }
+
+    /// Documentation intent 전용: 문서 유형 선택 UI 표시 + 사용자 대기
+    private func selectDocumentType(roomID: UUID) async {
+        guard rooms.contains(where: { $0.id == roomID }) else { return }
+
+        pendingDocTypeSelection[roomID] = true
+
+        let selectedType = await withCheckedContinuation { (cont: CheckedContinuation<DocumentType, Never>) in
+            docTypeContinuations[roomID] = cont
+        }
+
+        guard let idx2 = rooms.firstIndex(where: { $0.id == roomID }) else { return }
+        rooms[idx2].documentType = selectedType
         scheduleSave()
+
+        if selectedType != .freeform {
+            let msg = ChatMessage(
+                role: .system,
+                content: "[\(selectedType.displayName)] 템플릿이 적용됩니다.",
+                messageType: .phaseTransition
+            )
+            appendMessage(msg, to: roomID)
+        }
     }
 
     /// Intent 확정 후 사용자에게 워크플로우 설명 메시지 표시
@@ -890,16 +911,19 @@ class RoomManager: ObservableObject {
             attachmentSummary = ""
         }
 
+        // 문서 유형 템플릿 주입
+        let docTypeContext = rooms[idx].documentType?.templatePromptBlock() ?? ""
+
         let clarifySystemPrompt = """
         \(agent.resolvedSystemPrompt)
 
         당신은 요건 확인(Clarify) 단계를 수행하고 있습니다.
         사용자의 요청을 정확히 이해했는지 복명복창(확인)만 합니다.
-
+        \(docTypeContext.isEmpty ? "" : "\n\(docTypeContext)\n")
         아래 형식으로 이해한 내용을 요약하세요:
         - 요청 내용: (1-2문장 요약)
         - 핵심 요구사항: (불릿 포인트, 각 항목 1줄 이내)
-        - 예상 산출물: (무엇이 나와야 하는지)
+        - 예상 산출물: (무엇이 나와야 하는지)\(docTypeContext.isEmpty ? "" : "\n- 문서 구조: (선택된 템플릿 섹션 기반으로 구성할 섹션 나열)")
 
         [절대 금지]
         - 위 3개 항목 외의 내용을 출력하지 마세요.
@@ -1836,9 +1860,12 @@ class RoomManager: ObservableObject {
             clarifyContext = ""
         }
 
+        // 문서 유형 템플릿 주입
+        let docTemplateContext = room.documentType?.templatePromptBlock() ?? ""
+
         let planSystemPrompt = """
         \(agent.resolvedSystemPrompt)
-        \(clarifyContext)
+        \(clarifyContext)\(docTemplateContext.isEmpty ? "" : "\n\(docTemplateContext)\n")
         현재 작업방에 배정되었습니다. 팀원들과의 토론이 완료되었습니다.
         토론 내용을 바탕으로, 원래 사용자 요청 범위 안에서 실행 계획을 제출하세요:
 
@@ -1853,7 +1880,7 @@ class RoomManager: ObservableObject {
         - estimated_minutes는 현실적으로 추정하세요 (1~30분)
         - 각 step에 "agent" 필드로 담당 전문가를 지정하세요 (위 목록에서 정확한 이름 사용)
         - 마스터(진행자/오케스트레이터)는 실행 대상이 아닙니다. 마스터에게 step을 배정하지 마세요.
-        - 배포, 데이터 삭제 등 위험한 단계는 "requires_approval": true 추가
+        - "requires_approval": true는 프로덕션 배포, DB 삭제, git push 등 되돌리기 어려운 작업에만 사용. 파일 읽기/쓰기, 코드 수정, 셸 명령 등 일반 작업에는 사용하지 마세요.
         - 반드시 유효한 JSON으로만 응답하세요
         """
 
@@ -3419,7 +3446,11 @@ class RoomManager: ObservableObject {
         if let cont = intentContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: .implementation)
         }
+        if let cont = docTypeContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: .freeform)
+        }
         pendingIntentSelection.removeValue(forKey: roomID)
+        pendingDocTypeSelection.removeValue(forKey: roomID)
         guard rooms[idx].transitionTo(.completed) else { return }
         rooms[idx].completedAt = Date()
         // 에이전트 수 스냅샷 (다음 후속 사이클에서 변동 감지용)
@@ -3451,7 +3482,11 @@ class RoomManager: ObservableObject {
         if let cont = intentContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: .implementation)
         }
+        if let cont = docTypeContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: .freeform)
+        }
         pendingIntentSelection.removeValue(forKey: roomID)
+        pendingDocTypeSelection.removeValue(forKey: roomID)
         rooms[idx].transitionTo(.failed)
         rooms[idx].completedAt = Date()
         let msg = ChatMessage(role: .system, content: "사용자가 작업을 취소했습니다.", messageType: .error)
@@ -3490,7 +3525,11 @@ class RoomManager: ObservableObject {
         if let cont = intentContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: .implementation)
         }
+        if let cont = docTypeContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: .freeform)
+        }
         pendingIntentSelection.removeValue(forKey: roomID)
+        pendingDocTypeSelection.removeValue(forKey: roomID)
 
         // 첨부 이미지 파일 삭제
         if let room = rooms.first(where: { $0.id == roomID }) {

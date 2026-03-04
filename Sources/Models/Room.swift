@@ -313,6 +313,7 @@ struct Room: Identifiable, Codable {
     var workLog: WorkLog?
     // 워크플로우 (Phase E)
     var intent: WorkflowIntent?
+    var documentType: DocumentType?
     var currentPhase: WorkflowPhase?
     var completedPhases: Set<WorkflowPhase>
     var assumptions: [WorkflowAssumption]?
@@ -459,6 +460,7 @@ struct Room: Identifiable, Codable {
         self.lastQAResult = nil
         self.workLog = nil
         self.intent = nil
+        self.documentType = nil
         self.currentPhase = nil
         self.completedPhases = []
         self.assumptions = nil
@@ -517,6 +519,7 @@ struct Room: Identifiable, Codable {
         lastQAResult = try container.decodeIfPresent(QAResult.self, forKey: .lastQAResult)
         workLog = try container.decodeIfPresent(WorkLog.self, forKey: .workLog)
         intent = try container.decodeIfPresent(WorkflowIntent.self, forKey: .intent)
+        documentType = try container.decodeIfPresent(DocumentType.self, forKey: .documentType)
         currentPhase = (try? container.decodeIfPresent(WorkflowPhase.self, forKey: .currentPhase)) ?? nil
         completedPhases = try container.decodeIfPresent(Set<WorkflowPhase>.self, forKey: .completedPhases) ?? []
         assumptions = try container.decodeIfPresent([WorkflowAssumption].self, forKey: .assumptions)

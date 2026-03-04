@@ -246,6 +246,16 @@ Files changed:
 - **에디터 링크**: 생성된 플러그인의 "스크립트 열기" 버튼으로 Finder에서 직접 편집 가능
 - 생성된 플러그인은 `~/Library/Application Support/DOUGLAS/Plugins/{id}/`에 저장
 
+### 문서 유형 템플릿 (DocumentType)
+
+`documentation` intent 선택 시 **DocTypeSelectionCard**로 문서 유형을 선택한다.
+
+- **6종**: PRD, 기술 설계서, API 문서, 테스트 계획서, 보고서, 자유 형식
+- **템플릿은 프롬프트 수준**: 섹션 구조 가이드라인이며, 빈칸 채우기 폼이 아님
+- `templatePromptBlock()`: Clarify·Plan·Execute 프롬프트에 주입되는 문자열 생성
+- `freeform` 선택 시 템플릿 없이 기존 동작과 동일
+- 새 문서 유형 추가: `DocumentType.swift`에 case + displayName/subtitle/iconName/templateSections 추가
+
 ---
 
 ## 보안 규칙

@@ -67,6 +67,12 @@ struct RoomChatView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
+                // 문서 유형 선택 카드 (documentation intent 선택 후)
+                if roomManager.pendingDocTypeSelection[room.id] != nil {
+                    DocTypeSelectionCard(roomID: room.id)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
                 // 승인 대기 카드 (승인 게이트 활성 시)
                 if room.status == .awaitingApproval {
                     ApprovalCard(roomID: room.id)
@@ -1024,11 +1030,8 @@ struct ApprovalCard: View {
     /// 방의 최근 .approvalRequest 메시지에서 승인 제목과 내용을 추출
     private var approvalInfo: (title: String, detail: String?) {
         guard let room = roomManager.rooms.first(where: { $0.id == roomID }),
-              let msg = room.messages.last(where: { $0.messageType == .approvalRequest || $0.messageType == .fileWriteApproval }) else {
+              let msg = room.messages.last(where: { $0.messageType == .approvalRequest }) else {
             return ("이해한 내용이 맞는지 확인해주세요", nil)
-        }
-        if msg.messageType == .fileWriteApproval {
-            return ("파일 쓰기 승인", msg.content)
         }
         let content = msg.content
         if content.hasPrefix("실행 계획:") {
@@ -1500,6 +1503,103 @@ struct IntentSelectionCard: View {
 
     private func intentIcon(_ intent: WorkflowIntent) -> String {
         intent.iconName
+    }
+}
+
+// MARK: - 문서 유형 선택 카드
+
+struct DocTypeSelectionCard: View {
+    let roomID: UUID
+    @EnvironmentObject var roomManager: RoomManager
+    @Environment(\.colorPalette) private var palette
+    @State private var selectedIndex: Int = 0
+    @FocusState private var isFocused: Bool
+
+    private let docTypes = DocumentType.allCases
+
+    var body: some View {
+        CardContainer(accentColor: .indigo, opacity: 0.08) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "doc.badge.gearshape")
+                        .font(.caption)
+                        .foregroundColor(.indigo.opacity(0.7))
+                    Text("문서 유형을 선택해주세요")
+                        .font(.caption2.bold())
+                        .foregroundColor(.primary)
+                    Spacer()
+                    Text("↑↓ 선택  ↵ 확인")
+                        .font(.system(size: 9, design: .rounded))
+                        .foregroundColor(.secondary.opacity(0.6))
+                }
+
+                VStack(spacing: 4) {
+                    ForEach(Array(docTypes.enumerated()), id: \.element) { index, docType in
+                        Button {
+                            roomManager.selectDocType(roomID: roomID, docType: docType)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: docType.iconName)
+                                    .font(.system(size: 10))
+                                    .frame(width: 14)
+                                Text(docType.displayName)
+                                    .font(.caption2.bold())
+                                Spacer()
+                                Text(docType.subtitle)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.vertical, 6)
+                            .padding(.horizontal, 8)
+                            .background(
+                                index == selectedIndex
+                                    ? Color.indigo.opacity(0.12)
+                                    : palette.inputBackground
+                            )
+                            .foregroundColor(index == selectedIndex ? .indigo : .primary)
+                            .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                                    .strokeBorder(
+                                        index == selectedIndex ? Color.indigo.opacity(0.4) : palette.cardBorder.opacity(0.1),
+                                        lineWidth: index == selectedIndex ? 1.5 : 1
+                                    )
+                            )
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .focusable()
+        .focused($isFocused)
+        .onKeyPress(.upArrow) {
+            selectedIndex = max(0, selectedIndex - 1)
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            selectedIndex = min(docTypes.count - 1, selectedIndex + 1)
+            return .handled
+        }
+        .onKeyPress(.return) {
+            roomManager.selectDocType(roomID: roomID, docType: docTypes[selectedIndex])
+            return .handled
+        }
+        .onKeyPress(characters: .decimalDigits) { press in
+            if let num = Int(press.characters), num >= 1, num <= docTypes.count {
+                roomManager.selectDocType(roomID: roomID, docType: docTypes[num - 1])
+                return .handled
+            }
+            return .ignored
+        }
+        .onAppear {
+            // freeform을 초기 선택으로 (마지막 항목)
+            selectedIndex = docTypes.count - 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isFocused = true
+            }
+        }
     }
 }
 

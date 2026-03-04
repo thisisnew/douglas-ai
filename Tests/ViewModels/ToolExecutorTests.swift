@@ -154,7 +154,7 @@ struct ToolExecutorTests {
         _ = try await ToolExecutor.executeWithTools(
             provider: provider, model: "m", systemPrompt: "s",
             initialMessages: messages, tools: ToolRegistry.allTools,
-            onToolActivity: { activities.append($0) }
+            onToolActivity: { msg, _ in activities.append(msg) }
         )
         // 병렬 실행: 결과 콜백만 호출됨
         #expect(activities.count == 1)
@@ -178,7 +178,7 @@ struct ToolExecutorTests {
         let result = try await ToolExecutor.executeWithTools(
             provider: provider, model: "m", systemPrompt: "s",
             initialMessages: messages, tools: ToolRegistry.allTools,
-            onToolActivity: { _ in activityCount += 1 }
+            onToolActivity: { _, _ in activityCount += 1 }
         )
         #expect(result == "all done")
         // 병렬 실행: 결과 콜백만 (도구 2개 × 1 결과)
