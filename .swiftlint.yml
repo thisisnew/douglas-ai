@@ -1,0 +1,56 @@
+# .swiftlint.yml — DOUGLAS 코드 스타일 규칙
+# SwiftLint 0.63.x 기준
+# 설치: brew install swiftlint (Xcode.app 필요)
+# 목표: 기존 코드를 깨지 않으면서 새 코드에 일관성 강제
+
+disabled_rules:
+  - file_length              # RoomManager 3,743줄 등 대형 파일
+  - function_body_length     # 워크플로우 함수
+  - type_body_length         # RoomManager, ToolExecutor 등
+  - function_parameter_count # createRoom 등 다수 파라미터 함수
+  - cyclomatic_complexity    # 워크플로우 분기 로직
+  - nesting                  # 중첩 클로저/조건
+  - todo                     # TODO 주석 허용
+  - large_tuple              # 튜플 반환 (ProcessRunner 등)
+  - trailing_comma           # 스타일 선호
+
+opt_in_rules:
+  - empty_count              # .count == 0 → .isEmpty
+  - empty_string             # == "" → .isEmpty
+  - closure_spacing          # 클로저 내부 공백
+
+included:
+  - Sources
+
+excluded:
+  - .build
+  - dist
+  - Tests
+
+line_length:
+  warning: 200
+  error: 300
+  ignores_comments: true
+  ignores_urls: true
+
+type_name:
+  min_length: 2
+  max_length: 60
+
+identifier_name:
+  min_length: 1
+  max_length: 60
+  excluded:
+    - id
+    - vm
+    - db
+    - op
+    - r
+    - i
+    - j
+    - k
+
+trailing_whitespace:
+  ignores_empty_lines: true
+
+reporter: xcode
