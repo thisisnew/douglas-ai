@@ -1,5 +1,20 @@
 import Foundation
 
+/// @Sendable 클로저에서 안전하게 값을 변경할 수 있는 래퍼
+/// NSLock으로 보호하므로 실제 스레드 안전성도 보장.
+private final class SendableRef<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value: T
+    init(_ value: T) { _value = value }
+    var value: T {
+        get { lock.withLock { _value } }
+        set { lock.withLock { _value = newValue } }
+    }
+    func mutate(_ transform: (inout T) -> Void) {
+        lock.withLock { transform(&_value) }
+    }
+}
+
 /// 테스트에서 교체 가능한 프로세스 실행기
 /// 프로덕션: Process()로 실제 실행. 테스트: handler를 설정하여 mock.
 enum ProcessRunner {
@@ -61,8 +76,8 @@ enum ProcessRunner {
                 do {
                     try process.run()
 
-                    var accumulatedStdout = ""
-                    let lock = NSLock()
+                    let accumulatedStdout = SendableRef("")
+                    let stderrRef = SendableRef(Data())
                     let group = DispatchGroup()
 
                     // stdout: 점진적 읽기 (availableData는 데이터가 올 때까지 블록)
@@ -72,7 +87,7 @@ enum ProcessRunner {
                             let data = outputPipe.fileHandleForReading.availableData
                             if data.isEmpty { break } // EOF
                             if let text = String(data: data, encoding: .utf8) {
-                                lock.withLock { accumulatedStdout += text }
+                                accumulatedStdout.mutate { $0 += text }
                                 onOutput(text)
                             }
                         }
@@ -80,19 +95,17 @@ enum ProcessRunner {
                     }
 
                     // stderr: 전체 읽기
-                    var stderrData = Data()
                     group.enter()
                     DispatchQueue.global(qos: .userInitiated).async {
-                        stderrData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                        stderrRef.value = errorPipe.fileHandleForReading.readDataToEndOfFile()
                         group.leave()
                     }
 
                     group.wait()
                     process.waitUntilExit()
 
-                    var stdout = ""
-                    lock.withLock { stdout = accumulatedStdout }
-                    let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+                    let stdout = accumulatedStdout.value
+                    let stderr = String(data: stderrRef.value, encoding: .utf8) ?? ""
                     continuation.resume(returning: (process.terminationStatus, stdout, stderr))
                 } catch {
                     continuation.resume(returning: (-1, "", error.localizedDescription))
@@ -132,27 +145,27 @@ enum ProcessRunner {
 
                     // 파이프를 별도 스레드에서 동시 읽기 — waitUntilExit 전에 드레인해야
                     // 서브프로세스가 64KB 이상 출력 시 파이프 버퍼 가득 참 → 데드락 방지
-                    var stdoutData = Data()
-                    var stderrData = Data()
+                    let stdoutRef = SendableRef(Data())
+                    let stderrRef = SendableRef(Data())
                     let group = DispatchGroup()
 
                     group.enter()
                     DispatchQueue.global(qos: .userInitiated).async {
-                        stdoutData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                        stdoutRef.value = outputPipe.fileHandleForReading.readDataToEndOfFile()
                         group.leave()
                     }
 
                     group.enter()
                     DispatchQueue.global(qos: .userInitiated).async {
-                        stderrData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                        stderrRef.value = errorPipe.fileHandleForReading.readDataToEndOfFile()
                         group.leave()
                     }
 
                     group.wait()
                     process.waitUntilExit()
 
-                    let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-                    let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+                    let stdout = String(data: stdoutRef.value, encoding: .utf8) ?? ""
+                    let stderr = String(data: stderrRef.value, encoding: .utf8) ?? ""
 
                     continuation.resume(returning: (process.terminationStatus, stdout, stderr))
                 } catch {

@@ -16,7 +16,12 @@ let package = Package(
             path: "Sources",
             exclude: [
                 "Resources/DOUGLAS.entitlements",
-                "Resources/Assets.xcassets"
+                "Resources/Assets.xcassets",
+                "Resources/AppIcon.icns",
+                "Resources/AppIcon.icns.bak",
+                "Resources/AppIcon.icns.new_backup",
+                "Resources/AppIcon.icns.old",
+                "Resources/douglas_profile.png.old"
             ],
             resources: [
                 .copy("Resources/douglas_profile.png")

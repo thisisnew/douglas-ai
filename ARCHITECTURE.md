@@ -31,6 +31,7 @@ DOUGLAS/
 │   ├── App/
 │   │   ├── DOUGLASApp.swift         # @main 진입점
 │   │   ├── AppDelegate.swift        # 사이드바 패널(400pt), 채팅 윈도우, 마우스 트래킹
+│   │   ├── BundleExtension.swift    # Bundle.appModule — .app 배포 시 안전한 리소스 번들 접근
 │   │   └── UtilityWindowManager.swift # 유틸리티 윈도우 관리
 │   ├── Models/
 │   │   ├── Agent.swift              # 에이전트 모델 (이름, 페르소나, 이미지, isMaster, workingRules, referenceProjectPaths)

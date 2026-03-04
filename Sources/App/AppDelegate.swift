@@ -177,19 +177,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func loadProfileImage() -> NSImage? {
-        // 1. Bundle.module (SPM 리소스 — 가장 신뢰성 높음)
-        if let url = Bundle.module.url(forResource: "douglas_profile", withExtension: "png"),
+        // 1. Bundle.appModule (SPM 리소스 — .app 배포에서도 안전)
+        if let url = Bundle.appModule?.url(forResource: "douglas_profile", withExtension: "png"),
            let img = NSImage(contentsOf: url) {
             return img
         }
-        // 2. Bundle.main 내 리소스 번들 (fallback)
-        for name in ["DOUGLAS_DOUGLAS.bundle", "DOUGLAS_DOUGLASLib.bundle"] {
-            if let url = Bundle.main.resourceURL?
-                .appendingPathComponent(name)
-                .appendingPathComponent("douglas_profile.png"),
-               let img = NSImage(contentsOf: url) {
-                return img
-            }
+        // 2. Bundle.main 직접
+        if let url = Bundle.main.url(forResource: "douglas_profile", withExtension: "png"),
+           let img = NSImage(contentsOf: url) {
+            return img
         }
         return nil
     }

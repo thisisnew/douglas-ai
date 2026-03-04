@@ -39,8 +39,8 @@ enum MentionParser {
 
         // Phase 2: 접두어 매칭 (남은 @패턴 → 단일 후보 시 매칭)
         let pattern = try! NSRegularExpression(pattern: "(?:^|\\s)@(\\S+)", options: [])
-        var nsClean = cleanText as NSString
-        var prefixMatches = pattern.matches(in: cleanText, range: NSRange(location: 0, length: nsClean.length))
+        let nsClean = cleanText as NSString
+        let prefixMatches = pattern.matches(in: cleanText, range: NSRange(location: 0, length: nsClean.length))
         var rangesToRemove: [Range<String.Index>] = []
 
         for match in prefixMatches {

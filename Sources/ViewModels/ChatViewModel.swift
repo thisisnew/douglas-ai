@@ -197,15 +197,17 @@ class ChatViewModel: ObservableObject {
                 systemPrompt: agent.resolvedSystemPrompt,
                 conversationMessages: history,
                 onToolActivity: { [weak self] activity, detail in
+                    guard let self else { return }
                     Task { @MainActor in
                         let toolMsg = ChatMessage(role: .assistant, content: activity, agentName: agent.name, messageType: .toolActivity, toolDetail: detail)
-                        self?.appendMessage(toolMsg, for: agentID)
+                        self.appendMessage(toolMsg, for: agentID)
                     }
                 },
                 onStreamChunk: { [weak self] chunk in
+                    guard let self else { return }
                     let current = buffer.append(chunk)
                     Task { @MainActor in
-                        self?.updateMessageContent(placeholderID, newContent: current, for: agentID)
+                        self.updateMessageContent(placeholderID, newContent: current, for: agentID)
                     }
                 },
                 useTools: false  // 1:1 채팅: 도구 없이 스트리밍 우선

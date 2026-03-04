@@ -160,8 +160,11 @@ class RoomManager: ObservableObject {
             }
             cont.resume(returning: false)
         } else {
-            // 워크플로우 없음 (예전 방/앱 재시작) → 방 취소
-            cancelRoom(roomID: roomID)
+            // 워크플로우 없음 (앱 재시작 등) → 워크플로우 재시작
+            guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
+            let task = rooms[idx].title
+            rooms[idx].transitionTo(.planning)
+            launchWorkflow(roomID: roomID, task: task)
         }
     }
 
@@ -243,18 +246,20 @@ class RoomManager: ObservableObject {
 
         guard let room = rooms.first(where: { $0.id == roomID }) else { return }
 
-        // 작업 진행 중이고 초기 워크플로우(사용자 입력 대기)인 경우: 추가 요건 주입만
-        if room.isActive && userInputContinuations[roomID] != nil {
-            let noteMsg = ChatMessage(
-                role: .system,
-                content: "추가 요건이 반영되었습니다."
-            )
-            appendMessage(noteMsg, to: roomID)
+        // 작업 진행 중: 워크플로우를 취소하지 않음 (승인 대기·입력 대기·실행 중 모두 포함)
+        if room.isActive {
+            if userInputContinuations[roomID] != nil {
+                let noteMsg = ChatMessage(
+                    role: .system,
+                    content: "추가 요건이 반영되었습니다."
+                )
+                appendMessage(noteMsg, to: roomID)
+            }
             scheduleSave()
             return
         }
 
-        // 완료/실패 또는 후속 사이클 진행 중: 현재 작업 취소 후 새 후속 사이클 시작
+        // 완료/실패 → 새 후속 사이클 시작
         let task = cleanText.isEmpty ? text : cleanText
         roomTasks[roomID]?.cancel()
         roomTasks[roomID] = Task {
@@ -825,9 +830,6 @@ class RoomManager: ObservableObject {
         }
         let contextString = contextParts.joined(separator: "\n\n")
 
-        // Intent 정보
-        let intentName = rooms[idx].intent?.displayName ?? "구현"
-
         // 첨부 파일 정보 수집 (Clarify에서는 파일명만 참조, 실제 파일은 실행 단계에서 전달)
         let fileAttachments = rooms[idx].messages
             .compactMap { $0.attachments }
@@ -909,9 +911,10 @@ class RoomManager: ObservableObject {
                         systemPrompt: clarifySystemPrompt,
                         messages: simpleMessages,
                         onChunk: { [weak self] chunk in
+                            guard let self else { return }
                             let current = buffer.append(chunk)
                             Task { @MainActor in
-                                self?.updateMessageContent(placeholderID, newContent: current, in: roomID)
+                                self.updateMessageContent(placeholderID, newContent: current, in: roomID)
                             }
                         }
                     )
@@ -1500,9 +1503,10 @@ class RoomManager: ObservableObject {
                 conversationMessages: history,
                 context: context,
                 onStreamChunk: { [weak self] chunk in
+                    guard let self else { return }
                     let current = buffer.append(chunk)
                     Task { @MainActor in
-                        self?.updateMessageContent(placeholderID, newContent: current, in: roomID)
+                        self.updateMessageContent(placeholderID, newContent: current, in: roomID)
                     }
                 },
                 useTools: false  // 즉답: 도구 없이 스트리밍 우선
@@ -1611,9 +1615,10 @@ class RoomManager: ObservableObject {
                 conversationMessages: history,
                 context: context,
                 onStreamChunk: { [weak self] chunk in
+                    guard let self else { return }
                     let current = buffer.append(chunk)
                     Task { @MainActor in
-                        self?.updateMessageContent(placeholderID, newContent: current, in: roomID)
+                        self.updateMessageContent(placeholderID, newContent: current, in: roomID)
                     }
                 },
                 useTools: false  // 소로 분석: 도구 없이 스트리밍 우선
@@ -2296,6 +2301,7 @@ class RoomManager: ObservableObject {
                 conversationMessages: messagesWithStep,
                 context: context,
                 onToolActivity: { [weak self] activity, detail in
+                    guard let self else { return }
                     Task { @MainActor in
                         let toolMsg = ChatMessage(
                             role: .assistant,
@@ -2305,7 +2311,7 @@ class RoomManager: ObservableObject {
                             activityGroupID: progressGroupID,
                             toolDetail: detail
                         )
-                        self?.appendMessage(toolMsg, to: roomID)
+                        self.appendMessage(toolMsg, to: roomID)
                     }
                 }
             )
@@ -2644,12 +2650,13 @@ class RoomManager: ObservableObject {
                                                 attachments: nil, isError: false)
                         }
                     // 첫 사용자 메시지를 히스토리 앞에 추가
-                    var fullHistory: [ConversationMessage] = []
+                    var historyBuilder: [ConversationMessage] = []
                     if let firstUserMsg = rooms.first(where: { $0.id == roomID })?.messages
                         .first(where: { $0.role == .user && $0.messageType == .text }) {
-                        fullHistory.append(ConversationMessage.user(firstUserMsg.content))
+                        historyBuilder.append(ConversationMessage.user(firstUserMsg.content))
                     }
-                    fullHistory.append(contentsOf: frozenHistory)
+                    historyBuilder.append(contentsOf: frozenHistory)
+                    let fullHistory = historyBuilder  // let 바인딩으로 @Sendable 캡처 안전
 
                     var results: [(Int, ChatMessage, Bool)] = []
                     await withTaskGroup(of: (Int, ChatMessage, Bool).self) { group in
@@ -2862,9 +2869,10 @@ class RoomManager: ObservableObject {
                     systemPrompt: discussionPrompt,
                     messages: simpleHistory,
                     onChunk: { [weak self] chunk in
+                        guard let self else { return }
                         let current = buffer.append(chunk)
                         Task { @MainActor in
-                            self?.updateMessageContent(placeholderID, newContent: current, in: roomID)
+                            self.updateMessageContent(placeholderID, newContent: current, in: roomID)
                         }
                     }
                 )

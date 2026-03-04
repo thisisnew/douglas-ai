@@ -69,10 +69,12 @@ final class UtilityWindowManager {
             object: window,
             queue: .main
         ) { [weak self] notification in
-            // 시스템 색상 피커가 열려있으면 동기적으로 즉시 닫기 (async cleanup 대기 시 깜빡임 방지)
-            if NSColorPanel.shared.isVisible { NSColorPanel.shared.orderOut(nil) }
             guard let closedWindow = notification.object as? NSWindow else { return }
-            Task { @MainActor [weak self] in self?.cleanup(closedWindow) }
+            Task { @MainActor [weak self] in
+                // 시스템 색상 피커가 열려있으면 닫기
+                if NSColorPanel.shared.isVisible { NSColorPanel.shared.orderOut(nil) }
+                self?.cleanup(closedWindow)
+            }
         }
         observers[window] = observer
         windowIdentifiers[window] = windowID
@@ -1227,21 +1229,12 @@ struct ProfileImageView: View {
     let size: CGFloat
 
     private var nsImage: NSImage? {
-        // 1. Bundle.module (SPM 리소스)
-        if let url = Bundle.module.url(forResource: "douglas_profile", withExtension: "png"),
+        // 1. Bundle.appModule (SPM 리소스 — .app 배포에서도 안전)
+        if let url = Bundle.appModule?.url(forResource: "douglas_profile", withExtension: "png"),
            let img = NSImage(contentsOf: url) {
             return img
         }
-        // 2. Contents/Resources/ 내 번들
-        for name in ["DOUGLAS_DOUGLAS.bundle", "DOUGLAS_DOUGLASLib.bundle"] {
-            if let url = Bundle.main.resourceURL?
-                .appendingPathComponent(name)
-                .appendingPathComponent("douglas_profile.png"),
-               let img = NSImage(contentsOf: url) {
-                return img
-            }
-        }
-        // 3. Bundle.main 직접
+        // 2. Bundle.main 직접
         if let url = Bundle.main.url(forResource: "douglas_profile", withExtension: "png"),
            let img = NSImage(contentsOf: url) {
             return img

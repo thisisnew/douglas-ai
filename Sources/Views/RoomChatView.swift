@@ -783,7 +783,7 @@ struct PlanCard: View {
         return currentStep
     }
 
-    private func agentName(for step: RoomStep) -> String? {
+    @MainActor private func agentName(for step: RoomStep) -> String? {
         guard let id = step.assignedAgentID,
               let agent = agentStore?.agents.first(where: { $0.id == id }) else { return nil }
         return agent.name

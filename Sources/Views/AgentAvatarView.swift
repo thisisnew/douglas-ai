@@ -55,17 +55,9 @@ struct AgentAvatarView: View {
 
     /// 번들에서 douglas_profile.png 로드 (마스터 기본 아바타용)
     private var masterProfileImage: NSImage? {
-        if let url = Bundle.module.url(forResource: "douglas_profile", withExtension: "png"),
+        if let url = Bundle.appModule?.url(forResource: "douglas_profile", withExtension: "png"),
            let img = NSImage(contentsOf: url) {
             return img
-        }
-        for name in ["DOUGLAS_DOUGLAS.bundle", "DOUGLAS_DOUGLASLib.bundle"] {
-            if let url = Bundle.main.resourceURL?
-                .appendingPathComponent(name)
-                .appendingPathComponent("douglas_profile.png"),
-               let img = NSImage(contentsOf: url) {
-                return img
-            }
         }
         if let url = Bundle.main.url(forResource: "douglas_profile", withExtension: "png"),
            let img = NSImage(contentsOf: url) {
