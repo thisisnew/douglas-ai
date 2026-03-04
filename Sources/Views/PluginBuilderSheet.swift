@@ -28,11 +28,20 @@ struct PluginBuilderSheet: View {
             SheetNavHeader(title: "플러그인 만들기") {
                 Button("취소") { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                    .buttonStyle(CozyButtonStyle(.cream))
+                    .buttonStyle(.plain)
+                    .font(.system(size: DesignTokens.FontSize.body, weight: .medium, design: .rounded))
+                    .foregroundColor(palette.textSecondary)
             } trailing: {
                 Button("만들기") { createPlugin() }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(CozyButtonStyle(.accent))
+                    .buttonStyle(.plain)
+                    .font(.system(size: DesignTokens.FontSize.body, weight: .semibold, design: .rounded))
+                    .foregroundColor(palette.userBubbleText)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(palette.accent, in: Capsule())
+                    .contentShape(Capsule())
+                    .opacity(isFormValid && !isCreating ? 1 : 0.5)
                     .disabled(!isFormValid || isCreating)
             }
 

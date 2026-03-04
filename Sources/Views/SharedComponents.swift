@@ -13,6 +13,7 @@ struct SheetNavHeader<Leading: View, Trailing: View>: View {
             ZStack {
                 Text(title)
                     .font(.system(size: DesignTokens.FontSize.bodyMd, weight: .bold, design: .rounded))
+                    .allowsHitTesting(false)
                 HStack {
                     leading()
                     Spacer()

@@ -29,7 +29,13 @@ struct AddProviderSheet: View {
                 } trailing: {
                     Button("완료") { dismiss() }
                         .keyboardShortcut(.cancelAction)
-                        .buttonStyle(CozyButtonStyle(.accent))
+                        .buttonStyle(.plain)
+                        .font(.system(size: DesignTokens.FontSize.body, weight: .semibold, design: .rounded))
+                        .foregroundColor(palette.userBubbleText)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(palette.accent, in: Capsule())
+                        .contentShape(Capsule())
                 }
             }
 

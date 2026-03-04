@@ -24,11 +24,20 @@ struct CreateRoomSheet: View {
             SheetNavHeader(title: "새 방 만들기") {
                 Button("취소") { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                    .buttonStyle(CozyButtonStyle(.cream))
+                    .buttonStyle(.plain)
+                    .font(.system(size: DesignTokens.FontSize.body, weight: .medium, design: .rounded))
+                    .foregroundColor(palette.textSecondary)
             } trailing: {
                 Button("만들기") { createRoom() }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(CozyButtonStyle(.accent))
+                    .buttonStyle(.plain)
+                    .font(.system(size: DesignTokens.FontSize.body, weight: .semibold, design: .rounded))
+                    .foregroundColor(palette.userBubbleText)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(palette.accent, in: Capsule())
+                    .contentShape(Capsule())
+                    .opacity(canCreate ? 1 : 0.5)
                     .disabled(!canCreate)
             }
 
