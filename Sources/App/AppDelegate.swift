@@ -350,10 +350,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let panelFrame = NSRect(
             x: screenFrame.maxX - panelWidth,
-            y: screenFrame.minY,
+            y: screenFrame.minY,  // 초기엔 전체 높이 (상단 고정)
             width: panelWidth,
             height: screenFrame.height
         )
+
 
         sidebarPanel = ClickThroughPanel(
             contentRect: panelFrame,
@@ -407,6 +408,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         sidebarPanel?.frame.width ?? panelWidth
     }
 
+    /// 사용자가 리사이즈한 현재 높이 (nil이면 화면 전체)
+    private var currentPanelHeight: CGFloat? {
+        guard let panel = sidebarPanel,
+              let screen = currentScreen ?? NSScreen.screens.first else { return nil }
+        let sf = screen.visibleFrame
+        // 전체 높이와 거의 같으면 nil (전체 모드)
+        let h = panel.frame.height
+        return abs(h - sf.height) < 2 ? nil : h
+    }
+
     private func showSidebar(on screen: NSScreen? = nil) {
         guard !isSidebarVisible else { return }
         guard let screen = screen ?? NSScreen.screens.first else { return }
@@ -416,15 +427,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         sidebarPanel.orderFrontRegardless()
         let sf = screen.visibleFrame
         let w = currentPanelWidth
+        let h = currentPanelHeight ?? sf.height
         let targetX = sf.maxX - w
+        let targetY = sf.maxY - h  // 상단 고정
         // 8pt 오른쪽에서 시작 → 원위치로 슬라이드
-        sidebarPanel.setFrame(NSRect(x: targetX + 8, y: sf.minY, width: w, height: sf.height), display: true)
+        sidebarPanel.setFrame(NSRect(x: targetX + 8, y: targetY, width: w, height: h), display: true)
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.2
             ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             self.sidebarPanel.animator().alphaValue = 1.0
             self.sidebarPanel.animator().setFrame(
-                NSRect(x: targetX, y: sf.minY, width: w, height: sf.height),
+                NSRect(x: targetX, y: targetY, width: w, height: h),
                 display: true
             )
         }
@@ -435,14 +448,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         isSidebarVisible = false
         sidebarPanel.ignoresMouseEvents = true
         let w = currentPanelWidth
+        let h = currentPanelHeight
         if let screen = currentScreen ?? NSScreen.screens.first {
             let sf = screen.visibleFrame
+            let panelH = h ?? sf.height
+            let panelY = sf.maxY - panelH  // 상단 고정
             NSAnimationContext.runAnimationGroup({ ctx in
                 ctx.duration = 0.15
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
                 self.sidebarPanel.animator().alphaValue = 0.0
                 self.sidebarPanel.animator().setFrame(
-                    NSRect(x: sf.maxX - w + 8, y: sf.minY, width: w, height: sf.height),
+                    NSRect(x: sf.maxX - w + 8, y: panelY, width: w, height: panelH),
                     display: true
                 )
             })
@@ -457,7 +473,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let screen = screen else { return }
         let sf = screen.visibleFrame
         let w = currentPanelWidth
+        let h = currentPanelHeight ?? sf.height
         let targetX = sf.maxX - w
+        let targetY = sf.maxY - h  // 상단 고정
 
         if !isSidebarVisible {
             // 숨겨져 있으면 오른쪽에서 표시
@@ -468,7 +486,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 ctx.duration = 0.2
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 self.sidebarPanel.animator().setFrame(
-                    NSRect(x: targetX, y: sf.minY, width: w, height: sf.height),
+                    NSRect(x: targetX, y: targetY, width: w, height: h),
                     display: true
                 )
             }

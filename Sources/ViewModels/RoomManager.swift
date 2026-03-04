@@ -483,7 +483,7 @@ class RoomManager: ObservableObject {
         let name = rooms[roomIdx].pendingAgentSuggestions[sugIdx].name
         let msg = ChatMessage(
             role: .system,
-            content: "'\(name)' 에이전트 생성 제안이 건너뛰어졌습니다."
+            content: "'\(name)' 에이전트 생성이 취소되었습니다."
         )
         appendMessage(msg, to: roomID)
         scheduleSave()
@@ -1132,26 +1132,12 @@ class RoomManager: ObservableObject {
                 addAgentSuggestion(suggestion, to: roomID)
                 await waitForSuggestionResponse(roomID: roomID)
 
-                // 건너뛰기 후에도 전문가 없으면 → 사용자에게 기존 에이전트 선택 요청
+                // 취소 후 전문가 없으면 → 워크플로우 완료 처리
                 let postSkipSpecialists = executingAgentIDs(in: roomID)
                 if postSkipSpecialists.isEmpty {
-                    let subAgentNames = (agentStore?.subAgents ?? []).map { $0.name }
-                    if !subAgentNames.isEmpty {
-                        let selectMsg = ChatMessage(
-                            role: .system,
-                            content: "전문가가 배정되지 않았습니다. 입력창에서 @멘션으로 기존 에이전트를 초대해 주세요.\n사용 가능: \(subAgentNames.joined(separator: ", "))",
-                            messageType: .userQuestion
-                        )
-                        appendMessage(selectMsg, to: roomID)
-                        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                            rooms[i].transitionTo(.awaitingUserInput)
-                        }
-                        let _ = await withCheckedContinuation { (cont: CheckedContinuation<String, Never>) in
-                            userInputContinuations[roomID] = cont
-                        }
-                        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                            rooms[i].transitionTo(.inProgress)
-                        }
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].status = .completed
+                        rooms[i].completedAt = Date()
                     }
                 }
                 return
@@ -1190,26 +1176,12 @@ class RoomManager: ObservableObject {
             if hadUnmatched {
                 await waitForSuggestionResponse(roomID: roomID)
 
-                // 건너뛰기 후 전문가 없으면 → 사용자에게 기존 에이전트 선택 요청
+                // 취소 후 전문가 없으면 → 워크플로우 완료 처리
                 let postSkipSpecialists = executingAgentIDs(in: roomID)
                 if postSkipSpecialists.isEmpty {
-                    let subAgentNames = (agentStore?.subAgents ?? []).map { $0.name }
-                    if !subAgentNames.isEmpty {
-                        let selectMsg = ChatMessage(
-                            role: .system,
-                            content: "전문가가 배정되지 않았습니다. 입력창에서 @멘션으로 기존 에이전트를 초대해 주세요.\n사용 가능: \(subAgentNames.joined(separator: ", "))",
-                            messageType: .userQuestion
-                        )
-                        appendMessage(selectMsg, to: roomID)
-                        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                            rooms[i].transitionTo(.awaitingUserInput)
-                        }
-                        let _ = await withCheckedContinuation { (cont: CheckedContinuation<String, Never>) in
-                            userInputContinuations[roomID] = cont
-                        }
-                        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                            rooms[i].transitionTo(.inProgress)
-                        }
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].status = .completed
+                        rooms[i].completedAt = Date()
                     }
                 }
             }

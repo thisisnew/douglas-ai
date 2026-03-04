@@ -88,7 +88,7 @@ enum ToolExecutor {
         // 이미지가 있으면 sendMessageWithTools 경로 사용 (Vision 지원)
         let hasAttachments = conversationMessages.contains { $0.attachments != nil && !($0.attachments?.isEmpty ?? true) }
 
-        guard useTools, hasAttachments || (!toolIDs.isEmpty && provider.supportsToolCalling) else {
+        guard hasAttachments || (useTools && !toolIDs.isEmpty && provider.supportsToolCalling) else {
             // 이미지도 도구도 없으면 기존 sendMessage
             let simple = conversationMessages.compactMap { msg -> (role: String, content: String)? in
                 guard let content = msg.content else { return nil }

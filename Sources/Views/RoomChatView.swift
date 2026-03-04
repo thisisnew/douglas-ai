@@ -1026,18 +1026,10 @@ struct ApprovalCard: View {
                             Button {
                                 submitFeedback()
                             } label: {
-                                Text("전송")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 4)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
-                                            .fill(feedbackText.trimmingCharacters(in: .whitespaces).isEmpty
-                                                  ? palette.accent.opacity(0.4)
-                                                  : palette.accent)
-                                    )
-                                    .contentShape(Rectangle())
+                                let canSend = !feedbackText.trimmingCharacters(in: .whitespaces).isEmpty
+                                Image(systemName: "arrow.up.circle.fill")
+                                    .font(.system(size: 22))
+                                    .foregroundStyle(canSend ? palette.accent : Color.gray.opacity(0.4))
                             }
                             .buttonStyle(.plain)
                             .disabled(feedbackText.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -1172,14 +1164,14 @@ struct UserInputCard: View {
                         .focused($isFocused)
                         .onSubmit { submit() }
 
-                    Button("전송") { submit() }
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(inputText.trimmingCharacters(in: .whitespaces).isEmpty ? Color.gray.opacity(0.6) : palette.accent)
-                        .continuousRadius(DesignTokens.CozyGame.buttonRadius)
-                        .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty)
+                    let canSubmit = !inputText.trimmingCharacters(in: .whitespaces).isEmpty
+                    Button { submit() } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundStyle(canSubmit ? palette.accent : Color.gray.opacity(0.4))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canSubmit)
                 }
             }
         }
@@ -1229,14 +1221,14 @@ struct DiscussionCheckpointCard: View {
                         .focused($isFocused)
                         .onSubmit { submitFeedback() }
 
-                    Button("전송") { submitFeedback() }
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(inputText.trimmingCharacters(in: .whitespaces).isEmpty ? Color.gray.opacity(0.6) : palette.accent)
-                        .continuousRadius(DesignTokens.CozyGame.buttonRadius)
-                        .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty)
+                    let canSubmit = !inputText.trimmingCharacters(in: .whitespaces).isEmpty
+                    Button { submitFeedback() } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundStyle(canSubmit ? palette.accent : Color.gray.opacity(0.4))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canSubmit)
 
                     Button("진행") { proceed() }
                         .font(.system(size: 11, weight: .bold, design: .rounded))
@@ -1382,7 +1374,7 @@ struct AgentSuggestionCard: View {
                     Button {
                         roomManager.rejectAgentSuggestion(suggestionID: suggestion.id, in: roomID)
                     } label: {
-                        Text("건너뛰기")
+                        Text("취소")
                             .font(.system(size: 11, weight: .medium, design: .rounded))
                             .foregroundColor(palette.textSecondary)
                             .padding(.horizontal, 14)

@@ -9,8 +9,6 @@ struct PluginBuilderSheet: View {
     // 기본 정보
     @State private var name = ""
     @State private var pluginDescription = ""
-    @State private var selectedIcon = "puzzlepiece.extension"
-
     // 이벤트 핸들러
     @State private var enabledEvents: Set<PluginEventType> = []
     @State private var handlers: [PluginEventType: HandlerConfig] = [:]
@@ -22,12 +20,8 @@ struct PluginBuilderSheet: View {
     @State private var creationError: String?
     @State private var isCreating = false
 
-    // 아이콘 후보
-    private let iconOptions = [
-        "puzzlepiece.extension", "bell.badge", "terminal", "globe",
-        "gear", "arrow.up.forward.app", "doc.text", "bolt",
-        "antenna.radiowaves.left.and.right", "envelope", "folder", "hammer",
-    ]
+    // 아이콘 (기본값 고정 — 추후 선택 기능 복원 가능)
+    private let defaultIcon = "puzzlepiece.extension"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -66,36 +60,6 @@ struct PluginBuilderSheet: View {
     @ViewBuilder
     private var basicInfoSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // 아이콘 선택
-            VStack(alignment: .leading, spacing: 6) {
-                sectionLabel("아이콘")
-
-                LazyVGrid(columns: Array(repeating: GridItem(.fixed(36), spacing: 8), count: 6), spacing: 8) {
-                    ForEach(iconOptions, id: \.self) { icon in
-                        Button {
-                            selectedIcon = icon
-                        } label: {
-                            Image(systemName: icon)
-                                .font(.system(size: 14))
-                                .foregroundColor(selectedIcon == icon ? .white : palette.textSecondary)
-                                .frame(width: 36, height: 36)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .fill(selectedIcon == icon ? palette.accent : palette.inputBackground)
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .strokeBorder(
-                                            selectedIcon == icon ? palette.accent : palette.cardBorder.opacity(0.15),
-                                            lineWidth: 1
-                                        )
-                                )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-
             // 이름
             VStack(alignment: .leading, spacing: 6) {
                 sectionLabel("이름", required: true)
@@ -430,7 +394,7 @@ struct PluginBuilderSheet: View {
             id: pluginID,
             name: name.trimmingCharacters(in: .whitespaces),
             description: pluginDescription.trimmingCharacters(in: .whitespaces),
-            icon: selectedIcon,
+            icon: defaultIcon,
             handlers: activeHandlers,
             configFields: configFields
         )
