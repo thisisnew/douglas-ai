@@ -107,7 +107,11 @@ DOUGLAS/
 - 사용자가 "문서로 정리해줘", "pdf로 뽑아줘" 등 문서화를 요청하면 감지
 - 1차: NLTokenizer + 키워드 매칭 (빠른 감지)
 - 2차: LLM 폴백 (애매한 표현 처리)
-- 초기 메시지에서 문서 신호 감지 시 `room.autoDocOutput = true` → 리서치 완료 후 자동 문서화
+- **2단계 감지**: ① intent 확정 후 초기 task, ② clarify 후 사용자 피드백 재감지 (`detectDocumentSignalFromMessages`)
+- 감지 시 `room.autoDocOutput = true` → 리서치 완료 후 자동 문서화
+- autoDocOutput 시 assemble 1명 제한 해제 (리서치+문서 에이전트 복합 구성)
+- 문서 작성 에이전트 선택: `DocumentType.preferredKeywords` 기반 최적 점수 매칭
+- 문서 저장 후 클릭 가능한 `file://` 링크 제공
 - 후속 사이클에서도 문서화 요청 감지 가능
 
 ### 문서 파일 저장 (DocumentExporter)

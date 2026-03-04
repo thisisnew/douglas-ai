@@ -323,7 +323,11 @@ class RoomManager: ObservableObject {
         appendMessage(savingMsg, to: roomID)
 
         if let url = DocumentExporter.saveDocument(content: content, suggestedName: suggestedName, defaultExtension: "md") {
-            let doneMsg = ChatMessage(role: .assistant, content: "문서가 저장되었습니다: \(url.lastPathComponent)", messageType: .text)
+            let doneMsg = ChatMessage(
+                role: .assistant,
+                content: "문서가 저장되었습니다: [\(url.lastPathComponent)](\(url.absoluteString))",
+                messageType: .text
+            )
             appendMessage(doneMsg, to: roomID)
         }
     }
@@ -366,9 +370,24 @@ class RoomManager: ObservableObject {
     private func executeDocumentWritingStep(roomID: UUID, docType: DocumentType, task: String) async {
         guard let room = rooms.first(where: { $0.id == roomID }) else { return }
 
-        // 에이전트 선택: 첫 번째 전문가 → 마스터 폴백
+        // 에이전트 선택: docType preferredKeywords 기반 최적 선택 → 폴백: 첫 번째 전문가 → 마스터
         let specialistIDs = executingAgentIDs(in: roomID)
-        let agentID = specialistIDs.first ?? room.assignedAgentIDs.first
+        let agentID: UUID? = {
+            let preferredKWs = docType.preferredKeywords
+            if !preferredKWs.isEmpty {
+                let candidates = specialistIDs.isEmpty ? Array(room.assignedAgentIDs) : specialistIDs
+                let scored = candidates.compactMap { id -> (UUID, Int)? in
+                    guard let a = agentStore?.agents.first(where: { $0.id == id }) else { return nil }
+                    let text = "\(a.name) \(a.persona)".lowercased()
+                    let score = preferredKWs.filter { text.contains($0.lowercased()) }.count
+                    return (id, score)
+                }
+                if let best = scored.max(by: { $0.1 < $1.1 }), best.1 > 0 {
+                    return best.0
+                }
+            }
+            return specialistIDs.first ?? room.assignedAgentIDs.first
+        }()
         guard let id = agentID,
               let agent = agentStore?.agents.first(where: { $0.id == id }),
               let provider = providerManager?.provider(named: agent.providerName) else { return }
@@ -418,6 +437,28 @@ class RoomManager: ObservableObject {
         }
 
         speakingAgentIDByRoom.removeValue(forKey: roomID)
+    }
+
+    // MARK: - clarify 후 문서 신호 재감지
+
+    /// 사용자 피드백 메시지에서 문서 출력 신호 감지 (clarify 이후 실행)
+    private func detectDocumentSignalFromMessages(roomID: UUID) {
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }),
+              !rooms[idx].autoDocOutput else { return }
+
+        let recentUserMessages = rooms[idx].messages
+            .filter { $0.role == .user }
+            .suffix(3)
+            .map { $0.content }
+            .joined(separator: " ")
+
+        if let docResult = DocumentRequestDetector.quickDetect(recentUserMessages),
+           docResult.isDocumentRequest {
+            rooms[idx].autoDocOutput = true
+            if let dt = docResult.suggestedDocType {
+                rooms[idx].documentType = dt
+            }
+        }
     }
 
     // MARK: - 사용자 입력 게이트
@@ -497,8 +538,14 @@ class RoomManager: ObservableObject {
     private func launchFollowUpCycle(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
+        // 즉시 타이핑 인디케이터 표시 (사용자에게 "반응 중" 피드백)
+        if let firstAgentID = rooms[idx].assignedAgentIDs.first {
+            speakingAgentIDByRoom[roomID] = firstAgentID
+        }
+
         // 문서화 요청 감지 (intent 재분류 전에 우선 체크)
         if let docResult = DocumentRequestDetector.quickDetect(task), docResult.isDocumentRequest {
+            speakingAgentIDByRoom.removeValue(forKey: roomID)
             await handleDocumentOutput(roomID: roomID, task: task, suggestedType: docResult.suggestedDocType)
             return
         }
@@ -880,6 +927,8 @@ class RoomManager: ObservableObject {
                 await executeIntentPhase(roomID: roomID, task: task)
             case .clarify:
                 await executeClarifyPhase(roomID: roomID, task: task)
+                // clarify 후 문서 요청 재감지 (사용자 피드백에 문서 신호 있을 수 있음)
+                detectDocumentSignalFromMessages(roomID: roomID)
             case .assemble:
                 await executeAssemblePhase(roomID: roomID, task: task)
             case .plan:
@@ -977,7 +1026,7 @@ class RoomManager: ObservableObject {
 
         // 초기 메시지에서 문서 요청 감지 → autoDocOutput 플래그 설정
         if let resolvedIdx = rooms.firstIndex(where: { $0.id == roomID }) {
-            let currentTask = rooms[resolvedIdx].title
+            let currentTask = task
             if let docResult = DocumentRequestDetector.quickDetect(currentTask), docResult.isDocumentRequest {
                 rooms[resolvedIdx].autoDocOutput = true
                 if let dt = docResult.suggestedDocType {
@@ -1311,14 +1360,23 @@ class RoomManager: ObservableObject {
         case .quickAnswer:
             maxAgentHint = "이 작업은 즉답(quickAnswer)이므로 **반드시 1명만** 요청하세요. 가장 적합한 전문가 1명만 선택하세요."
         case .research:
-            maxAgentHint = "이 작업은 **최대 2명**이면 충분합니다."
+            maxAgentHint = rooms[idx].autoDocOutput
+                ? "이 작업은 조사/분석 + 문서 작성이므로 **2명**을 요청하세요."
+                : "이 작업은 **최대 2명**이면 충분합니다."
         default:
             maxAgentHint = "불확실하면 적게 요청하세요 (1~2명이면 충분한 경우가 많습니다)."
         }
 
         // 문서 유형 컨텍스트
         let docTypeHint: String
-        if let docType = rooms[idx].documentType, docType != .freeform {
+        if rooms[idx].autoDocOutput, let docType = rooms[idx].documentType {
+            docTypeHint = """
+
+            이 작업은 조사/분석 후 **\(docType.displayName)** 문서를 출력합니다.
+            조사/분석을 수행할 전문가와 문서 작성에 적합한 전문가가 모두 필요합니다.
+            예: 테스트 계획서 → 리서치 전문가 + QA/테스트 전문가, PRD → 리서치 전문가 + 기획/PM 전문가.
+            """
+        } else if let docType = rooms[idx].documentType, docType != .freeform {
             docTypeHint = """
 
             이 작업은 **\(docType.displayName)** 문서를 작성하는 작업입니다.
@@ -1426,8 +1484,9 @@ class RoomManager: ObservableObject {
                 requirements.append(contentsOf: AgentMatcher.parseRoleRequirements(from: artifact.content))
             }
 
-            // documentType이 설정된 경우: 최대 1명만 허용 (문서 작성은 1인 전문가로 충분)
-            if rooms[idx].documentType != nil, requirements.count > 1 {
+            // documentType이 설정되고 autoDocOutput이 아닌 경우: 최대 1명만 허용
+            // autoDocOutput이면 리서치+문서 복합 → 다수 에이전트 허용
+            if rooms[idx].documentType != nil && !rooms[idx].autoDocOutput, requirements.count > 1 {
                 if let firstRequired = requirements.first(where: { $0.priority == .required }) {
                     requirements = [firstRequired]
                 } else {

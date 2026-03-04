@@ -923,13 +923,13 @@ executeWithTools() 루프 (최대 10회):
 사용자 입력 → Intent 분류 (규칙 + LLM) → 방 생성
   → ① Intake: 입력 파싱 (Jira fetch, URL 감지)
   → ② Intent: 작업 유형 표시 (문서 요청 감지 시 autoDocOutput 설정)
-  → ③ Clarify: 복명복창 (DOUGLAS가 이해한 내용 요약 → 사용자 컨펌까지 무한 루프)
+  → ③ Clarify: 복명복창 (DOUGLAS가 이해한 내용 요약 → 사용자 컨펌까지 무한 루프) + 사용자 피드백에서 문서 신호 재감지
   → ④ Assemble: 전문가 초대 (역할 매칭 + 생성 제안)
   → ⑤~⑦: Intent별 분기 (PlanMode에 따라)
 ```
 
 - **Intent 분류** (`IntentClassifier`): 규칙 기반 즉시 분류 (`quickClassify`) → 실패 시 LLM 분류 (`classifyWithLLM`). `quickClassify`가 nil(판단 불가)이면 `executeIntentPhase`에서 LLM 추천 intent와 함께 **IntentSelectionCard** UI를 표시하여 사용자가 3종 intent 중 선택. `pendingIntentSelection` + `intentContinuations`으로 비동기 게이트 구현. 분류 실패 시 `.quickAnswer` 폴백 (가장 가벼운 워크플로우).
-- **문서화 요청 감지** (`DocumentRequestDetector`): intent 확정 후 초기 메시지에서 문서 요청 패턴 감지 (NLTokenizer + 키워드). 감지 시 `room.autoDocOutput = true` + `room.documentType` 설정. research 완료 후 자동 문서화 + NSSavePanel 저장. 후속 사이클에서도 "문서로 정리해줘" 등 감지 가능 (1차 키워드 + 2차 LLM 폴백).
+- **문서화 요청 감지** (`DocumentRequestDetector`): 2단계 감지 — ① intent 확정 후 초기 task에서 패턴 감지, ② clarify 후 사용자 피드백에서 재감지 (`detectDocumentSignalFromMessages`). 감지 시 `room.autoDocOutput = true` + `room.documentType` 설정. autoDocOutput이면 assemble 시 1명 제한 해제 (리서치+문서 에이전트 복합 구성), research 완료 후 자동 문서화 (preferredKeywords 기반 최적 에이전트 선택) + NSSavePanel 저장 (클릭 가능 file:// 링크 제공). 후속 사이클에서도 "문서로 정리해줘" 등 감지 가능 (1차 키워드 + 2차 LLM 폴백).
 - **복명복창 Clarify** (`executeClarifyPhase`): DOUGLAS가 요청을 요약 → 사용자 승인/거부 → 거부 시 피드백 반영 재요약 → 승인까지 무한 반복. 승인 시 `room.clarifySummary`에 저장 → 이후 토론/브리핑/계획 프롬프트에서 의도 앵커링용으로 참조.
 - **PlanMode 분기** (`executePlanPhase`):
   - `.skip`: Plan 단계 건너뜀 (quickAnswer)
@@ -1047,7 +1047,7 @@ executeWithTools() 루프 (최대 10회):
 ① Intake ── 입력 파싱 (Jira fetch, URL 감지, IntakeData 저장, 플레이북 로드)
 ② Intent ── 작업 유형 표시 (방 생성 시 IntentClassifier가 분류)
 ③ Clarify ─ 복명복창 (DOUGLAS 요약 → 사용자 컨펌까지 무한 루프)
-④ Assemble ─ 전문가 초대 (AgentMatcher documentType-aware 매칭: 문서화 시 도메인 키워드 필터링 → 미매칭 시 생성 제안)
+④ Assemble ─ 전문가 초대 (AgentMatcher documentType-aware 매칭: 문서화 시 도메인 키워드 필터링 → 미매칭 시 생성 제안, autoDocOutput 시 1명 제한 해제)
 ⑤ Plan ──── PlanMode 분기: exec(토론→계획→승인) — 토론: 발산→수렴→합의 사이클(무제한) + 사용자 체크포인트
 ⑥ Execute ── quickAnswer(즉답) / research(토론→브리핑, autoDocOutput 시 자동 문서화) / 표준 실행(단계별)
 ```
