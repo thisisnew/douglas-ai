@@ -5,7 +5,16 @@ enum ToolExecutor {
     static let maxIterations = 10
 
     /// 테스트에서 교체 가능한 URLSession (web_fetch용)
-    nonisolated(unsafe) static var urlSession: URLSession = .shared
+    /// @TaskLocal로 병렬 테스트 간 세션 충돌 방지.
+    @TaskLocal static var urlSession: URLSession = .shared
+
+    /// 테스트에서 mock URLSession을 태스크 격리 방식으로 주입
+    static func withSession(
+        _ session: URLSession,
+        body: () async throws -> Void
+    ) async rethrows {
+        try await $urlSession.withValue(session, operation: body)
+    }
 
     /// 도구 사용 가능한 경우 도구 루프 실행, 아니면 기존 sendMessage 폴백
     static func smartSend(

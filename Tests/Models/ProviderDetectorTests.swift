@@ -193,9 +193,6 @@ struct ProviderDetectorTests {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
         let mockSession = URLSession(configuration: config)
-        let originalSession = ProviderDetector.urlSession
-        ProviderDetector.urlSession = mockSession
-        defer { ProviderDetector.urlSession = originalSession }
 
         MockURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(
@@ -204,12 +201,14 @@ struct ProviderDetectorTests {
             )!
             return (response, Data())
         }
+        defer { MockURLProtocol.requestHandler = nil }
 
-        // detectAll을 통해 checkHTTP 간접 테스트
-        let results = await ProviderDetector.detectAll()
-        // mock HTTP가 200을 반환하므로 감지 결과에 영향
-        for r in results {
-            #expect(r.displayName.isEmpty == false)
+        // @TaskLocal withSession으로 태스크 격리 mock 주입
+        await ProviderDetector.withSession(mockSession) {
+            let results = await ProviderDetector.detectAll()
+            for r in results {
+                #expect(r.displayName.isEmpty == false)
+            }
         }
     }
 }

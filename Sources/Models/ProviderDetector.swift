@@ -25,7 +25,16 @@ struct DetectedProvider: Identifiable {
 enum ProviderDetector {
 
     /// 테스트에서 교체 가능한 URLSession (프로덕션: .shared)
-    nonisolated(unsafe) static var urlSession: URLSession = .shared
+    /// @TaskLocal로 병렬 테스트 간 세션 충돌 방지.
+    @TaskLocal static var urlSession: URLSession = .shared
+
+    /// 테스트에서 mock URLSession을 태스크 격리 방식으로 주입
+    static func withSession(
+        _ session: URLSession,
+        body: () async throws -> Void
+    ) async rethrows {
+        try await $urlSession.withValue(session, operation: body)
+    }
 
     /// 모든 감지를 병렬 실행
     static func detectAll() async -> [DetectedProvider] {
