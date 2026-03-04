@@ -2324,10 +2324,14 @@ class RoomManager: ObservableObject {
                 previousStepResponse = latestResponse
             }
 
-            // 단계 완료 후 리뷰 게이트: 첫 단계(방향 검증) + 마지막 단계(최종 산출물 확인)
+            // 단계 완료 후 리뷰 게이트:
+            // - 첫 단계: 방향 검증
+            // - 마지막 단계: 최종 산출물 확인
+            // - 외부 영향 단계: PR, push, 배포 등 되돌리기 어려운 작업 (키워드 감지)
             let isFirstStep = stepIndex == 0
             let isLastStep2 = stepIndex == plan.steps.count - 1
-            if isFirstStep || isLastStep2 {
+            let hasExternalEffect = Self.hasExternalEffectKeywords(step.text)
+            if isFirstStep || isLastStep2 || hasExternalEffect {
                 var stepApproved = false
                 while !stepApproved {
                     guard !Task.isCancelled,
@@ -2435,6 +2439,13 @@ class RoomManager: ObservableObject {
             syncAgentStatuses()
             scheduleSave()
         }
+    }
+
+    /// 외부 영향(되돌리기 어려운) 키워드 감지 — 리뷰 게이트 강제 트리거
+    static func hasExternalEffectKeywords(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        let keywords = ["pr ", "pull request", "push", "배포", "deploy", "merge", "릴리스", "release", "git push"]
+        return keywords.contains { lower.contains($0) }
     }
 
     /// step 텍스트를 짧은 "~하는 중" 스타일로 변환
