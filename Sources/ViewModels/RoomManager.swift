@@ -276,45 +276,21 @@ class RoomManager: ObservableObject {
 
     // MARK: - 문서 파일 저장
 
-    /// documentation intent 완료 후 파일 저장 제안
+    /// documentation intent 완료 후 자동 파일 저장 (NSSavePanel)
     private func offerDocumentSave(roomID: UUID) async {
         guard let room = rooms.first(where: { $0.id == roomID }),
               room.intent == .documentation,
               room.status != .failed,
               let content = DocumentExporter.extractDocumentContent(from: room) else { return }
 
-        // 질문 메시지 + 선택지 표시
-        let options = [".md (Markdown)", ".txt (텍스트)", "건너뛰기"]
-        pendingQuestionOptions[roomID] = options
-        let msg = ChatMessage(role: .assistant, content: "문서 작성이 완료되었습니다. 파일로 저장하시겠습니까?", messageType: .userQuestion)
-        appendMessage(msg, to: roomID)
-        if let idx = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[idx].transitionTo(.awaitingUserInput)
-        }
-        scheduleSave()
+        let suggestedName = DocumentExporter.suggestedFilename(room: room)
 
-        // 사용자 답변 대기
-        let answer: String = await withCheckedContinuation { continuation in
-            userInputContinuations[roomID] = continuation
-        }
-        pendingQuestionOptions.removeValue(forKey: roomID)
+        let savingMsg = ChatMessage(role: .assistant, content: "문서를 파일로 저장합니다…", messageType: .text)
+        appendMessage(savingMsg, to: roomID)
 
-        // 답변 처리
-        let ext: String?
-        if answer.contains(".md") || answer.contains("Markdown") {
-            ext = "md"
-        } else if answer.contains(".txt") || answer.contains("텍스트") {
-            ext = "txt"
-        } else {
-            ext = nil
-        }
-
-        if let ext {
-            let suggestedName = DocumentExporter.suggestedFilename(room: room)
-            if let url = DocumentExporter.saveDocument(content: content, suggestedName: suggestedName, defaultExtension: ext) {
-                let sysMsg = ChatMessage(role: .assistant, content: "문서가 저장되었습니다: \(url.lastPathComponent)", messageType: .text)
-                appendMessage(sysMsg, to: roomID)
-            }
+        if let url = DocumentExporter.saveDocument(content: content, suggestedName: suggestedName, defaultExtension: "md") {
+            let doneMsg = ChatMessage(role: .assistant, content: "문서가 저장되었습니다: \(url.lastPathComponent)", messageType: .text)
+            appendMessage(doneMsg, to: roomID)
         }
     }
 
