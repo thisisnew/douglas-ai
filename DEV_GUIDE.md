@@ -97,6 +97,17 @@ DOUGLAS/
 - 레거시 별칭: `template(for:)`에서 `"jira_analyst"` → `requirementsAnalyst`, `"qa_engineer"` → `qaTestAutomation` 매핑
 - 빌트인 9종: requirements_analyst, backend_dev, frontend_dev, qa_test_automation, qa_exploratory, qa_security, qa_code_review, tech_writer, devops_engineer
 
+### AgentMatcher 도메인 키워드 블록리스트
+- `AgentMatcher.domainKeywords`에 도메인 키워드 목록 관리 (백엔드, 프론트엔드, 인프라 등)
+- documentation intent일 때 역할명에서 도메인 키워드를 제거하여 도메인 개발자 대신 문서 전문가 매칭
+- `DocumentType.preferredKeywords`로 문서 유형별 선호 키워드 보너스 (+2) 적용
+- non-documentation intent에서는 기존 동작 유지 (하위호환)
+
+### 문서 파일 저장 (DocumentExporter)
+- documentation intent 워크플로우 완료 시 `offerDocumentSave()`로 파일 저장 제안
+- 사용자가 확장자 선택 (.md/.txt) → NSSavePanel → 파일 저장
+- `extractDocumentContent(from:)`: artifact(.document) 우선, fallback으로 마지막 assistant 메시지
+
 ### 에이전트 생성 제안 관례
 - 분석가가 `suggest_agent_creation` 도구로 에이전트 생성 제안
 - `RoomAgentSuggestion`이 `Room.pendingAgentSuggestions`에 추가됨

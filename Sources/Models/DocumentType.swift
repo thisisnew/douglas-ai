@@ -42,6 +42,18 @@ enum DocumentType: String, CaseIterable, Codable, Hashable {
         }
     }
 
+    /// 문서 유형별 선호 키워드 (AgentMatcher에서 보너스 가중치 적용)
+    var preferredKeywords: [String] {
+        switch self {
+        case .prd:             return ["기획", "pm", "프로덕트", "product", "요구사항"]
+        case .technicalDesign: return ["아키텍트", "시니어", "설계", "architect", "아키텍처"]
+        case .apiDoc:          return ["문서화", "라이터", "writer", "documentation", "테크니컬"]
+        case .testPlan:        return ["qa", "테스트", "품질", "test", "검증"]
+        case .report:          return ["분석", "리서치", "조사", "research", "리포트"]
+        case .freeform:        return []
+        }
+    }
+
     /// 섹션 구조 가이드 (프롬프트 주입용)
     var templateSections: [String] {
         switch self {

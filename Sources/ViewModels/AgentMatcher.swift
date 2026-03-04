@@ -8,13 +8,21 @@ enum AgentMatcher {
     /// 역할 요구사항을 기존 에이전트와 매칭
     static func matchRoles(
         requirements: [RoleRequirement],
-        agents: [Agent]
+        agents: [Agent],
+        intent: WorkflowIntent? = nil,
+        documentType: DocumentType? = nil
     ) -> [RoleRequirement] {
         var results = requirements
         var usedAgentIDs: Set<UUID> = []
 
         for i in results.indices {
-            if let matched = findByKeyword(roleName: results[i].roleName, agents: agents, excluding: usedAgentIDs) {
+            if let matched = findByKeyword(
+                roleName: results[i].roleName,
+                agents: agents,
+                excluding: usedAgentIDs,
+                intent: intent,
+                documentType: documentType
+            ) {
                 results[i].matchedAgentID = matched.id
                 results[i].status = .matched
                 usedAgentIDs.insert(matched.id)
@@ -83,13 +91,33 @@ enum AgentMatcher {
         "expert", "developer", "engineer", "manager", "analyst", "designer"
     ]
 
+    /// 도메인 키워드 (documentation intent에서 역할명 키워드에서 제외)
+    private static let domainKeywords: Set<String> = [
+        "백엔드", "프론트엔드", "프론트", "인프라", "데이터", "모바일",
+        "ios", "android", "웹", "backend", "frontend", "mobile", "devops",
+        "서버", "클라이언트", "db", "database", "cloud", "클라우드"
+    ]
+
     /// 이름 + 페르소나 + 작업 규칙 키워드 기반 매칭
-    private static func findByKeyword(roleName: String, agents: [Agent], excluding used: Set<UUID>) -> Agent? {
-        let keywords = roleName.lowercased()
+    private static func findByKeyword(
+        roleName: String,
+        agents: [Agent],
+        excluding used: Set<UUID>,
+        intent: WorkflowIntent? = nil,
+        documentType: DocumentType? = nil
+    ) -> Agent? {
+        var keywords = roleName.lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { $0.count >= 2 && !genericSuffixes.contains($0) }
 
+        // Documentation intent: 도메인 키워드 제거 (백엔드/프론트엔드 등)
+        if intent == .documentation {
+            keywords = keywords.filter { !domainKeywords.contains($0) }
+        }
+
         guard !keywords.isEmpty else { return nil }
+
+        let preferredKWs = (intent == .documentation) ? (documentType?.preferredKeywords ?? []) : []
 
         var bestMatch: (agent: Agent, score: Int)?
 
@@ -103,6 +131,13 @@ enum AgentMatcher {
                 if lowerName.contains(keyword) { score += 3 }
                 if lowerPersona.contains(keyword) { score += 2 }
                 if lowerRules.contains(keyword) { score += 1 }
+            }
+
+            // Documentation preferredKeywords 보너스
+            for pkw in preferredKWs {
+                let lower = pkw.lowercased()
+                if lowerName.contains(lower) { score += 2 }
+                if lowerPersona.contains(lower) { score += 2 }
             }
 
             // 최소 점수 2 이상 (페르소나 키워드 매칭만으로도 충분)

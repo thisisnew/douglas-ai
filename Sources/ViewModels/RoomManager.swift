@@ -274,6 +274,50 @@ class RoomManager: ObservableObject {
         }
     }
 
+    // MARK: - 문서 파일 저장
+
+    /// documentation intent 완료 후 파일 저장 제안
+    private func offerDocumentSave(roomID: UUID) async {
+        guard let room = rooms.first(where: { $0.id == roomID }),
+              room.intent == .documentation,
+              room.status != .failed,
+              let content = DocumentExporter.extractDocumentContent(from: room) else { return }
+
+        // 질문 메시지 + 선택지 표시
+        let options = [".md (Markdown)", ".txt (텍스트)", "건너뛰기"]
+        pendingQuestionOptions[roomID] = options
+        let msg = ChatMessage(role: .assistant, content: "문서 작성이 완료되었습니다. 파일로 저장하시겠습니까?", messageType: .userQuestion)
+        appendMessage(msg, to: roomID)
+        if let idx = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[idx].transitionTo(.awaitingUserInput)
+        }
+        scheduleSave()
+
+        // 사용자 답변 대기
+        let answer: String = await withCheckedContinuation { continuation in
+            userInputContinuations[roomID] = continuation
+        }
+        pendingQuestionOptions.removeValue(forKey: roomID)
+
+        // 답변 처리
+        let ext: String?
+        if answer.contains(".md") || answer.contains("Markdown") {
+            ext = "md"
+        } else if answer.contains(".txt") || answer.contains("텍스트") {
+            ext = "txt"
+        } else {
+            ext = nil
+        }
+
+        if let ext {
+            let suggestedName = DocumentExporter.suggestedFilename(room: room)
+            if let url = DocumentExporter.saveDocument(content: content, suggestedName: suggestedName, defaultExtension: ext) {
+                let sysMsg = ChatMessage(role: .assistant, content: "문서가 저장되었습니다: \(url.lastPathComponent)", messageType: .text)
+                appendMessage(sysMsg, to: roomID)
+            }
+        }
+    }
+
     // MARK: - 사용자 입력 게이트
 
     /// ask_user 도구에 대한 사용자 답변 제출
@@ -432,6 +476,9 @@ class RoomManager: ObservableObject {
                 rooms[i].completedPhases = completedPhases
             }
         }
+
+        // 문서 저장 제안 (documentation intent만)
+        await offerDocumentSave(roomID: roomID)
 
         // 완료
         if let i = rooms.firstIndex(where: { $0.id == roomID }),
@@ -730,6 +777,9 @@ class RoomManager: ObservableObject {
             }
             workflowStart = Date() // 단계 완료 후 타이머 리셋 (사용자 대기 시간으로 인한 타임아웃 방지)
         }
+
+        // 문서 저장 제안 (documentation intent만)
+        await offerDocumentSave(roomID: roomID)
 
         // 워크플로우 완료
         if let i = rooms.firstIndex(where: { $0.id == roomID }),
@@ -1208,6 +1258,8 @@ class RoomManager: ObservableObject {
         주의:
         - 기존 에이전트가 있으면 반드시 위 목록의 **정확한 이름**을 사용하세요
         - 목록에 적합한 에이전트가 없을 때만 새 이름을 사용하세요
+        - 역할 이름에 도메인명(백엔드, 프론트엔드, 인프라, 데이터, 모바일 등)을 포함하지 마세요. 역할 역량 중심으로 이름을 짓세요.
+          (예: "백엔드 API 문서 작성자" → "API 문서 작성 전문가")
         """
 
         // 사전 매칭: 사용자 요청에서 기존 에이전트 이름 키워드 직접 탐색
@@ -1309,7 +1361,12 @@ class RoomManager: ObservableObject {
 
             // 2) 시스템 매칭
             let subAgents = agentStore?.subAgents ?? []
-            let matched = AgentMatcher.matchRoles(requirements: requirements, agents: subAgents)
+            let matched = AgentMatcher.matchRoles(
+                requirements: requirements,
+                agents: subAgents,
+                intent: intent,
+                documentType: rooms.first(where: { $0.id == roomID })?.documentType
+            )
 
             // 3) 매칭된 에이전트 자동 초대
             var invitedNames: [String] = []

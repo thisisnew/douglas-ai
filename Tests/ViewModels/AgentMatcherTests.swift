@@ -225,4 +225,72 @@ struct AgentMatcherTests {
         #expect(results.count == 1)
         #expect(results[0].priority == .required)  // 기본값
     }
+
+    // MARK: - Documentation Intent 매칭
+
+    @Test("matchRoles — documentation intent에서 도메인 키워드 필터링")
+    func matchRolesDocFiltersDomainKeywords() {
+        let backendDev = makeAgent(name: "백엔드 개발자", persona: "서버 개발 전문")
+        let docWriter = makeAgent(name: "기술 문서 작성자", persona: "문서화 전문가, 테크니컬 라이터")
+        let requirements = [
+            RoleRequirement(roleName: "백엔드 API 문서 작성자")
+        ]
+        let results = AgentMatcher.matchRoles(
+            requirements: requirements,
+            agents: [backendDev, docWriter],
+            intent: .documentation,
+            documentType: .apiDoc
+        )
+        // "백엔드" 필터링 후 "api", "문서", "작성자" 키워드 → docWriter 매칭
+        #expect(results[0].status == .matched)
+        #expect(results[0].matchedAgentID == docWriter.id)
+    }
+
+    @Test("matchRoles — documentation intent + preferredKeywords 보너스")
+    func matchRolesDocPreferredKeywordBonus() {
+        let qaAgent = makeAgent(name: "QA 전문가", persona: "테스트 전략, 품질 보증")
+        let devAgent = makeAgent(name: "시니어 개발자", persona: "풀스택 개발")
+        let requirements = [
+            RoleRequirement(roleName: "테스트 계획 작성자")
+        ]
+        let results = AgentMatcher.matchRoles(
+            requirements: requirements,
+            agents: [qaAgent, devAgent],
+            intent: .documentation,
+            documentType: .testPlan
+        )
+        // preferredKeywords: "qa", "테스트", "품질" → qaAgent 보너스
+        #expect(results[0].status == .matched)
+        #expect(results[0].matchedAgentID == qaAgent.id)
+    }
+
+    @Test("matchRoles — non-documentation intent는 기존 동작 유지")
+    func matchRolesNonDocPreservesOldBehavior() {
+        let backendDev = makeAgent(name: "백엔드 개발자", persona: "서버 개발 전문")
+        let requirements = [
+            RoleRequirement(roleName: "백엔드")
+        ]
+        // intent nil → 기존 동작
+        let results = AgentMatcher.matchRoles(
+            requirements: requirements,
+            agents: [backendDev]
+        )
+        #expect(results[0].status == .matched)
+        #expect(results[0].matchedAgentID == backendDev.id)
+    }
+
+    @Test("matchRoles — documentation intent에서 도메인 키워드만 있으면 unmatched")
+    func matchRolesDocAllKeywordsFiltered() {
+        let frontendDev = makeAgent(name: "프론트엔드 개발자", persona: "React UI")
+        let requirements = [
+            RoleRequirement(roleName: "프론트엔드")
+        ]
+        let results = AgentMatcher.matchRoles(
+            requirements: requirements,
+            agents: [frontendDev],
+            intent: .documentation
+        )
+        // "프론트엔드"가 도메인 키워드로 필터링 → 키워드 없음 → unmatched
+        #expect(results[0].status == .unmatched)
+    }
 }

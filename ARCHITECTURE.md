@@ -78,7 +78,8 @@ DOUGLAS/
 │   │   ├── ProviderManager.swift    # 프로바이더 설정 관리
 │   │   ├── BuildLoopRunner.swift     # 빌드/테스트 실행 + 수정 프롬프트 생성 엔진
 │   │   ├── RoomManager.swift        # 프로젝트 방 생명주기, 6단계 워크플로우, 승인/입력 게이트
-│   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (templateID → persona 키워드 → unmatched)
+│   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (intent-aware: documentation 시 도메인 키워드 필터링 + preferredKeywords 보너스)
+│   │   ├── DocumentExporter.swift   # 문서 산출물 파일 저장 (NSSavePanel, .md/.txt 지원)
 │   │   ├── ThemeManager.swift       # 테마 관리 (기본값: .cozyGame, UserDefaults 저장, 커스텀 팔레트)
 │   │   └── ToolExecutor.swift       # 도구 호출 루프 + smartSend + 경로 해석/충돌 추적
 │   ├── Providers/
@@ -1042,7 +1043,7 @@ executeWithTools() 루프 (최대 10회):
 ① Intake ── 입력 파싱 (Jira fetch, URL 감지, IntakeData 저장, 플레이북 로드)
 ② Intent ── 작업 유형 표시 (방 생성 시 IntentClassifier가 분류)
 ③ Clarify ─ 복명복창 (DOUGLAS 요약 → 사용자 컨펌까지 무한 루프)
-④ Assemble ─ 전문가 초대 (AgentMatcher → 미매칭 시 생성 제안)
+④ Assemble ─ 전문가 초대 (AgentMatcher intent-aware 매칭: documentation 시 도메인 키워드 필터링 → 미매칭 시 생성 제안)
 ⑤ Plan ──── PlanMode 분기: exec(토론→계획→승인) — 토론: 발산→수렴→합의 사이클(무제한) + 사용자 체크포인트
 ⑥ Execute ── quickAnswer(즉답) / research(토론→브리핑) / 표준 실행(단계별)
 ```
