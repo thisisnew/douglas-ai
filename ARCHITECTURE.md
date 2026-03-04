@@ -22,11 +22,17 @@ DOUGLAS는 **macOS 네이티브 AI 에이전트 관리 데스크톱 앱**이다.
 ```
 DOUGLAS/
 ├── Package.swift                    # SPM 패키지 정의
+├── Makefile                         # 빌드/테스트/린트 통합 진입점
+├── .swift-version                   # 툴체인 버전 고정 (6.1.2)
+├── .swiftlint.yml                   # SwiftLint 코드 스타일 규칙
+├── .github/workflows/release.yml    # GitHub Actions (태그/수동 트리거)
 ├── CLAUDE.md                        # 개발 규칙 (문서 업데이트 필수, 빌드/커밋 규칙)
 ├── DEV_GUIDE.md                     # 개발 규칙 가이드
 ├── ARCHITECTURE.md                  # 이 문서 (코드 분석/구조)
 ├── scripts/
-│   └── build-app.sh                 # 빌드 → .app 번들 → 코드서명 → DMG 생성
+│   ├── build-app.sh                 # 빌드 → .app 번들 → 코드서명 → DMG 생성
+│   ├── pre-commit                   # pre-commit 훅 (빌드+린트 검증)
+│   └── commit-msg                   # commit-msg 훅 (메시지 형식 검증)
 ├── Sources/
 │   ├── App/
 │   │   ├── DOUGLASApp.swift         # @main 진입점

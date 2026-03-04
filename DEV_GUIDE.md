@@ -9,7 +9,13 @@
 ```
 DOUGLAS/
 ├── Package.swift                  # SPM, macOS 14+
+├── Makefile                       # 빌드/테스트/린트 통합 진입점
+├── .swift-version                 # 툴체인 버전 고정 (6.1.2)
+├── .swiftlint.yml                 # SwiftLint 코드 스타일 규칙
+├── .github/workflows/release.yml  # GitHub Actions (태그/수동 트리거)
 ├── scripts/build-app.sh           # 빌드 → .app → 코드서명 → DMG
+├── scripts/pre-commit             # pre-commit 훅 (빌드+린트 검증)
+├── scripts/commit-msg             # commit-msg 훅 (메시지 형식 검증)
 ├── ARCHITECTURE.md                # 전체 코드 분석 문서
 ├── DEV_GUIDE.md                   # 이 파일 (개발 규칙)
 ├── CLAUDE.md                      # Claude Code 세션 규칙
@@ -128,9 +134,23 @@ DOUGLAS/
 
 ---
 
+## 개발 인프라
+
+### Git 훅 (초기 설정 1회)
+```bash
+make install-hooks    # pre-commit + commit-msg 훅 설치
+```
+- **pre-commit**: `swift build -c release` + SwiftLint 자동 검증 (탈출: `SKIP_BUILD=1 git commit`)
+- **commit-msg**: `[DG] <type>: <설명>` 형식 강제
+
+### GitHub Actions
+- 태그 푸시 시 자동 빌드+테스트: `git tag v1.0.0 && git push origin v1.0.0`
+- 수동 실행: GitHub Actions 탭 → "Release Build & Test" → "Run workflow"
+- 비용 최소화: PR/push 트리거 없음, 태그/수동만
+
 ## 필수 규칙: 모든 작업 후 반드시 수행
 
-1. **빌드 검증**: `swift build -c release` 성공 확인
+1. **빌드 검증**: `make build` (= `swift build -c release`) 성공 확인
 2. **Git 커밋**: 아래 형식으로 커밋
 3. **ARCHITECTURE.md 업데이트**: 구조 변경 시 해당 섹션 수정
 4. **이 문서 업데이트**: 규칙/관례 변경 시 반영
@@ -138,13 +158,9 @@ DOUGLAS/
 ## 커밋 메시지 형식
 
 ```
-[AM] <type>: <한줄 설명>
+[DG] <type>: <한줄 설명>
 
 <상세 내용 (선택)>
-
-Files changed:
-- path/to/file1.swift
-- path/to/file2.swift
 ```
 
 **type 종류**: feat (기능), fix (버그), refactor (리팩토링), style (UI), docs (문서)
@@ -282,9 +298,11 @@ Files changed:
 ## 테스트 규칙
 
 ### 명령어
-- `swift test` — 전체 테스트 실행 (789개)
-- `swift test --enable-code-coverage` — 커버리지 포함 실행
-- `xcrun llvm-cov report ...` — 커버리지 리포트 조회
+- `make test` — 전체 테스트 실행 (927개+)
+- `make coverage` — 커버리지 포함 테스트 + 리포트 자동 출력
+- `make build` — 릴리즈 빌드
+- `make lint` — SwiftLint 실행 (Xcode 필요)
+- `make help` — 전체 타겟 목록
 
 ### 테스트 프레임워크
 - **Swift Testing** (`@Test`, `#expect`, `@Suite`, `.serialized`)
@@ -294,23 +312,27 @@ Files changed:
 
 **ProcessRunner** (`Sources/Models/ProcessRunner.swift`):
 - `Process()` 직접 사용 금지 → `ProcessRunner.run()` 사용
-- 테스트에서 `ProcessRunner.handler = { ... }` 로 mock 주입
-- 반드시 `defer { ProcessRunner.handler = nil }` 로 정리
+- `@TaskLocal` 기반 — 태스크 격리 방식 mock 주입, `.serialized` 불필요
+- 테스트에서 `ProcessRunner.withMock({ ... }) { ... }` 로 mock 주입
+- `$handler.withValue()` 스코프 내에서 자동 격리, 수동 `defer` 불필요
 
 **ProviderManager.testProviderOverrides**:
 - `provider(named:)` 호출 시 인스턴스 딕셔너리에서 우선 반환
 - 인스턴스 레벨이므로 병렬 테스트 안전 (static 아님)
 - 사용: `providerManager.testProviderOverrides["OpenAI"] = mockProvider`
 
-**ToolExecutor.urlSession**:
-- `URLSession.shared` 직접 사용 대신 `ToolExecutor.urlSession` 사용
-- 테스트에서 MockURLProtocol 기반 세션 주입
-- `defer { ToolExecutor.urlSession = .shared }` 로 정리
+**ToolExecutor.urlSession** (`Sources/ViewModels/ToolExecutor.swift`):
+- `@TaskLocal` 기반 — 태스크 격리 방식 mock 주입
+- 테스트에서 `ToolExecutor.withSession(mockSession) { ... }` 로 mock 주입
 
-### MockURLProtocol 주의사항
-- `MockURLProtocol.requestHandler`는 전역 static → 병렬 테스트 간 경쟁 조건 발생
-- HTTP 모킹 테스트 스위트는 반드시 `.serialized` 사용
-- 다른 스위트와 동시 실행 시에도 충돌 가능 → 네트워크 의존 테스트는 최소화
+**ProviderDetector.urlSession** (`Sources/Models/ProviderDetector.swift`):
+- `@TaskLocal` 기반 — 태스크 격리 방식 mock 주입
+- 테스트에서 `ProviderDetector.withSession(mockSession) { ... }` 로 mock 주입
+
+### MockURLProtocol
+- **per-session 격리 (권장)**: `makeMockSession(handler:)` → X-Mock-ID 헤더 기반 핸들러 라우팅, 병렬 안전
+- **레거시 global**: `MockURLProtocol.requestHandler` — 전역 static, `.serialized` 필요
+- 새 테스트는 per-session 방식 사용 권장
 
 ### 테스트 헬퍼 (`Tests/Helpers/TestHelpers.swift`)
 - `makeTestAgent()`, `makeTestDefaults()`, `makeTestRoom()` 등 팩토리 함수
