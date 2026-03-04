@@ -3,13 +3,14 @@ import SwiftUI
 /// 통합 설정 윈도우 — API 설정 / 테마 / 플러그인 탭
 struct SettingsTabView: View {
     @Environment(\.colorPalette) private var palette
-    @State private var selectedTab: SettingsTab = .api
+    @State private var selectedTab: SettingsTab = .general
 
     enum SettingsTab: CaseIterable {
-        case api, theme, plugins
+        case general, api, theme, plugins
 
         var title: String {
             switch self {
+            case .general: return "일반"
             case .api:     return "API 설정"
             case .theme:   return "테마"
             case .plugins: return "플러그인"
@@ -18,6 +19,7 @@ struct SettingsTabView: View {
 
         var icon: String {
             switch self {
+            case .general: return "gearshape.fill"
             case .api:     return "key.fill"
             case .theme:   return "paintpalette.fill"
             case .plugins: return "puzzlepiece.extension.fill"
@@ -26,6 +28,7 @@ struct SettingsTabView: View {
 
         var tint: Color {
             switch self {
+            case .general: return Color(red: 0.65, green: 0.72, blue: 0.80)
             case .api:     return Color(red: 0.55, green: 0.78, blue: 0.85)
             case .theme:   return Color(red: 0.82, green: 0.62, blue: 0.86)
             case .plugins: return Color(red: 0.93, green: 0.73, blue: 0.52)
@@ -50,6 +53,8 @@ struct SettingsTabView: View {
             // 탭 콘텐츠
             Group {
                 switch selectedTab {
+                case .general:
+                    GeneralSettingsView(isEmbedded: true)
                 case .api:
                     AddProviderSheet(isEmbedded: true)
                 case .theme:

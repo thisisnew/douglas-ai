@@ -81,7 +81,7 @@ DOUGLAS/
 │   │   ├── BuildLoopRunner.swift     # 빌드/테스트 실행 + 수정 프롬프트 생성 엔진
 │   │   ├── RoomManager.swift        # 프로젝트 방 생명주기, 6단계 워크플로우, 승인/입력 게이트
 │   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (documentType-aware: 도메인 키워드 필터링 + preferredKeywords 보너스)
-│   │   ├── DocumentExporter.swift   # 문서 산출물 파일 저장 (NSSavePanel, .md 지원)
+│   │   ├── DocumentExporter.swift   # 문서 산출물 파일 저장 (고정 경로 자동저장 / NSSavePanel 폴백)
 │   │   ├── ThemeManager.swift       # 테마 관리 (기본값: .cozyGame, UserDefaults 저장, 커스텀 팔레트)
 │   │   └── ToolExecutor.swift       # 도구 호출 루프 + smartSend + 경로 해석/충돌 추적
 │   ├── Providers/
@@ -123,7 +123,8 @@ DOUGLAS/
 │       ├── CozyGameComponents.swift # 코지 게임 UI 컴포넌트 (CozyButtonStyle, CozyPanelModifier, CozyProgressBar 등)
 │       ├── ThemeEnvironment.swift   # 테마 환경 (ThemedView, colorPalette EnvironmentKey, .fontDesign(.rounded) 전역 적용)
 │       ├── ThemeSettingsView.swift  # 테마 설정 뷰 (테마 카드 프리뷰, 커스텀 색상 선택)
-│       ├── SettingsTabView.swift   # 통합 설정 윈도우 (API 설정 / 테마 / 플러그인 탭)
+│       ├── GeneralSettingsView.swift # 일반 설정 (문서 저장 폴더 등)
+│       ├── SettingsTabView.swift   # 통합 설정 윈도우 (일반 / API 설정 / 테마 / 플러그인 탭)
 │       ├── SharedComponents.swift   # 공유 UI 컴포넌트 (SheetNavHeader, CardContainer, SendButton 등)
 │       ├── ProgressActivityBubble.swift # 확장형 진행 버블 (활동 로그 인라인 표시)
 │       ├── TypingIndicator.swift    # 타이핑 인디케이터 (점 바운스 애니메이션, 경과 시간 표시)
@@ -762,10 +763,13 @@ MessageType에 따른 시각 차별화:
 
 ### 통합 설정 윈도우 (`Views/SettingsTabView.swift`)
 
-기존 분산된 설정 (API 설정 윈도우, 테마 팝오버, 플러그인 팝오버)을 **3탭 통합 윈도우**로 병합:
+기존 분산된 설정을 **4탭 통합 윈도우**로 병합:
+- **일반** 탭: GeneralSettingsView — 문서 저장 폴더 설정 (NSOpenPanel 폴더 선택, UserDefaults `documentSaveDirectory`)
 - **API 설정** 탭: AddProviderSheet(isEmbedded: true) — Claude Code, OpenAI, Google, Jira Cloud
 - **테마** 탭: ThemeSettingsView(isEmbedded: true) — 프리셋 3종 + 커스텀 색상
 - **플러그인** 탭: PluginSettingsView(isEmbedded: true) — 빌트인/외부 플러그인 관리
+
+문서 저장 경로가 설정되면 `DocumentExporter.saveDocument()`가 NSSavePanel 없이 해당 폴더에 자동 저장 (동일 파일명 시 `(2)`, `(3)` 자동 부여). 미설정 시 기존 NSSavePanel 동작.
 
 헤더의 "설정" 버튼 하나로 진입. `UtilityWindowManager`에 `pluginManager` 환경 주입 추가.
 

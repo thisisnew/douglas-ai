@@ -6,7 +6,9 @@ import UniformTypeIdentifiers
 @MainActor
 enum DocumentExporter {
 
-    /// 문서 내용을 파일로 저장 (NSSavePanel)
+    /// 문서 내용을 파일로 저장
+    /// - 고정 경로 설정 시: 해당 폴더에 자동 저장 (NSSavePanel 없음)
+    /// - 미설정 시: NSSavePanel으로 위치 선택
     /// - Returns: 저장된 파일 URL (nil = 사용자 취소 또는 오류)
     @discardableResult
     static func saveDocument(
@@ -14,6 +16,26 @@ enum DocumentExporter {
         suggestedName: String,
         defaultExtension: String = "md"
     ) -> URL? {
+        let filename = sanitizeFilename(suggestedName, ext: defaultExtension)
+
+        // 고정 경로가 설정되어 있으면 자동 저장
+        if let fixedDir = UserDefaults.standard.string(forKey: "documentSaveDirectory"),
+           !fixedDir.isEmpty,
+           {
+               var isDir: ObjCBool = false
+               return FileManager.default.fileExists(atPath: fixedDir, isDirectory: &isDir) && isDir.boolValue
+           }() {
+            let dirURL = URL(fileURLWithPath: fixedDir)
+            let fileURL = uniqueFileURL(directory: dirURL, filename: filename)
+            do {
+                try content.write(to: fileURL, atomically: true, encoding: .utf8)
+                return fileURL
+            } catch {
+                // 자동 저장 실패 시 NSSavePanel 폴백
+            }
+        }
+
+        // NSSavePanel으로 위치 선택
         let panel = NSSavePanel()
 
         var allowedTypes: [UTType] = [.plainText]
@@ -21,7 +43,7 @@ enum DocumentExporter {
         allowedTypes.append(.html)
         panel.allowedContentTypes = allowedTypes
 
-        panel.nameFieldStringValue = sanitizeFilename(suggestedName, ext: defaultExtension)
+        panel.nameFieldStringValue = filename
         panel.message = "문서를 저장할 위치를 선택하세요"
         panel.prompt = "저장"
 
@@ -37,6 +59,20 @@ enum DocumentExporter {
         } catch {
             return nil
         }
+    }
+
+    /// 같은 이름의 파일이 있으면 (2), (3)... 을 붙여 고유 파일명 생성
+    private static func uniqueFileURL(directory: URL, filename: String) -> URL {
+        let base = (filename as NSString).deletingPathExtension
+        let ext = (filename as NSString).pathExtension
+        var candidate = directory.appendingPathComponent(filename)
+        var counter = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            let newName = ext.isEmpty ? "\(base) (\(counter))" : "\(base) (\(counter)).\(ext)"
+            candidate = directory.appendingPathComponent(newName)
+            counter += 1
+        }
+        return candidate
     }
 
     /// 방에서 문서 내용 추출 (artifact 우선, fallback: 마지막 assistant 메시지)
