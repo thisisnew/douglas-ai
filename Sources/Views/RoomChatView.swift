@@ -1346,6 +1346,7 @@ struct AgentSuggestionCard: View {
     let roomID: UUID
     @EnvironmentObject var roomManager: RoomManager
     @EnvironmentObject var agentStore: AgentStore
+    @EnvironmentObject var providerManager: ProviderManager
     @Environment(\.colorPalette) private var palette
     @State private var showAddSheet = false
 
@@ -1445,6 +1446,7 @@ struct AgentSuggestionCard: View {
                 }
             )
             .environmentObject(agentStore)
+            .environmentObject(providerManager)
         }
     }
 }

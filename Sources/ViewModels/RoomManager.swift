@@ -1131,7 +1131,7 @@ class RoomManager: ObservableObject {
                 // 전문가 없음 → 생성 제안 (후속 질문 대응을 위해 모든 intent 공통)
                 let suggestion = RoomAgentSuggestion(
                     name: "\(intentName) 전문가",
-                    persona: "'\(intentName)' 작업을 수행하는 전문가입니다. 작업: \(task)",
+                    persona: "'\(intentName)' 작업을 수행하는 전문가입니다.",
                     reason: "작업 수행에 전문가가 필요합니다.",
                     suggestedBy: agent.name
                 )
