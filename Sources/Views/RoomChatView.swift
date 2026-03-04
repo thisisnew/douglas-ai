@@ -7,6 +7,7 @@ struct RoomChatView: View {
     let roomID: UUID
     @EnvironmentObject var roomManager: RoomManager
     @EnvironmentObject var agentStore: AgentStore
+    @EnvironmentObject var providerManager: ProviderManager
     @Environment(\.colorPalette) private var palette
     @State private var inputText = ""
     @State private var pendingAttachments: [FileAttachment] = []
@@ -15,6 +16,7 @@ struct RoomChatView: View {
     @State private var selectedAgent: Agent?
     @State private var mentionCandidates: [Agent] = []
     @State private var mentionSelectionIndex: Int = 0
+    @State private var suggestionToAdd: RoomAgentSuggestion? = nil
     @FocusState private var isInputFocused: Bool
 
     private var room: Room? {
@@ -49,7 +51,9 @@ struct RoomChatView: View {
 
                 // 에이전트 생성 제안 카드
                 ForEach(room.pendingAgentSuggestions.filter { $0.status == .pending }) { suggestion in
-                    AgentSuggestionCard(suggestion: suggestion, roomID: room.id)
+                    AgentSuggestionCard(suggestion: suggestion, roomID: room.id) {
+                        suggestionToAdd = suggestion
+                    }
                         .transition(.asymmetric(
                             insertion: .move(edge: .bottom).combined(with: .opacity),
                             removal: .scale(scale: 0.95).combined(with: .opacity)
@@ -90,6 +94,27 @@ struct RoomChatView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.3), value: room.status)
+            .sheet(item: $suggestionToAdd) { suggestion in
+                AddAgentSheet(
+                    prefillName: suggestion.name,
+                    prefillPersona: suggestion.persona,
+                    onCreated: { newAgent in
+                        if let roomIdx = roomManager.rooms.firstIndex(where: { $0.id == roomID }),
+                           let sugIdx = roomManager.rooms[roomIdx].pendingAgentSuggestions.firstIndex(where: { $0.id == suggestion.id }) {
+                            roomManager.rooms[roomIdx].pendingAgentSuggestions[sugIdx].status = .approved
+                        }
+                        roomManager.addAgent(newAgent.id, to: roomID, silent: true)
+                        let msg = ChatMessage(
+                            role: .system,
+                            content: "'\(newAgent.name)' 에이전트가 생성되어 방에 참여했습니다."
+                        )
+                        roomManager.appendMessage(msg, to: roomID)
+                        roomManager.resumeSuggestionContinuationIfResolved(roomID: roomID)
+                    }
+                )
+                .environmentObject(agentStore)
+                .environmentObject(providerManager)
+            }
         }
     }
 
@@ -1344,11 +1369,9 @@ struct IntentSelectionCard: View {
 struct AgentSuggestionCard: View {
     let suggestion: RoomAgentSuggestion
     let roomID: UUID
+    var onAdd: () -> Void
     @EnvironmentObject var roomManager: RoomManager
-    @EnvironmentObject var agentStore: AgentStore
-    @EnvironmentObject var providerManager: ProviderManager
     @Environment(\.colorPalette) private var palette
-    @State private var showAddSheet = false
 
     var body: some View {
         CardContainer(accentColor: palette.accent, opacity: 0.06) {
@@ -1404,7 +1427,7 @@ struct AgentSuggestionCard: View {
                     .buttonStyle(.plain)
 
                     Button {
-                        showAddSheet = true
+                        onAdd()
                     } label: {
                         Text("추가")
                             .font(.system(size: 11, weight: .semibold, design: .rounded))
@@ -1425,28 +1448,6 @@ struct AgentSuggestionCard: View {
                     .buttonStyle(.plain)
                 }
             }
-        }
-        .sheet(isPresented: $showAddSheet) {
-            AddAgentSheet(
-                prefillName: suggestion.name,
-                prefillPersona: suggestion.persona,
-                onCreated: { newAgent in
-                    // 제안 승인 + 방에 에이전트 추가
-                    if let roomIdx = roomManager.rooms.firstIndex(where: { $0.id == roomID }),
-                       let sugIdx = roomManager.rooms[roomIdx].pendingAgentSuggestions.firstIndex(where: { $0.id == suggestion.id }) {
-                        roomManager.rooms[roomIdx].pendingAgentSuggestions[sugIdx].status = .approved
-                    }
-                    roomManager.addAgent(newAgent.id, to: roomID, silent: true)
-                    let msg = ChatMessage(
-                        role: .system,
-                        content: "'\(newAgent.name)' 에이전트가 생성되어 방에 참여했습니다."
-                    )
-                    roomManager.appendMessage(msg, to: roomID)
-                    roomManager.resumeSuggestionContinuationIfResolved(roomID: roomID)
-                }
-            )
-            .environmentObject(agentStore)
-            .environmentObject(providerManager)
         }
     }
 }

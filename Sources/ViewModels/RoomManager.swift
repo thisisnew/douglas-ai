@@ -792,10 +792,22 @@ class RoomManager: ObservableObject {
         // Intent 정보
         let intentName = rooms[idx].intent?.displayName ?? "구현"
 
-        // 첨부 파일 수집 (LLM에 직접 전달)
+        // 첨부 파일 정보 수집 (Clarify에서는 파일명만 참조, 실제 파일은 실행 단계에서 전달)
         let fileAttachments = rooms[idx].messages
             .compactMap { $0.attachments }
             .flatMap { $0 }
+
+        // Clarify용 첨부 요약 (파일 데이터 없이 이름만)
+        let attachmentSummary: String
+        if !fileAttachments.isEmpty {
+            let names = fileAttachments.map { att in
+                let typeLabel = att.isImage ? "이미지" : "문서"
+                return "- \(typeLabel): \(att.displayName) (\(FileAttachment.formatFileSize(att.fileSizeBytes)))"
+            }.joined(separator: "\n")
+            attachmentSummary = "\n\n[첨부 파일 \(fileAttachments.count)개]\n\(names)\n(파일 내용은 실행 단계에서 전문가에게 전달됩니다. 여기서는 파일 존재만 인지하세요.)"
+        } else {
+            attachmentSummary = ""
+        }
 
         let clarifySystemPrompt = """
         \(agent.resolvedSystemPrompt)
@@ -812,7 +824,7 @@ class RoomManager: ObservableObject {
         - 위 3개 항목 외의 내용을 출력하지 마세요.
         - 질문에 대한 답변, 개념 설명, 해결책을 작성하지 마세요.
         - 작업을 수행하지 마세요. 이 단계는 확인만 합니다.
-        - 첨부파일(이미지, 문서)의 내용을 상세히 나열하거나 분석하지 마세요. "첨부 이미지: 일본어 메뉴판" 처럼 무엇인지만 간단히 언급하세요.
+        - 첨부파일(이미지, 문서)의 내용을 상세히 나열하거나 분석하지 마세요. "첨부 문서: design.md" 처럼 무엇인지만 간단히 언급하세요.
         - 번역, 계산, 코드 작성 등 실제 작업 결과물을 포함하지 마세요.
         - 위 형식 이후에 추가 텍스트를 붙이지 마세요.
         """
@@ -824,11 +836,11 @@ class RoomManager: ObservableObject {
             guard !Task.isCancelled,
                   rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
-            // 1) DOUGLAS가 이해한 내용 요약 생성 (이미지 포함)
+            // 1) DOUGLAS가 이해한 내용 요약 생성 (첨부파일은 이름만 텍스트로 전달, 데이터 미전송)
             let clarifyMessages: [ConversationMessage]
             if currentSummary.isEmpty {
-                let userContent = "\(contextString)\n\n위 요청을 분석하고, 이해한 내용을 정리해주세요. 작업: \(task)"
-                clarifyMessages = [ConversationMessage.user(userContent, attachments: fileAttachments.isEmpty ? nil : fileAttachments)]
+                let userContent = "\(contextString)\(attachmentSummary)\n\n위 요청을 분석하고, 이해한 내용을 정리해주세요. 작업: \(task)"
+                clarifyMessages = [ConversationMessage.user(userContent)]
             } else {
                 // 사용자 피드백 반영 재요약
                 let history = buildRoomHistory(roomID: roomID)
@@ -836,7 +848,7 @@ class RoomManager: ObservableObject {
                     .suffix(5)
                     .joined(separator: "\n")
                 let feedbackContent = "이전 요약:\n\(currentSummary)\n\n사용자 피드백:\n\(history)\n\n피드백을 반영하여 다시 요약하세요."
-                clarifyMessages = [ConversationMessage.user(feedbackContent, attachments: fileAttachments.isEmpty ? nil : fileAttachments)]
+                clarifyMessages = [ConversationMessage.user(feedbackContent)]
             }
 
             do {
@@ -849,7 +861,7 @@ class RoomManager: ObservableObject {
                 appendMessage(placeholder, to: roomID)
 
                 let response: String
-                if provider.supportsStreaming && fileAttachments.isEmpty {
+                if provider.supportsStreaming {
                     // 첨부 없음 → 스트리밍 경로
                     let simpleMessages = clarifyMessages.compactMap { msg -> (role: String, content: String)? in
                         guard let content = msg.content else { return nil }

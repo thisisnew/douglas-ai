@@ -101,16 +101,6 @@ struct AddAgentSheet: View {
                         }
                     }
 
-                    // 유사 에이전트 경고
-                    if !similarAgents.isEmpty {
-                        Label(
-                            "비슷한 에이전트: \(similarAgents.map(\.name).joined(separator: ", "))",
-                            systemImage: "person.2"
-                        )
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                    }
-
                     // 작업 규칙 (필수)
                     workingRulesSection
 
