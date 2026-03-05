@@ -3908,15 +3908,19 @@ class RoomManager: ObservableObject {
         \(clarifyText)
         """
 
+        // 에이전트 이름에서 도메인 키워드 추출하여 전문 영역 힌트 생성
+        let domainHint = Self.domainHint(for: agent.name)
+
         let discussionPrompt = """
         [역할] 당신은 **\(agent.name)**입니다.
         \(agent.resolvedSystemPrompt)
-
+        \(domainHint)
         [필수 규칙]
-        - 반드시 **\(agent.name)**의 전문 영역에서만 발언하세요.
-        - "\(agent.name) 관점에서" 또는 "\(agent.name) 쪽에서"로 시작하세요.
-        - 다른 동료의 전문 영역을 대신 설명하거나 그 관점에서 말하지 마세요.
-        - 동료의 발언에 응답할 때도 자신의 전문 시각으로 해석하여 답하세요.
+        - 첫 문장을 반드시 **\(agent.name)의 전문 영역 시각**으로 시작하세요.
+        - 예: "\(agent.name) 관점에서 보면..."
+        - 동료가 이미 말한 관점을 자신의 것처럼 반복하지 마세요.
+        - 동료의 영역(예: 백엔드 개발자가 아닌데 "백엔드에서는..."이라고 말하는 것)은 금지입니다.
+        - 동료 발언에 응답할 때도 자신의 전문 영역 시각으로 해석하여 답하세요.
 
         [시스템] 필요한 외부 데이터는 이미 수집되었습니다. 도구·인증·API 연동 관련 언급을 하지 마세요.
         \(intakeBlock)\(anchorBlock)
@@ -4364,6 +4368,57 @@ class RoomManager: ObservableObject {
                 }
                 return (role: role, content: content)
             }
+    }
+
+    // MARK: - 도메인 힌트
+
+    /// 에이전트 이름에서 전문 영역 힌트를 생성 (토론 시 역할 혼동 방지)
+    static func domainHint(for agentName: String) -> String {
+        let name = agentName.lowercased()
+        if name.contains("프론트엔드") || name.contains("frontend") || name.contains("ui") {
+            return """
+
+            [전문 영역] UI/UX, 클라이언트 상태관리, 컴포넌트 설계, 렌더링 성능, 브라우저 호환성, 반응형 디자인, 접근성
+            - "프론트엔드 관점에서"로 시작하세요. "백엔드에서는"이라고 절대 말하지 마세요.
+            """
+        } else if name.contains("백엔드") || name.contains("backend") || name.contains("서버") {
+            return """
+
+            [전문 영역] API 설계, 데이터베이스, 서버 아키텍처, 인증/보안, 성능 최적화, 인프라, 마이크로서비스
+            - "백엔드 관점에서"로 시작하세요. "프론트엔드에서는"이라고 절대 말하지 마세요.
+            """
+        } else if name.contains("qa") || name.contains("테스트") || name.contains("품질") {
+            return """
+
+            [전문 영역] 테스트 전략, 품질 보증, 자동화 테스트, 버그 트래킹, 성능 테스트, 보안 테스트
+            - "QA/테스트 관점에서"로 시작하세요.
+            """
+        } else if name.contains("디자인") || name.contains("design") || name.contains("ux") {
+            return """
+
+            [전문 영역] 사용자 경험, 인터페이스 디자인, 디자인 시스템, 프로토타이핑, 사용성 테스트, 접근성
+            - "디자인 관점에서"로 시작하세요.
+            """
+        } else if name.contains("devops") || name.contains("인프라") || name.contains("sre") {
+            return """
+
+            [전문 영역] CI/CD, 컨테이너, 클라우드 인프라, 모니터링, 배포 전략, IaC
+            - "DevOps/인프라 관점에서"로 시작하세요.
+            """
+        } else if name.contains("기획") || name.contains("pm") || name.contains("프로덕트") {
+            return """
+
+            [전문 영역] 제품 전략, 요구사항 분석, 로드맵, 사용자 리서치, 비즈니스 가치, 우선순위
+            - "기획/PM 관점에서"로 시작하세요.
+            """
+        } else if name.contains("리서치") || name.contains("분석") || name.contains("research") {
+            return """
+
+            [전문 영역] 시장 조사, 데이터 분석, 트렌드 파악, 경쟁사 분석, 사용자 리서치
+            - "리서치/분석 관점에서"로 시작하세요.
+            """
+        }
+        return ""
     }
 
     // MARK: - 유틸리티

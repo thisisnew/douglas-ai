@@ -35,27 +35,16 @@ enum DocumentExporter {
             }
         }
 
-        // NSSavePanel으로 위치 선택
-        let panel = NSSavePanel()
-
-        var allowedTypes: [UTType] = [.plainText]
-        if let md = UTType(filenameExtension: "md") { allowedTypes.insert(md, at: 0) }
-        allowedTypes.append(.html)
-        panel.allowedContentTypes = allowedTypes
-
-        panel.nameFieldStringValue = filename
-        panel.message = "문서를 저장할 위치를 선택하세요"
-        panel.prompt = "저장"
-
-        if let docsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
-            panel.directoryURL = docsURL
+        // 고정 경로 미설정 시 Documents 폴더에 자동 저장 (NSSavePanel 없이)
+        guard let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return nil
         }
-
-        guard panel.runModal() == .OK, let url = panel.url else { return nil }
-
+        let douglasDir = docsDir.appendingPathComponent("DOUGLAS", isDirectory: true)
+        try? FileManager.default.createDirectory(at: douglasDir, withIntermediateDirectories: true)
+        let fileURL = uniqueFileURL(directory: douglasDir, filename: filename)
         do {
-            try content.write(to: url, atomically: true, encoding: .utf8)
-            return url
+            try content.write(to: fileURL, atomically: true, encoding: .utf8)
+            return fileURL
         } catch {
             return nil
         }
