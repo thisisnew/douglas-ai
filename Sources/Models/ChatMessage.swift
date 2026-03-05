@@ -29,8 +29,28 @@ enum MessageType: String, Codable {
 struct ToolActivityDetail: Codable {
     let toolName: String        // file_read, file_write, shell_exec, web_fetch 등
     let subject: String?        // 파일 경로 / 명령어 / URL
-    let contentPreview: String? // 잘린 내용 미리보기 (최대 2000자)
+    let contentPreview: String? // 잘린 내용 미리보기 (최대 500자)
     let isError: Bool
+
+    /// 도구 이름 → 한국어 표시명
+    var displayName: String {
+        switch toolName {
+        case "Read", "file_read":           return "파일 읽기"
+        case "Write", "file_write":         return "파일 쓰기"
+        case "Edit":                        return "파일 수정"
+        case "Bash", "shell_exec":          return "명령 실행"
+        case "Glob":                        return "파일 검색"
+        case "Grep":                        return "내용 검색"
+        case "WebFetch", "web_fetch":       return "웹 페이지"
+        case "WebSearch", "web_search":     return "웹 검색"
+        case "LSP":                         return "코드 분석"
+        case "Agent":                       return "서브 에이전트"
+        case "llm_call":                    return "실행 중"
+        case "llm_result":                  return "완료"
+        case "llm_error":                   return "API 오류"
+        default:                            return toolName
+        }
+    }
 }
 
 struct ChatMessage: Identifiable, Codable {

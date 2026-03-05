@@ -9,6 +9,7 @@ struct TypingIndicator: View {
     @EnvironmentObject var roomManager: RoomManager
     @State private var dotPhase = 0
     @State private var isExpanded = false
+    @State private var expandedActivityIDs: Set<UUID> = []
 
     /// 현재 발언 중인 에이전트 (토론 턴)
     private var speakingAgent: Agent? {
@@ -131,6 +132,15 @@ struct TypingIndicator: View {
                         .foregroundColor(.secondary.opacity(0.35))
                 }
 
+                // 최근 활동 요약 (접힌 상태에서 한 줄로 표시)
+                if !isExpanded, let lastDetail = activeActivities.last?.toolDetail {
+                    Text("· \(lastDetail.displayName)\(lastDetail.subject.map { " \(shortenPath($0))" } ?? "")")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary.opacity(0.45))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+
                 // 활동 개수 뱃지 + 펼침 화살표
                 if !activeActivities.isEmpty {
                     Text("\(activeActivities.count)")
@@ -183,35 +193,114 @@ struct TypingIndicator: View {
 
     @ViewBuilder
     private func activityRow(_ activity: ChatMessage) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            Image(systemName: activityIcon(activity))
-                .font(.system(size: 9))
-                .foregroundColor(activityColor(activity))
-                .frame(width: 12)
+        let hasPreview = activity.toolDetail?.contentPreview != nil
+        let isDetailExpanded = expandedActivityIDs.contains(activity.id)
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text(activity.content)
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary.opacity(0.6))
-                    .lineLimit(2)
-
-                if let subject = activity.toolDetail?.subject {
-                    Text(subject)
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundColor(.secondary.opacity(0.45))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                guard hasPreview else { return }
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    if isDetailExpanded {
+                        expandedActivityIDs.remove(activity.id)
+                    } else {
+                        expandedActivityIDs.insert(activity.id)
+                    }
                 }
+            } label: {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: activityIcon(activity))
+                        .font(.system(size: 9))
+                        .foregroundColor(activityColor(activity))
+                        .frame(width: 12)
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        // 한국어 도구명 + 대상 (subject와 중복 시 content 대신 displayName 사용)
+                        if let detail = activity.toolDetail {
+                            Text("\(detail.displayName)\(detail.subject.map { " → \(shortenPath($0))" } ?? "")")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary.opacity(0.6))
+                                .lineLimit(2)
+                        } else {
+                            Text(activity.content)
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary.opacity(0.6))
+                                .lineLimit(2)
+                        }
+
+                        // 파일 경로 전체 (subject가 경로일 때)
+                        if let subject = activity.toolDetail?.subject,
+                           isFilePath(subject) {
+                            Text(subject)
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundColor(.secondary.opacity(0.45))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+
+                    Spacer()
+
+                    if hasPreview {
+                        Image(systemName: isDetailExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 7))
+                            .foregroundColor(.secondary.opacity(0.3))
+                    }
+
+                    Text(timeLabel(activity.timestamp))
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.secondary.opacity(0.3))
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 1)
 
-            Spacer()
-
-            Text(timeLabel(activity.timestamp))
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundColor(.secondary.opacity(0.3))
+            // 상세 미리보기 (확장 시)
+            if isDetailExpanded, let preview = activity.toolDetail?.contentPreview {
+                previewBlock(preview)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 1)
+    }
+
+    /// 상세 미리보기 블록
+    private func previewBlock(_ preview: String) -> some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            Text(preview)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(.secondary.opacity(0.7))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+        }
+        .frame(maxHeight: 150)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(palette.inputBackground.opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(palette.cardBorder.opacity(0.1), lineWidth: 0.5)
+        )
+        .padding(.leading, 30)
+        .padding(.trailing, 12)
+        .padding(.vertical, 2)
+    }
+
+    /// 경로 축약 (파일명만 표시)
+    private func shortenPath(_ path: String) -> String {
+        guard path.contains("/") else { return path }
+        let components = path.components(separatedBy: "/")
+        if components.count > 3 {
+            return "…/" + components.suffix(2).joined(separator: "/")
+        }
+        return path
+    }
+
+    /// subject가 파일 경로인지 판별
+    private func isFilePath(_ text: String) -> Bool {
+        text.hasPrefix("/") || text.hasPrefix("~/") || text.contains(".swift") || text.contains(".java") || text.contains(".ts")
     }
 
     // MARK: - Helpers

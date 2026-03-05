@@ -291,6 +291,23 @@ class RoomManager: ObservableObject {
         appendMessage(progressMsg, to: roomID)
         let groupID = progressMsg.id
 
+        // 시작 활동: 모델 + 단계 정보
+        let startDetail = ToolActivityDetail(
+            toolName: "llm_call",
+            subject: "\(providerName) · \(modelName)",
+            contentPreview: nil,
+            isError: false
+        )
+        let startMsg = ChatMessage(
+            role: .assistant,
+            content: label,
+            agentName: agentName,
+            messageType: .toolActivity,
+            activityGroupID: groupID,
+            toolDetail: startDetail
+        )
+        appendMessage(startMsg, to: roomID)
+
         let onToolActivity: (String, ToolActivityDetail?) -> Void = { [weak self] activity, detail in
             guard let self else { return }
             Task { @MainActor in
@@ -3334,6 +3351,26 @@ class RoomManager: ObservableObject {
 
             // 실행 시작 시각 (완료 활동에서 소요 시간 계산용)
             let stepStartTime = Date()
+
+            // 단계 시작 활동: 어떤 작업을 수행하는지 표시
+            if let progressGroupID {
+                let stepLabel = step.count > 60 ? String(step.prefix(57)) + "..." : step
+                let startDetail = ToolActivityDetail(
+                    toolName: "llm_call",
+                    subject: "[\(stepIndex + 1)/\(totalSteps)] \(stepLabel)",
+                    contentPreview: nil,
+                    isError: false
+                )
+                let startMsg = ChatMessage(
+                    role: .assistant,
+                    content: stepLabel,
+                    agentName: agent.name,
+                    messageType: .toolActivity,
+                    activityGroupID: progressGroupID,
+                    toolDetail: startDetail
+                )
+                appendMessage(startMsg, to: roomID)
+            }
 
             let context = makeToolContext(roomID: roomID, currentAgentID: agentID, fileWriteTracker: fileWriteTracker)
             let messagesWithStep = history + [ConversationMessage.user(stepPrompt)]
