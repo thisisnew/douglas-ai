@@ -719,14 +719,15 @@ class RoomManager: ObservableObject {
             speakingAgentIDByRoom[roomID] = firstAgentID
         }
 
-        // 문서화 요청 감지 (intent 재분류 전에 우선 체크)
+        // 이전 사이클 문서 플래그 리셋
+        rooms[idx].autoDocOutput = false
+        rooms[idx].documentType = nil
+
+        // 문서 요청 감지 → 플래그만 설정 (숏컷 제거 — assemble 경유로 적합 에이전트 판단)
+        var detectedDocType: DocumentType? = nil
         if let docResult = DocumentRequestDetector.quickDetect(task), docResult.isDocumentRequest {
-            speakingAgentIDByRoom.removeValue(forKey: roomID)
-            await handleDocumentOutput(roomID: roomID, task: task, suggestedType: docResult.suggestedDocType)
-            return
-        }
-        // 1차 감지 실패 시 LLM 폴백 (짧은 메시지가 아닌 경우만)
-        if task.count >= 20,
+            detectedDocType = docResult.suggestedDocType
+        } else if task.count >= 20,
            let firstAgentID = rooms[idx].assignedAgentIDs.first,
            let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
            let provider = providerManager?.provider(named: agent.providerName) {
@@ -735,10 +736,13 @@ class RoomManager: ObservableObject {
                 text: task, provider: provider, model: lightModel
             )
             if llmResult.isDocumentRequest {
-                speakingAgentIDByRoom.removeValue(forKey: roomID)
-                await handleDocumentOutput(roomID: roomID, task: task, suggestedType: llmResult.suggestedDocType)
-                return
+                detectedDocType = llmResult.suggestedDocType
             }
+        }
+
+        if let docType = detectedDocType {
+            rooms[idx].documentType = docType
+            rooms[idx].autoDocOutput = true
         }
 
         // 타이핑 인디케이터 해제 (이후 각 phase에서 개별 설정)
@@ -773,15 +777,19 @@ class RoomManager: ObservableObject {
         syncAgentStatuses()
 
         // 후속 사이클 스킵 범위 결정:
-        // - quickAnswer (질의응답): clarify 없음 + 에이전트 변동 없으면 assemble도 스킵
-        // - 에이전트가 새로 추가됐으면 → assemble 수행 (새 에이전트 통합)
-        // - 그 외 → clarify 수행 (의도 확인 필요)
+        // - quickAnswer + 에이전트 변동 없음 + 문서 요청 아님 → assemble 스킵
+        // - 문서 요청 → clarify 스킵 (의도 명확) + assemble 실행 (적합 에이전트 확인)
         var completedPhases: Set<WorkflowPhase> = [.intake, .intent]
         let specialists = executingAgentIDs(in: roomID)
         let previousAgentCount = previousCycleAgentCount[roomID] ?? specialists.count
         let agentsChanged = specialists.count != previousAgentCount
-        if resolvedIntent == .quickAnswer && !specialists.isEmpty && !agentsChanged {
+        let hasDocRequest = detectedDocType != nil
+        if resolvedIntent == .quickAnswer && !specialists.isEmpty && !agentsChanged && !hasDocRequest {
             completedPhases.insert(.assemble)
+        }
+        // 문서 후속 요청: clarify 불필요 (사용자 의도가 명확함)
+        if hasDocRequest {
+            completedPhases.insert(.clarify)
         }
         // Room에 동기화
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
