@@ -7,6 +7,7 @@ struct ChatContentView: View {
     let agent: Agent?
     @EnvironmentObject var chatVM: ChatViewModel
     @State private var inputText = ""
+    @State private var inputAccessor = ScrollableTextInput.Accessor()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -69,7 +70,8 @@ struct ChatContentView: View {
                     placeholder: "메시지를 입력하세요...",
                     font: NSFont.systemFont(ofSize: DesignTokens.FontSize.bodyMd),
                     maxHeight: 100,
-                    onSubmit: send
+                    onSubmit: send,
+                    accessor: inputAccessor
                 )
 
                 SendButton(
@@ -121,6 +123,7 @@ struct ChatContentView: View {
     }
 
     private func send() {
+        inputAccessor.sync()
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         inputText = ""

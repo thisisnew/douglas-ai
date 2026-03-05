@@ -10,6 +10,7 @@ struct RoomChatView: View {
     @EnvironmentObject var providerManager: ProviderManager
     @Environment(\.colorPalette) private var palette
     @State private var inputText = ""
+    @State private var inputAccessor = ScrollableTextInput.Accessor()
     @State private var pendingAttachments: [FileAttachment] = []
     @State private var showDeleteConfirm = false
     @State private var showCopiedFeedback = false
@@ -466,41 +467,7 @@ struct RoomChatView: View {
                 .buttonStyle(.plain)
                 .help("파일 첨부")
 
-                ScrollableTextInput(
-                    text: $inputText,
-                    placeholder: room.status == .inProgress ? "추가 요건을 입력하세요..." : "메시지를 입력하세요...",
-                    font: NSFont.systemFont(ofSize: 13),
-                    maxHeight: 80,
-                    onSubmit: {
-                        if !mentionCandidates.isEmpty {
-                            let idx = min(mentionSelectionIndex, mentionCandidates.count - 1)
-                            insertMention(mentionCandidates[idx])
-                        } else {
-                            sendMessage()
-                        }
-                    },
-                    onSpecialKey: { key in
-                        switch key {
-                        case .upArrow:
-                            guard !mentionCandidates.isEmpty else { return false }
-                            mentionSelectionIndex = max(0, mentionSelectionIndex - 1)
-                            return true
-                        case .downArrow:
-                            guard !mentionCandidates.isEmpty else { return false }
-                            mentionSelectionIndex = min(mentionCandidates.count - 1, mentionSelectionIndex + 1)
-                            return true
-                        case .tab:
-                            guard !mentionCandidates.isEmpty else { return false }
-                            let idx = min(mentionSelectionIndex, mentionCandidates.count - 1)
-                            insertMention(mentionCandidates[idx])
-                            return true
-                        case .escape:
-                            guard !mentionCandidates.isEmpty else { return false }
-                            mentionCandidates = []
-                            return true
-                        }
-                    }
-                )
+                textInputView(room)
                 .onChange(of: inputText) { _, newValue in
                     updateMentionCandidates(newValue)
                 }
@@ -525,7 +492,47 @@ struct RoomChatView: View {
         }
     }
 
+    private func textInputView(_ room: Room) -> some View {
+        ScrollableTextInput(
+            text: $inputText,
+            placeholder: room.status == .inProgress ? "추가 요건을 입력하세요..." : "메시지를 입력하세요...",
+            font: NSFont.systemFont(ofSize: 13),
+            maxHeight: 80,
+            onSubmit: {
+                if !mentionCandidates.isEmpty {
+                    let idx = min(mentionSelectionIndex, mentionCandidates.count - 1)
+                    insertMention(mentionCandidates[idx])
+                } else {
+                    sendMessage()
+                }
+            },
+            onSpecialKey: { key in
+                switch key {
+                case .upArrow:
+                    guard !mentionCandidates.isEmpty else { return false }
+                    mentionSelectionIndex = max(0, mentionSelectionIndex - 1)
+                    return true
+                case .downArrow:
+                    guard !mentionCandidates.isEmpty else { return false }
+                    mentionSelectionIndex = min(mentionCandidates.count - 1, mentionSelectionIndex + 1)
+                    return true
+                case .tab:
+                    guard !mentionCandidates.isEmpty else { return false }
+                    let idx = min(mentionSelectionIndex, mentionCandidates.count - 1)
+                    insertMention(mentionCandidates[idx])
+                    return true
+                case .escape:
+                    guard !mentionCandidates.isEmpty else { return false }
+                    mentionCandidates = []
+                    return true
+                }
+            },
+            accessor: inputAccessor
+        )
+    }
+
     private func sendMessage() {
+        inputAccessor.sync()  // NSTextView → SwiftUI 바인딩 동기화
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !pendingAttachments.isEmpty else { return }
         let attachments = pendingAttachments.isEmpty ? nil : pendingAttachments

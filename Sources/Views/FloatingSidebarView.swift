@@ -267,6 +267,8 @@ struct FloatingSidebarView: View {
     @Environment(\.colorPalette) private var palette
 
     @State private var inputText = ""
+    /// NSTextView → SwiftUI 바인딩 동기화 핸들 (전송 버튼 클릭 시 사용)
+    @State private var inputAccessor = ScrollableTextInput.Accessor()
     @State private var previousInputText = ""
     @State private var pendingAttachments: [FileAttachment] = []
     @State private var showSlashMenu = false
@@ -890,7 +892,8 @@ struct FloatingSidebarView: View {
                             placeholder: "Tell Don't Ask",
                             font: NSFont.systemFont(ofSize: 13),
                             maxHeight: 100,
-                            onSubmit: sendToMaster
+                            onSubmit: sendToMaster,
+                            accessor: inputAccessor
                         )
                         .onChange(of: inputText) { _, newValue in
                             // 드롭된 파일 경로 감지 → 파일 첨부로 변환
@@ -1025,6 +1028,7 @@ struct FloatingSidebarView: View {
     }
 
     private func sendToMaster() {
+        inputAccessor.sync()  // NSTextView → SwiftUI 바인딩 동기화
         guard let id = masterID else { return }
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !pendingAttachments.isEmpty else { return }

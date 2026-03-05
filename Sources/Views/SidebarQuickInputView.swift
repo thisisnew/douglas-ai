@@ -6,6 +6,7 @@ struct SidebarQuickInputView: View {
     @Binding var text: String
     let isLoading: Bool
     let onSend: () -> Void
+    var accessor: ScrollableTextInput.Accessor? = nil
 
     var body: some View {
         VStack(spacing: 6) {
@@ -30,7 +31,8 @@ struct SidebarQuickInputView: View {
                     placeholder: "메시지 입력...",
                     font: NSFont.systemFont(ofSize: DesignTokens.FontSize.body),
                     maxHeight: 60,
-                    onSubmit: onSend
+                    onSubmit: onSend,
+                    accessor: accessor
                 )
 
                 let canSend = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

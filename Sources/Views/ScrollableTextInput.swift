@@ -11,9 +11,18 @@ struct ScrollableTextInput: View {
     var onSubmit: (() -> Void)? = nil
     /// 특수 키 처리 (mention autocomplete 등). true 반환 시 이벤트 소비.
     var onSpecialKey: ((SpecialKey) -> Bool)? = nil
+    /// 외부에서 NSTextView → SwiftUI 바인딩 동기화를 트리거하기 위한 핸들
+    var accessor: Accessor? = nil
 
     enum SpecialKey {
         case upArrow, downArrow, tab, escape
+    }
+
+    /// 외부에서 텍스트 동기화를 트리거하는 핸들 (전송 버튼 등)
+    final class Accessor {
+        fileprivate var syncAction: (() -> Void)?
+        /// NSTextView의 현재 텍스트를 SwiftUI 바인딩에 즉시 동기화
+        func sync() { syncAction?() }
     }
 
     @State private var dynamicHeight: CGFloat = 20
@@ -26,7 +35,8 @@ struct ScrollableTextInput: View {
             maxHeight: maxHeight,
             dynamicHeight: $dynamicHeight,
             onSubmit: onSubmit,
-            onSpecialKey: onSpecialKey
+            onSpecialKey: onSpecialKey,
+            accessor: accessor
         )
         .frame(height: dynamicHeight)
     }
@@ -42,6 +52,7 @@ private struct _Representable: NSViewRepresentable {
     @Binding var dynamicHeight: CGFloat
     var onSubmit: (() -> Void)?
     var onSpecialKey: ((ScrollableTextInput.SpecialKey) -> Bool)?
+    var accessor: ScrollableTextInput.Accessor?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -50,6 +61,12 @@ private struct _Representable: NSViewRepresentable {
     func makeNSView(context: Context) -> _Container {
         let container = _Container(coordinator: context.coordinator)
         context.coordinator.container = container
+
+        // Accessor에 sync 클로저 연결
+        let coord = context.coordinator
+        accessor?.syncAction = { [weak coord] in
+            coord?.syncText()
+        }
 
         // 초기 높이 설정
         DispatchQueue.main.async {
@@ -64,7 +81,12 @@ private struct _Representable: NSViewRepresentable {
         let coord = context.coordinator
         coord.parent = self
 
-        // 외부 text 변경 반영
+        // Accessor sync 클로저 갱신 (coordinator 참조 유지)
+        accessor?.syncAction = { [weak coord] in
+            coord?.syncText()
+        }
+
+        // 외부 text 변경 반영 (전송 후 text="" 등)
         if !coord.isUpdating && tv.string != text {
             coord.isUpdating = true
             tv.string = text
@@ -132,6 +154,8 @@ private struct _Representable: NSViewRepresentable {
             tv.isAutomaticDashSubstitutionEnabled = false
             tv.isAutomaticTextReplacementEnabled = false
             tv.isAutomaticSpellingCorrectionEnabled = false
+            tv.isContinuousSpellCheckingEnabled = false
+            tv.isGrammarCheckingEnabled = false
             tv.isAutomaticLinkDetectionEnabled = false
             tv.isAutomaticDataDetectionEnabled = false
             tv.isAutomaticTextCompletionEnabled = false
@@ -223,8 +247,6 @@ private struct _Representable: NSViewRepresentable {
         weak var container: _Container?
         /// 이전 텍스트 길이 (붙여넣기/드롭 감지용)
         private var previousLength = 0
-        /// 디바운스 타이머 (일반 타이핑 시 바인딩 동기화 지연)
-        private var debounceTimer: Timer?
 
         init(_ parent: _Representable) {
             self.parent = parent
@@ -232,8 +254,6 @@ private struct _Representable: NSViewRepresentable {
 
         /// NSTextView → SwiftUI 바인딩 즉시 동기화
         func syncText() {
-            debounceTimer?.invalidate()
-            debounceTimer = nil
             guard let tv = container?.textView, !isUpdating else { return }
             isUpdating = true
             parent.text = tv.string
@@ -247,22 +267,15 @@ private struct _Representable: NSViewRepresentable {
             let lengthDelta = abs(newText.count - previousLength)
             previousLength = newText.count
 
-            // 슬래시 명령("/" 시작), 붙여넣기/드롭(길이 급변), 텍스트 비움 → 즉시 동기화
-            let needsImmediateSync = newText.hasPrefix("/") || lengthDelta > 3 || newText.isEmpty
-            if needsImmediateSync {
-                debounceTimer?.invalidate()
+            // 즉시 동기화가 필요한 경우만:
+            // - "/" 시작: 슬래시 명령 자동완성 트리거
+            // - 길이 급변(>3): 붙여넣기/드롭 → onChange 파일경로 감지 필요
+            // - 텍스트 비움: placeholder 등 UI 상태 반영
+            // 일반 타이핑은 전송 시점(syncText)까지 SwiftUI 바인딩을 건드리지 않음
+            if newText.hasPrefix("/") || lengthDelta > 3 || newText.isEmpty {
                 isUpdating = true
                 parent.text = newText
                 isUpdating = false
-            } else {
-                // 일반 타이핑: 150ms 디바운스 (연속 입력 중 SwiftUI 재렌더 방지)
-                debounceTimer?.invalidate()
-                debounceTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self] _ in
-                    guard let self, let tv = self.container?.textView, !self.isUpdating else { return }
-                    self.isUpdating = true
-                    self.parent.text = tv.string
-                    self.isUpdating = false
-                }
             }
 
             container?.updatePlaceholder()
