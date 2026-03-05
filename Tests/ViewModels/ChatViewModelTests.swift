@@ -288,4 +288,63 @@ struct ChatViewModelTests {
         vm.configure(agentStore: store, providerManager: providerManager)
         #expect(vm.roomManager == nil)
     }
+
+    // MARK: - extractRoomTitle
+
+    @Test("extractRoomTitle — 빈 텍스트")
+    func roomTitleEmpty() {
+        #expect(ChatViewModel.extractRoomTitle(from: "") == "새 작업")
+        #expect(ChatViewModel.extractRoomTitle(from: "", hasAttachments: true) == "이미지 분석")
+    }
+
+    @Test("extractRoomTitle — 일반 텍스트")
+    func roomTitlePlainText() {
+        #expect(ChatViewModel.extractRoomTitle(from: "로그인 기능 구현") == "로그인 기능 구현")
+    }
+
+    @Test("extractRoomTitle — 긴 텍스트 축약")
+    func roomTitleLongText() {
+        let long = String(repeating: "가", count: 40)
+        let title = ChatViewModel.extractRoomTitle(from: long)
+        #expect(title.count < 35)
+        #expect(title.hasSuffix("…"))
+    }
+
+    @Test("extractRoomTitle — 단일 Jira URL")
+    func roomTitleSingleJiraURL() {
+        let title = ChatViewModel.extractRoomTitle(from: "https://company.atlassian.net/browse/IBS-100")
+        #expect(title == "IBS-100")
+    }
+
+    @Test("extractRoomTitle — Jira URL + 텍스트")
+    func roomTitleJiraWithText() {
+        let title = ChatViewModel.extractRoomTitle(from: "https://company.atlassian.net/browse/IBS-100 분석해줘")
+        #expect(title.contains("IBS-100"))
+        #expect(title.contains("분석해줘"))
+    }
+
+    @Test("extractRoomTitle — 여러 Jira URL")
+    func roomTitleMultipleJira() {
+        let input = """
+        https://company.atlassian.net/browse/IBS-100
+        https://company.atlassian.net/browse/IBS-200
+        https://company.atlassian.net/browse/IBS-300
+        """
+        let title = ChatViewModel.extractRoomTitle(from: input)
+        #expect(title.contains("IBS"))
+        #expect(title.contains("3건"))
+    }
+
+    @Test("extractRoomTitle — 여러 Jira URL + 텍스트")
+    func roomTitleMultipleJiraWithText() {
+        let input = """
+        https://company.atlassian.net/browse/IBS-100
+        https://company.atlassian.net/browse/IBS-200
+        pr 링크 취합해줘
+        """
+        let title = ChatViewModel.extractRoomTitle(from: input)
+        #expect(title.contains("IBS"))
+        #expect(title.contains("2건"))
+        #expect(title.contains("pr 링크 취합해줘"))
+    }
 }

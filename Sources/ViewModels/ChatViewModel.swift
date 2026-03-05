@@ -132,39 +132,106 @@ class ChatViewModel: ObservableObject {
             return
         }
 
-        // 방 제목: Jira URL이면 키만 추출, 아니면 원본 텍스트 축약
+        // Pre-Intent 라우팅: 분류 전 특수 케이스 처리
         let hasAttachments = attachments?.isEmpty == false
-        let roomTitle = Self.extractRoomTitle(from: text, hasAttachments: hasAttachments)
+        let route = IntentClassifier.preRoute(text, hasAttachments: hasAttachments)
 
-        // Intent 분류 (키워드 즉시 판별 — nil이면 워크플로우에서 사용자 선택)
-        let intent = IntentClassifier.quickClassify(text)
+        switch route {
+        case .empty:
+            // 텍스트 없음 + 파일 없음 → 무시
+            agentStore.updateStatus(agentID: agent.id, status: .idle)
+            return
 
-        // 방 생성 + 워크플로우 시작 알림 (단일 메시지)
-        let startMsg = ChatMessage(
-            role: .assistant,
-            content: "작업을 시작합니다: \(roomTitle)",
-            agentName: agent.name,
-            messageType: .delegation
-        )
-        appendMessage(startMsg, for: agent.id)
+        case .fileOnly:
+            // 파일만 업로드 → 방 생성 후 intent=nil (사용자 선택 대기)
+            let roomTitle = Self.extractRoomTitle(from: text, hasAttachments: hasAttachments)
+            let startMsg = ChatMessage(
+                role: .assistant,
+                content: "파일을 받았습니다. 어떤 작업을 진행할까요?",
+                agentName: agent.name,
+                messageType: .delegation
+            )
+            appendMessage(startMsg, for: agent.id)
 
-        let room = roomManager.createRoom(
-            title: roomTitle,
-            agentIDs: [agent.id],
-            createdBy: .master(agentID: agent.id),
-            intent: intent
-        )
-        roomManager.selectedRoomID = room.id
-        roomManager.pendingAutoOpenRoomID = room.id
+            let room = roomManager.createRoom(
+                title: roomTitle,
+                agentIDs: [agent.id],
+                createdBy: .master(agentID: agent.id),
+                intent: nil
+            )
+            roomManager.selectedRoomID = room.id
+            roomManager.pendingAutoOpenRoomID = room.id
+            let userMsg = ChatMessage(role: .user, content: text, attachments: attachments)
+            roomManager.appendMessage(userMsg, to: room.id)
+            roomManager.launchWorkflow(roomID: room.id, task: "파일 분석")
+            agentStore.updateStatus(agentID: agent.id, status: .idle)
+            sendNotification(agentName: agent.name, message: "파일 수신")
 
-        // 사용자 메시지(이미지 포함)를 방에 추가 — 원본 텍스트 전달 (Jira URL 포함)
-        let userMsg = ChatMessage(role: .user, content: text, attachments: attachments)
-        roomManager.appendMessage(userMsg, to: room.id)
+        case .command(let commandType):
+            // 시스템 커맨드 → 즉시 처리 (방 생성 안 함)
+            switch commandType {
+            case .summonAgent(let name):
+                let nameDesc = name.map { "\($0) " } ?? ""
+                let reply = ChatMessage(
+                    role: .assistant,
+                    content: "\(nameDesc)에이전트를 사용하려면 사이드바에서 선택하거나, 작업 내용과 함께 요청해주세요.",
+                    agentName: agent.name,
+                    messageType: .text
+                )
+                appendMessage(reply, for: agent.id)
+            }
+            agentStore.updateStatus(agentID: agent.id, status: .idle)
 
-        roomManager.launchWorkflow(roomID: room.id, task: text)
+        case .classified(let intent):
+            // 정상 분류 → 방 생성 + 워크플로우
+            let roomTitle = Self.extractRoomTitle(from: text, hasAttachments: hasAttachments)
+            let startMsg = ChatMessage(
+                role: .assistant,
+                content: "작업을 시작합니다: \(roomTitle)",
+                agentName: agent.name,
+                messageType: .delegation
+            )
+            appendMessage(startMsg, for: agent.id)
 
-        agentStore.updateStatus(agentID: agent.id, status: .idle)
-        sendNotification(agentName: agent.name, message: "작업 시작")
+            let room = roomManager.createRoom(
+                title: roomTitle,
+                agentIDs: [agent.id],
+                createdBy: .master(agentID: agent.id),
+                intent: intent
+            )
+            roomManager.selectedRoomID = room.id
+            roomManager.pendingAutoOpenRoomID = room.id
+            let userMsg = ChatMessage(role: .user, content: text, attachments: attachments)
+            roomManager.appendMessage(userMsg, to: room.id)
+            roomManager.launchWorkflow(roomID: room.id, task: text)
+            agentStore.updateStatus(agentID: agent.id, status: .idle)
+            sendNotification(agentName: agent.name, message: "작업 시작")
+
+        case .ambiguous:
+            // preRoute가 더 이상 .ambiguous를 반환하지 않지만, 안전장치로 task 처리
+            let roomTitle = Self.extractRoomTitle(from: text, hasAttachments: hasAttachments)
+            let startMsg = ChatMessage(
+                role: .assistant,
+                content: "작업을 시작합니다: \(roomTitle)",
+                agentName: agent.name,
+                messageType: .delegation
+            )
+            appendMessage(startMsg, for: agent.id)
+
+            let room = roomManager.createRoom(
+                title: roomTitle,
+                agentIDs: [agent.id],
+                createdBy: .master(agentID: agent.id),
+                intent: .task
+            )
+            roomManager.selectedRoomID = room.id
+            roomManager.pendingAutoOpenRoomID = room.id
+            let userMsg = ChatMessage(role: .user, content: text, attachments: attachments)
+            roomManager.appendMessage(userMsg, to: room.id)
+            roomManager.launchWorkflow(roomID: room.id, task: text)
+            agentStore.updateStatus(agentID: agent.id, status: .idle)
+            sendNotification(agentName: agent.name, message: "작업 시작")
+        }
     }
 
     // MARK: - 서브 에이전트 직접 대화
@@ -416,18 +483,31 @@ class ChatViewModel: ObservableObject {
             return hasAttachments ? "이미지 분석" : "새 작업"
         }
 
-        // Jira 키 추출 (PROJ-123 패턴)
-        if let keyRange = trimmed.range(of: "[A-Z][A-Z0-9]+-\\d+", options: .regularExpression) {
-            let jiraKey = String(trimmed[keyRange])
-            if trimmed.hasPrefix("http") && !trimmed.contains(" ") {
-                return jiraKey
-            }
+        // 모든 Jira 키 추출 (PROJ-123 패턴, 중복 제거)
+        let jiraKeys = extractAllJiraKeys(from: trimmed)
+
+        if !jiraKeys.isEmpty {
             let withoutURL = trimmed.replacingOccurrences(of: "https?://[^\\s]+", with: "", options: .regularExpression)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // URL만 있고 텍스트 없음
             if withoutURL.isEmpty {
-                return jiraKey
+                if jiraKeys.count == 1 { return jiraKeys[0] }
+                // 같은 프로젝트면 프로젝트명 + N건
+                let project = jiraKeys[0].components(separatedBy: "-").first ?? ""
+                return "\(project) 티켓 \(jiraKeys.count)건"
             }
-            return "[\(jiraKey)] \(withoutURL)"
+
+            // 텍스트가 있으면: 키 요약 + 사용자 텍스트
+            let keyPrefix: String
+            if jiraKeys.count == 1 {
+                keyPrefix = "[\(jiraKeys[0])]"
+            } else {
+                let project = jiraKeys[0].components(separatedBy: "-").first ?? ""
+                keyPrefix = "[\(project) \(jiraKeys.count)건]"
+            }
+            let desc = withoutURL.count <= 25 ? withoutURL : String(withoutURL.prefix(23)) + "…"
+            return "\(keyPrefix) \(desc)"
         }
 
         // 일반 텍스트: 첫 줄, 30자 이내로 축약
@@ -436,5 +516,20 @@ class ChatViewModel: ObservableObject {
             return firstLine
         }
         return String(firstLine.prefix(28)) + "…"
+    }
+
+    /// 텍스트에서 모든 Jira 키 추출 (중복 제거, 순서 유지)
+    private static func extractAllJiraKeys(from text: String) -> [String] {
+        let pattern = "[A-Z][A-Z0-9]+-\\d+"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+        var seen = Set<String>()
+        var keys: [String] = []
+        for match in regex.matches(in: text, range: range) {
+            guard let r = Range(match.range, in: text) else { continue }
+            let key = String(text[r])
+            if seen.insert(key).inserted { keys.append(key) }
+        }
+        return keys
     }
 }

@@ -50,8 +50,8 @@ struct IntakeDataTests {
         let intake = IntakeData(sourceType: .text, rawInput: "블로그 글 작성")
         #expect(intake.sourceType == .text)
         #expect(intake.rawInput == "블로그 글 작성")
-        #expect(intake.jiraKey == nil)
-        #expect(intake.jiraData == nil)
+        #expect(intake.jiraKeys.isEmpty)
+        #expect(intake.jiraDataList.isEmpty)
         #expect(intake.urls.isEmpty)
     }
 
@@ -67,14 +67,25 @@ struct IntakeDataTests {
         let intake = IntakeData(
             sourceType: .jira,
             rawInput: "https://jira.example.com/browse/PROJ-456",
-            jiraKey: "PROJ-456",
-            jiraData: jira,
+            jiraKeys: ["PROJ-456"],
+            jiraDataList: [jira],
             urls: ["https://jira.example.com/browse/PROJ-456"]
         )
         #expect(intake.sourceType == .jira)
-        #expect(intake.jiraKey == "PROJ-456")
-        #expect(intake.jiraData?.summary == "API 리팩토링")
+        #expect(intake.jiraKeys == ["PROJ-456"])
+        #expect(intake.jiraDataList.first?.summary == "API 리팩토링")
         #expect(intake.urls.count == 1)
+    }
+
+    @Test("IntakeData 다중 Jira 키")
+    func intakeMultipleJiraKeys() {
+        let intake = IntakeData(
+            sourceType: .jira,
+            rawInput: "IBS-100 IBS-200 IBS-300",
+            jiraKeys: ["IBS-100", "IBS-200", "IBS-300"]
+        )
+        #expect(intake.jiraKeys.count == 3)
+        #expect(intake.jiraKeys[1] == "IBS-200")
     }
 
     @Test("IntakeData Codable 라운드트립")
@@ -103,14 +114,40 @@ struct IntakeDataTests {
         let intake = IntakeData(
             sourceType: .jira,
             rawInput: "TEST-1",
-            jiraKey: "TEST-1",
-            jiraData: jira
+            jiraKeys: ["TEST-1"],
+            jiraDataList: [jira]
         )
         let data = try JSONEncoder().encode(intake)
         let decoded = try JSONDecoder().decode(IntakeData.self, from: data)
-        #expect(decoded.jiraKey == "TEST-1")
-        #expect(decoded.jiraData?.summary == "테스트")
-        #expect(decoded.jiraData?.status == "Done")
+        #expect(decoded.jiraKeys == ["TEST-1"])
+        #expect(decoded.jiraDataList.first?.summary == "테스트")
+        #expect(decoded.jiraDataList.first?.status == "Done")
+    }
+
+    @Test("IntakeData Codable 하위 호환 — 구버전 jiraKey/jiraData")
+    func intakeCodableBackwardCompat() throws {
+        // 구버전 JSON (jiraKey: String, jiraData: single object)
+        let oldJSON = """
+        {
+            "sourceType": "jira",
+            "rawInput": "PROJ-1",
+            "jiraKey": "PROJ-1",
+            "jiraData": {
+                "key": "PROJ-1",
+                "summary": "구버전",
+                "issueType": "Bug",
+                "status": "Open",
+                "description": "테스트"
+            },
+            "urls": [],
+            "parsedAt": 0
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(IntakeData.self, from: oldJSON)
+        #expect(decoded.jiraKeys == ["PROJ-1"])
+        #expect(decoded.jiraDataList.count == 1)
+        #expect(decoded.jiraDataList[0].summary == "구버전")
     }
 
     // MARK: - asContextString
@@ -136,16 +173,27 @@ struct IntakeDataTests {
         let intake = IntakeData(
             sourceType: .jira,
             rawInput: "PROJ-1",
-            jiraKey: "PROJ-1",
-            jiraData: jira
+            jiraKeys: ["PROJ-1"],
+            jiraDataList: [jira]
         )
         let str = intake.asContextString()
         #expect(str.contains("소스: jira"))
-        #expect(str.contains("Jira 키: PROJ-1"))
-        #expect(str.contains("제목: 기능 추가"))
-        #expect(str.contains("유형: Story"))
-        #expect(str.contains("상태: To Do"))
-        #expect(str.contains("설명:"))
+        #expect(str.contains("Jira 티켓: PROJ-1"))
+        #expect(str.contains("[PROJ-1] 기능 추가"))
+        #expect(str.contains("Story"))
+        #expect(str.contains("To Do"))
+        #expect(str.contains("설명: 상세 설명"))
+    }
+
+    @Test("asContextString — 다중 Jira 키")
+    func contextStringMultipleJira() {
+        let intake = IntakeData(
+            sourceType: .jira,
+            rawInput: "test",
+            jiraKeys: ["IBS-100", "IBS-200", "IBS-300"]
+        )
+        let str = intake.asContextString()
+        #expect(str.contains("Jira 티켓: IBS-100, IBS-200, IBS-300"))
     }
 
     @Test("asContextString — URL 포함")
@@ -171,8 +219,8 @@ struct IntakeDataTests {
         let intake = IntakeData(
             sourceType: .jira,
             rawInput: "X-1",
-            jiraKey: "X-1",
-            jiraData: jira
+            jiraKeys: ["X-1"],
+            jiraDataList: [jira]
         )
         let str = intake.asContextString()
         #expect(!str.contains("설명:"))

@@ -27,99 +27,99 @@ struct IntentClassifierTests {
         #expect(IntentClassifier.quickClassify("뜻이 뭐야") == .quickAnswer)
     }
 
-    // MARK: - quickClassify: research
+    // MARK: - quickClassify: task (기존 research 케이스)
 
-    @Test("요약 요청 → research")
+    @Test("요약 요청 → task")
     func summarize() {
-        #expect(IntentClassifier.quickClassify("요약해줘") == .research)
+        #expect(IntentClassifier.quickClassify("요약해줘") == WorkflowIntent.task)
     }
 
-    @Test("요약+pdf 복합 → research")
+    @Test("요약+pdf 복합 → task")
     func summarizeWithPdf() {
-        #expect(IntentClassifier.quickClassify("요약해서 pdf로 바꿔줘") == .research)
+        #expect(IntentClassifier.quickClassify("요약해서 pdf로 바꿔줘") == WorkflowIntent.task)
     }
 
-    @Test("요약+pdf 만들어줘 → research (implementation 아님)")
+    @Test("요약+pdf 만들어줘 → task")
     func summarizePdfMake() {
         let result = IntentClassifier.quickClassify("요약해서 pdf로 만들어줘")
-        #expect(result == .research)
+        #expect(result == WorkflowIntent.task)
     }
 
-    @Test("문서 작성 → research")
+    @Test("문서 작성 → task")
     func documentWriting() {
-        #expect(IntentClassifier.quickClassify("기획서 작성해줘") == .research)
+        #expect(IntentClassifier.quickClassify("기획서 작성해줘") == WorkflowIntent.task)
     }
 
-    @Test("보고서 정리 → research")
+    @Test("보고서 정리 → task")
     func reportOrganize() {
-        #expect(IntentClassifier.quickClassify("보고서로 정리해줘") == .research)
+        #expect(IntentClassifier.quickClassify("보고서로 정리해줘") == WorkflowIntent.task)
     }
 
-    @Test("리서치 → research")
+    @Test("리서치 → task")
     func researchDirect() {
-        #expect(IntentClassifier.quickClassify("이 주제 조사해줘") == .research)
+        #expect(IntentClassifier.quickClassify("이 주제 조사해줘") == WorkflowIntent.task)
     }
 
-    @Test("분석 요청 → research")
+    @Test("분석 요청 → task")
     func analysis() {
-        #expect(IntentClassifier.quickClassify("이거 분석해봐") == .research)
+        #expect(IntentClassifier.quickClassify("이거 분석해봐") == WorkflowIntent.task)
     }
 
-    @Test("PRD → research")
+    @Test("PRD → task")
     func prd() {
-        #expect(IntentClassifier.quickClassify("PRD 작성해줘") == .research)
+        #expect(IntentClassifier.quickClassify("PRD 작성해줘") == WorkflowIntent.task)
     }
 
-    @Test("브레인스토밍 → research")
+    @Test("브레인스토밍 → task")
     func brainstorm() {
-        #expect(IntentClassifier.quickClassify("브레인스토밍 해보자") == .research)
+        #expect(IntentClassifier.quickClassify("브레인스토밍 해보자") == WorkflowIntent.task)
     }
 
-    @Test("변환 → research")
+    @Test("변환 → task")
     func convert() {
-        #expect(IntentClassifier.quickClassify("워드로 변환해줘") == .research)
+        #expect(IntentClassifier.quickClassify("워드로 변환해줘") == WorkflowIntent.task)
     }
 
-    // MARK: - quickClassify: implementation
+    // MARK: - quickClassify: task (기존 implementation 케이스)
 
-    @Test("코딩 → implementation")
+    @Test("코딩 → task")
     func coding() {
-        #expect(IntentClassifier.quickClassify("코딩해줘") == .implementation)
+        #expect(IntentClassifier.quickClassify("코딩해줘") == WorkflowIntent.task)
     }
 
-    @Test("구현 → implementation")
+    @Test("구현 → task")
     func implement() {
-        #expect(IntentClassifier.quickClassify("로그인 기능 구현해줘") == .implementation)
+        #expect(IntentClassifier.quickClassify("로그인 기능 구현해줘") == WorkflowIntent.task)
     }
 
-    @Test("버그 → implementation")
+    @Test("버그 → task")
     func bugFix() {
-        #expect(IntentClassifier.quickClassify("이 버그 수정해줘") == .implementation)
+        #expect(IntentClassifier.quickClassify("이 버그 수정해줘") == WorkflowIntent.task)
     }
 
-    @Test("리팩토링 → implementation")
+    @Test("리팩토링 → task")
     func refactor() {
-        #expect(IntentClassifier.quickClassify("이 코드 리팩토링해줘") == .implementation)
+        #expect(IntentClassifier.quickClassify("이 코드 리팩토링해줘") == WorkflowIntent.task)
     }
 
-    // MARK: - 문서 컨텍스트 보정
+    // MARK: - 문서/코드 모두 task
 
-    @Test("pdf로 만들어줘 → research (문서 컨텍스트가 implementation을 억제)")
+    @Test("pdf로 만들어줘 → task")
     func pdfContextOverridesAction() {
         let result = IntentClassifier.quickClassify("이걸 pdf로 만들어줘")
-        #expect(result == .research)
+        #expect(result == WorkflowIntent.task)
     }
 
-    @Test("문서 만들어줘 → research")
+    @Test("문서 만들어줘 → task")
     func documentMake() {
         let result = IntentClassifier.quickClassify("문서 만들어줘")
-        #expect(result == .research)
+        #expect(result == WorkflowIntent.task)
     }
 
-    @Test("앱 만들어줘 → implementation (문서 컨텍스트 없음)")
+    @Test("앱 만들어줘 → task")
     func appMake() {
         let result = IntentClassifier.quickClassify("앱 만들어줘")
-        #expect(result == .implementation)
+        #expect(result == WorkflowIntent.task)
     }
 
     // MARK: - nil 반환 케이스
@@ -136,13 +136,74 @@ struct IntentClassifierTests {
 
     // MARK: - 한국어 어미 변형 커버
 
-    @Test("요약해서 → research (어간 '요약' 매칭)")
+    @Test("요약해서 → task (어간 '요약' 매칭)")
     func koreanStemSummarize() {
-        #expect(IntentClassifier.quickClassify("이 파일 요약해서 보내줘") == .research)
+        #expect(IntentClassifier.quickClassify("이 파일 요약해서 보내줘") == WorkflowIntent.task)
     }
 
-    @Test("바꿔봐 → research")
+    @Test("바꿔봐 → task")
     func koreanStemConvert() {
-        #expect(IntentClassifier.quickClassify("pdf로 바꿔봐") == .research)
+        #expect(IntentClassifier.quickClassify("pdf로 바꿔봐") == WorkflowIntent.task)
+    }
+
+    @Test("classified task 파일 포함")
+    func preRouteTaskWithFile() {
+        let route = IntentClassifier.preRoute("이거 분석해줘", hasAttachments: true)
+        #expect(route == .classified(WorkflowIntent.task))
+    }
+
+    // MARK: - PreIntentRoute
+
+    @Test("빈 텍스트 + 파일 없음 → empty")
+    func preRouteEmpty() {
+        #expect(IntentClassifier.preRoute("", hasAttachments: false) == .empty)
+    }
+
+    @Test("빈 텍스트 + 파일 있음 → fileOnly")
+    func preRouteFileOnly() {
+        #expect(IntentClassifier.preRoute("", hasAttachments: true) == .fileOnly)
+        #expect(IntentClassifier.preRoute("  ", hasAttachments: true) == .fileOnly)
+    }
+
+    @Test("에이전트 불러와 → command")
+    func preRouteCommand() {
+        let route = IntentClassifier.preRoute("에이전트 불러와", hasAttachments: false)
+        #expect(route == .command(.summonAgent(name: nil)))
+    }
+
+    @Test("QA에이전트 불러와 → command with name")
+    func preRouteCommandWithName() {
+        let route = IntentClassifier.preRoute("QA에이전트 불러와", hasAttachments: false)
+        #expect(route == .command(.summonAgent(name: "qa")))
+    }
+
+    @Test("일반 질문 → classified quickAnswer")
+    func preRouteQuickAnswer() {
+        let route = IntentClassifier.preRoute("JWT가 뭐야?", hasAttachments: false)
+        #expect(route == .classified(.quickAnswer))
+    }
+
+    @Test("작업 요청 → classified task")
+    func preRouteTask() {
+        let route = IntentClassifier.preRoute("이 코드 리팩토링해줘", hasAttachments: false)
+        #expect(route == .classified(.task))
+    }
+
+    @Test("키워드 미매칭 → task 기본값 (ambiguous 없음)")
+    func preRouteDefaultTask() {
+        // "취합해줘" 같은 키워드 사전에 없는 입력도 task로 분류
+        let route = IntentClassifier.preRoute("pr 링크좀 레포지토리별로 취합해줘", hasAttachments: false)
+        #expect(route == .classified(.task))
+    }
+
+    @Test("Jira URL + 작업 텍스트 → classified task")
+    func preRouteJiraURLsWithTask() {
+        let input = """
+        https://company.atlassian.net/browse/IBS-100
+        https://company.atlassian.net/browse/IBS-200
+        pr 링크좀 취합해줘
+        """
+        let route = IntentClassifier.preRoute(input, hasAttachments: false)
+        #expect(route == .classified(.task))
     }
 }
