@@ -7,8 +7,6 @@ struct SidebarQuickInputView: View {
     let isLoading: Bool
     let onSend: () -> Void
 
-    @FocusState private var isFocused: Bool
-
     var body: some View {
         VStack(spacing: 6) {
             HStack(spacing: 5) {
@@ -27,12 +25,13 @@ struct SidebarQuickInputView: View {
             }
 
             HStack(spacing: 6) {
-                TextField("메시지 입력...", text: $text, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(isFocused ? 1...3 : 1...1)
-                    .font(.system(size: DesignTokens.FontSize.body, design: .rounded))
-                    .focused($isFocused)
-                    .onSubmit { onSend() }
+                ScrollableTextInput(
+                    text: $text,
+                    placeholder: "메시지 입력...",
+                    font: NSFont.systemFont(ofSize: DesignTokens.FontSize.body),
+                    maxHeight: 60,
+                    onSubmit: onSend
+                )
 
                 let canSend = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 Button(action: onSend) {

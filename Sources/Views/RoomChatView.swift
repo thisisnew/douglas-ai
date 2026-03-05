@@ -17,7 +17,6 @@ struct RoomChatView: View {
     @State private var mentionCandidates: [Agent] = []
     @State private var mentionSelectionIndex: Int = 0
     @State private var suggestionToAdd: RoomAgentSuggestion? = nil
-    @FocusState private var isInputFocused: Bool
 
     private var room: Room? {
         roomManager.rooms.first { $0.id == roomID }
@@ -467,42 +466,44 @@ struct RoomChatView: View {
                 .buttonStyle(.plain)
                 .help("파일 첨부")
 
-                TextField(room.status == .inProgress ? "추가 요건을 입력하세요..." : "메시지를 입력하세요...", text: $inputText, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...3)
-                    .focused($isInputFocused)
-                    .onSubmit {
+                ScrollableTextInput(
+                    text: $inputText,
+                    placeholder: room.status == .inProgress ? "추가 요건을 입력하세요..." : "메시지를 입력하세요...",
+                    font: NSFont.systemFont(ofSize: 13),
+                    maxHeight: 80,
+                    onSubmit: {
                         if !mentionCandidates.isEmpty {
                             let idx = min(mentionSelectionIndex, mentionCandidates.count - 1)
                             insertMention(mentionCandidates[idx])
                         } else {
                             sendMessage()
                         }
+                    },
+                    onSpecialKey: { key in
+                        switch key {
+                        case .upArrow:
+                            guard !mentionCandidates.isEmpty else { return false }
+                            mentionSelectionIndex = max(0, mentionSelectionIndex - 1)
+                            return true
+                        case .downArrow:
+                            guard !mentionCandidates.isEmpty else { return false }
+                            mentionSelectionIndex = min(mentionCandidates.count - 1, mentionSelectionIndex + 1)
+                            return true
+                        case .tab:
+                            guard !mentionCandidates.isEmpty else { return false }
+                            let idx = min(mentionSelectionIndex, mentionCandidates.count - 1)
+                            insertMention(mentionCandidates[idx])
+                            return true
+                        case .escape:
+                            guard !mentionCandidates.isEmpty else { return false }
+                            mentionCandidates = []
+                            return true
+                        }
                     }
-                    .onKeyPress(.upArrow) {
-                        guard !mentionCandidates.isEmpty else { return .ignored }
-                        mentionSelectionIndex = max(0, mentionSelectionIndex - 1)
-                        return .handled
-                    }
-                    .onKeyPress(.downArrow) {
-                        guard !mentionCandidates.isEmpty else { return .ignored }
-                        mentionSelectionIndex = min(mentionCandidates.count - 1, mentionSelectionIndex + 1)
-                        return .handled
-                    }
-                    .onKeyPress(.tab) {
-                        guard !mentionCandidates.isEmpty else { return .ignored }
-                        let idx = min(mentionSelectionIndex, mentionCandidates.count - 1)
-                        insertMention(mentionCandidates[idx])
-                        return .handled
-                    }
-                    .onKeyPress(.escape) {
-                        guard !mentionCandidates.isEmpty else { return .ignored }
-                        mentionCandidates = []
-                        return .handled
-                    }
-                    .onChange(of: inputText) { _, newValue in
-                        updateMentionCandidates(newValue)
-                    }
+                )
+                .onChange(of: inputText) { _, newValue in
+                    updateMentionCandidates(newValue)
+                }
 
                 SendButton(canSend: canSend, isLoading: false, action: sendMessage)
             }

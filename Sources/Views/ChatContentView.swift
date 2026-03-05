@@ -7,7 +7,6 @@ struct ChatContentView: View {
     let agent: Agent?
     @EnvironmentObject var chatVM: ChatViewModel
     @State private var inputText = ""
-    @FocusState private var isInputFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -65,12 +64,13 @@ struct ChatContentView: View {
 
             // 입력 영역
             HStack(spacing: 8) {
-                TextField("메시지를 입력하세요...", text: $inputText, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: DesignTokens.FontSize.bodyMd, design: .rounded))
-                    .lineLimit(1...5)
-                    .focused($isInputFocused)
-                    .onSubmit { send() }
+                ScrollableTextInput(
+                    text: $inputText,
+                    placeholder: "메시지를 입력하세요...",
+                    font: NSFont.systemFont(ofSize: DesignTokens.FontSize.bodyMd),
+                    maxHeight: 100,
+                    onSubmit: send
+                )
 
                 SendButton(
                     canSend: !inputText.isEmpty,
