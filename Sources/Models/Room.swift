@@ -376,7 +376,7 @@ struct Room: Identifiable, Codable {
             if briefing != nil { return "계획 수립 중" }
             return "분석 중"
         case .execute:
-            return "실행 중"
+            return "진행 중"
         case nil:
             return "준비 중"
         }

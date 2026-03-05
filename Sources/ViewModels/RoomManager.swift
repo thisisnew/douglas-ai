@@ -1608,31 +1608,60 @@ class RoomManager: ObservableObject {
             agentListStr = "(없음)"
         }
 
+        // 사용자 직접 선택 방: 배정 에이전트 명시 + delegation 블록 제거
+        let isUserSelectedTeam: Bool
+        let teamContext: String
+        if rooms[idx].createdBy == .user {
+            let subAgentNames = rooms[idx].assignedAgentIDs.compactMap { id -> String? in
+                guard let a = agentStore?.agents.first(where: { $0.id == id }), !a.isMaster else { return nil }
+                return a.name
+            }
+            isUserSelectedTeam = !subAgentNames.isEmpty
+            if isUserSelectedTeam {
+                let names = subAgentNames.joined(separator: ", ")
+                teamContext = "\n이 작업방에는 사용자가 직접 선택한 에이전트가 배정되어 있습니다: \(names)\n이 팀으로 작업을 진행합니다.\n"
+            } else {
+                teamContext = ""
+            }
+        } else {
+            isUserSelectedTeam = false
+            teamContext = ""
+        }
+
+        let delegationBlock: String
+        if isUserSelectedTeam {
+            // 에이전트가 이미 확정 → delegation 분석 불필요
+            delegationBlock = ""
+        } else {
+            delegationBlock = """
+
+            요약 후 반드시 아래 블록을 마지막에 추가하세요:
+            [delegation]
+            type: (explicit 또는 open)
+            agents: (에이전트 이름을 쉼표 구분, explicit일 때만. open이면 이 줄 생략)
+            [/delegation]
+
+            - 사용자가 특정 에이전트를 지정했으면 → type: explicit, agents에 해당 이름
+            - 특정 에이전트를 지정하지 않았으면 → type: open
+
+            [등록된 에이전트]
+            \(agentListStr)
+            """
+        }
+
         let clarifySystemPrompt = """
         \(agent.resolvedSystemPrompt)
 
         당신은 요건 확인(Clarify) 단계를 수행하고 있습니다.
         사용자의 요청을 정확히 이해했는지 복명복창(확인)만 합니다.
-        \(docTypeContext.isEmpty ? "" : "\n\(docTypeContext)\n")
+        \(docTypeContext.isEmpty ? "" : "\n\(docTypeContext)\n")\(teamContext)
         아래 형식으로 이해한 내용을 요약하세요:
         - 요청 내용: (1-2문장 요약)
         - 핵심 요구사항: (불릿 포인트, 각 항목 1줄 이내)
         - 예상 산출물: (무엇이 나와야 하는지)\(docTypeContext.isEmpty ? "" : "\n- 문서 구조: (선택된 템플릿 섹션 기반으로 구성할 섹션 나열)")
-
-        요약 후 반드시 아래 블록을 마지막에 추가하세요:
-        [delegation]
-        type: (explicit 또는 open)
-        agents: (에이전트 이름을 쉼표 구분, explicit일 때만. open이면 이 줄 생략)
-        [/delegation]
-
-        - 사용자가 특정 에이전트를 지정했으면 → type: explicit, agents에 해당 이름
-        - 특정 에이전트를 지정하지 않았으면 → type: open
-
-        [등록된 에이전트]
-        \(agentListStr)
-
+        \(delegationBlock)
         [절대 금지]
-        - 요약 + delegation 블록 외의 내용을 출력하지 마세요.
+        - 요약\(isUserSelectedTeam ? "" : " + delegation 블록") 외의 내용을 출력하지 마세요.
         - 질문에 대한 답변, 개념 설명, 해결책을 작성하지 마세요.
         - 작업을 수행하지 마세요. 이 단계는 확인만 합니다.
         - 첨부파일(이미지, 문서)의 내용을 상세히 나열하거나 분석하지 마세요. "첨부 문서: design.md" 처럼 무엇인지만 간단히 언급하세요.
@@ -1822,6 +1851,24 @@ class RoomManager: ObservableObject {
               let firstAgentID = rooms[idx].assignedAgentIDs.first,
               let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return }
+
+        // 사용자가 직접 에이전트를 선택한 방 → assemble 스킵
+        if rooms[idx].createdBy == .user {
+            let subAgentNames = rooms[idx].assignedAgentIDs.compactMap { id -> String? in
+                guard let a = agentStore?.agents.first(where: { $0.id == id }), !a.isMaster else { return nil }
+                return a.name
+            }
+            if !subAgentNames.isEmpty {
+                let names = subAgentNames.joined(separator: ", ")
+                let msg = ChatMessage(
+                    role: .system,
+                    content: "사용자가 선택한 팀으로 진행합니다: \(names)",
+                    messageType: .phaseTransition
+                )
+                appendMessage(msg, to: roomID)
+                return
+            }
+        }
 
         // 1) 마스터에게 역할 요구사항 산출 요청
         var contextParts: [String] = []
