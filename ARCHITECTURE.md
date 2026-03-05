@@ -128,8 +128,8 @@ DOUGLAS/
 │       ├── AgentSettingsView.swift # 에이전트 설정 (내보내기 멀티 선택 / 가져오기)
 │       ├── SettingsTabView.swift   # 통합 설정 윈도우 (일반 / API 설정 / 테마 / 플러그인 / 에이전트 탭)
 │       ├── SharedComponents.swift   # 공유 UI 컴포넌트 (SheetNavHeader, CardContainer, SendButton 등)
-│       ├── ProgressActivityBubble.swift # 확장형 진행 버블 (활동 로그 인라인 표시)
-│       ├── TypingIndicator.swift    # 타이핑 인디케이터 (점 바운스 애니메이션, 경과 시간 표시)
+│       ├── ProgressActivityBubble.swift # 확장형 진행 버블 (활동 로그 + contentPreview 확장)
+│       ├── TypingIndicator.swift    # 타이핑 인디케이터 (한국어 도구명, contentPreview 확장, 최근 활동 요약)
 │       ├── ToastView.swift          # 임시 알림 오버레이
 │       ├── PluginBuilderSheet.swift # 노코드 플러그인 빌더 (폼 → 스크립트 자동 생성)
 │       └── PluginSettingsView.swift # 플러그인 관리 UI (활성화 토글, 설정 에디터, 빌더 연결)
@@ -302,7 +302,7 @@ protocol AIProvider {
 - 환경변수 `CLAUDECODE`를 제거하여 중첩 세션 감지 우회
 - PATH에 nvm 경로 추가하여 node 의존성 해결
 - 시스템 프롬프트 + 대화 히스토리를 단일 프롬프트로 조합
-- **도구 활동 추적**: `onToolActivity` 콜백 전달 시 `--output-format stream-json`으로 NDJSON 스트리밍 → `StreamJsonHandler`가 실시간 `tool_use` 이벤트 파싱 → `ProgressActivityBubble`에 표시. `sendMessageWithSearch()`에도 `onToolActivity` 지원 (WebSearch/WebFetch 이벤트 추적)
+- **도구 활동 추적**: `onToolActivity` 콜백 전달 시 `--output-format stream-json`으로 NDJSON 스트리밍 → `StreamJsonHandler`가 실시간 `tool_use` 이벤트 파싱 → `TypingIndicator`에 표시. 도구명은 한국어로 변환(`ToolActivityDetail.displayName`), `contentPreview`는 tool_use input에서 추출(Edit 변경사항, Bash 명령어, Grep 조건 등). `sendMessageWithSearch()`에도 `onToolActivity` 지원 (WebSearch/WebFetch 이벤트 추적)
 - **도구 정책**: `sendMessage()` = 도구 활성화 (`--allowedTools Edit Write Bash Read Glob Grep`), `sendRouterMessage()` = 도구 비활성화 (`--tools ""`). 계획 수립(`requestPlan`), 브리핑 생성(`generateBriefing`), 작업일지(`generateWorkLog`)는 `sendRouterMessage` 사용 — 계획 승인 전 파일 수정/셸 실행 방지.
 
 ### OpenAIProvider (`Providers/OpenAIProvider.swift`)
@@ -736,15 +736,30 @@ MessageType에 따른 시각 차별화:
 
 이미지 첨부가 있는 메시지: 텍스트 위에 이미지 썸네일 그리드 표시 (최대 180x120pt)
 
-### ProgressActivityBubble (`Views/ProgressActivityBubble.swift`)
+### TypingIndicator / ProgressActivityBubble (도구 활동 표시)
 
-`.progress` 메시지를 확장형 버블로 렌더링:
-- **접힌 상태**: 기존 캡슐 스타일 + 활동 개수 뱃지 + 화살표 (클릭으로 토글)
-- **펼친 상태**: 소속된 `.toolActivity` 메시지들을 시간순으로 인라인 표시 (도구 호출/결과, 아이콘 구분, 타임스탬프)
-- **도구 상세 펼치기**: `toolDetail`이 있는 활동 행 클릭 시 2단계 확장 — 파일 경로 + 내용 미리보기 (모노스페이스, 최대 200pt 높이 ScrollView)
-- 도구별 아이콘: file_read → `doc.text`, file_write → `doc.badge.plus`, shell_exec → `terminal`, web_fetch → `globe`, llm_call → `arrow.up.circle`, llm_result → `checkmark.circle.fill`, llm_error → `xmark.octagon`
+에이전트 작업 진행 중 도구 활동을 실시간으로 표시:
+
+**TypingIndicator** (`Views/TypingIndicator.swift`) — 메인 방 채팅의 진행 상태:
+- **접힌 상태**: 바운스 애니메이션 + 상태 텍스트 + 최근 활동 요약(한국어 도구명 + 축약 경로) + 활동 개수 뱃지
+- **펼친 상태**: 소속된 `.toolActivity` 메시지들을 시간순으로 표시 (한국어 도구명, 아이콘 구분, 타임스탬프)
+- **도구 상세 펼치기**: `contentPreview`가 있는 활동 행 클릭 시 확장 — Edit 변경사항, Bash 명령어 전문, Grep 조건 등 (모노스페이스, 최대 150pt 높이)
+
+**ProgressActivityBubble** (`Views/ProgressActivityBubble.swift`) — 완료된 활동 그룹 표시용:
+- 동일한 2단계 확장 UI (접힘 → 활동 목록 → contentPreview)
+
+**한국어 도구명**: `ToolActivityDetail.displayName` — Read→파일 읽기, Edit→파일 수정, Bash→명령 실행, Grep→내용 검색 등
+**contentPreview 추출** (`StreamJsonHandler.extractContentPreview`): tool_use input에서 상세 정보 추출
+- Edit: `old_string → new_string` diff
+- Bash: 80자 초과 명령어 전문
+- Write: 첫 10줄 미리보기
+- Grep: 패턴 + 경로 + 필터 종합
+- Read: offset/limit 범위 표시
+
+**공통 구조**:
 - `activityGroupID`로 부모-자식 관계 연결: `.toolActivity` 메시지의 `activityGroupID`가 `.progress` 메시지의 `id`와 일치
 - 메인 채팅에서는 `activityGroupID != nil`인 메시지를 필터링하여 숨김
+- 도구별 아이콘: Read → `doc.text`, Write → `doc.badge.plus`, Bash → `terminal`, WebFetch → `globe`, llm_call → `arrow.up.circle`
 
 #### 전체 워크플로우 활동 추적 (`trackPhaseActivity`)
 
@@ -984,7 +999,7 @@ executeWithTools() 루프 (최대 10회):
 - **방 shortID** (`Room.shortID`): UUID 앞 6자 소문자. 방 헤더(`RoomChatView`)와 방 목록(`RoomListView`)에 표시.
 - **CLI WebFetch 차단**: `ClaudeCodeProvider.sendMessage()`에서 `--disallowed-tools WebFetch` 적용
 
-**승인 게이트** (`executeRoomWork`): 첫 단계 + 마지막 단계 + 외부 영향 키워드(`hasExternalEffectKeywords`: PR, push, deploy, merge 등) 포함 단계에서 `.awaitingApproval` 상태 전환 + `CheckedContinuation`으로 비동기 일시 정지. `approveStep(roomID:)` / `rejectStep(roomID:)` 호출 시 continuation resume. **자동 승인 타이머**: 모든 리뷰 게이트에서 15초 카운트다운 후 자동 승인. 사용자가 "수정 요청" 클릭 시 타이머 취소 → 수동 응답 대기.
+**승인 게이트** (`executeRoomWork`): 첫 단계 + 마지막 단계 + 외부 영향 키워드(`hasExternalEffectKeywords`: PR, push, deploy, merge 등) 포함 단계에서 `.awaitingApproval` 상태 전환 + `CheckedContinuation`으로 비동기 일시 정지. `approveStep(roomID:)` / `rejectStep(roomID:)` 호출 시 continuation resume. **자동 승인 타이머**: 모든 리뷰 게이트에서 15초 카운트다운 후 자동 승인. 사용자가 "수정 요청" 클릭 시 타이머 취소 → 수동 응답 대기. **중간 단계 완료 표시**: 리뷰 게이트가 없는 중간 단계도 "단계 X 완료" 시스템 메시지를 표시하여 진행 흐름이 끊기지 않도록 함. **단계 카운트 동기화**: `setCurrentStep(stepIndex)`를 승인 게이트 전에 호출하여 이전 단계들이 즉시 체크 표시됨.
 
 **Plan 승인 루프** (`executePlanPhase`): Plan 승인 시 거부 → 피드백 추출 → `requestPlan(previousPlan:feedback:)`로 재계획 → 다시 승인 카드 표시 (무제한). 이전 계획과 사용자 피드백이 재계획 프롬프트에 주입됨.
 

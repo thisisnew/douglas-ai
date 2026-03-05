@@ -2847,6 +2847,11 @@ class RoomManager: ObservableObject {
                   let currentRoom = rooms.first(where: { $0.id == roomID }),
                   currentRoom.status == .inProgress else { break }
 
+            // 현재 단계 업데이트 (승인 게이트 전에 호출 → 이전 단계들이 체크 표시됨)
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].setCurrentStep(stepIndex)
+            }
+
             // 승인 게이트: requiresApproval인 단계에서 일시 정지 (거절 시 피드백 → 재수행 루프)
             if step.requiresApproval {
                 var stepFeedback: String?
@@ -2945,11 +2950,6 @@ class RoomManager: ObservableObject {
                         // 루프 → 다시 승인 요청
                     }
                 }
-            }
-
-            // 현재 단계 업데이트
-            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].setCurrentStep(stepIndex)
             }
 
             // 단계별 충돌 추적 초기화
@@ -3100,6 +3100,7 @@ class RoomManager: ObservableObject {
             let isLastStep2 = stepIndex == plan.steps.count - 1
             let hasExternalEffect = Self.hasExternalEffectKeywords(step.text)
             if isFirstStep || isLastStep2 || hasExternalEffect {
+                // 리뷰 게이트: 승인 대기 (자동 승인 타이머 포함)
                 var stepApproved = false
                 while !stepApproved {
                     guard !Task.isCancelled,
@@ -3187,6 +3188,13 @@ class RoomManager: ObservableObject {
                         }
                     }
                 }
+            } else {
+                // 리뷰 게이트 없는 중간 단계 — 완료 확인 메시지
+                let doneMsg = ChatMessage(
+                    role: .system,
+                    content: "단계 \(stepIndex + 1) 완료. 다음 단계로 진행합니다."
+                )
+                appendMessage(doneMsg, to: roomID)
             }
         }
 
