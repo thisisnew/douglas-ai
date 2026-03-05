@@ -999,7 +999,7 @@ class RoomManager: ObservableObject {
 
         let msg = ChatMessage(
             role: .system,
-            content: "\(suggestion.suggestedBy)이(가) '\(suggestion.name)' 에이전트 생성을 제안했습니다.\(suggestion.reason.isEmpty ? "" : " 사유: \(suggestion.reason)")",
+            content: "\(suggestion.suggestedBy)\(subjectParticle(for: suggestion.suggestedBy)) '\(suggestion.name)' 에이전트 생성을 제안했습니다.\(suggestion.reason.isEmpty ? "" : " 사유: \(suggestion.reason)")",
             messageType: .suggestion
         )
         appendMessage(msg, to: roomID)
@@ -1133,20 +1133,15 @@ class RoomManager: ObservableObject {
             addAgent(agentID, to: roomID, silent: true)
         }
 
-        // 변경 사항 메시지
-        var changes: [String] = []
-        for agentID in toAdd {
-            if let name = agentStore?.agents.first(where: { $0.id == agentID })?.name {
-                changes.append("+ \(name)")
-            }
+        // 최종 팀 확정 메시지
+        let finalNames = executingAgentIDs(in: roomID).compactMap { id in
+            agentStore?.agents.first(where: { $0.id == id })?.name
         }
-        for agentID in toRemove {
-            if let name = agentStore?.agents.first(where: { $0.id == agentID })?.name {
-                changes.append("- \(name)")
-            }
-        }
-        if !changes.isEmpty {
-            let msg = ChatMessage(role: .system, content: "팀 구성 변경: \(changes.joined(separator: ", "))")
+        if !finalNames.isEmpty {
+            let msg = ChatMessage(
+                role: .system,
+                content: "팀 구성 확정: \(finalNames.joined(separator: ", "))"
+            )
             appendMessage(msg, to: roomID)
         }
 
@@ -1182,7 +1177,7 @@ class RoomManager: ObservableObject {
         scheduleSave()
 
         if !silent, let agentName = agentStore?.agents.first(where: { $0.id == agentID })?.name {
-            let systemMsg = ChatMessage(role: .system, content: "\(agentName)이(가) 방에 참여했습니다.")
+            let systemMsg = ChatMessage(role: .system, content: "\(agentName)\(subjectParticle(for: agentName)) 방에 참여했습니다.")
             appendMessage(systemMsg, to: roomID)
         }
     }
@@ -1859,20 +1854,11 @@ class RoomManager: ObservableObject {
                 }
             }
             if !matchedAgents.isEmpty {
-                var invitedNames: [String] = []
                 for matched in matchedAgents {
                     if let room = rooms.first(where: { $0.id == roomID }),
                        !room.assignedAgentIDs.contains(matched.id) {
                         addAgent(matched.id, to: roomID, silent: true)
-                        invitedNames.append(matched.name)
                     }
-                }
-                if !invitedNames.isEmpty {
-                    let joinMsg = ChatMessage(
-                        role: .system,
-                        content: "\(invitedNames.joined(separator: ", "))이(가) 방에 참여했습니다."
-                    )
-                    appendMessage(joinMsg, to: roomID)
                 }
                 scheduleSave()
                 await showTeamConfirmation(roomID: roomID)
@@ -1917,20 +1903,11 @@ class RoomManager: ObservableObject {
 
         if !directMatches.isEmpty {
             // directMatches: 사용자가 이름을 직접 언급한 에이전트 → 제한 없이 전부 초대
-            var invitedNames: [String] = []
             for sub in directMatches {
                 if let room = rooms.first(where: { $0.id == roomID }),
                    !room.assignedAgentIDs.contains(sub.id) {
                     addAgent(sub.id, to: roomID, silent: true)
-                    invitedNames.append(sub.name)
                 }
-            }
-            if !invitedNames.isEmpty {
-                let joinMsg = ChatMessage(
-                    role: .system,
-                    content: "\(invitedNames.joined(separator: ", "))이(가) 방에 참여했습니다."
-                )
-                appendMessage(joinMsg, to: roomID)
             }
             scheduleSave()
             await showTeamConfirmation(roomID: roomID)
@@ -2003,16 +1980,12 @@ class RoomManager: ObservableObject {
                 documentType: rooms.first(where: { $0.id == roomID })?.documentType
             )
 
-            // 3) 매칭된 에이전트 자동 초대
-            var invitedNames: [String] = []
+            // 3) 매칭된 에이전트 자동 초대 (팀 확인 전이므로 silent)
             for req in matched where req.status == .matched {
                 if let agentID = req.matchedAgentID,
                    let room = rooms.first(where: { $0.id == roomID }),
                    !room.assignedAgentIDs.contains(agentID) {
-                    addAgent(agentID, to: roomID)
-                    if let name = agentStore?.agents.first(where: { $0.id == agentID })?.name {
-                        invitedNames.append("\(name) ← \(req.roleName)")
-                    }
+                    addAgent(agentID, to: roomID, silent: true)
                 }
             }
 
@@ -3613,111 +3586,92 @@ class RoomManager: ObservableObject {
     // MARK: - 토론 실행
 
     /// 합의 기반 토론 실행 (사용자가 빈 피드백 입력 시 종료)
-    /// 토론: 발산→수렴→합의 사이클 + 사용자 체크포인트
+    /// 토론: 라운드별 자유 토론 + 사용자 체크포인트
     private func executeDiscussion(roomID: UUID, topic: String) async {
         guard rooms.first(where: { $0.id == roomID }) != nil else { return }
-        let roundTypes: [DiscussionRoundType] = [.diverge, .converge, .conclude]
 
-        var cycle = 0
+        var round = 0
         while true {
             guard !Task.isCancelled,
-                  let currentRoom = rooms.first(where: { $0.id == roomID }),
-                  currentRoom.isActive else { break }
+                  rooms.first(where: { $0.id == roomID })?.isActive == true else { break }
 
-            // ── 토론 사이클 N ──
-            let cycleMsg = ChatMessage(
+            // ── 토론 라운드 N ──
+            let roundMsg = ChatMessage(
                 role: .system,
-                content: "── 토론 사이클 \(cycle + 1) ──",
+                content: "── 토론 라운드 \(round + 1) ──",
                 messageType: .discussionRound
             )
-            appendMessage(cycleMsg, to: roomID)
+            appendMessage(roundMsg, to: roomID)
 
-            // 3단계 라운드 실행 (발산 → 수렴 → 합의)
-            let agentIDs = currentRoom.assignedAgentIDs
-            for (roundIdx, roundType) in roundTypes.enumerated() {
-                guard !Task.isCancelled,
-                      rooms.first(where: { $0.id == roomID })?.isActive == true else { break }
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].currentRound = round
+            }
 
-                let globalRound = cycle * 3 + roundIdx
-                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].currentRound = globalRound
+            // 마스터 제외한 전문가만 토론 참여
+            let agentIDs = executingAgentIDs(in: roomID)
+            guard !agentIDs.isEmpty else { break }
+
+            // 첫 라운드는 병렬 (히스토리 스냅샷 기준), 이후는 순차 (이전 발언 참고)
+            if round == 0 && agentIDs.count > 1 {
+                let frozenHistory = buildDiscussionHistory(roomID: roomID, currentAgentName: nil)
+                    .map { msg in
+                        ConversationMessage(role: msg.role, content: msg.content,
+                                            toolCalls: nil, toolCallID: nil,
+                                            attachments: nil, isError: false)
+                    }
+                var historyBuilder: [ConversationMessage] = []
+                if let firstUserMsg = rooms.first(where: { $0.id == roomID })?.messages
+                    .first(where: { $0.role == .user && $0.messageType == .text }) {
+                    historyBuilder.append(ConversationMessage.user(firstUserMsg.content))
                 }
+                historyBuilder.append(contentsOf: frozenHistory)
+                let fullHistory = historyBuilder
 
-                // 라운드 타입 표시
-                let roundMsg = ChatMessage(
-                    role: .system,
-                    content: "[\(roundType.label)] 라운드 \(globalRound + 1)",
-                    messageType: .discussionRound
-                )
-                appendMessage(roundMsg, to: roomID)
-
-                // 각 에이전트 발언 — 발산 라운드는 병렬, 수렴/합의는 순차
-                if roundType == .diverge && agentIDs.count > 1 {
-                    // 발산: 히스토리 스냅샷 기준으로 모든 에이전트 동시 실행
-                    let frozenHistory = buildDiscussionHistory(roomID: roomID, currentAgentName: nil)
-                        .map { msg in
-                            ConversationMessage(role: msg.role, content: msg.content,
-                                                toolCalls: nil, toolCallID: nil,
-                                                attachments: nil, isError: false)
-                        }
-                    // 첫 사용자 메시지를 히스토리 앞에 추가
-                    var historyBuilder: [ConversationMessage] = []
-                    if let firstUserMsg = rooms.first(where: { $0.id == roomID })?.messages
-                        .first(where: { $0.role == .user && $0.messageType == .text }) {
-                        historyBuilder.append(ConversationMessage.user(firstUserMsg.content))
-                    }
-                    historyBuilder.append(contentsOf: frozenHistory)
-                    let fullHistory = historyBuilder  // let 바인딩으로 @Sendable 캡처 안전
-
-                    var results: [(Int, ChatMessage, Bool)] = []
-                    await withTaskGroup(of: (Int, ChatMessage, Bool).self) { group in
-                        for (idx, agentID) in agentIDs.enumerated() {
-                            group.addTask { [weak self] in
-                                guard let self else {
-                                    return (idx, ChatMessage(role: .assistant, content: "", agentName: nil, messageType: .error), false)
-                                }
-                                let (msg, agreed) = await self.generateDiscussionResponse(
-                                    topic: topic, agentID: agentID, roomID: roomID,
-                                    round: globalRound, roundType: roundType,
-                                    frozenHistory: fullHistory
-                                )
-                                return (idx, msg, agreed)
+                var results: [(Int, ChatMessage, Bool)] = []
+                await withTaskGroup(of: (Int, ChatMessage, Bool).self) { group in
+                    for (idx, agentID) in agentIDs.enumerated() {
+                        group.addTask { [weak self] in
+                            guard let self else {
+                                return (idx, ChatMessage(role: .assistant, content: "", agentName: nil, messageType: .error), false)
                             }
-                        }
-                        for await item in group { results.append(item) }
-                    }
-                    // 에이전트 순서대로 append
-                    for (_, msg, agreed) in results.sorted(by: { $0.0 < $1.0 }) {
-                        appendMessage(msg, to: roomID)
-                        if agreed, let agentName = msg.agentName,
-                           let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                            let decision = Self.parseDecisionContent(from: msg.content) ?? "합의 도달"
-                            rooms[i].decisionLog.append(DecisionEntry(
-                                round: globalRound, decision: decision, supporters: [agentName]
-                            ))
+                            let (msg, agreed) = await self.generateDiscussionResponse(
+                                topic: topic, agentID: agentID, roomID: roomID,
+                                round: round,
+                                frozenHistory: fullHistory
+                            )
+                            return (idx, msg, agreed)
                         }
                     }
-                } else {
-                    // 수렴/합의: 순차 실행 (이전 에이전트 발언을 참고)
-                    for agentID in agentIDs {
-                        guard !Task.isCancelled,
-                              rooms.first(where: { $0.id == roomID })?.isActive == true else { break }
+                    for await item in group { results.append(item) }
+                }
+                for (_, msg, agreed) in results.sorted(by: { $0.0 < $1.0 }) {
+                    appendMessage(msg, to: roomID)
+                    if agreed, let agentName = msg.agentName,
+                       let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        let decision = Self.parseDecisionContent(from: msg.content) ?? "합의 도달"
+                        rooms[i].decisionLog.append(DecisionEntry(
+                            round: round, decision: decision, supporters: [agentName]
+                        ))
+                    }
+                }
+            } else {
+                for agentID in agentIDs {
+                    guard !Task.isCancelled,
+                          rooms.first(where: { $0.id == roomID })?.isActive == true else { break }
 
-                        await executeDiscussionTurn(
-                            topic: topic,
-                            agentID: agentID,
-                            roomID: roomID,
-                            round: globalRound,
-                            roundType: roundType
-                        )
-                    }
+                    await executeDiscussionTurn(
+                        topic: topic,
+                        agentID: agentID,
+                        roomID: roomID,
+                        round: round
+                    )
                 }
             }
 
             // 사용자 체크포인트
             let checkpointMsg = ChatMessage(
                 role: .system,
-                content: "토론 사이클 \(cycle + 1) 완료. 피드백이 있으시면 입력해주세요.",
+                content: "토론 라운드 \(round + 1) 완료. 피드백이 있으시면 입력해주세요.",
                 messageType: .userQuestion
             )
             appendMessage(checkpointMsg, to: roomID)
@@ -3746,11 +3700,11 @@ class RoomManager: ObservableObject {
                 // 사용자 피드백 → answerUserQuestion에서 이미 appendMessage 됨
                 let feedbackNote = ChatMessage(
                     role: .system,
-                    content: "사용자 피드백을 반영하여 새 사이클을 시작합니다."
+                    content: "사용자 피드백을 반영하여 새 라운드를 시작합니다."
                 )
                 appendMessage(feedbackNote, to: roomID)
             }
-            cycle += 1
+            round += 1
         }
 
         let doneMsg = ChatMessage(role: .system, content: "토론이 완료되었습니다. 다음 단계로 넘어갑니다.")
@@ -3764,8 +3718,7 @@ class RoomManager: ObservableObject {
         topic: String,
         agentID: UUID,
         roomID: UUID,
-        round: Int,
-        roundType: DiscussionRoundType = .diverge
+        round: Int
     ) async -> Bool {
         guard let agent = agentStore?.agents.first(where: { $0.id == agentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return false }
@@ -3773,7 +3726,6 @@ class RoomManager: ObservableObject {
         // 토론 히스토리 (이미지는 존재 여부만 알림 — 실제 작업은 실행 단계에서)
         let roomRef = rooms.first(where: { $0.id == roomID })
         var history: [ConversationMessage] = []
-        // 첫 사용자 메시지: 이미지 첨부 시 텍스트로 존재 알림 (파일 전달 안 함)
         if let firstUserMsg = roomRef?.messages.first(where: { $0.role == .user && $0.messageType == .text }) {
             var content = firstUserMsg.content
             if let attachments = firstUserMsg.attachments, !attachments.isEmpty {
@@ -3781,25 +3733,18 @@ class RoomManager: ObservableObject {
             }
             history.append(ConversationMessage.user(content))
         }
-        // 토론 히스토리 추가
         let discussionMsgs = buildDiscussionHistory(roomID: roomID, currentAgentName: agent.name)
         history.append(contentsOf: discussionMsgs.map { msg in
             ConversationMessage(role: msg.role, content: msg.content, toolCalls: nil, toolCallID: nil, attachments: nil, isError: false)
         })
 
-        // 동료 목록: 이름(역할) 형태로 구성, 진행자와 전문가 구분
-        let otherAgents = roomRef?.assignedAgentIDs
+        // 동료 목록 (마스터 제외 — 전문가끼리만 토론)
+        let otherSpecialists = executingAgentIDs(in: roomID)
+            .filter { $0 != agentID }
             .compactMap { id in agentStore?.agents.first(where: { $0.id == id }) }
-            .filter { $0.id != agentID } ?? []
-        let masterAgent = otherAgents.first(where: { $0.isMaster })
-        let specialists = otherAgents.filter { !$0.isMaster }
-        let specialistDesc = specialists.map { $0.name }.joined(separator: ", ")
-        let otherNames = otherAgents.map { $0.name }.joined(separator: ", ")
+        let otherNames = otherSpecialists.map { $0.name }.joined(separator: ", ")
 
-        // 마스터(오케스트레이터) 여부 판별
-        let isMasterAgent = agent.isMaster
-
-        // intake 데이터 (Jira 트리거 제거된 중립 버전 — LLM 환각 방지)
+        // intake 데이터
         let intakeText = roomRef?.intakeData?.asClarifyContextString() ?? ""
         let intakeBlock = intakeText.isEmpty ? "" : "\n\(intakeText)"
 
@@ -3811,51 +3756,20 @@ class RoomManager: ObservableObject {
         \(clarifyText)
         """
 
-        // 라운드 타입별 지시
-        let roundInstruction = roundType.instruction
+        let discussionPrompt = """
+        \(agent.resolvedSystemPrompt)
+        [시스템] 필요한 외부 데이터는 이미 수집되었습니다. 도구·인증·API 연동 관련 언급을 하지 마세요.
+        \(intakeBlock)\(anchorBlock)
 
-        let discussionPrompt: String
-        if isMasterAgent {
-            // 마스터: 요구사항 전달만, 직접 작업 금지
-            discussionPrompt = """
-            당신은 \(agent.name)입니다. 이 토론의 진행자 역할을 합니다:
-            - 전문가에게 사용자의 요구사항을 간결하게 전달
-            - 전문가의 질문에 답변
-            - 작업 방향이 맞는지 확인하고, 전문가의 업무를 대신 수행하지 않습니다
-            \(intakeBlock)\(anchorBlock)
+        [회의실] \(topic)
+        라운드 \(round + 1) | 동료: \(otherNames)
+        전문 영역에서 의견을 제시하고, 동의/보완/반론하세요.
 
-            [절대 금지] 다른 에이전트(\(specialistDesc)) 역할로 발언하거나, 그들의 발언을 대신 작성
-            [절대 금지] **[백엔드 개발자]** 등 다른 이름으로 발언 — 반드시 \(agent.name)으로만 발언
-            [절대 금지] 번역, 코딩, 문서 작성 등 실제 작업 수행
-            [절대 금지] 도구·인증·API 연동 관련 언급 — 필요한 데이터는 이미 수집 완료됨
-
-            [회의실] \(topic)
-            라운드 \(round + 1) | 전문가: \(specialistDesc)
-            \(roundInstruction)
-
-            \(agent.name)으로서 2문장 이내로 발언하세요. 전문가들은 별도로 자기 차례에 발언합니다.
-            이름 헤더(**[이름]** 등)를 붙이지 마세요. UI가 화자를 표시합니다.
-            발언 마지막 줄에 [합의] 또는 [계속] 태그를 붙이세요.
-            """
-        } else {
-            // 전문가: 자기 역할에 맞는 작업
-            let masterNote = masterAgent != nil ? "\(masterAgent!.name)은 진행자입니다. 전문적인 질문은 다른 전문가에게 직접 하세요." : ""
-            discussionPrompt = """
-            \(agent.resolvedSystemPrompt)
-            [시스템] 필요한 외부 데이터는 이미 수집되었습니다. 도구·인증·API 연동 관련 언급을 하지 마세요.
-            \(intakeBlock)\(anchorBlock)
-
-            [회의실] \(topic)
-            라운드 \(round + 1) | 동료: \(otherNames)
-            \(masterNote)
-            \(roundInstruction)
-
-            첨부된 이미지나 파일이 있으면 내용을 확인하고 참고하세요.
-            2-4문장으로 핵심만 말하세요.
-            이름 헤더(**[이름]** 등)를 붙이지 마세요. UI가 화자를 표시합니다.
-            발언 마지막 줄에 [합의] 또는 [계속] 태그를 붙이세요.
-            """
-        }
+        첨부된 이미지나 파일이 있으면 내용을 확인하고 참고하세요.
+        2-4문장으로 핵심만 말하세요.
+        이름 헤더(**[이름]** 등)를 붙이지 마세요. UI가 화자를 표시합니다.
+        발언 마지막 줄에 [합의] 또는 [계속] 태그를 붙이세요.
+        """
 
         // 활동 추적: ProgressActivityBubble로 모델/소요시간 표시
         let progressGroupID = UUID()
@@ -4028,7 +3942,6 @@ class RoomManager: ObservableObject {
         agentID: UUID,
         roomID: UUID,
         round: Int,
-        roundType: DiscussionRoundType,
         frozenHistory: [ConversationMessage]
     ) async -> (message: ChatMessage, agreed: Bool) {
         guard let agent = agentStore?.agents.first(where: { $0.id == agentID }),
@@ -4036,16 +3949,12 @@ class RoomManager: ObservableObject {
             return (ChatMessage(role: .assistant, content: "에이전트 없음", agentName: nil, messageType: .error), false)
         }
 
-        // 동료 정보 구성
+        // 동료 정보 구성 (마스터 제외 — 전문가끼리만 토론)
         let roomRef = rooms.first(where: { $0.id == roomID })
-        let otherAgents = roomRef?.assignedAgentIDs
+        let otherSpecialists = executingAgentIDs(in: roomID)
+            .filter { $0 != agentID }
             .compactMap { id in agentStore?.agents.first(where: { $0.id == id }) }
-            .filter { $0.id != agentID } ?? []
-        let masterAgent = otherAgents.first(where: { $0.isMaster })
-        let specialists = otherAgents.filter { !$0.isMaster }
-        let specialistDesc = specialists.map { $0.name }.joined(separator: ", ")
-        let otherNames = otherAgents.map { $0.name }.joined(separator: ", ")
-        let isMasterAgent = agent.isMaster
+        let otherNames = otherSpecialists.map { $0.name }.joined(separator: ", ")
 
         let clarifyText = roomRef?.clarifySummary ?? ""
         let anchorBlock = clarifyText.isEmpty ? "" : """
@@ -4053,48 +3962,21 @@ class RoomManager: ObservableObject {
         [사용자 확인 요약 — 이 범위를 벗어나지 마세요]
         \(clarifyText)
         """
-        let roundInstruction = roundType.instruction
 
-        let discussionPrompt: String
-        if isMasterAgent {
-            discussionPrompt = """
-            당신은 \(agent.name)입니다. 이 토론의 진행자 역할을 합니다:
-            - 전문가에게 사용자의 요구사항을 간결하게 전달
-            - 전문가의 질문에 답변
-            - 작업 방향이 맞는지 확인하고, 전문가의 업무를 대신 수행하지 않습니다
-            \(anchorBlock)
+        let discussionPrompt = """
+        \(agent.resolvedSystemPrompt)
+        [시스템] 필요한 외부 데이터는 이미 수집되었습니다. 도구·인증·API 연동 관련 언급을 하지 마세요.
+        \(anchorBlock)
 
-            [절대 금지] 다른 에이전트(\(specialistDesc)) 역할로 발언하거나, 그들의 발언을 대신 작성
-            [절대 금지] **[백엔드 개발자]** 등 다른 이름으로 발언 — 반드시 \(agent.name)으로만 발언
-            [절대 금지] 번역, 코딩, 문서 작성 등 실제 작업 수행
-            [절대 금지] 도구·인증·API 연동 관련 언급 — 필요한 데이터는 이미 수집 완료됨
+        [회의실] \(topic)
+        라운드 \(round + 1) | 동료: \(otherNames)
+        전문 영역에서 의견을 제시하고, 동의/보완/반론하세요.
 
-            [회의실] \(topic)
-            라운드 \(round + 1) | 전문가: \(specialistDesc)
-            \(roundInstruction)
-
-            \(agent.name)으로서 2문장 이내로 발언하세요. 전문가들은 별도로 자기 차례에 발언합니다.
-            이름 헤더(**[이름]** 등)를 붙이지 마세요. UI가 화자를 표시합니다.
-            발언 마지막 줄에 [합의] 또는 [계속] 태그를 붙이세요.
-            """
-        } else {
-            let masterNote = masterAgent != nil ? "\(masterAgent!.name)은 진행자입니다. 전문적인 질문은 다른 전문가에게 직접 하세요." : ""
-            discussionPrompt = """
-            \(agent.resolvedSystemPrompt)
-            [시스템] 필요한 외부 데이터는 이미 수집되었습니다. 도구·인증·API 연동 관련 언급을 하지 마세요.
-            \(anchorBlock)
-
-            [회의실] \(topic)
-            라운드 \(round + 1) | 동료: \(otherNames)
-            \(masterNote)
-            \(roundInstruction)
-
-            첨부된 이미지나 파일이 있으면 내용을 확인하고 참고하세요.
-            2-4문장으로 핵심만 말하세요.
-            이름 헤더(**[이름]** 등)를 붙이지 마세요. UI가 화자를 표시합니다.
-            발언 마지막 줄에 [합의] 또는 [계속] 태그를 붙이세요.
-            """
-        }
+        첨부된 이미지나 파일이 있으면 내용을 확인하고 참고하세요.
+        2-4문장으로 핵심만 말하세요.
+        이름 헤더(**[이름]** 등)를 붙이지 마세요. UI가 화자를 표시합니다.
+        발언 마지막 줄에 [합의] 또는 [계속] 태그를 붙이세요.
+        """
 
         // 활동 추적: ProgressActivityBubble로 모델/소요시간 표시
         let progressGroupID = UUID()
@@ -4835,5 +4717,15 @@ class RoomManager: ObservableObject {
         }
         let removeIDs = Set(toRemove.map { $0.id })
         rooms.removeAll { removeIDs.contains($0.id) }
+    }
+
+    // MARK: - 한글 조사 헬퍼
+
+    /// 마지막 글자의 받침 유무에 따라 "이"/"가" 반환
+    private func subjectParticle(for name: String) -> String {
+        guard let last = name.last else { return "이" }
+        let v = last.unicodeScalars.first!.value
+        guard (0xAC00...0xD7A3).contains(v) else { return "가" }   // 비한글(영문 등)
+        return (v - 0xAC00) % 28 == 0 ? "가" : "이"               // 받침 없으면 "가"
     }
 }
