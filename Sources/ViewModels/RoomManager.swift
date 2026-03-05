@@ -809,7 +809,7 @@ class RoomManager: ObservableObject {
         var detectedDocType: DocumentType? = nil
         if let docResult = DocumentRequestDetector.quickDetect(task), docResult.isDocumentRequest {
             detectedDocType = docResult.suggestedDocType ?? .freeform
-        } else if task.count >= 20,
+        } else if task.count >= 8,
            let firstAgentID = rooms[idx].assignedAgentIDs.first,
            let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
            let provider = providerManager?.provider(named: agent.providerName) {
@@ -4433,14 +4433,16 @@ class RoomManager: ObservableObject {
         if name.contains("프론트엔드") || name.contains("frontend") || name.contains("ui") {
             return """
 
-            [전문 영역] UI/UX, 클라이언트 상태관리, 컴포넌트 설계, 렌더링 성능, 브라우저 호환성, 반응형 디자인, 접근성
-            - "프론트엔드 관점에서"로 시작하세요. "백엔드에서는"이라고 절대 말하지 마세요.
+            [전문 영역 — 반드시 준수] 당신은 프론트엔드 전문가입니다. 아래 영역만 다루세요:
+            UI/UX, 클라이언트 상태관리, 컴포넌트 설계, 렌더링 성능, 브라우저 호환성, 반응형 디자인, 접근성, CSS/스타일링, 프론트엔드 프레임워크(React, Vue, Svelte 등)
+            [금지] 백엔드, 서버, 데이터베이스, API 설계, 인프라에 대해 말하지 마세요. "백엔드에서는", "서버 측에서는"이라는 표현을 사용하면 안 됩니다. 주제가 백엔드와 관련되더라도 반드시 프론트엔드 시각으로만 해석하세요.
             """
         } else if name.contains("백엔드") || name.contains("backend") || name.contains("서버") {
             return """
 
-            [전문 영역] API 설계, 데이터베이스, 서버 아키텍처, 인증/보안, 성능 최적화, 인프라, 마이크로서비스
-            - "백엔드 관점에서"로 시작하세요. "프론트엔드에서는"이라고 절대 말하지 마세요.
+            [전문 영역 — 반드시 준수] 당신은 백엔드 전문가입니다. 아래 영역만 다루세요:
+            API 설계, 데이터베이스, 서버 아키텍처, 인증/보안, 성능 최적화, 인프라, 마이크로서비스
+            [금지] 프론트엔드, UI/UX, 컴포넌트, 렌더링, CSS에 대해 말하지 마세요. "프론트엔드에서는", "클라이언트 측에서는"이라는 표현을 사용하면 안 됩니다. 주제가 프론트엔드와 관련되더라도 반드시 백엔드 시각으로만 해석하세요.
             """
         } else if name.contains("qa") || name.contains("테스트") || name.contains("품질") {
             return """

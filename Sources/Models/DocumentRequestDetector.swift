@@ -84,12 +84,14 @@ enum DocumentRequestDetector {
             ("api\\s?문서로\\s?(정리|만들|뽑|작성)", .apiDoc),
             // 일반 문서/파일 요청 → .freeform (nil이면 hasDocRequest 판정 실패)
             ("문서로\\s?(정리|만들|작성|뽑)", .freeform),
+            ("문서\\s?(정리|만들어|작성|뽑아)", .freeform),
             ("파일로\\s?(저장|내보내|뽑|만들)", .freeform),
-            ("pdf로\\s?(정리|만들|뽑|저장|변환)", .freeform),
-            ("마크다운으로\\s?(정리|만들|뽑|저장)", .freeform),
-            ("md로\\s?(정리|만들|뽑|저장)", .freeform),
-            ("md파일로\\s?(정리|만들|뽑|저장)", .freeform),
-            ("워드로\\s?(정리|만들|뽑|저장)", .freeform),
+            ("pdf로?\\s?(정리|만들|뽑|저장|변환)", .freeform),
+            ("pdf\\s?만들", .freeform),
+            ("마크다운으로?\\s?(정리|만들|뽑|저장)", .freeform),
+            ("md로?\\s?(정리|만들|뽑|저장)", .freeform),
+            ("md파일로?\\s?(정리|만들|뽑|저장)", .freeform),
+            ("워드로?\\s?(정리|만들|뽑|저장)", .freeform),
             ("문서\\s?작성", .freeform),
             ("문서화\\s?해", .freeform),
         ]
@@ -116,7 +118,7 @@ enum DocumentRequestDetector {
         let tokenSet = Set(tokens)
 
         // 출력 동사 존재 여부
-        let hasOutputVerb = !tokenSet.isDisjoint(with: ["정리", "작성", "뽑아", "저장", "만들어", "내보내", "변환"])
+        let hasOutputVerb = !tokenSet.isDisjoint(with: ["정리", "작성", "뽑아", "저장", "만들어", "만들어줘", "내보내", "변환"])
 
         // 문서 유형 키워드
         if hasOutputVerb {
