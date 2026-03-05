@@ -2,8 +2,11 @@ import Foundation
 
 // MARK: - 에이전트 매칭 (시스템 주도 Assembly)
 
-/// 역할 요구사항을 기존 에이전트와 매칭 (이름 + 페르소나 + 작업 규칙 키워드 기반)
+/// 역할 요구사항을 기존 에이전트와 매칭 (키워드 + NLEmbedding 시맨틱 하이브리드)
 enum AgentMatcher {
+
+    /// NLEmbedding 기반 시맨틱 매처 (캐시 포함)
+    static let semanticMatcher = SemanticMatcher()
 
     /// 역할 요구사항을 기존 에이전트와 매칭
     static func matchRoles(
@@ -98,7 +101,7 @@ enum AgentMatcher {
         "서버", "클라이언트", "db", "database", "cloud", "클라우드"
     ]
 
-    /// 이름 + 페르소나 + 작업 규칙 키워드 기반 매칭
+    /// 이름 + 페르소나 + 작업 규칙 키워드 + NLEmbedding 시맨틱 하이브리드 매칭
     private static func findByKeyword(
         roleName: String,
         agents: [Agent],
@@ -115,34 +118,60 @@ enum AgentMatcher {
             keywords = keywords.filter { !domainKeywords.contains($0) }
         }
 
-        guard !keywords.isEmpty else { return nil }
-
+        let hasKeywords = !keywords.isEmpty
         let preferredKWs = documentType?.preferredKeywords ?? []
+        let useSemanticScoring = semanticMatcher.isAvailable
 
-        var bestMatch: (agent: Agent, score: Int)?
+        // 키워드도 없고 시맨틱도 불가하면 매칭 불가
+        guard hasKeywords || useSemanticScoring else { return nil }
+
+        var bestMatch: (agent: Agent, score: Double)?
 
         for agent in agents where !used.contains(agent.id) {
-            let lowerPersona = agent.persona.lowercased()
-            let lowerName = agent.name.lowercased()
-            let lowerRules = (agent.workingRules.flatMap { $0.isEmpty ? nil : $0 }?.resolve() ?? "").lowercased()
-            var score = 0
+            // --- 키워드 점수 (기존 로직) ---
+            var keywordScore = 0
+            if hasKeywords {
+                let lowerPersona = agent.persona.lowercased()
+                let lowerName = agent.name.lowercased()
+                let lowerRules = (agent.workingRules.flatMap { $0.isEmpty ? nil : $0 }?.resolve() ?? "").lowercased()
 
-            for keyword in keywords {
-                if lowerName.contains(keyword) { score += 3 }
-                if lowerPersona.contains(keyword) { score += 2 }
-                if lowerRules.contains(keyword) { score += 1 }
+                for keyword in keywords {
+                    if lowerName.contains(keyword) { keywordScore += 3 }
+                    if lowerPersona.contains(keyword) { keywordScore += 2 }
+                    if lowerRules.contains(keyword) { keywordScore += 1 }
+                }
+
+                for pkw in preferredKWs {
+                    let lower = pkw.lowercased()
+                    if lowerName.contains(lower) { keywordScore += 2 }
+                    if lowerPersona.contains(lower) { keywordScore += 2 }
+                }
             }
 
-            // Documentation preferredKeywords 보너스
-            for pkw in preferredKWs {
-                let lower = pkw.lowercased()
-                if lowerName.contains(lower) { score += 2 }
-                if lowerPersona.contains(lower) { score += 2 }
+            // --- 시맨틱 점수 ---
+            let semanticScore: Double
+            if useSemanticScoring {
+                // cosine similarity 범위: -1~1 → 0~10 스케일로 정규화
+                let rawSimilarity = semanticMatcher.similarity(roleName: roleName, agent: agent)
+                semanticScore = max(0, rawSimilarity) * 10.0
+            } else {
+                semanticScore = 0
             }
 
-            // 최소 점수 2 이상 (페르소나 키워드 매칭만으로도 충분)
-            if score >= 2, score > (bestMatch?.score ?? 0) {
-                bestMatch = (agent, score)
+            // --- 하이브리드 점수 ---
+            let combinedScore: Double
+            if hasKeywords && useSemanticScoring {
+                combinedScore = Double(keywordScore) * 0.5 + semanticScore * 0.5
+            } else if hasKeywords {
+                combinedScore = Double(keywordScore)
+            } else {
+                combinedScore = semanticScore
+            }
+
+            // 최소 임계값: 키워드 2점 이상 OR 시맨틱 3.0 이상 (cos sim 0.3+)
+            let meetsThreshold = keywordScore >= 2 || semanticScore >= 3.0
+            if meetsThreshold, combinedScore > (bestMatch?.score ?? 0) {
+                bestMatch = (agent, combinedScore)
             }
         }
 

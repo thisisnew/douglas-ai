@@ -58,7 +58,8 @@ DOUGLAS/
 │   │   ├── DecisionLog.swift      # 토론 결정 로그 (DecisionEntry)
 │   │   ├── WorkflowAssumption.swift # 가정 선언 (RiskLevel: low/medium/high) + UserAnswer
 │   │   ├── ProjectPlaybook.swift   # 프로젝트 플레이북 (브랜치 전략, 테스트 정책, 프리셋 3종)
-│   │   ├── IntakeData.swift        # Intake 입력 데이터 (InputSourceType, JiraTicketSummary)
+│   │   ├── IntakeData.swift        # Intake 입력 데이터 (InputSourceType, JiraTicketSummary, asClarifyContextString 중립 컨텍스트)
+│   │   ├── SemanticMatcher.swift  # NLEmbedding 기반 에이전트 의미 유사도 매칭 (한국어+영어 word embedding, 벡터 캐시)
 │   │   ├── RoleRequirement.swift   # Assemble 역할 요구사항 (Priority, MatchStatus)
 │   │   ├── DependencyChecker.swift  # 의존성 체크 (Node.js, Git, Homebrew)
 │   │   ├── JiraConfig.swift          # Jira Cloud 연동 설정 (도메인, 이메일, API 토큰)
@@ -80,7 +81,7 @@ DOUGLAS/
 │   │   ├── ProviderManager.swift    # 프로바이더 설정 관리
 │   │   ├── BuildLoopRunner.swift     # 빌드/테스트 실행 + 수정 프롬프트 생성 엔진
 │   │   ├── RoomManager.swift        # 프로젝트 방 생명주기, 6단계 워크플로우, 승인/입력 게이트
-│   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (documentType-aware: 도메인 키워드 필터링 + preferredKeywords 보너스)
+│   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (키워드 + NLEmbedding 시맨틱 하이브리드, documentType-aware)
 │   │   ├── DocumentExporter.swift   # 문서 산출물 파일 저장 (에이전트 생성 파일 탐지 → 고정 경로 자동저장 / NSSavePanel 폴백)
 │   │   ├── ThemeManager.swift       # 테마 관리 (기본값: .cozyGame, UserDefaults 저장, 커스텀 팔레트)
 │   │   └── ToolExecutor.swift       # 도구 호출 루프 + smartSend + 경로 해석/충돌 추적
@@ -1081,8 +1082,8 @@ executeWithTools() 루프 (최대 10회):
 ```
 ① Intake ── 입력 파싱 (Jira fetch, URL 감지, IntakeData 저장, 플레이북 로드)
 ② Intent ── 작업 유형 표시 (방 생성 시 IntentClassifier가 분류)
-③ Clarify ─ 복명복창 (task만; quickAnswer는 스킵)
-④ Assemble ─ 전문가 초대 (AgentMatcher documentType-aware 매칭) + classifyNeedsPlan
+③ Clarify ─ 복명복창 (task만; quickAnswer는 스킵, Jira 중립 컨텍스트로 환각 방지)
+④ Assemble ─ 전문가 초대 (키워드+NLEmbedding 하이브리드 매칭, 직접매칭은 task/clarifySummary만 사용) + classifyNeedsPlan
   └─ needsPlan=true → [Plan] 토론→계획→승인 (동적 삽입)
 ⑤ Execute ── quickAnswer(즉답) / task+needsPlan(계획 기반) / task+!needsPlan(토론/분석+문서)
 ```

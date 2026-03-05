@@ -44,10 +44,13 @@ class AgentStore: ObservableObject {
         if selectedAgentID == nil {
             selectedAgentID = masterAgent?.id
         }
+        // NLEmbedding 캐시 초기 구축
+        AgentMatcher.semanticMatcher.rebuildCache(agents: agents)
     }
 
     func addAgent(_ agent: Agent) {
         agents.append(agent)
+        AgentMatcher.semanticMatcher.updateCache(for: agent)
         saveAgents()
     }
 
@@ -55,6 +58,7 @@ class AgentStore: ObservableObject {
         guard !agent.isMaster else { return } // 마스터는 삭제 불가
         let agentID = agent.id
         agents.removeAll { $0.id == agentID }
+        AgentMatcher.semanticMatcher.removeFromCache(agentID: agentID)
         if selectedAgentID == agentID {
             selectedAgentID = masterAgent?.id
         }
@@ -94,6 +98,7 @@ class AgentStore: ObservableObject {
     func updateAgent(_ updated: Agent) {
         if let idx = agents.firstIndex(where: { $0.id == updated.id }) {
             agents[idx] = updated
+            AgentMatcher.semanticMatcher.updateCache(for: updated)
             saveAgents()
         }
     }

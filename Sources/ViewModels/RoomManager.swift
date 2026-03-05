@@ -51,6 +51,25 @@ private func stripTrailingOptions(_ text: String) -> String {
     return kept.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
+/// Clarify 응답에서 Jira/인증 관련 환각 문장 제거 (안전망)
+private func stripHallucinatedAuthLines(_ text: String) -> String {
+    let patterns: [String] = [
+        "인증 정보", "API 토큰", "자격증명", "설정되어 있지",
+        "MCP 도구", "MCP 서버", "직접 호출할 수 있는",
+        "직접 제공", "직접 확인해", "연결되어 있지 않",
+        "접근할 수 없", "접근 권한", "Jira API를 직접",
+    ]
+
+    let lines = text.components(separatedBy: "\n")
+    let filtered = lines.filter { line in
+        !patterns.contains(where: { line.contains($0) })
+    }
+
+    return filtered.joined(separator: "\n")
+        .replacingOccurrences(of: "\n\n\n", with: "\n\n")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
 /// 스트리밍 청크 누적용 스레드-안전 버퍼
 private final class StreamBuffer: @unchecked Sendable {
     private var _value = ""
@@ -1288,7 +1307,8 @@ class RoomManager: ObservableObject {
         // 컨텍스트 구성: IntakeData + 플레이북
         var contextParts: [String] = []
         if let intakeData = rooms[idx].intakeData {
-            contextParts.append(intakeData.asContextString())
+            // Clarify 단계에서는 Jira/API 언급을 제거한 중립 컨텍스트 사용 (LLM 환각 방지)
+            contextParts.append(intakeData.asClarifyContextString())
         }
         if let playbook = rooms[idx].playbook {
             contextParts.append(playbook.asContextString())
@@ -1315,27 +1335,12 @@ class RoomManager: ObservableObject {
         // 문서 유형 템플릿 주입
         let docTypeContext = rooms[idx].documentType?.templatePromptBlock() ?? ""
 
-        // Jira 연동 안내
-        let jiraCapability: String
-        if JiraConfig.shared.isConfigured, rooms[idx].intakeData?.sourceType == .jira {
-            jiraCapability = """
-
-            [도구] Jira Cloud 연동됨 — 티켓 조회·상태 변경·서브태스크 생성·PR/개발 정보 조회 가능.
-            현재 자동 조회된 데이터는 기본 티켓 정보(제목, 상태, 설명)입니다.
-            PR 링크, 커밋 이력, 브랜치 정보 등 개발(Development) 패널 데이터는 실행 단계에서 전문가 에이전트가 Jira API를 통해 추가 조회할 수 있습니다.
-            "PR 링크가 없다", "URL에 접근할 수 없다", "직접 제공해달라"고 말하지 마세요.
-
-            """
-        } else {
-            jiraCapability = ""
-        }
-
         let clarifySystemPrompt = """
         \(agent.resolvedSystemPrompt)
 
         당신은 요건 확인(Clarify) 단계를 수행하고 있습니다.
         사용자의 요청을 정확히 이해했는지 복명복창(확인)만 합니다.
-        \(jiraCapability)\(docTypeContext.isEmpty ? "" : "\n\(docTypeContext)\n")
+        \(docTypeContext.isEmpty ? "" : "\n\(docTypeContext)\n")
         아래 형식으로 이해한 내용을 요약하세요:
         - 요청 내용: (1-2문장 요약)
         - 핵심 요구사항: (불릿 포인트, 각 항목 1줄 이내)
@@ -1349,8 +1354,7 @@ class RoomManager: ObservableObject {
         - 번역, 계산, 코드 작성 등 실제 작업 결과물을 포함하지 마세요.
         - 위 형식 이후에 추가 텍스트를 붙이지 마세요.
         - "1. 다음" "2. 수정" "x. 나가기" 같은 선택지/메뉴를 절대 출력하지 마세요. 사용자 선택은 UI 버튼으로 제공됩니다.
-        - "인증 정보가 없다", "API 토큰이 필요하다", "자격증명이 없다", "설정되어 있지 않다" 등 시스템 설정·인증 문제를 언급하지 마세요. Jira 데이터가 컨텍스트에 포함되어 있으면 인증은 이미 완료된 것입니다.
-        - "직접 제공해달라", "직접 확인해달라" 등 사용자에게 데이터 수집을 떠넘기지 마세요. 추가 데이터는 실행 단계에서 전문가가 조회합니다.
+        - 시스템 도구·인증·설정 관련 언급을 하지 마세요. 필요한 데이터는 이미 수집되었습니다.
         """
 
         var currentSummary = ""
@@ -1418,7 +1422,7 @@ class RoomManager: ObservableObject {
                     case .toolCalls: response = "(요약 생성 실패)"
                     }
                 }
-                currentSummary = stripTrailingOptions(response)
+                currentSummary = stripHallucinatedAuthLines(stripTrailingOptions(response))
 
                 // 복명복창 요약에서 방 제목 자동 추출 (첫 라운드만)
                 if currentSummary.isEmpty == false,
@@ -1534,12 +1538,6 @@ class RoomManager: ObservableObject {
               let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return }
 
-        // clarify 피드백을 포함한 확장 task (directMatches + LLM에 사용)
-        let userMessages = rooms[idx].messages
-            .filter { $0.role == .user }
-            .map { $0.content }
-        let enrichedTask = ([task] + userMessages).joined(separator: " ")
-
         // 1) 마스터에게 역할 요구사항 산출 요청
         var contextParts: [String] = []
         if let intakeData = rooms[idx].intakeData {
@@ -1626,17 +1624,22 @@ class RoomManager: ObservableObject {
         // "QA에게 자문" → "QA 전문가" 직접 매칭 (LLM 우회)
         // "프론트" → "프론트엔드 개발자" 접두어 매칭도 지원
         // 사용자가 에이전트 이름을 직접 언급하면 항상 매칭 허용
-        let skipDirectMatch = false
-        // sourceType 기반 키워드 주입: Jira URL → "jira" 키워드 추가 (에이전트 직접 매칭용)
-        var enrichedForMatch = enrichedTask
-        if rooms[idx].intakeData?.sourceType == .jira {
-            enrichedForMatch += " jira"
+        // 직접 매칭은 사용자의 원래 요청만 사용 (Jira 티켓 설명의 false positive 방지)
+        var directMatchText: String
+        if let clarifySummary = rooms[idx].clarifySummary {
+            directMatchText = clarifySummary
+        } else {
+            directMatchText = task
         }
-        let taskLowered = enrichedForMatch.lowercased()
+        // sourceType 기반 키워드 주입: Jira URL → "jira" 키워드 추가 (에이전트 직접 매칭용)
+        if rooms[idx].intakeData?.sourceType == .jira {
+            directMatchText += " jira"
+        }
+        let taskLowered = directMatchText.lowercased()
         let taskWords = taskLowered
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { $0.count >= 2 }
-        let directMatches: [Agent] = skipDirectMatch ? [] : subAgents.filter { sub in
+        let directMatches: [Agent] = subAgents.filter { sub in
             let nameKeywords = sub.name.lowercased()
                 .components(separatedBy: CharacterSet.alphanumerics.inverted)
                 .filter { word in

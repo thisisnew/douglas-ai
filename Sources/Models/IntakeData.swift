@@ -116,4 +116,30 @@ struct IntakeData: Codable {
         }
         return parts.joined(separator: "\n")
     }
+
+    /// Clarify 단계 전용: Jira/API 언급 없이 중립적으로 데이터 표현
+    /// (LLM이 Jira API 인증에 대해 환각하는 것을 방지)
+    func asClarifyContextString() -> String {
+        var parts: [String] = ["[사전 수집된 프로젝트 데이터]"]
+
+        if !jiraDataList.isEmpty {
+            parts.append("아래 티켓 데이터는 시스템이 자동으로 수집한 결과입니다.")
+            for jira in jiraDataList {
+                parts.append("- [\(jira.key)] \(jira.summary) (\(jira.issueType), \(jira.status))")
+                if !jira.description.isEmpty {
+                    let desc = jira.description.count > 200
+                        ? String(jira.description.prefix(200)) + "…"
+                        : jira.description
+                    parts.append("  설명: \(desc)")
+                }
+            }
+        } else if !jiraKeys.isEmpty {
+            parts.append("티켓 참조: \(jiraKeys.joined(separator: ", "))")
+            parts.append("(상세 데이터는 실행 단계에서 자동 조회됩니다)")
+        } else if sourceType == .url, !urls.isEmpty {
+            parts.append("참조 URL이 포함된 요청입니다.")
+        }
+
+        return parts.joined(separator: "\n")
+    }
 }
