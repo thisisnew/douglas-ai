@@ -759,6 +759,8 @@ MessageType에 따른 시각 차별화:
 | 사전 분석 | `executeSoloAnalysis()` | 없음 (useTools: false) |
 | 질의응답 | `executeQuickAnswer()` | WebSearch/WebFetch 이벤트 |
 | 실행 단계 | `executeStep()` | 전체 도구 이벤트 (기존) + 모델/시간 추가 |
+| 토론 발언 (순차) | `executeDiscussionTurn()` | 수동 추적 (llm_call/llm_result) |
+| 토론 발언 (병렬) | `generateDiscussionResponse()` | 수동 추적 (llm_call/llm_result) |
 
 ### AgentAvatarView (`Views/AgentAvatarView.swift`)
 

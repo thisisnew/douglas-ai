@@ -139,9 +139,8 @@ struct RoomChatView: View {
                         messageRow(message, in: room)
                     }
 
-                    // 작업 진행 중 타이핑 인디케이터 (활성 진행 버블이 없을 때만)
-                    if (room.status == .planning || room.status == .inProgress),
-                       !hasActiveProgressBubble(room) {
+                    // 작업 진행 중 타이핑 인디케이터 (활성 진행 정보를 흡수하여 표시)
+                    if room.status == .planning || room.status == .inProgress {
                         TypingIndicator(room: room, agentStore: agentStore)
                             .id("typing-indicator")
                     }
@@ -168,17 +167,8 @@ struct RoomChatView: View {
 
     @ViewBuilder
     private func messageRow(_ message: ChatMessage, in room: Room) -> some View {
-        if message.messageType == .progress {
-            ProgressActivityBubble(
-                message: message,
-                activities: activitiesForProgress(message.id, in: room),
-                isActive: isProgressActive(message, in: room)
-            )
+        MessageBubble(message: message)
             .id(message.id)
-        } else {
-            MessageBubble(message: message)
-                .id(message.id)
-        }
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy, room: Room) {
@@ -219,9 +209,15 @@ struct RoomChatView: View {
 
     // MARK: - 메시지 필터링 (활동 그룹 숨김)
 
-    /// 메인 채팅에 보이는 메시지: activityGroupID 소속 메시지는 숨김 (progress 버블에서 표시)
+    /// 메인 채팅에 보이는 메시지
+    /// - activityGroupID 소속 메시지: TypingIndicator 확장 영역에서 표시
+    /// - .progress 메시지: TypingIndicator가 흡수 (인라인 표시 안 함)
     private func visibleMessages(_ room: Room) -> [ChatMessage] {
-        room.messages.filter { $0.activityGroupID == nil && $0.messageType != .approvalRequest }
+        room.messages.filter { msg in
+            msg.activityGroupID == nil
+                && msg.messageType != .approvalRequest
+                && msg.messageType != .progress
+        }
     }
 
     /// 특정 progress 메시지에 소속된 활동 메시지들

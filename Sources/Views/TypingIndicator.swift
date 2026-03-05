@@ -1,12 +1,14 @@
 import SwiftUI
 
 /// 채팅 하단에 표시되는 작업 진행 중 애니메이션
+/// 클릭하면 현재 단계의 세부 활동(모델 정보, 도구 사용, 소요시간)이 펼쳐짐
 struct TypingIndicator: View {
     @Environment(\.colorPalette) private var palette
     let room: Room
     let agentStore: AgentStore
     @EnvironmentObject var roomManager: RoomManager
     @State private var dotPhase = 0
+    @State private var isExpanded = false
 
     /// 현재 발언 중인 에이전트 (토론 턴)
     private var speakingAgent: Agent? {
@@ -73,7 +75,38 @@ struct TypingIndicator: View {
         return "DOUGLAS 분석 중"
     }
 
+    /// 마지막 활성 progress 그룹의 활동 메시지들
+    private var activeActivities: [ChatMessage] {
+        guard room.isActive else { return [] }
+        let progressMessages = room.messages.filter { $0.messageType == .progress }
+        guard let lastProgress = progressMessages.last else { return [] }
+        return room.messages.filter { $0.activityGroupID == lastProgress.id }
+    }
+
     var body: some View {
+        VStack(spacing: 0) {
+            // 헤더 (항상 보임) — 클릭으로 세부 활동 펼침
+            Button {
+                guard !activeActivities.isEmpty else { return }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                headerView
+            }
+            .buttonStyle(.plain)
+
+            // 확장 영역: 세부 활동 로그
+            if isExpanded, !activeActivities.isEmpty {
+                expandedView
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+
+    // MARK: - 헤더
+
+    private var headerView: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let elapsed = elapsedSeconds(at: context.date)
             HStack(spacing: 6) {
@@ -97,6 +130,21 @@ struct TypingIndicator: View {
                         .font(.system(size: 9, design: .monospaced))
                         .foregroundColor(.secondary.opacity(0.35))
                 }
+
+                // 활동 개수 뱃지 + 펼침 화살표
+                if !activeActivities.isEmpty {
+                    Text("\(activeActivities.count)")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(.secondary.opacity(0.5))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Color.secondary.opacity(0.08))
+                        .clipShape(Capsule())
+
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundColor(.secondary.opacity(0.4))
+                }
             }
         }
         .padding(.horizontal, 14)
@@ -110,6 +158,7 @@ struct TypingIndicator: View {
                 )
         )
         .shadow(color: palette.sidebarShadow, radius: 4, y: 2)
+        .contentShape(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius))
         .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
             Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
@@ -118,6 +167,83 @@ struct TypingIndicator: View {
                 }
             }
         }
+    }
+
+    // MARK: - 확장 영역 (활동 로그)
+
+    private var expandedView: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(activeActivities) { activity in
+                activityRow(activity)
+            }
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 20)
+    }
+
+    @ViewBuilder
+    private func activityRow(_ activity: ChatMessage) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: activityIcon(activity))
+                .font(.system(size: 9))
+                .foregroundColor(activityColor(activity))
+                .frame(width: 12)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(activity.content)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary.opacity(0.6))
+                    .lineLimit(2)
+
+                if let subject = activity.toolDetail?.subject {
+                    Text(subject)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.secondary.opacity(0.45))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+
+            Spacer()
+
+            Text(timeLabel(activity.timestamp))
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(.secondary.opacity(0.3))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 1)
+    }
+
+    // MARK: - Helpers
+
+    private func activityIcon(_ activity: ChatMessage) -> String {
+        guard let detail = activity.toolDetail else { return "arrow.right.circle" }
+        if detail.isError { return "xmark.circle" }
+        switch detail.toolName {
+        case "llm_call":   return "arrow.up.circle"
+        case "llm_result": return "checkmark.circle.fill"
+        case "llm_error":  return "xmark.octagon"
+        case "file_read", "Read":   return "doc.text"
+        case "file_write", "Write": return "doc.badge.plus"
+        case "shell_exec", "Bash":  return "terminal"
+        case "web_search", "WebSearch": return "magnifyingglass"
+        case "web_fetch", "WebFetch":   return "globe"
+        case "Glob":  return "folder.badge.questionmark"
+        case "Grep":  return "text.magnifyingglass"
+        case "Edit":  return "pencil"
+        default:      return "checkmark.circle"
+        }
+    }
+
+    private func activityColor(_ activity: ChatMessage) -> Color {
+        guard let detail = activity.toolDetail else { return .secondary.opacity(0.5) }
+        return detail.isError ? .red.opacity(0.6) : .green.opacity(0.6)
+    }
+
+    private func timeLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter.string(from: date)
     }
 
     /// 마지막 메시지 이후 경과 시간

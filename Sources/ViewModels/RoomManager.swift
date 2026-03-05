@@ -1122,7 +1122,6 @@ class RoomManager: ObservableObject {
                   let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
                   let provider = providerManager?.provider(named: agent.providerName) else {
                 rooms[idx].intent = .task
-                postIntentExplanation(roomID: roomID)
                 return
             }
 
@@ -1141,11 +1140,9 @@ class RoomManager: ObservableObject {
             }
 
             rooms[idx].intent = selectedIntent
-            postIntentExplanation(roomID: roomID)
             scheduleSave()
         } else {
             // quickClassify가 결과를 반환한 경우 (quickAnswer 또는 task) — 그대로 사용
-            postIntentExplanation(roomID: roomID)
         }
 
         // 초기 메시지에서 문서 요청 감지 → autoDocOutput 플래그 설정
@@ -3615,9 +3612,37 @@ class RoomManager: ObservableObject {
             """
         }
 
+        // 활동 추적: ProgressActivityBubble로 모델/소요시간 표시
+        let progressGroupID = UUID()
+        let turnStartTime = Date()
+
         do {
             agentStore?.updateStatus(agentID: agentID, status: .working)
             speakingAgentIDByRoom[roomID] = agentID
+
+            let progressMsg = ChatMessage(
+                role: .assistant,
+                content: "\(agent.providerName) · \(agent.modelName)",
+                agentName: agent.name,
+                messageType: .progress,
+                activityGroupID: progressGroupID
+            )
+            appendMessage(progressMsg, to: roomID)
+
+            let callDetail = ToolActivityDetail(
+                toolName: "llm_call",
+                subject: "\(agent.providerName) / \(agent.modelName)",
+                contentPreview: nil, isError: false
+            )
+            let callActivity = ChatMessage(
+                role: .assistant,
+                content: "API 호출: \(agent.providerName) (\(agent.modelName))",
+                agentName: agent.name,
+                messageType: .toolActivity,
+                activityGroupID: progressGroupID,
+                toolDetail: callDetail
+            )
+            appendMessage(callActivity, to: roomID)
 
             // 스트리밍용 placeholder 메시지 — 청크가 실시간으로 표시됨
             let placeholderID = UUID()
@@ -3661,6 +3686,26 @@ class RoomManager: ObservableObject {
                 }
             }
 
+            // 활동 추적: 응답 완료
+            let turnDuration = Date().timeIntervalSince(turnStartTime)
+            let durationStr = turnDuration < 60
+                ? String(format: "%.1f초", turnDuration)
+                : String(format: "%d분 %.0f초", Int(turnDuration) / 60, turnDuration.truncatingRemainder(dividingBy: 60))
+            let resultDetail = ToolActivityDetail(
+                toolName: "llm_result",
+                subject: durationStr,
+                contentPreview: nil, isError: false
+            )
+            let resultActivity = ChatMessage(
+                role: .assistant,
+                content: "응답 완료 (\(durationStr))",
+                agentName: agent.name,
+                messageType: .toolActivity,
+                activityGroupID: progressGroupID,
+                toolDetail: resultDetail
+            )
+            appendMessage(resultActivity, to: roomID)
+
             speakingAgentIDByRoom.removeValue(forKey: roomID)
 
             // 합의 감지 (퍼지 매칭 포함) 후 DecisionLog 기록
@@ -3702,6 +3747,24 @@ class RoomManager: ObservableObject {
 
             return agreed
         } catch {
+            // 활동 추적: 오류
+            let turnDuration = Date().timeIntervalSince(turnStartTime)
+            let errDurationStr = String(format: "%.1f초", turnDuration)
+            let errorDetail = ToolActivityDetail(
+                toolName: "llm_error",
+                subject: error.userFacingMessage,
+                contentPreview: nil, isError: true
+            )
+            let errorActivity = ChatMessage(
+                role: .assistant,
+                content: "오류 (\(errDurationStr)): \(error.userFacingMessage)",
+                agentName: agent.name,
+                messageType: .toolActivity,
+                activityGroupID: progressGroupID,
+                toolDetail: errorDetail
+            )
+            appendMessage(errorActivity, to: roomID)
+
             speakingAgentIDByRoom.removeValue(forKey: roomID)
             let errorMsg = ChatMessage(
                 role: .assistant,
@@ -3786,8 +3849,36 @@ class RoomManager: ObservableObject {
             """
         }
 
+        // 활동 추적: ProgressActivityBubble로 모델/소요시간 표시
+        let progressGroupID = UUID()
+        let turnStartTime = Date()
+
         do {
             agentStore?.updateStatus(agentID: agentID, status: .working)
+
+            let progressMsg = ChatMessage(
+                role: .assistant,
+                content: "\(agent.name) 발언 중…",
+                agentName: agent.name,
+                messageType: .progress,
+                activityGroupID: progressGroupID
+            )
+            appendMessage(progressMsg, to: roomID)
+
+            let callDetail = ToolActivityDetail(
+                toolName: "llm_call",
+                subject: "\(agent.providerName) / \(agent.modelName)",
+                contentPreview: nil, isError: false
+            )
+            let callActivity = ChatMessage(
+                role: .assistant,
+                content: "API 호출: \(agent.providerName) (\(agent.modelName))",
+                agentName: agent.name,
+                messageType: .toolActivity,
+                activityGroupID: progressGroupID,
+                toolDetail: callDetail
+            )
+            appendMessage(callActivity, to: roomID)
 
             // 병렬 실행이므로 비스트리밍 (placeholder 충돌 방지)
             let responseContent = try await provider.sendMessageWithTools(
@@ -3802,6 +3893,26 @@ class RoomManager: ObservableObject {
             case .toolCalls: response = "[합의]"
             case .mixed(let t, _): response = t
             }
+
+            // 활동 추적: 응답 완료
+            let turnDuration = Date().timeIntervalSince(turnStartTime)
+            let durationStr = turnDuration < 60
+                ? String(format: "%.1f초", turnDuration)
+                : String(format: "%d분 %.0f초", Int(turnDuration) / 60, turnDuration.truncatingRemainder(dividingBy: 60))
+            let resultDetail = ToolActivityDetail(
+                toolName: "llm_result",
+                subject: durationStr,
+                contentPreview: nil, isError: false
+            )
+            let resultActivity = ChatMessage(
+                role: .assistant,
+                content: "응답 완료 (\(durationStr))",
+                agentName: agent.name,
+                messageType: .toolActivity,
+                activityGroupID: progressGroupID,
+                toolDetail: resultDetail
+            )
+            appendMessage(resultActivity, to: roomID)
 
             agentStore?.updateStatus(agentID: agentID, status: .idle)
 
@@ -3821,6 +3932,24 @@ class RoomManager: ObservableObject {
             )
             return (msg, agreed)
         } catch {
+            // 활동 추적: 오류
+            let turnDuration = Date().timeIntervalSince(turnStartTime)
+            let errDurationStr = String(format: "%.1f초", turnDuration)
+            let errorDetail = ToolActivityDetail(
+                toolName: "llm_error",
+                subject: error.userFacingMessage,
+                contentPreview: nil, isError: true
+            )
+            let errorActivity = ChatMessage(
+                role: .assistant,
+                content: "오류 (\(errDurationStr)): \(error.userFacingMessage)",
+                agentName: agent.name,
+                messageType: .toolActivity,
+                activityGroupID: progressGroupID,
+                toolDetail: errorDetail
+            )
+            appendMessage(errorActivity, to: roomID)
+
             agentStore?.updateStatus(agentID: agentID, status: .idle)
             let errorMsg = ChatMessage(
                 role: .assistant,
