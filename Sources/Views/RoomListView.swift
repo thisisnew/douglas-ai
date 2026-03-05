@@ -545,12 +545,11 @@ struct RoomListItem: View {
     private var statusBadge: some View {
         switch room.status {
         case .planning:
-            badgeView(text: room.phaseLabel,
+            pulseBadge(text: room.phaseLabel,
                        color: DesignTokens.RoomStatusColor.color(for: .planning))
 
         case .inProgress:
-            let pct = progressPercent
-            badgeView(text: "\(DesignTokens.RoomStatusColor.label(for: .inProgress)) \(pct)%",
+            pulseBadge(text: "\(DesignTokens.RoomStatusColor.label(for: .inProgress)) \(elapsedText)",
                        color: DesignTokens.RoomStatusColor.color(for: .inProgress))
 
         case .completed:
@@ -581,9 +580,28 @@ struct RoomListItem: View {
             .clipShape(Capsule())
     }
 
-    private var progressPercent: Int {
-        guard let plan = room.plan, !plan.steps.isEmpty else { return 0 }
-        return min(100, room.currentStepIndex * 100 / plan.steps.count)
+    private func pulseBadge(text: String, color: Color) -> some View {
+        Text(text)
+            .font(.system(size: DesignTokens.FontSize.badge, weight: .medium, design: .rounded))
+            .foregroundColor(color)
+            .padding(.horizontal, DesignTokens.Radius.md)
+            .padding(.vertical, DesignTokens.Spacing.xs)
+            .background(color.opacity(DesignTokens.Opacity.badgeBg))
+            .clipShape(Capsule())
+            .phaseAnimator([false, true]) { content, phase in
+                content.opacity(phase ? 1.0 : 0.5)
+            } animation: { _ in
+                .easeInOut(duration: 1.2)
+            }
+    }
+
+    private var elapsedText: String {
+        let seconds = Int(Date().timeIntervalSince(room.createdAt))
+        if seconds < 60 { return "\(seconds)초" }
+        let min = seconds / 60
+        if min < 60 { return "\(min)분" }
+        let hr = min / 60
+        return "\(hr)시간"
     }
 }
 
