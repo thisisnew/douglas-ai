@@ -3,7 +3,7 @@ import AppKit
 
 /// 마우스 휠 스크롤을 지원하는 텍스트 입력 (NSTextView 기반)
 /// SwiftUI TextField(axis: .vertical)은 lineLimit 초과 시 마우스 휠 스크롤이 안 되는 문제를 해결
-struct ScrollableTextInput: NSViewRepresentable {
+struct ScrollableTextInput: View {
     @Binding var text: String
     var placeholder: String = ""
     var font: NSFont = .systemFont(ofSize: 13)
@@ -16,18 +16,50 @@ struct ScrollableTextInput: NSViewRepresentable {
         case upArrow, downArrow, tab, escape
     }
 
+    @State private var dynamicHeight: CGFloat = 20
+
+    var body: some View {
+        _Representable(
+            text: $text,
+            placeholder: placeholder,
+            font: font,
+            maxHeight: maxHeight,
+            dynamicHeight: $dynamicHeight,
+            onSubmit: onSubmit,
+            onSpecialKey: onSpecialKey
+        )
+        .frame(height: dynamicHeight)
+    }
+}
+
+// MARK: - NSViewRepresentable 구현
+
+private struct _Representable: NSViewRepresentable {
+    @Binding var text: String
+    var placeholder: String
+    var font: NSFont
+    var maxHeight: CGFloat
+    @Binding var dynamicHeight: CGFloat
+    var onSubmit: (() -> Void)?
+    var onSpecialKey: ((ScrollableTextInput.SpecialKey) -> Bool)?
+
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
 
-    func makeNSView(context: Context) -> NSView {
+    func makeNSView(context: Context) -> _Container {
         let container = _Container(coordinator: context.coordinator)
         context.coordinator.container = container
+
+        // 초기 높이 설정
+        DispatchQueue.main.async {
+            dynamicHeight = container.lineHeight
+        }
+
         return container
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
-        guard let container = nsView as? _Container else { return }
+    func updateNSView(_ container: _Container, context: Context) {
         let tv = container.textView
         let coord = context.coordinator
         coord.parent = self
@@ -44,28 +76,53 @@ struct ScrollableTextInput: NSViewRepresentable {
         tv.font = font
     }
 
+    // MARK: - SwiftUI 스크롤 이벤트 가로채기 방지 NSScrollView
+
+    final class _ScrollView: NSScrollView {
+        override func scrollWheel(with event: NSEvent) {
+            if let docView = documentView, docView.frame.height > contentView.bounds.height {
+                super.scrollWheel(with: event)
+            }
+            // 스크롤할 내용이 없으면 이벤트를 SwiftUI로 전파하지 않음
+        }
+    }
+
     // MARK: - Container (NSScrollView + NSTextView + placeholder)
 
     final class _Container: NSView {
-        let scrollView: NSScrollView
+        let scrollView: _ScrollView
         let textView: NSTextView
         private let placeholderField: NSTextField
-        private let coordinator: Coordinator
-        private var heightConstraint: NSLayoutConstraint?
+        let coordinator: Coordinator
 
         init(coordinator: Coordinator) {
             self.coordinator = coordinator
 
             // ScrollView
-            let sv = NSScrollView()
+            let sv = _ScrollView()
             sv.hasVerticalScroller = true
             sv.autohidesScrollers = true
             sv.borderType = .noBorder
             sv.drawsBackground = false
             sv.translatesAutoresizingMaskIntoConstraints = false
 
-            // TextView
-            let tv = NSTextView()
+            // TextContainer → LayoutManager → TextStorage → TextView (수동 정밀 설정)
+            let tc = NSTextContainer(containerSize: NSSize(width: 200, height: CGFloat.greatestFiniteMagnitude))
+            tc.widthTracksTextView = true
+
+            let lm = NSLayoutManager()
+            lm.addTextContainer(tc)
+
+            let ts = NSTextStorage()
+            ts.addLayoutManager(lm)
+
+            let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 20), textContainer: tc)
+            tv.minSize = NSSize(width: 0, height: 20)
+            tv.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+            tv.isVerticallyResizable = true
+            tv.isHorizontallyResizable = false
+            tv.autoresizingMask = [.width]
+
             tv.delegate = coordinator
             tv.isRichText = false
             tv.isAutomaticQuoteSubstitutionEnabled = false
@@ -74,12 +131,9 @@ struct ScrollableTextInput: NSViewRepresentable {
             tv.isAutomaticSpellingCorrectionEnabled = false
             tv.drawsBackground = false
             tv.textContainerInset = NSSize(width: 0, height: 1)
-            tv.textContainer?.lineFragmentPadding = 2
-            tv.isVerticallyResizable = true
-            tv.isHorizontallyResizable = false
-            tv.textContainer?.widthTracksTextView = true
-            tv.autoresizingMask = [.width]
+            tc.lineFragmentPadding = 2
             tv.font = coordinator.parent.font
+
             sv.documentView = tv
 
             // Placeholder
@@ -110,16 +164,11 @@ struct ScrollableTextInput: NSViewRepresentable {
                 ph.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
                 ph.topAnchor.constraint(equalTo: topAnchor, constant: 1),
             ])
-
-            let hc = heightAnchor.constraint(equalToConstant: lineHeight)
-            hc.priority = .defaultHigh
-            hc.isActive = true
-            self.heightConstraint = hc
         }
 
         required init?(coder: NSCoder) { fatalError() }
 
-        private var lineHeight: CGFloat {
+        var lineHeight: CGFloat {
             let fh = textView.font?.boundingRectForFont.height ?? 16
             return fh + textView.textContainerInset.height * 2
         }
@@ -130,9 +179,11 @@ struct ScrollableTextInput: NSViewRepresentable {
             let content = usedRect.height + textView.textContainerInset.height * 2
             let target = max(content, lineHeight)
             let clamped = min(target, coordinator.parent.maxHeight)
-            guard heightConstraint?.constant != clamped else { return }
-            heightConstraint?.constant = clamped
-            invalidateIntrinsicContentSize()
+
+            // SwiftUI에 높이 변경 전달
+            DispatchQueue.main.async { [weak self] in
+                self?.coordinator.parent.dynamicHeight = clamped
+            }
         }
 
         func updatePlaceholder() {
@@ -141,19 +192,20 @@ struct ScrollableTextInput: NSViewRepresentable {
             placeholderField.font = coordinator.parent.font
         }
 
-        override var intrinsicContentSize: NSSize {
-            NSSize(width: NSView.noIntrinsicMetric, height: heightConstraint?.constant ?? lineHeight)
+        /// SwiftUI가 스크롤 이벤트를 가로채지 않도록 NSScrollView로 직접 전달
+        override func scrollWheel(with event: NSEvent) {
+            scrollView.scrollWheel(with: event)
         }
     }
 
     // MARK: - Coordinator
 
     class Coordinator: NSObject, NSTextViewDelegate {
-        var parent: ScrollableTextInput
+        var parent: _Representable
         var isUpdating = false
         weak var container: _Container?
 
-        init(_ parent: ScrollableTextInput) {
+        init(_ parent: _Representable) {
             self.parent = parent
         }
 
@@ -183,7 +235,7 @@ struct ScrollableTextInput: NSViewRepresentable {
 
             // 특수 키 (mention autocomplete 등)
             if let handler = parent.onSpecialKey {
-                let key: SpecialKey?
+                let key: ScrollableTextInput.SpecialKey?
                 switch sel {
                 case #selector(NSResponder.moveUp(_:)):       key = .upArrow
                 case #selector(NSResponder.moveDown(_:)):     key = .downArrow

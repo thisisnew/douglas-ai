@@ -272,7 +272,6 @@ struct FloatingSidebarView: View {
     @State private var showSlashMenu = false
     @State private var filteredCommands: [SlashCommand] = SlashCommand.all
     @StateObject private var slashMenu = SlashMenuState()
-    @FocusState private var isInputFocused: Bool
     /// Room 목록 높이 (pt 단위, 드래그로 조절)
     @State private var roomListHeight: CGFloat = 160
     @State private var roomDragStartHeight: CGFloat = 160
@@ -886,42 +885,38 @@ struct FloatingSidebarView: View {
                         .buttonStyle(.plain)
                         .help("파일 첨부")
 
-                        TextField("Tell Don't Ask", text: $inputText, axis: .vertical)
-                            .textFieldStyle(.plain)
-                            .lineLimit(1...5)
-                            .focused($isInputFocused)
-                            .onSubmit {
-                                if NSEvent.modifierFlags.contains(.shift) {
-                                    inputText += "\n"
-                                } else {
-                                    sendToMaster()
-                                }
+                        ScrollableTextInput(
+                            text: $inputText,
+                            placeholder: "Tell Don't Ask",
+                            font: NSFont.systemFont(ofSize: 13),
+                            maxHeight: 100,
+                            onSubmit: sendToMaster
+                        )
+                        .onChange(of: inputText) { _, newValue in
+                            // 드롭된 파일 경로 감지 → 파일 첨부로 변환
+                            if let remaining = extractDroppedFilePath(from: newValue) {
+                                inputText = remaining
+                                previousInputText = remaining
+                                return
                             }
-                            .onChange(of: inputText) { _, newValue in
-                                // 드롭된 파일 경로 감지 → 파일 첨부로 변환
-                                if let remaining = extractDroppedFilePath(from: newValue) {
-                                    inputText = remaining
-                                    previousInputText = remaining
-                                    return
-                                }
-                                previousInputText = newValue
+                            previousInputText = newValue
 
-                                let matched = SlashCommand.filtered(by: newValue)
-                                let shouldShow = newValue.hasPrefix("/") && !matched.isEmpty
-                                withAnimation(.dgFast) {
-                                    filteredCommands = matched
-                                    showSlashMenu = shouldShow
-                                }
-                                if shouldShow {
-                                    slashMenu.startMonitoring(
-                                        commandCount: matched.count,
-                                        onSelect: { idx in executeSlashCommand(matched[idx]) },
-                                        onDismiss: { inputText = ""; showSlashMenu = false }
-                                    )
-                                } else {
-                                    slashMenu.stopMonitoring()
-                                }
+                            let matched = SlashCommand.filtered(by: newValue)
+                            let shouldShow = newValue.hasPrefix("/") && !matched.isEmpty
+                            withAnimation(.dgFast) {
+                                filteredCommands = matched
+                                showSlashMenu = shouldShow
                             }
+                            if shouldShow {
+                                slashMenu.startMonitoring(
+                                    commandCount: matched.count,
+                                    onSelect: { idx in executeSlashCommand(matched[idx]) },
+                                    onDismiss: { inputText = ""; showSlashMenu = false }
+                                )
+                            } else {
+                                slashMenu.stopMonitoring()
+                            }
+                        }
 
                         SendButton(
                             canSend: canSend,
