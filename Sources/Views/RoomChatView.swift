@@ -864,6 +864,15 @@ struct DiscussionProgressBar: View {
     private var visiblePhases: [WorkflowPhase] {
         var phases = (room.intent?.requiredPhases ?? [])
             .filter { $0 != .intake && $0 != .intent }
+        // 사용자 직접 선택 방: assemble(팀 구성) 단계 숨김
+        if room.createdBy == .user {
+            let hasSubAgents = room.assignedAgentIDs.contains { id in
+                agentStore.agents.first(where: { $0.id == id }).map { !$0.isMaster } ?? false
+            }
+            if hasSubAgents {
+                phases.removeAll { $0 == .assemble }
+            }
+        }
         // needsPlan이 확정되면 .execute 앞에 .plan 삽입
         if room.needsPlan, let idx = phases.firstIndex(of: .execute) {
             phases.insert(.plan, at: idx)
