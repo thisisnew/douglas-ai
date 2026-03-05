@@ -96,6 +96,44 @@ enum DocumentExporter {
         return nil
     }
 
+    /// 방의 메시지에서 에이전트가 실제 생성한 문서 파일 경로 추출
+    /// - 1차: toolActivity의 file_write/Write 기록
+    /// - 2차: 어시스턴트 텍스트에서 절대 경로 언급 탐색 (backtick 감싸진 패턴)
+    static func findActualDocumentFile(from room: Room) -> URL? {
+        let docExtensions: Set<String> = ["pdf", "docx", "xlsx", "html", "pptx", "csv", "txt"]
+
+        // 1차: toolActivity에서 file_write/Write 경로 (최신 순)
+        for msg in room.messages.reversed() where msg.messageType == .toolActivity {
+            guard let detail = msg.toolDetail,
+                  ["file_write", "Write"].contains(detail.toolName),
+                  let path = detail.subject else { continue }
+            let ext = (path as NSString).pathExtension.lowercased()
+            if docExtensions.contains(ext),
+               FileManager.default.fileExists(atPath: path) {
+                return URL(fileURLWithPath: path)
+            }
+        }
+
+        // 2차: 어시스턴트 메시지에서 backtick 감싸진 절대 경로 추출
+        guard let regex = try? NSRegularExpression(
+            pattern: "`(/[^`\\n]+\\.(?:pdf|docx|xlsx|html|pptx|csv))`",
+            options: []
+        ) else { return nil }
+
+        for msg in room.messages.reversed() where msg.role == .assistant && msg.messageType == .text {
+            let nsStr = msg.content as NSString
+            let matches = regex.matches(in: msg.content, options: [], range: NSRange(location: 0, length: nsStr.length))
+            for match in matches.reversed() {
+                let path = nsStr.substring(with: match.range(at: 1))
+                if FileManager.default.fileExists(atPath: path) {
+                    return URL(fileURLWithPath: path)
+                }
+            }
+        }
+
+        return nil
+    }
+
     /// 방 정보로 제안 파일명 생성
     static func suggestedFilename(room: Room) -> String {
         if let docType = room.documentType, docType != .freeform {

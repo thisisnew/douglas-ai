@@ -81,7 +81,7 @@ DOUGLAS/
 │   │   ├── BuildLoopRunner.swift     # 빌드/테스트 실행 + 수정 프롬프트 생성 엔진
 │   │   ├── RoomManager.swift        # 프로젝트 방 생명주기, 6단계 워크플로우, 승인/입력 게이트
 │   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (documentType-aware: 도메인 키워드 필터링 + preferredKeywords 보너스)
-│   │   ├── DocumentExporter.swift   # 문서 산출물 파일 저장 (고정 경로 자동저장 / NSSavePanel 폴백)
+│   │   ├── DocumentExporter.swift   # 문서 산출물 파일 저장 (에이전트 생성 파일 탐지 → 고정 경로 자동저장 / NSSavePanel 폴백)
 │   │   ├── ThemeManager.swift       # 테마 관리 (기본값: .cozyGame, UserDefaults 저장, 커스텀 팔레트)
 │   │   └── ToolExecutor.swift       # 도구 호출 루프 + smartSend + 경로 해석/충돌 추적
 │   ├── Providers/
@@ -786,6 +786,10 @@ MessageType에 따른 시각 차별화:
 - **플러그인** 탭: PluginSettingsView(isEmbedded: true) — 빌트인/외부 플러그인 관리
 
 문서 저장 경로가 설정되면 `DocumentExporter.saveDocument()`가 NSSavePanel 없이 해당 폴더에 자동 저장 (동일 파일명 시 `(2)`, `(3)` 자동 부여). 미설정 시 기존 NSSavePanel 동작.
+
+`offerDocumentSave`는 2단계 우선순위로 동작:
+1. **실제 파일 탐지** (`findActualDocumentFile`): 에이전트가 도구(file_write/Write)로 생성한 문서 파일 또는 응답 텍스트에 backtick으로 언급된 절대 경로를 탐색 → 파일 존재 확인 후 해당 경로 링크
+2. **MD 폴백**: 실제 파일이 없으면 메시지 콘텐츠를 추출하여 `.md`로 저장
 
 헤더의 "설정" 버튼 하나로 진입. `UtilityWindowManager`에 `pluginManager` 환경 주입 추가.
 

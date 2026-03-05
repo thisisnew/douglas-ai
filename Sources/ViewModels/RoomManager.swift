@@ -408,11 +408,26 @@ class RoomManager: ObservableObject {
     // MARK: - 문서 파일 저장
 
     /// documentType이 설정된 방에서 자동 파일 저장 (NSSavePanel)
+    /// - 1차: 에이전트가 실제 생성한 문서 파일이 있으면 해당 경로 링크
+    /// - 2차: 메시지 콘텐츠 추출 후 MD 파일 저장
     private func offerDocumentSave(roomID: UUID) async {
         guard let room = rooms.first(where: { $0.id == roomID }),
               room.documentType != nil,
-              room.status != .failed,
-              let content = DocumentExporter.extractDocumentContent(from: room) else { return }
+              room.status != .failed else { return }
+
+        // 1차: 에이전트가 실제 생성한 문서 파일 확인
+        if let docURL = DocumentExporter.findActualDocumentFile(from: room) {
+            let doneMsg = ChatMessage(
+                role: .assistant,
+                content: "문서가 저장되었습니다: [\(docURL.lastPathComponent)](\(docURL.absoluteString))\n`\(docURL.path)`",
+                messageType: .text
+            )
+            appendMessage(doneMsg, to: roomID)
+            return
+        }
+
+        // 2차: 메시지에서 콘텐츠 추출 후 MD 파일 저장
+        guard let content = DocumentExporter.extractDocumentContent(from: room) else { return }
 
         let suggestedName = DocumentExporter.suggestedFilename(room: room)
 
@@ -422,7 +437,7 @@ class RoomManager: ObservableObject {
         if let url = DocumentExporter.saveDocument(content: content, suggestedName: suggestedName, defaultExtension: "md") {
             let doneMsg = ChatMessage(
                 role: .assistant,
-                content: "문서가 저장되었습니다: [\(url.lastPathComponent)](\(url.absoluteString))",
+                content: "문서가 저장되었습니다: [\(url.lastPathComponent)](\(url.absoluteString))\n`\(url.path)`",
                 messageType: .text
             )
             appendMessage(doneMsg, to: roomID)
