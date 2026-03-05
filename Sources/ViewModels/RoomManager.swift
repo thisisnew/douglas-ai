@@ -2288,8 +2288,9 @@ class RoomManager: ObservableObject {
                 modelName: agent.modelName,
                 providerName: agent.providerName
             ) { onToolActivity in
-                if let claudeProvider = provider as? ClaudeCodeProvider {
-                    // ClaudeCodeProvider: CLI 자체 WebSearch 사용 (검색+읽기만 허용)
+                let hasAttachments = history.contains { $0.attachments != nil && !($0.attachments?.isEmpty ?? true) }
+                if let claudeProvider = provider as? ClaudeCodeProvider, !hasAttachments {
+                    // ClaudeCodeProvider: CLI 자체 WebSearch 사용 (검색+읽기만 허용, 첨부 없을 때만)
                     let simple = history.compactMap { msg -> (role: String, content: String)? in
                         guard let content = msg.content else { return nil }
                         return (role: msg.role, content: content)
