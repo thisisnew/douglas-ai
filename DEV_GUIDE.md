@@ -319,7 +319,7 @@ make install-hooks    # pre-commit + commit-msg 훅 설치
 ## 테스트 규칙
 
 ### 명령어
-- `make test` — 전체 테스트 실행 (927개+)
+- `make test` — 전체 테스트 실행 (969개+)
 - `make coverage` — 커버리지 포함 테스트 + 리포트 자동 출력
 - `make build` — 릴리즈 빌드
 - `make lint` — SwiftLint 실행 (Xcode 필요)

@@ -846,10 +846,15 @@ struct DiscussionProgressBar: View {
     @EnvironmentObject var roomManager: RoomManager
     @EnvironmentObject var agentStore: AgentStore
 
-    /// 표시할 단계 (intake/intent 제외)
+    /// 표시할 단계 (intake/intent 제외, needsPlan이면 .plan 동적 삽입)
     private var visiblePhases: [WorkflowPhase] {
-        (room.intent?.requiredPhases ?? [])
+        var phases = (room.intent?.requiredPhases ?? [])
             .filter { $0 != .intake && $0 != .intent }
+        // needsPlan이 확정되면 .execute 앞에 .plan 삽입
+        if room.needsPlan, let idx = phases.firstIndex(of: .execute) {
+            phases.insert(.plan, at: idx)
+        }
+        return phases
     }
 
     var body: some View {

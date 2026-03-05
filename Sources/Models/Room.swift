@@ -316,6 +316,8 @@ struct Room: Identifiable, Codable {
     var documentType: DocumentType?
     /// 초기 메시지에서 문서 요청 감지 시 설정 (리서치 완료 후 자동 문서화)
     var autoDocOutput: Bool
+    /// clarify 완료 후 동적으로 결정: 실행 계획이 필요한가?
+    var needsPlan: Bool
     var currentPhase: WorkflowPhase?
     var completedPhases: Set<WorkflowPhase>
     var assumptions: [WorkflowAssumption]?
@@ -466,6 +468,7 @@ struct Room: Identifiable, Codable {
         self.intent = nil
         self.documentType = nil
         self.autoDocOutput = false
+        self.needsPlan = false
         self.currentPhase = nil
         self.completedPhases = []
         self.assumptions = nil
@@ -526,6 +529,7 @@ struct Room: Identifiable, Codable {
         intent = try container.decodeIfPresent(WorkflowIntent.self, forKey: .intent)
         documentType = try container.decodeIfPresent(DocumentType.self, forKey: .documentType)
         autoDocOutput = try container.decodeIfPresent(Bool.self, forKey: .autoDocOutput) ?? false
+        needsPlan = try container.decodeIfPresent(Bool.self, forKey: .needsPlan) ?? false
         currentPhase = (try? container.decodeIfPresent(WorkflowPhase.self, forKey: .currentPhase)) ?? nil
         completedPhases = try container.decodeIfPresent(Set<WorkflowPhase>.self, forKey: .completedPhases) ?? []
         assumptions = try container.decodeIfPresent([WorkflowAssumption].self, forKey: .assumptions)

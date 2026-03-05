@@ -51,10 +51,10 @@ DOUGLAS/
 │   │   ├── BuildResult.swift         # 빌드 결과 모델 + BuildLoopStatus + QAResult + QALoopStatus
 │   │   ├── FileWriteTracker.swift   # 병렬 실행 파일 쓰기 충돌 감지 (actor)
 │   │   ├── ToolExecutionContext.swift # 도구 실행 컨텍스트 (방/에이전트/프로젝트 정보 스냅샷, askUser, currentPhase)
-│   │   ├── WorkflowIntent.swift    # 워크플로우 의도 (WorkflowPhase, WorkflowIntent 3종, PlanMode)
+│   │   ├── WorkflowIntent.swift    # 워크플로우 의도 (WorkflowPhase, WorkflowIntent 2종: quickAnswer/task)
 │   │   ├── DocumentType.swift     # 문서 유형 (6종 + 섹션 템플릿, 문서화 요청 시 사용)
 │   │   ├── DocumentRequestDetector.swift # 문서화 요청 감지 (NLTokenizer + LLM 폴백)
-│   │   ├── IntentClassifier.swift # Intent 분류기 (규칙 기반 + LLM 폴백)
+│   │   ├── IntentClassifier.swift # Intent 분류기 (PreIntentRoute + 규칙 기반 + LLM 폴백)
 │   │   ├── DecisionLog.swift      # 토론 결정 로그 (DecisionEntry)
 │   │   ├── WorkflowAssumption.swift # 가정 선언 (RiskLevel: low/medium/high) + UserAnswer
 │   │   ├── ProjectPlaybook.swift   # 프로젝트 플레이북 (브랜치 전략, 테스트 정책, 프리셋 3종)
@@ -920,27 +920,36 @@ executeWithTools() 루프 (최대 10회):
 | `ChatViewModel.swift` | `handleAgentMessage` → `ToolExecutor.smartSend()` (이미지 포함 시 conversationMessages 오버로드) |
 | `RoomManager.swift` | `sendUserMessage`, `executeStep` → `ToolExecutor.smartSend()` + `ToolExecutionContext` 전달 (invite_agent/list_agents 지원) |
 
-**방 워크플로우** (`startRoomWorkflow`): 항상 Intent 기반 `executePhaseWorkflow` 실행. `room.intent == nil`이면 `.implementation`을 phase 계산 기본값으로 사용하되, `executeIntentPhase`에서 사용자 선택으로 교체됨.
+**방 워크플로우** (`startRoomWorkflow`): 항상 Intent 기반 `executePhaseWorkflow` 실행. `room.intent == nil`이면 `.quickAnswer`를 phase 계산 기본값으로 사용하되, `executeIntentPhase`에서 사용자 선택으로 교체됨.
+
+**Pre-Intent 라우팅** (`IntentClassifier.preRoute`): 방 생성 전 입력을 5가지로 분류:
+- `.empty`: 텍스트+파일 없음 → 무시
+- `.fileOnly`: 파일만 업로드 → intent=nil로 방 생성 (사용자 선택 대기)
+- `.command(.summonAgent)`: "에이전트 불러와" 등 시스템 명령 → 안내 메시지 표시
+- `.classified(intent)`: quickAnswer 또는 task 확정 → 정상 워크플로우
+- `.ambiguous`: 분류 불가 → intent=nil로 방 생성 (사용자 선택 UI)
 
 **범용 워크플로우 (Intent 기반 적응형)**:
 ```
-사용자 입력 → Intent 분류 (규칙 + LLM) → 방 생성
+사용자 입력 → Pre-Intent 라우팅 → Intent 분류 (규칙 + LLM) → 방 생성
   → ① Intake: 입력 파싱 (Jira fetch, URL 감지)
   → ② Intent: 작업 유형 표시 (문서 요청 감지 시 autoDocOutput 설정)
-  → ③ Clarify: 복명복창 (DOUGLAS가 이해한 내용 요약 → 사용자 컨펌까지 무한 루프) + 사용자 피드백에서 문서 신호 재감지
+  → ③ Clarify: 복명복창 (task만, quickAnswer는 스킵)
   → ④ Assemble: 전문가 초대 (역할 매칭 + 생성 제안)
-  → ⑤~⑦: Intent별 분기 (PlanMode에 따라)
+  → ⑤ [needsPlan?] Plan: 동적 판단 후 토론→계획→승인 (assemble 완료 후 LLM 판별)
+  → ⑥ Execute: quickAnswer(즉답) / task+needsPlan(계획 기반 실행) / task+!needsPlan(토론/분석+문서)
 ```
 
-- **Intent 분류** (`IntentClassifier`): 규칙 기반 즉시 분류 (`quickClassify`) → 실패 시 LLM 분류 (`classifyWithLLM`). `quickClassify`가 nil(판단 불가)이면 `executeIntentPhase`에서 LLM 추천 intent와 함께 **IntentSelectionCard** UI를 표시하여 사용자가 3종 intent 중 선택. `pendingIntentSelection` + `intentContinuations`으로 비동기 게이트 구현. 분류 실패 시 `.quickAnswer` 폴백 (가장 가벼운 워크플로우).
-- **문서화 요청 감지** (`DocumentRequestDetector`): 2단계 감지 — ① intent 확정 후 초기 task에서 패턴 감지, ② clarify 후 사용자 피드백에서 재감지 (`detectDocumentSignalFromMessages`). 감지 시 `room.autoDocOutput = true` + `room.documentType` 설정. autoDocOutput이면 assemble 시 1명 제한 해제 (리서치+문서 에이전트 복합 구성), research 완료 후 자동 문서화 (preferredKeywords 기반 최적 에이전트 선택) + NSSavePanel 저장 (클릭 가능 file:// 링크 제공). 후속 사이클에서도 "문서로 정리해줘" 등 감지 가능 (1차 키워드 + 2차 LLM 폴백).
+- **Intent 분류** (`IntentClassifier`): 2종 intent (quickAnswer / task). 규칙 기반 즉시 분류 (`quickClassify`) → 실패 시 LLM 분류 (`classifyWithLLM`). `quickClassify`가 nil(판단 불가)이면 `executeIntentPhase`에서 LLM 추천 intent와 함께 **IntentSelectionCard** UI를 표시하여 사용자가 2종 intent 중 선택. `pendingIntentSelection` + `intentContinuations`으로 비동기 게이트 구현. 분류 실패 시 `.quickAnswer` 폴백 (가장 가벼운 워크플로우). 레거시 research/implementation 문자열은 `.task`로 자동 마이그레이션.
+- **문서화 요청 감지** (`DocumentRequestDetector`): 2단계 감지 — ① intent 확정 후 초기 task에서 패턴 감지, ② clarify 후 사용자 피드백에서 재감지 (`detectDocumentSignalFromMessages`). 감지 시 `room.autoDocOutput = true` + `room.documentType` 설정. autoDocOutput이면 assemble 시 1명 제한 해제 (리서치+문서 에이전트 복합 구성), task 완료 후 자동 문서화 (preferredKeywords 기반 최적 에이전트 선택) + NSSavePanel 저장 (클릭 가능 file:// 링크 제공). 후속 사이클에서도 "문서로 정리해줘" 등 감지 가능 (1차 키워드 + 2차 LLM 폴백).
 - **복명복창 Clarify** (`executeClarifyPhase`): DOUGLAS가 요청을 요약 → 사용자 승인/거부 → 거부 시 피드백 반영 재요약 → 승인까지 무한 반복. 승인 시 `room.clarifySummary`에 저장 → 이후 토론/브리핑/계획 프롬프트에서 의도 앵커링용으로 참조.
-- **PlanMode 분기** (`executePlanPhase`):
-  - `.skip`: Plan 단계 건너뜀 (quickAnswer)
-  - `.lite`: 토론(필요 시) + 산출물 정리만 (research)
-  - `.exec`: 토론(필요 시) + 계획 수립 + 승인(implementation만) (implementation)
+- **동적 Plan 판단** (`classifyNeedsPlan`): assemble 완료 후, clarify 요약 + 에이전트 정보를 기반으로 LLM이 plan 필요 여부를 YES/NO로 판별. 코드 생성/수정/다단계/파일시스템 변경 → true. 분석/리서치/브레인스토밍/단일 문서 → false. 실패 시 false (안전한 기본값). 결과를 `room.needsPlan`에 저장.
+- **Plan 실행** (`executePlanPhase`): needsPlan=true일 때만 호출. 전문가 2명+ → 토론 + 브리핑 + 계획 수립 + 승인 루프. 전문가 1명 → 계획 수립 + 승인 루프 (soloAnalysis 스킵, requestPlan이 직접 분석).
 - **토론 알고리즘** (`executeDiscussion`): 발산→수렴→합의 = 1사이클. 매 사이클 후 사용자 체크포인트 (DiscussionCheckpointCard). 사용자 피드백 시 새 사이클, "진행"(빈 입력) 시 브리핑으로. 사이클 무제한 (사용자 주도 종료). `DiscussionRoundType`: `.diverge`(발산) / `.converge`(수렴) / `.conclude`(합의) — 각 라운드마다 목적별 프롬프트 지시. 모든 에이전트 프롬프트에 `clarifySummary` 앵커링 포함. **발산 라운드 병렬화**: `.diverge` 라운드에서 모든 에이전트가 동일 히스토리 스냅샷 기준으로 동시 실행 (`generateDiscussionResponse` + `withTaskGroup`). 수렴/합의는 순차 유지.
-- **quickAnswer** (`executeQuickAnswer`): 전문가 1명이 도구 포함 즉답
+- **Execute 분기** (`executeExecutePhase`): 2-way 분기:
+  - quickAnswer → 전문가 1명 즉답 (도구 포함)
+  - task + needsPlan → 계획 기반 단계별 실행 (`executeRoomWork`)
+  - task + !needsPlan → 토론/분석 후 결과 정리 (2명+ 토론+브리핑, 1명 soloAnalysis, autoDocOutput 시 자동 문서화)
 - **실행 시 마스터 제외** (`executingAgentIDs`): `agent.isMaster`이면 실행 대상에서 제외
 - **계획 수립**: 전문가가 생성 (마스터 제외). 계획 JSON은 사용자에게 숨김.
 - **DecisionLog**: 토론 중 `[합의: 내용]` 태그 파싱 → `Room.decisionLog`에 기록
@@ -950,11 +959,11 @@ executeWithTools() 루프 (최대 10회):
 
 **승인 게이트** (`executeRoomWork`): 첫 단계 + 마지막 단계 + 외부 영향 키워드(`hasExternalEffectKeywords`: PR, push, deploy, merge 등) 포함 단계에서 `.awaitingApproval` 상태 전환 + `CheckedContinuation`으로 비동기 일시 정지. `approveStep(roomID:)` / `rejectStep(roomID:)` 호출 시 continuation resume. **자동 승인 타이머**: 모든 리뷰 게이트에서 15초 카운트다운 후 자동 승인. 사용자가 "수정 요청" 클릭 시 타이머 취소 → 수동 응답 대기.
 
-**Plan 승인 루프** (`executePlanExec`): implementation Plan 승인 시 거부 → 피드백 추출 → `requestPlan(previousPlan:feedback:)`로 재계획 → 다시 승인 카드 표시 (무제한). 이전 계획과 사용자 피드백이 재계획 프롬프트에 주입됨.
+**Plan 승인 루프** (`executePlanPhase`): Plan 승인 시 거부 → 피드백 추출 → `requestPlan(previousPlan:feedback:)`로 재계획 → 다시 승인 카드 표시 (무제한). 이전 계획과 사용자 피드백이 재계획 프롬프트에 주입됨.
 
 **승인 카드 UI** (`ApprovalCard`): 단계 결과 확인 + "승인"/"수정 요청" 버튼. 자동 승인 카운트다운 표시 (승인 버튼에 "15s" 형태). "수정 요청" 클릭 시 타이머 취소 → 피드백 입력 → `rejectStep()`으로 재계획 트리거.
 
-**전문가 Solo 분석** (`executeSoloAnalysis`): 전문가 1명만 배정된 방에서 토론 대신 혼자 분석하여 결과 공유. `executePlanLite`/`executePlanExec`에서 `specialistCount == 1`일 때 자동 호출. **implementation intent는 스킵** — requestPlan이 브리핑 기반으로 계획 수립하므로 중복 방지 + API 1회 절감.
+**전문가 Solo 분석** (`executeSoloAnalysis`): 전문가 1명만 배정된 방에서 토론 대신 혼자 분석하여 결과 공유. task + !needsPlan 경로에서 `specialistCount == 1`일 때 자동 호출.
 
 **후속 사이클** (`launchFollowUpCycle`): 완료/실패 방에서 사용자 후속 질문 시 방 재활성화 → 문서화 요청 감지(DocumentRequestDetector) → Intent 재분류 → clarify부터 워크플로우 재실행 (복명복창 포함). 문서화 요청 감지 시 `handleDocumentOutput()`으로 직접 문서 작성. 규칙 기반 quickAnswer 확정 + 에이전트 변동 없으면 clarify/assemble 스킵 (즉답 빠른 경로). `previousCycleAgentCount`로 에이전트 추가/제거 감지.
 
@@ -1034,41 +1043,41 @@ executeWithTools() 루프 (최대 10회):
 | H-5 | **시스템 프롬프트 주입 변경**: RoomManager/ChatViewModel 6+ 위치에서 `agent.persona` → `agent.resolvedSystemPrompt`. | ✅ |
 | H-6 | **트리아지 자동 생성 → 제안**: 매칭 실패 시 에이전트 자동 생성 대신 `RoomAgentSuggestion` 생성. AgentSuggestionCard 승인 시 AddAgentSheet 열기. | ✅ |
 
-### Phase E — Intent 기반 범용 워크플로우 ✅ 완료 (v2 리팩토링)
+### Phase E — Intent 기반 범용 워크플로우 ✅ 완료 (v3: 2-Intent + 동적 Plan)
 
 | 항목 | 내용 | 상태 |
 |------|------|------|
-| E-1 | **WorkflowIntent 3종 + PlanMode**: quickAnswer, research, implementation. `PlanMode` (skip/lite/exec)로 Plan 단계 동작 분기. 레거시(brainstorm, documentation 등) → Codable 마이그레이션으로 research 흡수. 문서화는 research의 산출물 옵션으로 통합. | ✅ |
-| E-2 | **IntentClassifier**: 규칙 기반 키워드 즉시 분류 → LLM 폴백. `ChatViewModel.handleMasterMessage`에서 방 생성 전 호출. | ✅ |
+| E-1 | **WorkflowIntent 2종**: quickAnswer, task. `PlanMode` 삭제 — plan 필요 여부는 clarify 후 `classifyNeedsPlan()`으로 동적 판별. 레거시(research, implementation, brainstorm 등) → `.task` 자동 마이그레이션. | ✅ |
+| E-2 | **IntentClassifier + PreIntentRoute**: 규칙 기반 키워드 즉시 분류 → LLM 폴백. `ChatViewModel.handleMasterMessage`에서 `preRoute()`로 Pre-Intent 라우팅 (empty/fileOnly/command/classified/ambiguous). | ✅ |
 | E-3 | **복명복창 Clarify**: DOUGLAS가 이해한 내용 요약 → 사용자 승인까지 무한 루프. 거부 시 피드백 반영 재요약. | ✅ |
 | E-4 | **DecisionLog**: 토론 중 `[합의: 내용]` 파싱 → `DecisionEntry` 기록. `Room.decisionLog` 저장. | ✅ |
-| E-5 | **PlanMode 분기**: `.skip`(quickAnswer), `.lite`(research 산출물형), `.exec`(implementation 실행형). 문서화는 research 완료 후 별도 `handleDocumentOutput()`으로 처리. | ✅ |
-| E-6 | **레거시 제거**: `legacyStartRoomWorkflow` 삭제. `intent == nil` → `.quickAnswer` 폴백 (가벼운 워크플로우 우선). | ✅ |
+| E-5 | **동적 Plan**: `classifyNeedsPlan()` — assemble 완료 후 LLM이 plan 필요 여부 판별. `room.needsPlan`에 저장. true → plan phase 인라인 실행. | ✅ |
+| E-6 | **레거시 제거**: `legacyStartRoomWorkflow` 삭제. `executePlanLite`/`executePlanExec` 삭제 → `executePlanPhase` 하나로 통합. | ✅ |
 | E-7 | **ArtifactType 확장**: `researchReport`, `brainstormResult`, `document` 추가. | ✅ |
 
 **6단계 워크플로우 (모든 Intent 공통 프리픽스)**:
 ```
 ① Intake ── 입력 파싱 (Jira fetch, URL 감지, IntakeData 저장, 플레이북 로드)
 ② Intent ── 작업 유형 표시 (방 생성 시 IntentClassifier가 분류)
-③ Clarify ─ 복명복창 (DOUGLAS 요약 → 사용자 컨펌까지 무한 루프)
-④ Assemble ─ 전문가 초대 (AgentMatcher documentType-aware 매칭: 문서화 시 도메인 키워드 필터링 → 미매칭 시 생성 제안, autoDocOutput 시 1명 제한 해제)
-⑤ Plan ──── PlanMode 분기: exec(토론→계획→승인) — 토론: 발산→수렴→합의 사이클(무제한) + 사용자 체크포인트
-⑥ Execute ── quickAnswer(즉답) / research(토론→브리핑, autoDocOutput 시 자동 문서화) / 표준 실행(단계별)
+③ Clarify ─ 복명복창 (task만; quickAnswer는 스킵)
+④ Assemble ─ 전문가 초대 (AgentMatcher documentType-aware 매칭) + classifyNeedsPlan
+  └─ needsPlan=true → [Plan] 토론→계획→승인 (동적 삽입)
+⑤ Execute ── quickAnswer(즉답) / task+needsPlan(계획 기반) / task+!needsPlan(토론/분석+문서)
 ```
 
 **Intent별 경로**:
-| Intent | PlanMode | clarify | 토론 | 승인 | 실행 |
-|--------|----------|---------|------|------|------|
-| quickAnswer | skip | O | - | - | 즉답 |
-| research | lite | O | O | - | 토론/정리 (autoDocOutput 시 자동 문서화) |
-| implementation | exec | O | O | O | O |
+| Intent | needsPlan | clarify | 토론 | 계획+승인 | 실행 |
+|--------|-----------|---------|------|-----------|------|
+| quickAnswer | - | - | - | - | 즉답 |
+| task | false | O | O (execute에서) | - | 토론/분석 (autoDocOutput 시 자동 문서화) |
+| task | true | O | O (plan에서) | O | 계획 기반 단계별 실행 |
 
-**역호환**: `room.intent == nil` → `.quickAnswer` 자동 폴백. 레거시 저장 데이터의 brainstorm/requirementsAnalysis/testPlanning/taskDecomposition/documentation → `.research` 자동 마이그레이션 (커스텀 Codable). 모든 새 Room 필드는 `decodeIfPresent` + 기본값.
+**역호환**: `room.intent == nil` → `.quickAnswer` 자동 폴백. 레거시 저장 데이터의 research/implementation/brainstorm/requirementsAnalysis/testPlanning/taskDecomposition/documentation → `.task` 자동 마이그레이션 (커스텀 Codable). `room.needsPlan`은 `decodeIfPresent` + `false` 기본값. 모든 새 Room 필드는 `decodeIfPresent` + 기본값.
 
 **Plan 승인 피드백 루프** (E-8~E-11):
 - `requestPlan(previousPlan:feedback:)`: 거부된 이전 계획과 사용자 피드백을 재계획 프롬프트에 주입.
-- `executePlanExec` 승인 while 루프: 거부 → 피드백 추출 → 재계획 → 다시 승인 카드 (무제한).
-- `executeSoloAnalysis`: 전문가 1명 Solo 분석 (토론 대신). plan-lite/plan-exec에서 `specialistCount == 1`일 때 자동 호출. implementation intent는 스킵.
+- `executePlanPhase` 승인 while 루프: 거부 → 피드백 추출 → 재계획 → 다시 승인 카드 (무제한).
+- `executeSoloAnalysis`: 전문가 1명 Solo 분석 (토론 대신). task + !needsPlan에서 `specialistCount == 1`일 때 자동 호출.
 - `executeStep` 문서 템플릿 주입: `documentType != nil`일 때 `documentType.templatePromptBlock()` + "이미 완성" 응답 금지 지침. Assemble에서 `documentType != nil`이면 1명 제한.
 - `launchFollowUpCycle`: 완료/실패 방 후속 질문 → 방 재활성화 → assemble부터 경량 워크플로우.
 - `Room.canTransition`: `.completed → .planning`, `.failed → .planning` 전이 추가.

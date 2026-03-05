@@ -1,10 +1,83 @@
 import Foundation
 import NaturalLanguage
 
+// MARK: - Pre-Intent 라우팅
+
+/// 사용자 입력의 사전 분류 결과 (intent 분류 전)
+enum PreIntentRoute: Equatable {
+    case empty                           // 텍스트 없음 + 파일 없음 → 무시
+    case fileOnly                        // 텍스트 없음 + 파일만 → "뭘 할까요?" 대기
+    case command(CommandType)            // 명시적 명령 ("에이전트 불러와" 등)
+    case classified(WorkflowIntent)      // quickAnswer 또는 task
+    case ambiguous                       // 분류 불가 → 사용자 선택 UI
+}
+
+/// 시스템 커맨드 종류
+enum CommandType: Equatable {
+    case summonAgent(name: String?)      // "에이전트 불러와" / "OO에이전트 소환해"
+}
+
+// MARK: - Intent 분류기
+
 /// 사용자 요청의 의도를 분류하는 2단계 분류기
 /// 1단계: NLTokenizer + 가중치 점수 기반 즉시 판별
 /// 2단계: LLM 분류 (점수 판별 실패 시)
 enum IntentClassifier {
+
+    // MARK: - Pre-Intent 라우팅
+
+    /// 사전 라우팅: intent 분류 전에 특수 케이스 처리
+    static func preRoute(_ text: String, hasAttachments: Bool) -> PreIntentRoute {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // 1) 빈 입력
+        if trimmed.isEmpty {
+            return hasAttachments ? .fileOnly : .empty
+        }
+
+        // 2) 커맨드 감지
+        if let command = detectCommand(trimmed) {
+            return .command(command)
+        }
+
+        // 3) 기존 quickClassify로 intent 분류
+        if let intent = quickClassify(trimmed) {
+            return .classified(intent)
+        }
+
+        // 4) 분류 불가 → 질의응답이 아니면 무조건 task
+        return .classified(.task)
+    }
+
+    /// 커맨드 감지: "에이전트 불러와" 등 시스템 조작 명령
+    private static func detectCommand(_ text: String) -> CommandType? {
+        let lower = text.lowercased()
+
+        // 에이전트 소환 패턴 (전체 문장이 소환 명령인 경우만)
+        let summonPatterns = [
+            "에이전트 불러", "에이전트 가져", "에이전트를 불러", "에이전트를 가져",
+            "에이전트 소환", "에이전트를 소환", "에이전트 초대", "에이전트를 초대",
+        ]
+        // 전체 문장이 짧고(40자 미만) 소환 패턴을 포함해야 커맨드로 인식
+        // → "에이전트가 불러오는 방법 알려줘" 같은 질문을 오인하지 않도록
+        if lower.count < 40, summonPatterns.contains(where: { lower.contains($0) }) {
+            // 에이전트 이름 추출 시도 (ex: "QA에이전트 불러와" → "QA")
+            let name = extractAgentName(from: lower)
+            return .summonAgent(name: name)
+        }
+        return nil
+    }
+
+    /// 소환 명령에서 에이전트 이름 추출
+    private static func extractAgentName(from text: String) -> String? {
+        // "OO에이전트" 패턴에서 OO 추출
+        if let range = text.range(of: "에이전트") {
+            let prefix = String(text[text.startIndex..<range.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !prefix.isEmpty { return prefix }
+        }
+        return nil
+    }
 
     // MARK: - 키워드 사전 (어간 기반, 가중치 포함)
 
@@ -17,7 +90,7 @@ enum IntentClassifier {
         let threshold: Int
     }
 
-    /// intent별 키워드 사전
+    /// intent별 키워드 사전 (quickAnswer / task 2-카테고리)
     private static let intentKeywords: [(intent: WorkflowIntent, keywords: ScoredKeywords)] = [
         // quickAnswer: 단순 질문 / 번역 / 정보 확인 (짧은 텍스트에서만 유효)
         (.quickAnswer, ScoredKeywords(stems: [
@@ -32,8 +105,8 @@ enum IntentClassifier {
             ("뜻", 3), ("의미", 3), ("차이", 2),
         ], threshold: 3)),
 
-        // research: 조사, 분석, 문서작성, 요약, 변환 등
-        (.research, ScoredKeywords(stems: [
+        // task: 조사, 분석, 코딩, 문서작성, 요약, 변환 등 모든 복합 작업
+        (.task, ScoredKeywords(stems: [
             // 조사/리서치
             ("조사", 4), ("리서치", 4), ("research", 4), ("트렌드", 3),
             ("서베이", 3), ("survey", 3),
@@ -57,14 +130,11 @@ enum IntentClassifier {
             ("요약", 4), ("summarize", 4), ("summary", 4),
             // 변환/포맷
             ("바꿔", 3), ("변환", 4), ("convert", 4), ("컨버트", 4),
-            // 문서 포맷 (강한 research 신호)
+            // 문서 포맷
             ("pdf", 5), ("워드", 4), ("엑셀", 4),
             ("word", 4), ("excel", 4), ("한글", 3), ("hwp", 4),
             ("markdown", 3), ("마크다운", 3),
-        ], threshold: 3)),
-
-        // implementation: 코딩/개발/빌드
-        (.implementation, ScoredKeywords(stems: [
+            // 코딩/개발/빌드
             ("구현", 4), ("개발", 3), ("코딩", 5), ("coding", 5),
             ("만들어", 3), ("빌드", 4), ("build", 4),
             ("수정", 3), ("버그", 5), ("bug", 5),
@@ -74,17 +144,6 @@ enum IntentClassifier {
             ("커밋", 3), ("commit", 3), ("pr", 2), ("push", 2),
         ], threshold: 3)),
     ]
-
-    /// 문서/변환 컨텍스트 키워드: 이 키워드가 있으면 "만들어" 등의 action 동사를 implementation이 아닌 research로 해석
-    private static let documentContextStems: Set<String> = [
-        "pdf", "워드", "엑셀", "word", "excel", "한글", "hwp",
-        "문서", "보고서", "기획서", "제안서", "스펙", "prd",
-        "요약", "정리", "작성", "변환", "바꿔", "convert",
-        "markdown", "마크다운",
-    ]
-
-    /// implementation 점수를 감쇠시키는 문서 컨텍스트 보너스 (research에 가산)
-    private static let documentContextBonus = 5
 
     // MARK: - NLTokenizer 기반 분류
 
@@ -103,9 +162,6 @@ enum IntentClassifier {
 
         // 각 intent별 점수 계산
         var scores: [(intent: WorkflowIntent, score: Int)] = []
-        let hasDocContext = tokens.contains { token in
-            documentContextStems.contains(where: { text.contains($0) })
-        }
 
         for entry in intentKeywords {
             var score = 0
@@ -124,22 +180,13 @@ enum IntentClassifier {
                 }
             }
 
-            // 문서 컨텍스트 보정: implementation 점수 감쇠
-            if entry.intent == .implementation && hasDocContext {
-                score = max(0, score - documentContextBonus)
-            }
-            // 문서 컨텍스트 보정: research 점수 가산
-            if entry.intent == .research && hasDocContext {
-                score += documentContextBonus
-            }
-
             let adjustedScore = Int(Double(score) * lengthPenalty)
             if adjustedScore >= entry.keywords.threshold {
                 scores.append((entry.intent, adjustedScore))
             }
         }
 
-        // 최고 점수 intent 반환 (동점이면 research > implementation > quickAnswer 우선)
+        // 최고 점수 intent 반환 (동점이면 task > quickAnswer 우선)
         guard !scores.isEmpty else { return nil }
         let maxScore = scores.max(by: { a, b in
             if a.score != b.score { return a.score < b.score }
@@ -148,11 +195,10 @@ enum IntentClassifier {
         return maxScore?.intent
     }
 
-    /// intent 우선순위 (동점 해소용): research > implementation > quickAnswer
+    /// intent 우선순위 (동점 해소용): task > quickAnswer
     private static func intentPriority(_ intent: WorkflowIntent) -> Int {
         switch intent {
-        case .research: return 3
-        case .implementation: return 2
+        case .task: return 2
         case .quickAnswer: return 1
         }
     }
@@ -185,10 +231,8 @@ enum IntentClassifier {
 
         카테고리:
         - quickAnswer: 단순 질문, 번역, 정보 확인 (짧은 답변으로 끝나는 것)
-        - research: 조사, 리서치, 분석, 비교, 브레인스토밍, 자문, 상담, 요건 분석, 테스트 계획, 작업 분해, 기획서/문서 작성, PRD, 보고서, 요약, 문서 변환(PDF/Word 등으로 바꿔줘/만들어줘)
-        - implementation: 코딩, 개발, 버그 수정, 구현, 배포
+        - task: 조사, 리서치, 분석, 비교, 브레인스토밍, 자문, 상담, 요건 분석, 테스트 계획, 작업 분해, 기획서/문서 작성, PRD, 보고서, 요약, 문서 변환(PDF/Word 등), 코딩, 개발, 버그 수정, 구현, 배포
 
-        주의: "~로 바꿔줘", "~로 만들어줘"처럼 문서 포맷 변환 요청은 research입니다.
         카테고리 이름만 한 단어로 출력하세요. 다른 내용은 절대 출력하지 마세요.
         """
 
@@ -211,16 +255,16 @@ enum IntentClassifier {
     private static func parseIntent(from text: String) -> WorkflowIntent {
         switch text {
         case "quickanswer", "quick_answer":     return .quickAnswer
-        case "research":                        return .research
-        case "documentation":                   return .research  // 레거시: documentation → research로 흡수
-        case "implementation":                  return .implementation
-        // 레거시 매핑: LLM이 옛 이름을 반환할 경우 research로 흡수
-        case "brainstorm":                      return .research
+        case "task":                            return .task
+        // 레거시 매핑: LLM이 옛 이름을 반환할 경우 task로 통합
+        case "research", "documentation":       return .task
+        case "implementation":                  return .task
+        case "brainstorm":                      return .task
         case "requirementsanalysis",
-             "requirements_analysis":           return .research
-        case "testplanning", "test_planning":   return .research
+             "requirements_analysis":           return .task
+        case "testplanning", "test_planning":   return .task
         case "taskdecomposition",
-             "task_decomposition":              return .research
+             "task_decomposition":              return .task
         default:                                return .quickAnswer
         }
     }

@@ -531,10 +531,13 @@ struct RoomManagerTests {
         let planJSON = """
         {"plan": {"summary": "테스트 계획", "estimated_minutes": 2, "steps": ["1단계: 분석", "2단계: 실행"]}}
         """
+        mock.sendMessageWithToolsResults = [
+            .success(.text("## 요약\n작업 내용 확인")),  // clarifyPhase (sendMessageWithTools)
+        ]
         mock.sendMessageResults = [
-            .success("implementation"),   // classifyWithLLM (intent phase)
+            .success("task"),             // classifyWithLLM (intent phase)
             .success(""),                 // assemblePhase (LLM, no agents to suggest)
-            .success("분석 완료"),         // executeSoloAnalysis (plan phase)
+            .success("YES"),              // classifyNeedsPlan
             .success(planJSON),           // requestPlan 응답
             .success("1단계 완료"),       // executeStep (step 1)
             .success("2단계 완료"),       // executeStep (step 2)
@@ -566,15 +569,20 @@ struct RoomManagerTests {
         let planJSON = """
         {"plan": {"summary": "합의 계획", "estimated_minutes": 1, "steps": ["실행"]}}
         """
+        mock.sendMessageWithToolsResults = [
+            .success(.text("## 요약\n작업 내용")),         // clarifyPhase (sendMessageWithTools)
+            .success(.text("좋은 방향이네요 [합의]")),    // 토론자A 1라운드 (sendMessageWithTools)
+            .success(.text("동의합니다 [합의]")),          // 토론자B 1라운드 (sendMessageWithTools)
+        ]
         mock.sendMessageResults = [
-            .success("implementation"),           // classifyWithLLM (intent phase)
-            .success("좋은 방향이네요 [합의]"),   // 토론자A 1라운드
-            .success("동의합니다 [합의]"),         // 토론자B 1라운드
-            .success("토론 요약"),                  // generateBriefing
-            .success(planJSON),                    // requestPlan
-            .success("실행 완료"),                  // executeStep (agent1)
-            .success("실행 완료"),                  // executeStep (agent2)
-            .success("일지"),                       // generateWorkLog
+            .success("task"),                      // classifyWithLLM (intent phase)
+            .success(""),                           // assemblePhase (LLM, no agents to suggest)
+            .success("YES"),                        // classifyNeedsPlan
+            .success("토론 요약"),                   // generateBriefing
+            .success(planJSON),                     // requestPlan
+            .success("실행 완료"),                   // executeStep (agent1)
+            .success("실행 완료"),                   // executeStep (agent2)
+            .success("일지"),                        // generateWorkLog
         ]
         providerManager.testProviderOverrides["MockProvider"] = mock
 
@@ -741,10 +749,13 @@ struct RoomManagerTests {
         ```
         이것이 제 계획입니다.
         """
+        mock.sendMessageWithToolsResults = [
+            .success(.text("## 요약\n작업 내용")),  // clarifyPhase (sendMessageWithTools)
+        ]
         mock.sendMessageResults = [
-            .success("implementation"),   // classifyWithLLM (intent phase)
+            .success("task"),             // classifyWithLLM (intent phase)
             .success(""),                 // assemblePhase (LLM, no agents to suggest)
-            .success("분석 완료"),         // executeSoloAnalysis (plan phase)
+            .success("YES"),              // classifyNeedsPlan
             .success(response),           // requestPlan 응답
             .success("단계1 완료"),       // executeStep
             .success("일지"),             // generateWorkLog
@@ -771,9 +782,13 @@ struct RoomManagerTests {
         let planJSON = """
         {"plan": {"summary": "실패 계획", "estimated_minutes": 1, "steps": ["실패 단계"]}}
         """
+        mock.sendMessageWithToolsResults = [
+            .success(.text("## 요약\n작업 내용")),  // clarifyPhase (sendMessageWithTools)
+        ]
         mock.sendMessageResults = [
-            .success("implementation"),                        // classifyWithLLM (intent phase)
-            .success("분석 완료"),                              // executeSoloAnalysis (plan phase)
+            .success("task"),                                  // classifyWithLLM (intent phase)
+            .success(""),                                      // assemblePhase (LLM)
+            .success("YES"),                                   // classifyNeedsPlan
             .success(planJSON),                                // requestPlan
             .failure(AIProviderError.apiError("실행 오류")),    // executeStep 실패
             .success("일지"),                                  // generateWorkLog (도달 안 될 수 있음)
@@ -803,16 +818,21 @@ struct RoomManagerTests {
         let planJSON = """
         {"plan": {"summary": "합의 계획", "estimated_minutes": 1, "steps": ["실행"]}}
         """
-        mock.sendMessageResults = [
-            .success("implementation"),           // classifyWithLLM (intent phase)
+        mock.sendMessageWithToolsResults = [
+            .success(.text("## 요약\n작업 내용")),         // clarifyPhase (sendMessageWithTools)
             // 토론 1라운드 (전원 합의 아님)
-            .success("좋은 의견이네요"),           // A
-            .success("동의합니다 [합의]"),         // B
-            .success("더 논의가 필요합니다"),       // C
+            .success(.text("좋은 의견이네요")),            // A (sendMessageWithTools)
+            .success(.text("동의합니다 [합의]")),          // B (sendMessageWithTools)
+            .success(.text("더 논의가 필요합니다")),        // C (sendMessageWithTools)
             // 토론 2라운드 (과반 합의)
-            .success("좋은 방향이에요 [합의]"),    // A
-            .success("동의합니다 [합의]"),         // B
-            .success("저도 합의합니다 [합의]"),    // C
+            .success(.text("좋은 방향이에요 [합의]")),     // A (sendMessageWithTools)
+            .success(.text("동의합니다 [합의]")),          // B (sendMessageWithTools)
+            .success(.text("저도 합의합니다 [합의]")),     // C (sendMessageWithTools)
+        ]
+        mock.sendMessageResults = [
+            .success("task"),                      // classifyWithLLM (intent phase)
+            .success(""),                           // assemblePhase (LLM)
+            .success("YES"),                        // classifyNeedsPlan
             // 브리핑 + 계획 + 실행 + 일지
             .success("토론 요약"),
             .success(planJSON),
@@ -855,8 +875,10 @@ struct RoomManagerTests {
             .success(.text("저도 합의 [합의]")),      // discussion a2 round 1
         ]
         mock.sendMessageResults = [
-            .success("implementation"),                        // classifyWithLLM (intent phase)
-            // assemble: "토론A"/"토론B" 이름이 task "토론"에 직접 매칭 → LLM 호출 없음
+            // classifyWithLLM 호출 없음: quickClassify("토론") → .task 직접 매칭
+            // assemble 호출 없음: "토론A"/"토론B" 이름이 task "토론"에 직접 매칭
+            .success("YES"),                                   // classifyNeedsPlan
+            // discussion: sendMessageWithTools 사용 (위에서 설정됨)
             .failure(AIProviderError.apiError("요약 오류")),    // generateBriefing → 실패
             // 브리핑 실패해도 계속 진행
             .success(planJSON),                                // requestPlan

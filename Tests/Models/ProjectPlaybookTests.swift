@@ -26,7 +26,7 @@ struct ProjectPlaybookTests {
     func playbookFullInit() {
         let pb = ProjectPlaybook(
             userRole: .developer,
-            defaultIntent: .implementation,
+            defaultIntent: WorkflowIntent.task,
             branchPattern: "feature/{desc}",
             baseBranch: "main",
             afterComplete: .commitOnly,
@@ -37,7 +37,7 @@ struct ProjectPlaybookTests {
             overrides: []
         )
         #expect(pb.userRole == .developer)
-        #expect(pb.defaultIntent == .implementation)
+        #expect(pb.defaultIntent == WorkflowIntent.task)
         #expect(pb.branchPattern == "feature/{desc}")
         #expect(pb.baseBranch == "main")
         #expect(pb.afterComplete == .commitOnly)
@@ -51,7 +51,7 @@ struct ProjectPlaybookTests {
     func playbookCodable() throws {
         let pb = ProjectPlaybook(
             userRole: .qa,
-            defaultIntent: .research,
+            defaultIntent: WorkflowIntent.task,
             branchPattern: "test/{desc}",
             baseBranch: "develop",
             afterComplete: .createPR,
@@ -61,7 +61,7 @@ struct ProjectPlaybookTests {
         let data = try JSONEncoder().encode(pb)
         let decoded = try JSONDecoder().decode(ProjectPlaybook.self, from: data)
         #expect(decoded.userRole == .qa)
-        #expect(decoded.defaultIntent == .research)
+        #expect(decoded.defaultIntent == WorkflowIntent.task)
         #expect(decoded.branchPattern == "test/{desc}")
         #expect(decoded.baseBranch == "develop")
         #expect(decoded.afterComplete == .createPR)
@@ -143,10 +143,10 @@ struct ProjectPlaybookTests {
 
     @Test("UserRole defaultIntent 매핑")
     func userRoleDefaultIntents() {
-        #expect(UserRole.developer.defaultIntent == .implementation)
-        #expect(UserRole.planner.defaultIntent == .research)
-        #expect(UserRole.qa.defaultIntent == .research)
-        #expect(UserRole.pm.defaultIntent == .research)
+        #expect(UserRole.developer.defaultIntent == WorkflowIntent.task)
+        #expect(UserRole.planner.defaultIntent == WorkflowIntent.task)
+        #expect(UserRole.qa.defaultIntent == WorkflowIntent.task)
+        #expect(UserRole.pm.defaultIntent == WorkflowIntent.task)
     }
 
     @Test("UserRole Codable 라운드트립")

@@ -2,13 +2,13 @@ import Foundation
 
 // MARK: - 워크플로우 단계
 
-/// 6단계 워크플로우의 개별 단계
+/// 워크플로우의 개별 단계
 enum WorkflowPhase: String, Codable, CaseIterable {
     case intake       // ① 입력 파싱 (Jira fetch 등)
     case intent       // ② 작업 목적 확인
     case clarify      // ③ 요구사항 컨펌 (사용자 확인까지 루프)
     case assemble     // ④ 역할 매칭 + 에이전트 초대
-    case plan         // ⑤ 토론 + 계획 수립
+    case plan         // ⑤ 토론 + 계획 수립 (동적 삽입: needsPlan 시에만)
     case execute      // ⑥ 실행 (즉답 / 토론+브리핑 / 단계별 실행)
 
     var displayName: String {
@@ -23,95 +23,55 @@ enum WorkflowPhase: String, Codable, CaseIterable {
     }
 }
 
-// MARK: - Plan 모드
-
-/// Plan 단계의 동작 방식
-enum PlanMode: String, Codable {
-    case skip   // Plan 자체를 건너뜀 (quickAnswer)
-    case lite   // 산출물형: 토론 결과 정리, RoomPlan 생성 안 함
-    case exec   // 실행형: step 배열 생성 → execute로 전달
-}
-
 // MARK: - 워크플로우 의도
 
-/// 사용자의 작업 목적에 따라 워크플로우 단계가 달라진다
+/// 사용자의 작업 목적: quickAnswer(즉답) 또는 task(모든 복합 작업)
+/// plan 필요 여부는 clarify 이후 동적으로 판단 (Room.needsPlan)
 enum WorkflowIntent: String, CaseIterable {
-    case quickAnswer            // 단순 질문/번역
-    case research               // 리서치/분석/토론/문서 정리 (brainstorm, 요건분석, 테스트계획, 작업분해, 문서작성 통합)
-    case implementation         // 구현: 전체 6단계
+    case quickAnswer            // 단순 질문/번역 — 한 번의 응답으로 끝남
+    case task                   // 분석·리서치·구현·문서 작성 등 모든 복합 작업
 
     var displayName: String {
         switch self {
-        case .quickAnswer:     return "질의응답"
-        case .research:        return "리서치"
-        case .implementation:  return "구현"
+        case .quickAnswer:  return "질의응답"
+        case .task:         return "작업"
         }
     }
 
     /// SF Symbol 아이콘 이름
     var iconName: String {
         switch self {
-        case .quickAnswer:     return "bolt"
-        case .research:        return "magnifyingglass"
-        case .implementation:  return "hammer"
+        case .quickAnswer:  return "bolt"
+        case .task:         return "hammer"
         }
     }
 
     /// 사용자에게 보여줄 한 줄 설명
     var subtitle: String {
         switch self {
-        case .quickAnswer:     return "단순 질문에 바로 답변"
-        case .research:        return "조사·분석·토론·문서 정리"
-        case .implementation:  return "코드 구현·수정"
-        }
-    }
-
-    /// Plan 단계 동작 방식
-    var planMode: PlanMode {
-        switch self {
-        case .quickAnswer:
-            return .skip
-        case .research:
-            return .lite
-        case .implementation:
-            return .exec
+        case .quickAnswer:  return "단순 질문에 바로 답변"
+        case .task:         return "분석·리서치·구현·문서 작성"
         }
     }
 
     /// 토론 필요 여부 (전문가 2명+ 시)
     var requiresDiscussion: Bool {
         switch self {
-        case .quickAnswer:
-            return false
-        default:
-            return true
-        }
-    }
-
-    /// 사용자 승인 필요 여부 (Plan 실행 전)
-    var requiresApproval: Bool {
-        switch self {
-        case .implementation:
-            return true
-        default:
-            return false
+        case .quickAnswer:  return false
+        case .task:         return true
         }
     }
 
     /// 이 의도에 필요한 워크플로우 단계 목록
-    /// 공통: intake → intent → clarify → assemble
-    /// 분기: planMode에 따라 plan/execute 조합
+    /// task의 .plan은 여기에 포함하지 않음 — needsPlan 판단 후 동적 삽입
     var requiredPhases: [WorkflowPhase] {
         switch self {
         case .quickAnswer:
             // 질의응답: 복명복창 없이 최적 에이전트가 바로 답변
             return [.intake, .intent, .assemble, .execute]
-        case .research:
-            // 리서치: 토론/분석 (execute에서 수행), 문서 요청 시 자동 문서화
+        case .task:
+            // 복합 작업: 요건 확인 → 팀 구성 → 실행 (.plan은 동적 삽입)
             return [.intake, .intent, .clarify, .assemble, .execute]
-        case .implementation:
-            // 풀 워크플로우: 토론 + 계획 + 승인 + 실행
-            return [.intake, .intent, .clarify, .assemble, .plan, .execute]
         }
     }
 
@@ -141,8 +101,11 @@ extension WorkflowIntent: Codable {
         let container = try decoder.singleValueContainer()
         let raw = try container.decode(String.self)
         switch raw {
-        case "brainstorm", "requirementsAnalysis", "testPlanning", "taskDecomposition", "documentation":
-            self = .research
+        // 레거시 intent → .task로 통합
+        case "research", "implementation",
+             "brainstorm", "requirementsAnalysis", "testPlanning",
+             "taskDecomposition", "documentation":
+            self = .task
         default:
             guard let value = WorkflowIntent(rawValue: raw) else {
                 throw DecodingError.dataCorruptedError(

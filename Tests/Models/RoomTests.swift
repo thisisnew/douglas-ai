@@ -821,7 +821,7 @@ struct RoomTests {
     @Test("Phase E 필드 Codable 라운드트립")
     func phaseEFieldsCodable() throws {
         var room = Room(title: "Workflow", assignedAgentIDs: [], createdBy: .user)
-        room.intent = .implementation
+        room.intent = WorkflowIntent.task
         room.currentPhase = .clarify
         room.assumptions = [
             WorkflowAssumption(text: "Swift 5.9 사용", riskLevel: .low)
@@ -836,7 +836,7 @@ struct RoomTests {
         let data = try JSONEncoder().encode(room)
         let decoded = try JSONDecoder().decode(Room.self, from: data)
 
-        #expect(decoded.intent == .implementation)
+        #expect(decoded.intent == WorkflowIntent.task)
         #expect(decoded.currentPhase == .clarify)
         #expect(decoded.assumptions?.count == 1)
         #expect(decoded.assumptions?[0].text == "Swift 5.9 사용")

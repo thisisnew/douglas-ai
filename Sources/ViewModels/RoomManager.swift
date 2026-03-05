@@ -934,7 +934,33 @@ class RoomManager: ObservableObject {
                 detectDocumentSignalFromMessages(roomID: roomID)
             case .assemble:
                 await executeAssemblePhase(roomID: roomID, task: task)
+
+                // assemble 완료 후: task intent이면 needsPlan 동적 판단
+                if let currentRoom2 = rooms.first(where: { $0.id == roomID }),
+                   currentRoom2.intent == .task {
+                    let planNeeded = await classifyNeedsPlan(roomID: roomID, task: task)
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].needsPlan = planNeeded
+                    }
+                    scheduleSave()
+
+                    if planNeeded {
+                        // 동적으로 plan 단계 실행
+                        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                            rooms[i].currentPhase = .plan
+                        }
+                        scheduleSave()
+                        let planIntent = rooms.first(where: { $0.id == roomID })?.intent ?? .task
+                        await executePlanPhase(roomID: roomID, task: task, intent: planIntent)
+                        completedPhases.insert(.plan)
+                        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                            rooms[i].completedPhases = completedPhases
+                        }
+                        workflowStart = Date()
+                    }
+                }
             case .plan:
+                // requiredPhases에 .plan이 없으므로 여기에 오지 않음 (안전장치)
                 let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .quickAnswer
                 await executePlanPhase(roomID: roomID, task: task, intent: intent)
             case .execute:
@@ -983,7 +1009,7 @@ class RoomManager: ObservableObject {
             guard let firstAgentID = rooms[idx].assignedAgentIDs.first,
                   let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
                   let provider = providerManager?.provider(named: agent.providerName) else {
-                rooms[idx].intent = .implementation
+                rooms[idx].intent = .task
                 postIntentExplanation(roomID: roomID)
                 return
             }
@@ -1005,25 +1031,8 @@ class RoomManager: ObservableObject {
             rooms[idx].intent = selectedIntent
             postIntentExplanation(roomID: roomID)
             scheduleSave()
-        } else if currentIntent == .implementation {
-            // 3) implementation → LLM으로 재분류 시도
-            if let firstAgentID = rooms[idx].assignedAgentIDs.first,
-               let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
-               let provider = providerManager?.provider(named: agent.providerName) {
-                let lightModel = providerManager?.lightModelName(for: agent.providerName) ?? agent.modelName
-                let newIntent = await IntentClassifier.classifyWithLLM(
-                    task: task,
-                    provider: provider,
-                    model: lightModel
-                )
-                if newIntent != currentIntent {
-                    rooms[idx].intent = newIntent
-                }
-            }
-            postIntentExplanation(roomID: roomID)
-            scheduleSave()
         } else {
-            // 2) quickClassify가 정확한 결과를 반환한 경우 (implementation이 아닌 경우) 재분류 불필요
+            // quickClassify가 결과를 반환한 경우 (quickAnswer 또는 task) — 그대로 사용
             postIntentExplanation(roomID: roomID)
         }
 
@@ -1052,6 +1061,67 @@ class RoomManager: ObservableObject {
         appendMessage(msg, to: roomID)
     }
 
+    /// clarify 완료 후 동적으로 실행 계획 필요 여부 판별
+    /// 코드 생성/수정, 다단계 순차 작업, 파일시스템 변경 → true
+    /// 분석/리서치, 브레인스토밍, 단일 출력 문서 작성 → false
+    private func classifyNeedsPlan(roomID: UUID, task: String) async -> Bool {
+        guard let room = rooms.first(where: { $0.id == roomID }),
+              let firstAgentID = room.assignedAgentIDs.first,
+              let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
+              let provider = providerManager?.provider(named: agent.providerName) else {
+            return false
+        }
+
+        let clarifySummary = room.clarifySummary ?? task
+        let assignedAgents = room.assignedAgentIDs.compactMap { id in
+            agentStore?.agents.first(where: { $0.id == id })?.name
+        }.joined(separator: ", ")
+
+        let systemPrompt = """
+        사용자의 작업 요청을 보고, **실행 계획(plan)**이 필요한지 판별하세요.
+
+        계획이 **필요한** 경우:
+        - 코드 생성 또는 수정
+        - 여러 단계를 순차적으로 실행해야 하는 작업
+        - 파일시스템 변경 (파일 생성/수정/삭제)
+        - 빌드, 배포, 테스트 실행
+
+        계획이 **불필요한** 경우:
+        - 분석/리서치 (결과를 정리하여 보여주면 끝)
+        - 브레인스토밍/토론
+        - 문서 작성 (단일 출력물)
+        - 상담/자문
+        - 요약/변환
+
+        YES 또는 NO만 출력하세요.
+        """
+
+        let userMessage = """
+        [작업 요약]
+        \(clarifySummary)
+
+        [참여 에이전트]
+        \(assignedAgents)
+
+        [원본 작업]
+        \(task)
+        """
+
+        let lightModel = providerManager?.lightModelName(for: agent.providerName) ?? agent.modelName
+
+        do {
+            let response = try await provider.sendMessage(
+                model: lightModel,
+                systemPrompt: systemPrompt,
+                messages: [("user", userMessage)]
+            )
+            let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            return trimmed.hasPrefix("YES")
+        } catch {
+            return false
+        }
+    }
+
     /// Intake 단계: 입력 파싱, Jira fetch, IntakeData 저장, 플레이북 로드
     private func executeIntakePhase(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
@@ -1062,17 +1132,18 @@ class RoomManager: ObservableObject {
         // 2) Jira URL 감지 + fetch
         let jiraConfig = JiraConfig.shared
         var sourceType: InputSourceType = .text
-        var jiraKey: String?
-        var jiraData: JiraTicketSummary?
+        var jiraKeys: [String] = []
+        var jiraDataList: [JiraTicketSummary] = []
 
-        if jiraConfig.isConfigured, jiraConfig.isJiraURL(task) {
+        // 개별 URL 단위로 Jira 판별 (전체 텍스트가 아닌 추출된 URL 사용)
+        let jiraURLs = urls.filter { jiraConfig.isJiraURL($0) }
+
+        if jiraConfig.isConfigured, !jiraURLs.isEmpty {
             sourceType = .jira
-            // Jira 키 추출 (PROJ-123 패턴)
-            if let keyRange = task.range(of: "[A-Z][A-Z0-9]+-\\d+", options: .regularExpression) {
-                jiraKey = String(task[keyRange])
-            }
-            // Jira API fetch
-            jiraData = await fetchJiraTicketSummary(from: task)
+            // 모든 Jira 키 추출 (PROJ-123 패턴, 중복 제거)
+            jiraKeys = extractJiraKeys(from: task)
+            // 각 Jira URL에서 티켓 요약 fetch (최대 10건)
+            jiraDataList = await fetchJiraTicketSummaries(urls: Array(jiraURLs.prefix(10)))
         } else if !urls.isEmpty {
             sourceType = .url
         }
@@ -1081,8 +1152,8 @@ class RoomManager: ObservableObject {
         let intakeData = IntakeData(
             sourceType: sourceType,
             rawInput: task,
-            jiraKey: jiraKey,
-            jiraData: jiraData,
+            jiraKeys: jiraKeys,
+            jiraDataList: jiraDataList,
             urls: urls
         )
         rooms[idx].intakeData = intakeData
@@ -1366,10 +1437,10 @@ class RoomManager: ObservableObject {
         switch intent {
         case .quickAnswer:
             maxAgentHint = "이 작업은 즉답(quickAnswer)이므로 **반드시 1명만** 요청하세요. 가장 적합한 전문가 1명만 선택하세요."
-        case .research:
+        case .task:
             maxAgentHint = rooms[idx].autoDocOutput
                 ? "이 작업은 조사/분석 + 문서 작성이므로 **2명**을 요청하세요."
-                : "이 작업은 **최대 2명**이면 충분합니다."
+                : "불확실하면 적게 요청하세요 (1~2명이면 충분한 경우가 많습니다)."
         default:
             maxAgentHint = "불확실하면 적게 요청하세요 (1~2명이면 충분한 경우가 많습니다)."
         }
@@ -1596,21 +1667,8 @@ class RoomManager: ObservableObject {
     }
 
 
-    /// Plan 단계: Intent의 planMode에 따라 분기
+    /// Plan 단계: needsPlan=true일 때만 호출됨. 토론 → 계획 수립 → 승인 루프
     private func executePlanPhase(roomID: UUID, task: String, intent: WorkflowIntent) async {
-        switch intent.planMode {
-        case .skip:
-            // quickAnswer: Plan 스킵
-            break
-        case .lite:
-            await executePlanLite(roomID: roomID, task: task, intent: intent)
-        case .exec:
-            await executePlanExec(roomID: roomID, task: task, intent: intent)
-        }
-    }
-
-    /// Plan-lite: 토론(필요 시) → 산출물 정리 (RoomPlan 생성 안 함)
-    private func executePlanLite(roomID: UUID, task: String, intent: WorkflowIntent) async {
         let specialistCount = executingAgentIDs(in: roomID).count
 
         if specialistCount >= 2 && intent.requiresDiscussion {
@@ -1627,40 +1685,8 @@ class RoomManager: ObservableObject {
 
             await generateBriefing(roomID: roomID, topic: task)
             guard !Task.isCancelled else { return }
-        } else if specialistCount == 1 {
-            // 전문가 1명: 혼자 분석
-            await executeSoloAnalysis(roomID: roomID, task: task)
-            guard !Task.isCancelled else { return }
         }
-        scheduleSave()
-    }
-
-    /// Plan-exec: 토론(필요 시) → 브리핑 → 계획 수립 → 승인(필요 시)
-    private func executePlanExec(roomID: UUID, task: String, intent: WorkflowIntent) async {
-        let specialistCount = executingAgentIDs(in: roomID).count
-
-        if specialistCount >= 2 && intent.requiresDiscussion {
-            // 전문가 2명 이상: 토론 → 브리핑
-            let startMsg = ChatMessage(
-                role: .system,
-                content: "토론을 시작합니다. 참여자: \(specialistCount)명 | 합의 시 자동 종료"
-            )
-            appendMessage(startMsg, to: roomID)
-
-            await executeDiscussion(roomID: roomID, topic: task)
-            guard !Task.isCancelled,
-                  rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
-
-            await generateBriefing(roomID: roomID, topic: task)
-            guard !Task.isCancelled else { return }
-        } else if specialistCount == 1 {
-            // 전문가 1명: 혼자 분석
-            // implementation → requestPlan이 브리핑 기반으로 계획 수립 (soloAnalysis 중복 방지 + API 1회 절감)
-            if intent != .implementation {
-                await executeSoloAnalysis(roomID: roomID, task: task)
-                guard !Task.isCancelled else { return }
-            }
-        }
+        // 전문가 1명: soloAnalysis 스킵 (requestPlan이 직접 분석)
 
         // 계획 수립 (PlanCard UI로 표시되므로 별도 메시지 불필요)
         var currentPlan = await requestPlan(roomID: roomID, task: task)
@@ -1672,8 +1698,8 @@ class RoomManager: ObservableObject {
             }
         }
 
-        // 승인 (필요한 Intent만) — 거부 시 피드백 → 재계획 무제한 루프
-        if intent.requiresApproval, currentPlan != nil {
+        // 승인 — 거부 시 피드백 → 재계획 무제한 루프
+        if currentPlan != nil {
             while true {
                 guard !Task.isCancelled,
                       let idx = rooms.firstIndex(where: { $0.id == roomID }),
@@ -1706,7 +1732,6 @@ class RoomManager: ObservableObject {
                 }
 
                 // 거부됨 — 피드백 추출 + 재계획
-                // 마지막 사용자 메시지에서 피드백 추출
                 let feedback = rooms.first(where: { $0.id == roomID })?
                     .messages.last(where: { $0.role == .user })?.content
 
@@ -1743,23 +1768,15 @@ class RoomManager: ObservableObject {
         scheduleSave()
     }
 
-    /// Execute 단계: Intent에 따라 즉답 / 토론 / 표준 실행 분기
+    /// Execute 단계: quickAnswer 즉답 / task 토론+분석 또는 계획 기반 실행
     private func executeExecutePhase(roomID: UUID, task: String, intent: WorkflowIntent) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
         if intent == .quickAnswer {
             // quickAnswer: 전문가 1명이 바로 답변
             await executeQuickAnswer(roomID: roomID, task: task)
-        } else if intent == .research {
-            // research: 토론/분석 (기존 executePlanLite 재사용)
-            await executePlanLite(roomID: roomID, task: task, intent: intent)
-
-            // autoDocOutput 플래그가 설정된 경우 자동 문서화
-            if let room = rooms.first(where: { $0.id == roomID }), room.autoDocOutput {
-                await handleDocumentOutput(roomID: roomID, task: task, suggestedType: room.documentType)
-            }
-        } else {
-            // 표준 실행: 계획 기반 단계별 실행
+        } else if rooms[idx].needsPlan {
+            // task + needsPlan: 계획 기반 단계별 실행
             if rooms[idx].plan == nil {
                 rooms[idx].plan = RoomPlan(summary: task, estimatedSeconds: 300, steps: [RoomStep(text: task)])
             }
@@ -1770,6 +1787,33 @@ class RoomManager: ObservableObject {
             scheduleSave()
 
             await executeRoomWork(roomID: roomID, task: task)
+        } else {
+            // task + !needsPlan: 토론/분석 후 결과 정리
+            let specialistCount = executingAgentIDs(in: roomID).count
+
+            if specialistCount >= 2 && intent.requiresDiscussion {
+                let startMsg = ChatMessage(
+                    role: .system,
+                    content: "토론을 시작합니다. 참여자: \(specialistCount)명 | 합의 시 자동 종료"
+                )
+                appendMessage(startMsg, to: roomID)
+
+                await executeDiscussion(roomID: roomID, topic: task)
+                guard !Task.isCancelled,
+                      rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
+
+                await generateBriefing(roomID: roomID, topic: task)
+                guard !Task.isCancelled else { return }
+            } else if specialistCount == 1 {
+                await executeSoloAnalysis(roomID: roomID, task: task)
+                guard !Task.isCancelled else { return }
+            }
+
+            // autoDocOutput 플래그가 설정된 경우 자동 문서화
+            if let room = rooms.first(where: { $0.id == roomID }), room.autoDocOutput {
+                await handleDocumentOutput(roomID: roomID, task: task, suggestedType: room.documentType)
+            }
+            scheduleSave()
         }
     }
 
@@ -2022,14 +2066,43 @@ class RoomManager: ObservableObject {
         }
     }
 
-    /// Jira API에서 티켓 요약 fetch
-    private func fetchJiraTicketSummary(from task: String) async -> JiraTicketSummary? {
+    /// 텍스트에서 모든 Jira 키 추출 (중복 제거, 순서 유지)
+    private func extractJiraKeys(from text: String) -> [String] {
+        let pattern = "[A-Z][A-Z0-9]+-\\d+"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+        var seen = Set<String>()
+        var keys: [String] = []
+        for match in regex.matches(in: text, range: range) {
+            guard let r = Range(match.range, in: text) else { continue }
+            let key = String(text[r])
+            if seen.insert(key).inserted {
+                keys.append(key)
+            }
+        }
+        return keys
+    }
+
+    /// 여러 Jira URL에서 티켓 요약을 동시 fetch
+    private func fetchJiraTicketSummaries(urls: [String]) async -> [JiraTicketSummary] {
+        await withTaskGroup(of: JiraTicketSummary?.self, returning: [JiraTicketSummary].self) { group in
+            for urlString in urls {
+                group.addTask { [self] in
+                    await self.fetchSingleJiraTicket(urlString: urlString)
+                }
+            }
+            var results: [JiraTicketSummary] = []
+            for await result in group {
+                if let ticket = result { results.append(ticket) }
+            }
+            return results
+        }
+    }
+
+    /// 단일 Jira URL에서 티켓 요약 fetch
+    private func fetchSingleJiraTicket(urlString: String) async -> JiraTicketSummary? {
         let jiraConfig = JiraConfig.shared
-
-        guard let urlRange = task.range(of: "https://[^\\s]+", options: .regularExpression),
-              let url = URL(string: String(task[urlRange])) else { return nil }
-
-        let apiURLString = jiraConfig.apiURL(from: url.absoluteString)
+        let apiURLString = jiraConfig.apiURL(from: urlString)
         guard let apiURL = URL(string: apiURLString),
               let auth = jiraConfig.authHeader() else { return nil }
 
@@ -3878,7 +3951,7 @@ class RoomManager: ObservableObject {
             cont.resume(returning: false)
         }
         if let cont = intentContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: .implementation)
+            cont.resume(returning: .task)
         }
         if let cont = docTypeContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: .freeform)
@@ -3914,7 +3987,7 @@ class RoomManager: ObservableObject {
             cont.resume(returning: false)
         }
         if let cont = intentContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: .implementation)
+            cont.resume(returning: .task)
         }
         if let cont = docTypeContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: .freeform)
@@ -3957,7 +4030,7 @@ class RoomManager: ObservableObject {
             cont.resume(returning: false)
         }
         if let cont = intentContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: .implementation)
+            cont.resume(returning: .task)
         }
         if let cont = docTypeContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: .freeform)

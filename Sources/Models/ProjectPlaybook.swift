@@ -117,10 +117,10 @@ enum UserRole: String, Codable, CaseIterable {
     /// 역할에 따른 기본 워크플로우 의도
     var defaultIntent: WorkflowIntent {
         switch self {
-        case .developer: return .implementation
-        case .planner:   return .research
-        case .qa:        return .research
-        case .pm:        return .research
+        case .developer: return .task
+        case .planner:   return .task
+        case .qa:        return .task
+        case .pm:        return .task
         }
     }
 }
