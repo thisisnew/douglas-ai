@@ -178,7 +178,10 @@ struct RoomChatView: View {
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy, room: Room) {
-        if let last = visibleMessages(room).last {
+        // 작업 진행 중이면 TypingIndicator 하단까지 스크롤
+        if room.status == .planning || room.status == .inProgress {
+            withAnimation { proxy.scrollTo("typing-indicator", anchor: .bottom) }
+        } else if let last = visibleMessages(room).last {
             withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
         }
     }
