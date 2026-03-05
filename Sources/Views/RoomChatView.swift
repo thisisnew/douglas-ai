@@ -147,7 +147,7 @@ struct RoomChatView: View {
 
                     // 작업 진행 중 타이핑 인디케이터 (활성 진행 정보를 흡수하여 표시)
                     if room.status == .planning || room.status == .inProgress {
-                        TypingIndicator(room: room, agentStore: agentStore)
+                        TypingIndicator(roomID: room.id, agentStore: agentStore)
                             .id("typing-indicator")
                     }
                 }
@@ -542,6 +542,7 @@ struct RoomChatView: View {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !pendingAttachments.isEmpty else { return }
         let attachments = pendingAttachments.isEmpty ? nil : pendingAttachments
+        inputAccessor.clear()  // NSTextView + 바인딩 + 높이 직접 초기화
         inputText = ""
         pendingAttachments = []
         mentionCandidates = []

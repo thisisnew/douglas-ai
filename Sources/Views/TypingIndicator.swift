@@ -4,16 +4,21 @@ import SwiftUI
 /// 클릭하면 현재 단계의 세부 활동(모델 정보, 도구 사용, 소요시간)이 펼쳐짐
 struct TypingIndicator: View {
     @Environment(\.colorPalette) private var palette
-    let room: Room
+    let roomID: UUID
     let agentStore: AgentStore
     @EnvironmentObject var roomManager: RoomManager
     @State private var dotPhase = 0
     @State private var isExpanded = false
     @State private var expandedActivityIDs: Set<UUID> = []
 
+    /// roomManager에서 실시간 room 상태를 읽음 (snapshot이 아닌 live)
+    private var room: Room? {
+        roomManager.rooms.first(where: { $0.id == roomID })
+    }
+
     /// 현재 발언 중인 에이전트 (토론 턴)
     private var speakingAgent: Agent? {
-        if let speakingID = roomManager.speakingAgentIDByRoom[room.id],
+        if let speakingID = roomManager.speakingAgentIDByRoom[roomID],
            let agent = agentStore.agents.first(where: { $0.id == speakingID }) {
             return agent
         }
@@ -22,7 +27,7 @@ struct TypingIndicator: View {
 
     /// 마스터가 주도하는 단계: intake~assemble + plan
     private var isMasterPhase: Bool {
-        guard let phase = room.currentPhase else { return true }
+        guard let phase = room?.currentPhase else { return true }
         switch phase {
         case .intake, .intent, .clarify, .assemble, .plan:
             return true
@@ -33,6 +38,7 @@ struct TypingIndicator: View {
 
     /// 작업 중인 에이전트 (발언자가 아닌 경우)
     private var workingAgent: Agent? {
+        guard let room else { return nil }
         if isMasterPhase {
             // 초기 단계: 마스터를 바로 반환 (status 체크 불필요 — syncAgentStatuses가 마스터를 건너뜀)
             if let master = room.assignedAgentIDs.lazy.compactMap({ id in
@@ -60,7 +66,7 @@ struct TypingIndicator: View {
 
     /// 토론 vs 작업 구분: plan(토론) 단계면 "발언 중", execute 단계면 "작업 중"
     private var isDiscussionPhase: Bool {
-        room.currentPhase != .execute
+        room?.currentPhase != .execute
     }
 
     private var statusText: String {
@@ -70,7 +76,7 @@ struct TypingIndicator: View {
             return agent.isMaster ? "DOUGLAS 분석 중" : "\(agent.name) \(verb)"
         }
         // 2순위: 토론 요약 중 (plan 단계 + 브리핑 미생성 + 토론 이력 있음)
-        if room.currentPhase == .plan && room.briefing == nil
+        if let room, room.currentPhase == .plan && room.briefing == nil
             && room.messages.contains(where: { $0.messageType == .discussionRound }) {
             return "토론을 요약하는 중"
         }
@@ -82,31 +88,33 @@ struct TypingIndicator: View {
         return "DOUGLAS 분석 중"
     }
 
-    /// 마지막 활성 progress 그룹의 활동 메시지들
+    /// 마지막 활성 progress 그룹의 활동 메시지들 — roomManager에서 실시간 읽기
     private var activeActivities: [ChatMessage] {
-        guard room.isActive else { return [] }
+        guard let room, room.isActive else { return [] }
         let progressMessages = room.messages.filter { $0.messageType == .progress }
         guard let lastProgress = progressMessages.last else { return [] }
         return room.messages.filter { $0.activityGroupID == lastProgress.id }
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // 헤더 (항상 보임) — 클릭으로 세부 활동 펼침
-            Button {
-                guard !activeActivities.isEmpty else { return }
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isExpanded.toggle()
+        if room != nil {
+            VStack(spacing: 0) {
+                // 헤더 (항상 보임) — 클릭으로 세부 활동 펼침
+                Button {
+                    guard !activeActivities.isEmpty else { return }
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isExpanded.toggle()
+                    }
+                } label: {
+                    headerView
                 }
-            } label: {
-                headerView
-            }
-            .buttonStyle(.plain)
+                .buttonStyle(.plain)
 
-            // 확장 영역: 세부 활동 로그
-            if isExpanded, !activeActivities.isEmpty {
-                expandedView
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                // 확장 영역: 세부 활동 로그
+                if isExpanded, !activeActivities.isEmpty {
+                    expandedView
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
             }
         }
     }
@@ -343,6 +351,7 @@ struct TypingIndicator: View {
 
     /// 마지막 메시지 이후 경과 시간
     private func elapsedSeconds(at date: Date) -> Int {
+        guard let room else { return 0 }
         let lastMessageTime = room.messages.last?.timestamp ?? room.createdAt
         return max(0, Int(date.timeIntervalSince(lastMessageTime)))
     }
