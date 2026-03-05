@@ -81,7 +81,7 @@ DOUGLAS/
 │   │   ├── ProviderManager.swift    # 프로바이더 설정 관리
 │   │   ├── BuildLoopRunner.swift     # 빌드/테스트 실행 + 수정 프롬프트 생성 엔진
 │   │   ├── RoomManager.swift        # 프로젝트 방 생명주기, 6단계 워크플로우, 승인/입력 게이트
-│   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (키워드 + NLEmbedding 시맨틱 하이브리드, documentType-aware)
+│   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (키워드 + NLEmbedding 시맨틱 하이브리드, documentType-aware, [필수]만 자동초대)
 │   │   ├── DocumentExporter.swift   # 문서 산출물 파일 저장 (에이전트 생성 파일 탐지 → 고정 경로 자동저장 / NSSavePanel 폴백)
 │   │   ├── ThemeManager.swift       # 테마 관리 (기본값: .cozyGame, UserDefaults 저장, 커스텀 팔레트)
 │   │   └── ToolExecutor.swift       # 도구 호출 루프 + smartSend + 경로 해석/충돌 추적
@@ -291,7 +291,7 @@ protocol AIProvider {
 - **SSE 스트리밍** (`sendMessageStreaming`): 전체 응답 경로(즉답/소로분석/토론/복명복창/1:1채팅)에서 placeholder 메시지 생성 → 청크마다 `updateMessageContent`로 실시간 업데이트. `ToolExecutor.smartSend`에 `onStreamChunk` 콜백 추가로 도구 미사용 경로에서 자동 스트리밍.
 - **도구 병렬 실행** (`ToolExecutor.executeToolCallsInParallel`): 모델이 반환한 다중 도구 호출을 `withTaskGroup`으로 동시 실행. 인덱스 기준 정렬 후 순서 보장.
 - **모델 티어링**: `ProviderType.defaultLightModelName` (OpenAI→gpt-4o-mini, Google→gemini-2.0-flash, Anthropic→claude-haiku-4-5). `ProviderManager.lightModelName(for:)` 헬퍼. 적용 대상: IntentClassifier, routeQuickAnswer, executeAssemblePhase, generateBriefing.
-- **발산 라운드 병렬화**: `.diverge` 라운드에서 `generateDiscussionResponse` + `withTaskGroup`으로 에이전트 동시 실행. 수렴/합의는 순차 유지.
+- **토론 병렬화**: 첫 라운드에서 `generateDiscussionResponse` + `withTaskGroup`으로 전문가 동시 실행. 이후 라운드는 순차(이전 발언 참고).
 
 ### ClaudeCodeProvider (`Providers/ClaudeCodeProvider.swift`)
 
@@ -968,13 +968,13 @@ executeWithTools() 루프 (최대 10회):
 - **Intent 분류** (`IntentClassifier`): 2종 intent (quickAnswer / task). 규칙 기반 즉시 분류 (`quickClassify`) → 실패 시 LLM 분류 (`classifyWithLLM`). `quickClassify`가 nil(판단 불가)이면 `executeIntentPhase`에서 LLM 추천 intent와 함께 **IntentSelectionCard** UI를 표시하여 사용자가 2종 intent 중 선택. `pendingIntentSelection` + `intentContinuations`으로 비동기 게이트 구현. 분류 실패 시 `.quickAnswer` 폴백 (가장 가벼운 워크플로우). 레거시 research/implementation 문자열은 `.task`로 자동 마이그레이션.
 - **문서화 요청 감지** (`DocumentRequestDetector`): 2단계 감지 — ① intent 확정 후 초기 task에서 패턴 감지, ② clarify 후 사용자 피드백에서 재감지 (`detectDocumentSignalFromMessages`). 감지 시 `room.autoDocOutput = true` + `room.documentType` 설정. autoDocOutput이면 assemble 시 1명 제한 해제 (리서치+문서 에이전트 복합 구성), task 완료 후 자동 문서화 (preferredKeywords 기반 최적 에이전트 선택) + NSSavePanel 저장 (클릭 가능 file:// 링크 제공). 후속 사이클에서도 "문서로 정리해줘" 등 감지 가능 (1차 키워드 + 2차 LLM 폴백).
 - **복명복창 Clarify** (`executeClarifyPhase`): DOUGLAS가 요청을 요약 → 사용자 승인/거부 → 거부 시 피드백 반영 재요약 → 승인까지 무한 반복. 승인 시 `room.clarifySummary`에 저장 + `[delegation]` 블록 파싱 → `room.delegationInfo`(`DelegationInfo`)에 저장. explicit 타입이면 assemble에서 LLM 역할 분석 스킵 → 지정 에이전트만 배정. open이면 기존 흐름.
-- **동적 Plan 판단** (`classifyNeedsPlan`): assemble 완료 후, clarify 요약 + 에이전트 정보를 기반으로 LLM이 plan 필요 여부를 YES/NO로 판별. 코드 생성/수정/다단계/파일시스템 변경 → true. 분석/리서치/브레인스토밍/단일 문서 → false. 실패 시 false (안전한 기본값). 결과를 `room.needsPlan`에 저장.
+- **동적 Plan 판단** (`classifyNeedsPlan`): assemble 완료 후 2단계 판별. ① 키워드 기반 즉시 판별(`classifyNeedsPlanByKeywords`): clarifySummary+task에서 구현 키워드(수정/구현/fix/쿼리 등)와 분석 키워드(리서치/요약/번역 등)를 가중치 합산 — planScore≥5이면 즉시 true, noPlanScore≥5 && planScore<3이면 즉시 false. ② 키워드 애매 시 LLM 폴백: light model이 YES/NO 판별. 실패 시 false (안전한 기본값). 결과를 `room.needsPlan`에 저장.
 - **Plan 실행** (`executePlanPhase`): needsPlan=true일 때만 호출. 전문가 2명+ → 토론 + 브리핑 + 계획 수립 + 승인 루프. 전문가 1명 → 계획 수립 + 승인 루프 (soloAnalysis 스킵, requestPlan이 직접 분석).
-- **토론 알고리즘** (`executeDiscussion`): 발산→수렴→합의 = 1사이클. 매 사이클 후 사용자 체크포인트 (DiscussionCheckpointCard). 사용자 피드백 시 새 사이클, "진행"(빈 입력) 시 브리핑으로. 사이클 무제한 (사용자 주도 종료). `DiscussionRoundType`: `.diverge`(발산) / `.converge`(수렴) / `.conclude`(합의) — 각 라운드마다 목적별 프롬프트 지시. 모든 에이전트 프롬프트에 `clarifySummary` 앵커링 포함. **발산 라운드 병렬화**: `.diverge` 라운드에서 모든 에이전트가 동일 히스토리 스냅샷 기준으로 동시 실행 (`generateDiscussionResponse` + `withTaskGroup`). 수렴/합의는 순차 유지.
+- **토론 알고리즘** (`executeDiscussion`): 라운드별 자유 토론 (마스터 제외, 전문가만 참여). 매 라운드 후 사용자 체크포인트 (DiscussionCheckpointCard). 사용자 피드백 시 새 라운드, "진행"(빈 입력) 시 브리핑으로. 라운드 무제한 (사용자 주도 종료). 첫 라운드는 병렬 실행 (`generateDiscussionResponse` + `withTaskGroup`, 히스토리 스냅샷 기준), 이후 라운드는 순차 실행 (이전 발언 참고). 모든 에이전트 프롬프트에 `clarifySummary` 앵커링 포함.
 - **Execute 분기** (`executeExecutePhase`): 2-way 분기:
   - quickAnswer → 전문가 1명 즉답 (도구 포함)
   - task + needsPlan → 계획 기반 단계별 실행 (`executeRoomWork`)
-  - task + !needsPlan → 토론/분석 후 결과 정리 (2명+ 토론+브리핑, 1명 soloAnalysis, autoDocOutput 시 자동 문서화)
+  - task + !needsPlan → 토론/분석 후 결과 정리 (전문가 2명+ 자유 토론+브리핑, 1명 soloAnalysis, autoDocOutput 시 자동 문서화)
 - **실행 시 마스터 제외** (`executingAgentIDs`): `agent.isMaster`이면 실행 대상에서 제외
 - **계획 수립**: 전문가가 생성 (마스터 제외). 계획 JSON은 사용자에게 숨김.
 - **DecisionLog**: 토론 중 `[합의: 내용]` 태그 파싱 → `Room.decisionLog`에 기록
@@ -1053,7 +1053,7 @@ executeWithTools() 루프 (최대 10회):
 |------|------|------|
 | G-1 | **마스터 LLM 라우팅 제거**: `handleMasterMessage()`에서 LLM 호출 없이 즉시 방 생성. `MasterAction`, `parseMasterResponse`, `extractJSON`, `handleDelegation`, `handleChain`, `generateSummary`, `masterFallbackResponse` 등 ~500줄 삭제. | ✅ |
 | G-2 | **분석가 자동 생성 제거**: `ensureAnalystExists()`, `createDefaultAnalyst()` 삭제. 마스터가 직접 트리아지 수행. | ✅ |
-| G-3 | **RoomManager 마스터 기반**: `isAnalystLed()` → `isMasterLed()`, `executingAgentIDs()` 마스터 제외, 토론에서 마스터 PM 프롬프트 사용. | ✅ |
+| G-3 | **RoomManager 마스터 기반**: `isAnalystLed()` → `isMasterLed()`, `executingAgentIDs()` 마스터 제외, 토론에서 마스터 제외(전문가만 자유 토론). | ✅ |
 | G-4 | **SuggestionCard 제거**: 사이드바 에이전트 제안 카드 삭제 (방 내 `AgentSuggestionCard`는 유지). | ✅ |
 | G-5 | **masterSystemPrompt 간소화**: PM/오케스트레이터 역할 프롬프트 (JSON 형식 불필요). | ✅ |
 

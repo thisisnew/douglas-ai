@@ -1390,8 +1390,8 @@ class RoomManager: ObservableObject {
     }
 
     /// clarify 완료 후 동적으로 실행 계획 필요 여부 판별
-    /// 코드 생성/수정, 다단계 순차 작업, 파일시스템 변경 → true
-    /// 분석/리서치, 브레인스토밍, 단일 출력 문서 작성 → false
+    /// 1단계: 키워드 기반 즉시 판별 (확실한 경우)
+    /// 2단계: LLM 폴백 (애매한 경우만)
     private func classifyNeedsPlan(roomID: UUID, task: String) async -> Bool {
         guard let room = rooms.first(where: { $0.id == roomID }),
               let firstAgentID = room.assignedAgentIDs.first,
@@ -1401,6 +1401,13 @@ class RoomManager: ObservableObject {
         }
 
         let clarifySummary = room.clarifySummary ?? task
+
+        // 1단계: 키워드 기반 즉시 판별
+        if let keywordResult = classifyNeedsPlanByKeywords(clarifySummary: clarifySummary, task: task) {
+            return keywordResult
+        }
+
+        // 2단계: 애매한 경우 LLM 폴백
         let assignedAgents = room.assignedAgentIDs.compactMap { id in
             agentStore?.agents.first(where: { $0.id == id })?.name
         }.joined(separator: ", ")
@@ -1409,7 +1416,7 @@ class RoomManager: ObservableObject {
         사용자의 작업 요청을 보고, **실행 계획(plan)**이 필요한지 판별하세요.
 
         계획이 **필요한** 경우:
-        - 코드 생성 또는 수정
+        - 코드 생성 또는 수정 (쿼리 변경, 함수 구현, 버그 수정 포함)
         - 여러 단계를 순차적으로 실행해야 하는 작업
         - 파일시스템 변경 (파일 생성/수정/삭제)
         - 빌드, 배포, 테스트 실행
@@ -1448,6 +1455,56 @@ class RoomManager: ObservableObject {
         } catch {
             return false
         }
+    }
+
+    /// 키워드 기반 needsPlan 즉시 판별. 확실하면 Bool 반환, 애매하면 nil
+    private func classifyNeedsPlanByKeywords(clarifySummary: String, task: String) -> Bool? {
+        let text = "\(clarifySummary) \(task)".lowercased()
+
+        // 구현/수정 계열 키워드 (가중치)
+        let planKeywords: [(String, Int)] = [
+            // 코드 수정/생성
+            ("수정", 3), ("구현", 4), ("코딩", 5), ("coding", 5),
+            ("fix", 5), ("implement", 4), ("리팩토", 4), ("refactor", 4),
+            ("버그", 5), ("bug", 5),
+            // 빌드/배포
+            ("빌드", 4), ("build", 4), ("배포", 4), ("deploy", 4),
+            // 파일 변경
+            ("마이그레이션", 4), ("migration", 4),
+            // 코드 관련 신호
+            ("코드", 3), ("쿼리", 3), ("query", 3),
+            ("서브쿼리", 4), ("subquery", 4),
+            ("인덱스", 3), ("index", 3),
+            ("from절", 4), ("where절", 4), ("join", 3),
+            ("커밋", 3), ("commit", 3), ("pr", 2), ("push", 2),
+            ("개선", 2), ("변경", 2),
+        ]
+
+        // 분석/리서치 계열 키워드
+        let noPlanKeywords: [(String, Int)] = [
+            ("리서치", 3), ("research", 3),
+            ("요약", 3), ("summarize", 3), ("summary", 3),
+            ("설명", 3), ("번역", 4), ("translate", 4),
+            ("자문", 3), ("상담", 3), ("의견", 3),
+            ("브레인스토밍", 4), ("brainstorm", 4),
+        ]
+
+        var planScore = 0
+        var noPlanScore = 0
+
+        for (keyword, weight) in planKeywords {
+            if text.contains(keyword) { planScore += weight }
+        }
+        for (keyword, weight) in noPlanKeywords {
+            if text.contains(keyword) { noPlanScore += weight }
+        }
+
+        // 확실한 구현 작업
+        if planScore >= 5 { return true }
+        // 확실한 분석 작업 (구현 신호 미약)
+        if noPlanScore >= 5 && planScore < 3 { return false }
+        // 애매 → LLM 폴백
+        return nil
     }
 
     /// Intake 단계: 입력 파싱, Jira fetch, IntakeData 저장, 플레이북 로드
@@ -1823,6 +1880,11 @@ class RoomManager: ObservableObject {
         사용자의 요청을 정확히 읽고, 요청된 관점의 전문가만 초대하세요.
         예: "프론트엔드 관점에서" → 프론트엔드 전문가만. 백엔드 전문가는 불필요.
 
+        **[선택] 역할 제한:**
+        - [선택]은 사용자가 명시적으로 요청한 경우에만 추가하세요.
+        - 코드 수정/구현 작업에는 해당 도메인 개발자 1명이면 충분합니다.
+        - "혹시 필요할 수도 있다"는 이유로 QA, 리서치, 디자인 등 보조 역할을 추가하지 마세요.
+
         현재 사용 가능한 에이전트:
         \(agentRoster)
 
@@ -1980,8 +2042,8 @@ class RoomManager: ObservableObject {
                 documentType: rooms.first(where: { $0.id == roomID })?.documentType
             )
 
-            // 3) 매칭된 에이전트 자동 초대 (팀 확인 전이므로 silent)
-            for req in matched where req.status == .matched {
+            // 3) [필수] 매칭 에이전트만 자동 초대 ([선택]은 팀 확인에서 수동 추가)
+            for req in matched where req.status == .matched && req.priority == .required {
                 if let agentID = req.matchedAgentID,
                    let room = rooms.first(where: { $0.id == roomID }),
                    !room.assignedAgentIDs.contains(agentID) {
@@ -1989,8 +2051,8 @@ class RoomManager: ObservableObject {
                 }
             }
 
-            // 4) 매칭 안 된 역할은 에이전트 생성 제안
-            for req in matched where req.status == .unmatched {
+            // 4) [필수] 미매칭 역할은 에이전트 생성 제안 ([선택] 미매칭은 무시)
+            for req in matched where req.status == .unmatched && req.priority == .required {
                 let suggestion = RoomAgentSuggestion(
                     name: req.roleName,
                     persona: "이 에이전트는 '\(req.roleName)' 역할을 수행합니다. \(req.reason)",
