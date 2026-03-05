@@ -1375,7 +1375,7 @@ struct DiscussionCheckpointCard: View {
     @EnvironmentObject var roomManager: RoomManager
     @Environment(\.colorPalette) private var palette
     @State private var inputText = ""
-    @State private var countdown = 15
+    @State private var countdown = 10
     @FocusState private var isFocused: Bool
 
     var body: some View {
@@ -1408,7 +1408,7 @@ struct DiscussionCheckpointCard: View {
                         .focused($isFocused)
                         .onSubmit { submitFeedback() }
                         .onChange(of: inputText) { _ in
-                            countdown = 15  // 입력 중이면 타이머 리셋
+                            countdown = 10  // 입력 중이면 타이머 리셋
                         }
 
                     let canSubmit = !inputText.trimmingCharacters(in: .whitespaces).isEmpty
