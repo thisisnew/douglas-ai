@@ -95,6 +95,11 @@ struct IntakeData: Codable {
         var parts: [String] = ["[입력 분석]"]
         parts.append("- 소스: \(sourceType.rawValue)")
         if !jiraKeys.isEmpty {
+            if !jiraDataList.isEmpty {
+                parts.append("[Jira 연동 활성] 아래 티켓 데이터는 Jira API에서 자동 조회된 결과입니다.")
+            } else {
+                parts.append("[Jira 연동 활성] 티켓 데이터 조회 대기 중. 실행 단계에서 web_fetch 도구로 조회 가능합니다.")
+            }
             parts.append("- Jira 티켓: \(jiraKeys.joined(separator: ", "))")
         }
         for jira in jiraDataList {
