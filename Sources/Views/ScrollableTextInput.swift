@@ -87,7 +87,8 @@ private struct _Representable: NSViewRepresentable {
         }
 
         // 외부 text 변경 반영 (전송 후 text="" 등)
-        if !coord.isUpdating && tv.string != text {
+        // isDirty=true이면 NSTextView가 최신이므로 바인딩(text)으로 덮어쓰지 않음
+        if !coord.isUpdating && !coord.isDirty && tv.string != text {
             coord.isUpdating = true
             tv.string = text
             coord.isUpdating = false
@@ -244,6 +245,8 @@ private struct _Representable: NSViewRepresentable {
     class Coordinator: NSObject, NSTextViewDelegate {
         var parent: _Representable
         var isUpdating = false
+        /// NSTextView가 바인딩보다 최신인 상태 (updateNSView에서 덮어쓰기 방지)
+        var isDirty = false
         weak var container: _Container?
         /// 이전 텍스트 길이 (붙여넣기/드롭 감지용)
         private var previousLength = 0
@@ -258,6 +261,7 @@ private struct _Representable: NSViewRepresentable {
             isUpdating = true
             parent.text = tv.string
             isUpdating = false
+            isDirty = false
         }
 
         func textDidChange(_ notification: Notification) {
@@ -276,6 +280,9 @@ private struct _Representable: NSViewRepresentable {
                 isUpdating = true
                 parent.text = newText
                 isUpdating = false
+                isDirty = false
+            } else {
+                isDirty = true
             }
 
             container?.updatePlaceholder()
