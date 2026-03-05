@@ -2880,6 +2880,9 @@ class RoomManager: ObservableObject {
                     appendMessage(approvalMsg, to: roomID)
                     scheduleSave()
 
+                    // 자동 승인 타이머: 15초 후 자동 승인 (사용자 개입 시 취소)
+                    startReviewAutoApproval(roomID: roomID, seconds: 15)
+
                     let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
                         approvalContinuations[roomID] = continuation
                     }
