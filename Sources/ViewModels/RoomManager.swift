@@ -192,6 +192,103 @@ class RoomManager: ObservableObject {
         rooms[roomIdx].messages[msgIdx].content = newContent
     }
 
+    // MARK: - Phase Activity Tracking
+
+    /// LLM 호출을 ProgressActivityBubble로 추적하는 헬퍼.
+    /// .progress 부모 + llm_call 시작 + body 실행 + llm_result/llm_error 완료.
+    @discardableResult
+    private func trackPhaseActivity(
+        roomID: UUID,
+        label: String,
+        agentName: String?,
+        modelName: String,
+        providerName: String,
+        body: @escaping (_ onToolActivity: @escaping (String, ToolActivityDetail?) -> Void) async throws -> String
+    ) async throws -> (response: String, progressGroupID: UUID) {
+        let progressMsg = ChatMessage(
+            role: .system,
+            content: label,
+            messageType: .progress
+        )
+        appendMessage(progressMsg, to: roomID)
+        let groupID = progressMsg.id
+
+        let startDetail = ToolActivityDetail(
+            toolName: "llm_call",
+            subject: "\(providerName) / \(modelName)",
+            contentPreview: nil,
+            isError: false
+        )
+        let startActivity = ChatMessage(
+            role: .assistant,
+            content: "API 호출: \(providerName) (\(modelName))",
+            agentName: agentName,
+            messageType: .toolActivity,
+            activityGroupID: groupID,
+            toolDetail: startDetail
+        )
+        appendMessage(startActivity, to: roomID)
+
+        let onToolActivity: (String, ToolActivityDetail?) -> Void = { [weak self] activity, detail in
+            guard let self else { return }
+            Task { @MainActor in
+                let toolMsg = ChatMessage(
+                    role: .assistant,
+                    content: activity,
+                    agentName: agentName,
+                    messageType: .toolActivity,
+                    activityGroupID: groupID,
+                    toolDetail: detail
+                )
+                self.appendMessage(toolMsg, to: roomID)
+            }
+        }
+
+        let startTime = Date()
+        do {
+            let response = try await body(onToolActivity)
+            let duration = Date().timeIntervalSince(startTime)
+            let durationStr = duration < 60
+                ? String(format: "%.1f초", duration)
+                : String(format: "%d분 %.0f초", Int(duration) / 60, duration.truncatingRemainder(dividingBy: 60))
+            let resultDetail = ToolActivityDetail(
+                toolName: "llm_result",
+                subject: "\(durationStr) | \(response.count)자",
+                contentPreview: nil,
+                isError: false
+            )
+            let resultActivity = ChatMessage(
+                role: .assistant,
+                content: "응답 완료 (\(durationStr))",
+                agentName: agentName,
+                messageType: .toolActivity,
+                activityGroupID: groupID,
+                toolDetail: resultDetail
+            )
+            appendMessage(resultActivity, to: roomID)
+            return (response, groupID)
+        } catch {
+            let duration = Date().timeIntervalSince(startTime)
+            let durationStr = String(format: "%.1f초", duration)
+            let errorDetail = ToolActivityDetail(
+                toolName: "llm_error",
+                subject: error.userFacingMessage,
+                contentPreview: nil,
+                isError: true
+            )
+            let errorActivity = ChatMessage(
+                role: .assistant,
+                content: "오류 (\(durationStr)): \(error.userFacingMessage)",
+                agentName: agentName,
+                messageType: .toolActivity,
+                activityGroupID: groupID,
+                toolDetail: errorDetail
+            )
+            appendMessage(errorActivity, to: roomID)
+            throw error
+        }
+    }
+
     // MARK: - 승인 게이트
 
     /// 승인 대기 중인 단계를 승인
@@ -1206,12 +1303,20 @@ class RoomManager: ObservableObject {
         // 문서 유형 템플릿 주입
         let docTypeContext = rooms[idx].documentType?.templatePromptBlock() ?? ""
 
+        // Jira 연동 안내
+        let jiraCapability: String
+        if JiraConfig.shared.isConfigured, rooms[idx].intakeData?.sourceType == .jira {
+            jiraCapability = "\n[도구] Jira Cloud 연동됨 — 티켓 조회·상태 변경·서브태스크 생성 가능. URL에 직접 접근할 수 없다고 말하지 마세요.\n"
+        } else {
+            jiraCapability = ""
+        }
+
         let clarifySystemPrompt = """
         \(agent.resolvedSystemPrompt)
 
         당신은 요건 확인(Clarify) 단계를 수행하고 있습니다.
         사용자의 요청을 정확히 이해했는지 복명복창(확인)만 합니다.
-        \(docTypeContext.isEmpty ? "" : "\n\(docTypeContext)\n")
+        \(jiraCapability)\(docTypeContext.isEmpty ? "" : "\n\(docTypeContext)\n")
         아래 형식으로 이해한 내용을 요약하세요:
         - 요청 내용: (1-2문장 요약)
         - 핵심 요구사항: (불릿 포인트, 각 항목 1줄 이내)
@@ -1862,39 +1967,48 @@ class RoomManager: ObservableObject {
         appendMessage(placeholder, to: roomID)
 
         do {
-            let response: String
             // 웹 검색 지침 추가: 모르는 내용은 반드시 검색 후 답변
             let searchPrompt = agent.resolvedSystemPrompt
                 + "\n\n[웹 검색 지침] 답을 확실히 알지 못하거나 최신 정보가 필요한 질문은 반드시 WebSearch 도구로 검색한 후 답변하세요. 인터넷 밈, 슬랭, 브랜드, 제품명, 또는 익숙하지 않은 용어는 검색을 먼저 수행하세요."
-            if let claudeProvider = provider as? ClaudeCodeProvider {
-                // ClaudeCodeProvider: CLI 자체 WebSearch 사용 (검색+읽기만 허용)
-                let simple = history.compactMap { msg -> (role: String, content: String)? in
-                    guard let content = msg.content else { return nil }
-                    return (role: msg.role, content: content)
+            let (response, _) = try await trackPhaseActivity(
+                roomID: roomID,
+                label: "답변을 작성하는 중…",
+                agentName: agent.name,
+                modelName: agent.modelName,
+                providerName: agent.providerName
+            ) { onToolActivity in
+                if let claudeProvider = provider as? ClaudeCodeProvider {
+                    // ClaudeCodeProvider: CLI 자체 WebSearch 사용 (검색+읽기만 허용)
+                    let simple = history.compactMap { msg -> (role: String, content: String)? in
+                        guard let content = msg.content else { return nil }
+                        return (role: msg.role, content: content)
+                    }
+                    return try await claudeProvider.sendMessageWithSearch(
+                        model: agent.modelName,
+                        systemPrompt: searchPrompt,
+                        messages: simple,
+                        onToolActivity: onToolActivity
+                    )
+                } else {
+                    // 다른 프로바이더: DOUGLAS 내장 도구 사용
+                    let buffer = StreamBuffer()
+                    return try await ToolExecutor.smartSend(
+                        provider: provider,
+                        agent: agent,
+                        systemPrompt: searchPrompt,
+                        conversationMessages: history,
+                        context: context,
+                        onToolActivity: onToolActivity,
+                        onStreamChunk: { [weak self] chunk in
+                            guard let self else { return }
+                            let current = buffer.append(chunk)
+                            Task { @MainActor in
+                                self.updateMessageContent(placeholderID, newContent: current, in: roomID)
+                            }
+                        },
+                        allowedToolIDs: ["web_search", "web_fetch"]
+                    )
                 }
-                response = try await claudeProvider.sendMessageWithSearch(
-                    model: agent.modelName,
-                    systemPrompt: searchPrompt,
-                    messages: simple
-                )
-            } else {
-                // 다른 프로바이더: DOUGLAS 내장 도구 사용
-                let buffer = StreamBuffer()
-                response = try await ToolExecutor.smartSend(
-                    provider: provider,
-                    agent: agent,
-                    systemPrompt: searchPrompt,
-                    conversationMessages: history,
-                    context: context,
-                    onStreamChunk: { [weak self] chunk in
-                        guard let self else { return }
-                        let current = buffer.append(chunk)
-                        Task { @MainActor in
-                            self.updateMessageContent(placeholderID, newContent: current, in: roomID)
-                        }
-                    },
-                    allowedToolIDs: ["web_search", "web_fetch"]
-                )
             }
             updateMessageContent(placeholderID, newContent: stripTrailingOptions(response), in: roomID)
         } catch {
@@ -2002,21 +2116,29 @@ class RoomManager: ObservableObject {
 
         do {
             let buffer = StreamBuffer()
-            let response = try await ToolExecutor.smartSend(
-                provider: provider,
-                agent: agent,
-                systemPrompt: soloPrompt,
-                conversationMessages: history,
-                context: context,
-                onStreamChunk: { [weak self] chunk in
-                    guard let self else { return }
-                    let current = buffer.append(chunk)
-                    Task { @MainActor in
-                        self.updateMessageContent(placeholderID, newContent: current, in: roomID)
-                    }
-                },
-                useTools: false  // 소로 분석: 도구 없이 스트리밍 우선
-            )
+            let (response, _) = try await trackPhaseActivity(
+                roomID: roomID,
+                label: "사전 분석 중…",
+                agentName: agent.name,
+                modelName: agent.modelName,
+                providerName: agent.providerName
+            ) { _ in
+                try await ToolExecutor.smartSend(
+                    provider: provider,
+                    agent: agent,
+                    systemPrompt: soloPrompt,
+                    conversationMessages: history,
+                    context: context,
+                    onStreamChunk: { [weak self] chunk in
+                        guard let self else { return }
+                        let current = buffer.append(chunk)
+                        Task { @MainActor in
+                            self.updateMessageContent(placeholderID, newContent: current, in: roomID)
+                        }
+                    },
+                    useTools: false  // 소로 분석: 도구 없이 스트리밍 우선
+                )
+            }
             updateMessageContent(placeholderID, newContent: stripTrailingOptions(response), in: roomID)
         } catch {
             // 사전 분석 실패는 워크플로우에 영향 없음 — placeholder를 조용히 제거
@@ -2293,18 +2415,22 @@ class RoomManager: ObservableObject {
         speakingAgentIDByRoom[roomID] = firstAgentID
 
         do {
-            // sendRouterMessage: 도구 비활성화 (계획 수립 중 파일 수정/셸 실행 방지)
-            let response = try await provider.sendRouterMessage(
-                model: agent.modelName,
-                systemPrompt: planSystemPrompt,
-                messages: planMessages
-            )
+            let (response, _) = try await trackPhaseActivity(
+                roomID: roomID,
+                label: "계획을 수립하는 중…",
+                agentName: agent.name,
+                modelName: agent.modelName,
+                providerName: agent.providerName
+            ) { _ in
+                // sendRouterMessage: 도구 비활성화 (계획 수립 중 파일 수정/셸 실행 방지)
+                try await provider.sendRouterMessage(
+                    model: agent.modelName,
+                    systemPrompt: planSystemPrompt,
+                    messages: planMessages
+                )
+            }
 
             speakingAgentIDByRoom.removeValue(forKey: roomID)
-
-            // 계획 JSON은 내부 처리용 — 사용자에게 표시하지 않음
-
-            // JSON 파싱
             return parsePlan(from: response)
         } catch {
             speakingAgentIDByRoom.removeValue(forKey: roomID)
@@ -2856,6 +2982,26 @@ class RoomManager: ObservableObject {
             agentStore?.updateStatus(agentID: agentID, status: .working)
             speakingAgentIDByRoom[roomID] = agentID
 
+            // llm_call 시작 활동
+            let stepStartTime = Date()
+            if let progressGroupID {
+                let startDetail = ToolActivityDetail(
+                    toolName: "llm_call",
+                    subject: "\(agent.providerName) / \(agent.modelName)",
+                    contentPreview: nil,
+                    isError: false
+                )
+                let startMsg = ChatMessage(
+                    role: .assistant,
+                    content: "API 호출: \(agent.providerName) (\(agent.modelName))",
+                    agentName: agent.name,
+                    messageType: .toolActivity,
+                    activityGroupID: progressGroupID,
+                    toolDetail: startDetail
+                )
+                appendMessage(startMsg, to: roomID)
+            }
+
             let context = makeToolContext(roomID: roomID, currentAgentID: agentID, fileWriteTracker: fileWriteTracker)
             let messagesWithStep = history + [ConversationMessage.user(stepPrompt)]
             let response = try await ToolExecutor.smartSend(
@@ -2879,6 +3025,29 @@ class RoomManager: ObservableObject {
                     }
                 }
             )
+
+            // llm_result 완료 활동
+            if let progressGroupID {
+                let stepDuration = Date().timeIntervalSince(stepStartTime)
+                let durationStr = stepDuration < 60
+                    ? String(format: "%.1f초", stepDuration)
+                    : String(format: "%d분 %.0f초", Int(stepDuration) / 60, stepDuration.truncatingRemainder(dividingBy: 60))
+                let resultDetail = ToolActivityDetail(
+                    toolName: "llm_result",
+                    subject: "\(durationStr) | \(response.count)자",
+                    contentPreview: nil,
+                    isError: false
+                )
+                let resultMsg = ChatMessage(
+                    role: .assistant,
+                    content: "실행 완료 (\(durationStr))",
+                    agentName: agent.name,
+                    messageType: .toolActivity,
+                    activityGroupID: progressGroupID,
+                    toolDetail: resultDetail
+                )
+                appendMessage(resultMsg, to: roomID)
+            }
 
             if speakingAgentIDByRoom[roomID] == agentID {
                 speakingAgentIDByRoom.removeValue(forKey: roomID)
@@ -3633,9 +3802,6 @@ class RoomManager: ObservableObject {
               let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return }
 
-        let summaryMsg = ChatMessage(role: .system, content: "토론 브리핑을 생성하는 중...")
-        appendMessage(summaryMsg, to: roomID)
-
         let history = buildDiscussionHistory(roomID: roomID, currentAgentName: nil)
 
         // 산출물 목록도 포함
@@ -3668,12 +3834,20 @@ class RoomManager: ObservableObject {
 
         do {
             let lightModel = providerManager?.lightModelName(for: agent.providerName) ?? agent.modelName
-            // sendRouterMessage: 도구 비활성화 (브리핑 요약 중 파일 수정 방지)
-            let response = try await provider.sendRouterMessage(
-                model: lightModel,
-                systemPrompt: briefingPrompt,
-                messages: history
-            )
+            let (response, _) = try await trackPhaseActivity(
+                roomID: roomID,
+                label: "토론 브리핑을 생성하는 중…",
+                agentName: agent.name,
+                modelName: lightModel,
+                providerName: agent.providerName
+            ) { _ in
+                // sendRouterMessage: 도구 비활성화 (브리핑 요약 중 파일 수정 방지)
+                try await provider.sendRouterMessage(
+                    model: lightModel,
+                    systemPrompt: briefingPrompt,
+                    messages: history
+                )
+            }
 
             speakingAgentIDByRoom.removeValue(forKey: roomID)
 
@@ -3877,12 +4051,20 @@ class RoomManager: ObservableObject {
         """
 
         do {
-            // sendRouterMessage: 도구 비활성화 (작업일지 생성 중 파일 수정 방지)
-            let response = try await provider.sendRouterMessage(
-                model: agent.modelName,
-                systemPrompt: logPrompt,
-                messages: history + [("user", "작업: \(task)")]
-            )
+            let (response, _) = try await trackPhaseActivity(
+                roomID: roomID,
+                label: "작업일지를 생성하는 중…",
+                agentName: agent.name,
+                modelName: agent.modelName,
+                providerName: agent.providerName
+            ) { _ in
+                // sendRouterMessage: 도구 비활성화 (작업일지 생성 중 파일 수정 방지)
+                try await provider.sendRouterMessage(
+                    model: agent.modelName,
+                    systemPrompt: logPrompt,
+                    messages: history + [("user", "작업: \(task)")]
+                )
+            }
 
             // 토론 요약 추출 (summary 타입 메시지에서)
             let discussionSummary = room.messages

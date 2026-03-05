@@ -300,7 +300,7 @@ protocol AIProvider {
 - 환경변수 `CLAUDECODE`를 제거하여 중첩 세션 감지 우회
 - PATH에 nvm 경로 추가하여 node 의존성 해결
 - 시스템 프롬프트 + 대화 히스토리를 단일 프롬프트로 조합
-- **도구 활동 추적**: `onToolActivity` 콜백 전달 시 `--output-format stream-json`으로 NDJSON 스트리밍 → `StreamJsonHandler`가 실시간 `tool_use` 이벤트 파싱 → `ProgressActivityBubble`에 표시
+- **도구 활동 추적**: `onToolActivity` 콜백 전달 시 `--output-format stream-json`으로 NDJSON 스트리밍 → `StreamJsonHandler`가 실시간 `tool_use` 이벤트 파싱 → `ProgressActivityBubble`에 표시. `sendMessageWithSearch()`에도 `onToolActivity` 지원 (WebSearch/WebFetch 이벤트 추적)
 - **도구 정책**: `sendMessage()` = 도구 활성화 (`--allowedTools Edit Write Bash Read Glob Grep`), `sendRouterMessage()` = 도구 비활성화 (`--tools ""`). 계획 수립(`requestPlan`), 브리핑 생성(`generateBriefing`), 작업일지(`generateWorkLog`)는 `sendRouterMessage` 사용 — 계획 승인 전 파일 수정/셸 실행 방지.
 
 ### OpenAIProvider (`Providers/OpenAIProvider.swift`)
@@ -740,9 +740,25 @@ MessageType에 따른 시각 차별화:
 - **접힌 상태**: 기존 캡슐 스타일 + 활동 개수 뱃지 + 화살표 (클릭으로 토글)
 - **펼친 상태**: 소속된 `.toolActivity` 메시지들을 시간순으로 인라인 표시 (도구 호출/결과, 아이콘 구분, 타임스탬프)
 - **도구 상세 펼치기**: `toolDetail`이 있는 활동 행 클릭 시 2단계 확장 — 파일 경로 + 내용 미리보기 (모노스페이스, 최대 200pt 높이 ScrollView)
-- 도구별 아이콘: file_read → `doc.text`, file_write → `doc.badge.plus`, shell_exec → `terminal`, web_fetch → `globe`
+- 도구별 아이콘: file_read → `doc.text`, file_write → `doc.badge.plus`, shell_exec → `terminal`, web_fetch → `globe`, llm_call → `arrow.up.circle`, llm_result → `checkmark.circle.fill`, llm_error → `xmark.octagon`
 - `activityGroupID`로 부모-자식 관계 연결: `.toolActivity` 메시지의 `activityGroupID`가 `.progress` 메시지의 `id`와 일치
 - 메인 채팅에서는 `activityGroupID != nil`인 메시지를 필터링하여 숨김
+
+#### 전체 워크플로우 활동 추적 (`trackPhaseActivity`)
+
+`RoomManager.trackPhaseActivity()` 헬퍼가 모든 LLM 호출을 자동으로 추적:
+- `.progress` 부모 메시지 + `llm_call` 시작 활동 (프로바이더/모델명) + `llm_result`/`llm_error` 완료 활동 (소요시간)
+- body 클로저에 `onToolActivity` 콜백을 전달하여 중간 도구 이벤트도 같은 그룹에 표시
+
+적용 단계:
+| 단계 | 메서드 | 도구 활동 |
+|------|--------|-----------|
+| 계획 수립 | `requestPlan()` | 없음 (sendRouterMessage) |
+| 브리핑 | `generateBriefing()` | 없음 (sendRouterMessage) |
+| 작업일지 | `generateWorkLog()` | 없음 (sendRouterMessage) |
+| 사전 분석 | `executeSoloAnalysis()` | 없음 (useTools: false) |
+| 질의응답 | `executeQuickAnswer()` | WebSearch/WebFetch 이벤트 |
+| 실행 단계 | `executeStep()` | 전체 도구 이벤트 (기존) + 모델/시간 추가 |
 
 ### AgentAvatarView (`Views/AgentAvatarView.swift`)
 

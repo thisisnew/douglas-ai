@@ -233,6 +233,9 @@ struct ProgressActivityBubble: View {
             case "shell_exec": return "terminal"
             case "web_search": return "magnifyingglass"
             case "web_fetch":  return "globe"
+            case "llm_call":   return "arrow.up.circle"
+            case "llm_result": return "checkmark.circle.fill"
+            case "llm_error":  return "xmark.octagon"
             default:           return "checkmark.circle"
             }
         }

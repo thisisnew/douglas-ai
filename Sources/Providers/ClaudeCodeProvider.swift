@@ -163,13 +163,15 @@ class ClaudeCodeProvider: AIProvider {
     func sendMessageWithSearch(
         model: String,
         systemPrompt: String,
-        messages: [(role: String, content: String)]
+        messages: [(role: String, content: String)],
+        onToolActivity: ((String, ToolActivityDetail?) -> Void)? = nil
     ) async throws -> String {
         let userPrompt = buildUserPrompt(from: messages)
         return try await runClaude(
             path: config.baseURL, prompt: userPrompt, model: model,
             systemPrompt: systemPrompt,
-            allowedTools: ["Read", "WebSearch", "WebFetch"]
+            allowedTools: ["Read", "WebSearch", "WebFetch"],
+            onToolActivity: onToolActivity
         )
     }
 
