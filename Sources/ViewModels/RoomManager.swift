@@ -2845,56 +2845,104 @@ class RoomManager: ObservableObject {
                   let currentRoom = rooms.first(where: { $0.id == roomID }),
                   currentRoom.status == .inProgress else { break }
 
-            // 승인 게이트: requiresApproval인 단계에서 일시 정지
+            // 승인 게이트: requiresApproval인 단계에서 일시 정지 (거절 시 피드백 → 재수행 루프)
             if step.requiresApproval {
-                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].transitionTo(.awaitingApproval)
-                    rooms[i].pendingApprovalStepIndex = stepIndex
-                }
-                syncAgentStatuses()
-                let approvalMsg = ChatMessage(
-                    role: .system,
-                    content: "[\(stepIndex + 1)/\(plan.steps.count)] \"\(step.text)\" — 이 단계는 승인이 필요합니다.",
-                    messageType: .approvalRequest
-                )
-                appendMessage(approvalMsg, to: roomID)
-                scheduleSave()
-
-                let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                    approvalContinuations[roomID] = continuation
-                }
-
-                approvalContinuations.removeValue(forKey: roomID)
-
-                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].pendingApprovalStepIndex = nil
-                }
-
-                if !approved {
+                var stepFeedback: String?
+                var approvalLoop = true
+                while approvalLoop {
                     if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                        rooms[i].transitionTo(.failed)
-                        rooms[i].completedAt = Date()
+                        rooms[i].transitionTo(.awaitingApproval)
+                        rooms[i].pendingApprovalStepIndex = stepIndex
                     }
-                    let rejectMsg = ChatMessage(
-                        role: .system,
-                        content: "단계 \(stepIndex + 1)이 거부되어 작업을 중단합니다.",
-                        messageType: .error
-                    )
-                    appendMessage(rejectMsg, to: roomID)
                     syncAgentStatuses()
-                    scheduleSave()
-                    return
-                }
 
-                // 승인됨 → inProgress 복귀
-                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].transitionTo(.inProgress)
+                    let prompt = stepFeedback != nil
+                        ? "[\(stepIndex + 1)/\(plan.steps.count)] 피드백을 반영하여 재수행합니다. 승인하시겠습니까?"
+                        : "[\(stepIndex + 1)/\(plan.steps.count)] \"\(step.text)\" — 이 단계는 승인이 필요합니다."
+                    let approvalMsg = ChatMessage(
+                        role: .system,
+                        content: prompt,
+                        messageType: .approvalRequest
+                    )
+                    appendMessage(approvalMsg, to: roomID)
+                    scheduleSave()
+
+                    let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                        approvalContinuations[roomID] = continuation
+                    }
+                    approvalContinuations.removeValue(forKey: roomID)
+
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].pendingApprovalStepIndex = nil
+                    }
+
+                    if approved {
+                        // 승인됨 → inProgress 복귀
+                        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                            rooms[i].transitionTo(.inProgress)
+                        }
+                        let resumeMsg = ChatMessage(
+                            role: .system,
+                            content: "단계 \(stepIndex + 1) 승인됨. 실행을 계속합니다."
+                        )
+                        appendMessage(resumeMsg, to: roomID)
+                        approvalLoop = false
+                    } else {
+                        // 거절 → 피드백 대기
+                        let feedbackPrompt = ChatMessage(
+                            role: .system,
+                            content: "수정 지시를 입력해주세요. 입력 후 해당 단계를 다시 수행합니다."
+                        )
+                        appendMessage(feedbackPrompt, to: roomID)
+
+                        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                            rooms[i].transitionTo(.inProgress)
+                        }
+                        scheduleSave()
+
+                        // 사용자 입력 대기
+                        let feedback = await withCheckedContinuation { (cont: CheckedContinuation<String, Never>) in
+                            userInputContinuations[roomID] = cont
+                        }
+                        userInputContinuations.removeValue(forKey: roomID)
+                        guard !Task.isCancelled else { return }
+
+                        stepFeedback = feedback
+
+                        // 피드백을 반영하여 해당 단계 재수행
+                        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                            rooms[i].transitionTo(.inProgress)
+                        }
+                        let retryMsg = ChatMessage(
+                            role: .system,
+                            content: "피드백 반영: \"\(feedback)\"\n단계 \(stepIndex + 1)을 재수행합니다.",
+                            messageType: .progress
+                        )
+                        appendMessage(retryMsg, to: roomID)
+
+                        // 단계 재수행 (피드백 포함된 히스토리로)
+                        let targetAgentIDs: [UUID]
+                        if let assignedID = step.assignedAgentID {
+                            targetAgentIDs = [assignedID]
+                        } else {
+                            let specialists = executingAgentIDs(in: roomID)
+                            targetAgentIDs = specialists.isEmpty ? (rooms.first(where: { $0.id == roomID })?.assignedAgentIDs ?? []) : specialists
+                        }
+                        for agentID in targetAgentIDs {
+                            _ = await executeStep(
+                                step: step.text + "\n\n[사용자 피드백] \(feedback)",
+                                fullTask: task,
+                                agentID: agentID,
+                                roomID: roomID,
+                                stepIndex: stepIndex,
+                                totalSteps: plan.steps.count,
+                                fileWriteTracker: tracker,
+                                progressGroupID: retryMsg.id
+                            )
+                        }
+                        // 루프 → 다시 승인 요청
+                    }
                 }
-                let resumeMsg = ChatMessage(
-                    role: .system,
-                    content: "단계 \(stepIndex + 1) 승인됨. 실행을 계속합니다."
-                )
-                appendMessage(resumeMsg, to: roomID)
             }
 
             // 현재 단계 업데이트
