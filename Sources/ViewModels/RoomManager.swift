@@ -1642,12 +1642,20 @@ class RoomManager: ObservableObject {
         let directMatches: [Agent] = skipDirectMatch ? [] : subAgents.filter { sub in
             let nameKeywords = sub.name.lowercased()
                 .components(separatedBy: CharacterSet.alphanumerics.inverted)
-                .filter { $0.count >= 2 && !AgentMatcher.isGenericSuffix($0) }
+                .filter { word in
+                    guard word.count >= 2 else { return false }
+                    // 숫자 접미사 제거 후 범용 접미사 확인 (전문가1 → 전문가 → 제외)
+                    let stripped = word.replacingOccurrences(of: "\\d+$", with: "", options: .regularExpression)
+                    return !AgentMatcher.isGenericSuffix(word) && !AgentMatcher.isGenericSuffix(stripped)
+                }
             return nameKeywords.contains(where: { keyword in
                 // 정확 매칭: task에 키워드 포함 (ex: "백엔드" in task)
                 taskLowered.contains(keyword) ||
                 // 접두어 매칭: task 단어가 키워드의 접두어 (ex: "프론트" → "프론트엔드")
-                taskWords.contains(where: { word in keyword.hasPrefix(word) && word.count >= 2 })
+                taskWords.contains(where: { word in
+                    guard !AgentMatcher.isGenericSuffix(word) else { return false }
+                    return keyword.hasPrefix(word) && word.count >= 2
+                })
             })
         }
 
