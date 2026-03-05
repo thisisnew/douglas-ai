@@ -1321,7 +1321,14 @@ class RoomManager: ObservableObject {
         // Jira 연동 안내
         let jiraCapability: String
         if JiraConfig.shared.isConfigured, rooms[idx].intakeData?.sourceType == .jira {
-            jiraCapability = "\n[도구] Jira Cloud 연동됨 — 티켓 조회·상태 변경·서브태스크 생성 가능. URL에 직접 접근할 수 없다고 말하지 마세요.\n"
+            jiraCapability = """
+
+            [도구] Jira Cloud 연동됨 — 티켓 조회·상태 변경·서브태스크 생성·PR/개발 정보 조회 가능.
+            현재 자동 조회된 데이터는 기본 티켓 정보(제목, 상태, 설명)입니다.
+            PR 링크, 커밋 이력, 브랜치 정보 등 개발(Development) 패널 데이터는 실행 단계에서 전문가 에이전트가 Jira API를 통해 추가 조회할 수 있습니다.
+            "PR 링크가 없다", "URL에 접근할 수 없다", "직접 제공해달라"고 말하지 마세요.
+
+            """
         } else {
             jiraCapability = ""
         }
