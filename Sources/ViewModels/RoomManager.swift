@@ -1628,7 +1628,12 @@ class RoomManager: ObservableObject {
         // "프론트" → "프론트엔드 개발자" 접두어 매칭도 지원
         // 사용자가 에이전트 이름을 직접 언급하면 항상 매칭 허용
         let skipDirectMatch = false
-        let taskLowered = enrichedTask.lowercased()
+        // sourceType 기반 키워드 주입: Jira URL → "jira" 키워드 추가 (에이전트 직접 매칭용)
+        var enrichedForMatch = enrichedTask
+        if rooms[idx].intakeData?.sourceType == .jira {
+            enrichedForMatch += " jira"
+        }
+        let taskLowered = enrichedForMatch.lowercased()
         let taskWords = taskLowered
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { $0.count >= 2 }
