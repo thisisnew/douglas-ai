@@ -1,5 +1,17 @@
 import Foundation
 
+// MARK: - 위임 정보 (Clarify → Assemble 전달)
+
+/// clarify 단계에서 LLM이 판단한 에이전트 위임 정보
+struct DelegationInfo: Codable, Equatable {
+    enum DelegationType: String, Codable {
+        case explicit  // 사용자가 특정 에이전트를 지정
+        case open      // 시스템이 판단 (기존 assemble 흐름)
+    }
+    let type: DelegationType
+    let agentNames: [String]  // explicit일 때 지정된 에이전트 이름 목록
+}
+
 // MARK: - 토론 라운드 타입
 
 /// 토론 라운드의 목적 (발산→수렴→합의 = 1사이클)
@@ -327,6 +339,8 @@ struct Room: Identifiable, Codable {
     var clarifyQuestionCount: Int
     /// 복명복창에서 사용자가 승인한 요약 (토론 의도 앵커링용)
     var clarifySummary: String?
+    /// clarify LLM이 판단한 위임 정보 (explicit: 지정 에이전트만, open: 시스템 판단)
+    var delegationInfo: DelegationInfo?
     /// 토론 사이클 후 사용자 체크포인트 대기 여부
     var isDiscussionCheckpoint: Bool
     // 토론 결정 로그
@@ -477,6 +491,7 @@ struct Room: Identifiable, Codable {
         self.intakeData = nil
         self.clarifyQuestionCount = 0
         self.clarifySummary = nil
+        self.delegationInfo = nil
         self.isDiscussionCheckpoint = false
         self.decisionLog = []
     }
@@ -538,6 +553,7 @@ struct Room: Identifiable, Codable {
         intakeData = try container.decodeIfPresent(IntakeData.self, forKey: .intakeData)
         clarifyQuestionCount = try container.decodeIfPresent(Int.self, forKey: .clarifyQuestionCount) ?? 0
         clarifySummary = try container.decodeIfPresent(String.self, forKey: .clarifySummary)
+        delegationInfo = try container.decodeIfPresent(DelegationInfo.self, forKey: .delegationInfo)
         isDiscussionCheckpoint = try container.decodeIfPresent(Bool.self, forKey: .isDiscussionCheckpoint) ?? false
         decisionLog = try container.decodeIfPresent([DecisionEntry].self, forKey: .decisionLog) ?? []
     }

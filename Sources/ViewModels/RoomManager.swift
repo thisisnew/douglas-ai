@@ -76,6 +76,45 @@ private func expandTildePaths(_ text: String) -> String {
     return text.replacingOccurrences(of: "~/", with: "\(home)/")
 }
 
+/// clarify 응답에서 [delegation] 블록을 파싱하여 DelegationInfo 반환
+/// 파싱 실패 시 .open 폴백 (기존 assemble 흐름)
+private func parseDelegationBlock(_ text: String) -> DelegationInfo {
+    guard let startRange = text.range(of: "[delegation]"),
+          let endRange = text.range(of: "[/delegation]"),
+          startRange.upperBound < endRange.lowerBound else {
+        return DelegationInfo(type: .open, agentNames: [])
+    }
+
+    let blockContent = String(text[startRange.upperBound..<endRange.lowerBound])
+    let lines = blockContent.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+
+    var type: DelegationInfo.DelegationType = .open
+    var agentNames: [String] = []
+
+    for line in lines {
+        if line.lowercased().hasPrefix("type:") {
+            let value = line.dropFirst(5).trimmingCharacters(in: .whitespaces).lowercased()
+            if value == "explicit" { type = .explicit }
+        } else if line.lowercased().hasPrefix("agents:") {
+            let value = String(line.dropFirst(7)).trimmingCharacters(in: .whitespaces)
+            agentNames = value.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        }
+    }
+
+    return DelegationInfo(type: type, agentNames: agentNames)
+}
+
+/// [delegation]...[/delegation] 블록을 텍스트에서 제거
+private func stripDelegationBlock(_ text: String) -> String {
+    guard let startRange = text.range(of: "[delegation]"),
+          let endRange = text.range(of: "[/delegation]") else {
+        return text
+    }
+    var result = text
+    result.removeSubrange(startRange.lowerBound..<endRange.upperBound)
+    return result.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
 /// 스트리밍 청크 누적용 스레드-안전 버퍼
 private final class StreamBuffer: @unchecked Sendable {
     private var _value = ""
@@ -1341,6 +1380,14 @@ class RoomManager: ObservableObject {
         // 문서 유형 템플릿 주입
         let docTypeContext = rooms[idx].documentType?.templatePromptBlock() ?? ""
 
+        // 등록된 서브 에이전트 목록 (delegation 판단용)
+        let agentListStr: String
+        if let subAgents = agentStore?.subAgents, !subAgents.isEmpty {
+            agentListStr = subAgents.map { "- \($0.name)" }.joined(separator: "\n")
+        } else {
+            agentListStr = "(없음)"
+        }
+
         let clarifySystemPrompt = """
         \(agent.resolvedSystemPrompt)
 
@@ -1352,13 +1399,24 @@ class RoomManager: ObservableObject {
         - 핵심 요구사항: (불릿 포인트, 각 항목 1줄 이내)
         - 예상 산출물: (무엇이 나와야 하는지)\(docTypeContext.isEmpty ? "" : "\n- 문서 구조: (선택된 템플릿 섹션 기반으로 구성할 섹션 나열)")
 
+        요약 후 반드시 아래 블록을 마지막에 추가하세요:
+        [delegation]
+        type: (explicit 또는 open)
+        agents: (에이전트 이름을 쉼표 구분, explicit일 때만. open이면 이 줄 생략)
+        [/delegation]
+
+        - 사용자가 특정 에이전트를 지정했으면 → type: explicit, agents에 해당 이름
+        - 특정 에이전트를 지정하지 않았으면 → type: open
+
+        [등록된 에이전트]
+        \(agentListStr)
+
         [절대 금지]
-        - 위 3개 항목 외의 내용을 출력하지 마세요.
+        - 요약 + delegation 블록 외의 내용을 출력하지 마세요.
         - 질문에 대한 답변, 개념 설명, 해결책을 작성하지 마세요.
         - 작업을 수행하지 마세요. 이 단계는 확인만 합니다.
         - 첨부파일(이미지, 문서)의 내용을 상세히 나열하거나 분석하지 마세요. "첨부 문서: design.md" 처럼 무엇인지만 간단히 언급하세요.
         - 번역, 계산, 코드 작성 등 실제 작업 결과물을 포함하지 마세요.
-        - 위 형식 이후에 추가 텍스트를 붙이지 마세요.
         - "1. 다음" "2. 수정" "x. 나가기" 같은 선택지/메뉴를 절대 출력하지 마세요. 사용자 선택은 UI 버튼으로 제공됩니다.
         - 시스템 도구·인증·설정 관련 언급을 하지 마세요. 필요한 데이터는 이미 수집되었습니다.
         """
@@ -1428,7 +1486,7 @@ class RoomManager: ObservableObject {
                     case .toolCalls: response = "(요약 생성 실패)"
                     }
                 }
-                currentSummary = stripHallucinatedAuthLines(stripTrailingOptions(response))
+                currentSummary = stripDelegationBlock(stripHallucinatedAuthLines(stripTrailingOptions(response)))
 
                 // 복명복창 요약에서 방 제목 자동 추출 (첫 라운드만)
                 if currentSummary.isEmpty == false,
@@ -1469,9 +1527,10 @@ class RoomManager: ObservableObject {
             guard !Task.isCancelled else { return }
 
             if approved {
-                // 승인됨 → clarify 요약 저장 (토론 의도 앵커링용) + planning 복귀
+                // 승인됨 → clarify 요약 저장 + delegation 분리 + planning 복귀
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].clarifySummary = currentSummary
+                    rooms[i].delegationInfo = parseDelegationBlock(currentSummary)
+                    rooms[i].clarifySummary = stripDelegationBlock(currentSummary)
                     rooms[i].transitionTo(.planning)
                 }
                 break
@@ -1626,11 +1685,43 @@ class RoomManager: ObservableObject {
           (예: "백엔드 API 문서 작성자" → "API 문서 작성 전문가")
         """
 
-        // 사전 매칭: 사용자 요청에서 기존 에이전트 이름 키워드 직접 탐색
-        // "QA에게 자문" → "QA 전문가" 직접 매칭 (LLM 우회)
-        // "프론트" → "프론트엔드 개발자" 접두어 매칭도 지원
-        // 사용자가 에이전트 이름을 직접 언급하면 항상 매칭 허용
-        // 직접 매칭은 사용자의 원래 요청만 사용 (Jira 티켓 설명의 false positive 방지)
+        // --- 명시적 위임 감지 (clarify LLM 판단) ---
+        if let delegation = rooms[idx].delegationInfo,
+           delegation.type == .explicit,
+           !delegation.agentNames.isEmpty {
+            let matchedAgents = delegation.agentNames.compactMap { name -> Agent? in
+                let lowered = name.lowercased()
+                return subAgents.first { agent in
+                    let agentLowered = agent.name.lowercased()
+                    return agentLowered == lowered
+                        || agentLowered.contains(lowered)
+                        || lowered.contains(agentLowered)
+                }
+            }
+            if !matchedAgents.isEmpty {
+                var invitedNames: [String] = []
+                for matched in matchedAgents {
+                    if let room = rooms.first(where: { $0.id == roomID }),
+                       !room.assignedAgentIDs.contains(matched.id) {
+                        addAgent(matched.id, to: roomID, silent: true)
+                        invitedNames.append(matched.name)
+                    }
+                }
+                if !invitedNames.isEmpty {
+                    let joinMsg = ChatMessage(
+                        role: .system,
+                        content: "\(invitedNames.joined(separator: ", "))이(가) 방에 참여했습니다."
+                    )
+                    appendMessage(joinMsg, to: roomID)
+                }
+                scheduleSave()
+                return  // LLM 역할 분석 스킵
+            }
+            // 매칭 실패 → 기존 directMatch + LLM 흐름으로 폴스루
+        }
+
+        // 사전 매칭 (폴백): 사용자 요청에서 기존 에이전트 이름 키워드 직접 탐색
+        // delegationInfo가 없는 과거 방이나 파싱 실패 시 사용
         var directMatchText: String
         if let clarifySummary = rooms[idx].clarifySummary {
             directMatchText = clarifySummary

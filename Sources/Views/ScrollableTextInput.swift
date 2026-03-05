@@ -73,7 +73,10 @@ private struct _Representable: NSViewRepresentable {
             container.recalcHeight()
         }
 
-        tv.font = font
+        // font가 변경된 경우에만 설정 (불필요한 레이아웃 재계산 방지)
+        if tv.font != font {
+            tv.font = font
+        }
     }
 
     // MARK: - SwiftUI 스크롤 이벤트 가로채기 방지 NSScrollView
@@ -129,6 +132,9 @@ private struct _Representable: NSViewRepresentable {
             tv.isAutomaticDashSubstitutionEnabled = false
             tv.isAutomaticTextReplacementEnabled = false
             tv.isAutomaticSpellingCorrectionEnabled = false
+            tv.isAutomaticLinkDetectionEnabled = false
+            tv.isAutomaticDataDetectionEnabled = false
+            tv.isAutomaticTextCompletionEnabled = false
             tv.drawsBackground = false
             tv.textContainerInset = NSSize(width: 0, height: 1)
             tc.lineFragmentPadding = 2
@@ -180,6 +186,9 @@ private struct _Representable: NSViewRepresentable {
             let target = max(content, lineHeight)
             let clamped = min(target, coordinator.parent.maxHeight)
 
+            // 값이 동일하면 SwiftUI 재렌더 방지
+            guard abs(coordinator.parent.dynamicHeight - clamped) > 0.5 else { return }
+
             // SwiftUI에 높이 변경 전달
             DispatchQueue.main.async { [weak self] in
                 self?.coordinator.parent.dynamicHeight = clamped
@@ -190,6 +199,14 @@ private struct _Representable: NSViewRepresentable {
             placeholderField.isHidden = !textView.string.isEmpty
             placeholderField.stringValue = coordinator.parent.placeholder
             placeholderField.font = coordinator.parent.font
+        }
+
+        /// placeholder가 마우스 이벤트를 가로채지 않도록 hitTest 재정의
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            // scrollView(textView) 영역이면 scrollView로 전달
+            let converted = convert(point, to: scrollView)
+            if let hit = scrollView.hitTest(converted) { return hit }
+            return super.hitTest(point)
         }
 
         /// SwiftUI가 스크롤 이벤트를 가로채지 않도록 NSScrollView로 직접 전달
@@ -204,16 +221,50 @@ private struct _Representable: NSViewRepresentable {
         var parent: _Representable
         var isUpdating = false
         weak var container: _Container?
+        /// 이전 텍스트 길이 (붙여넣기/드롭 감지용)
+        private var previousLength = 0
+        /// 디바운스 타이머 (일반 타이핑 시 바인딩 동기화 지연)
+        private var debounceTimer: Timer?
 
         init(_ parent: _Representable) {
             self.parent = parent
         }
 
-        func textDidChange(_ notification: Notification) {
-            guard !isUpdating, let tv = notification.object as? NSTextView else { return }
+        /// NSTextView → SwiftUI 바인딩 즉시 동기화
+        func syncText() {
+            debounceTimer?.invalidate()
+            debounceTimer = nil
+            guard let tv = container?.textView, !isUpdating else { return }
             isUpdating = true
             parent.text = tv.string
             isUpdating = false
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard !isUpdating, let tv = notification.object as? NSTextView else { return }
+
+            let newText = tv.string
+            let lengthDelta = abs(newText.count - previousLength)
+            previousLength = newText.count
+
+            // 슬래시 명령("/" 시작), 붙여넣기/드롭(길이 급변), 텍스트 비움 → 즉시 동기화
+            let needsImmediateSync = newText.hasPrefix("/") || lengthDelta > 3 || newText.isEmpty
+            if needsImmediateSync {
+                debounceTimer?.invalidate()
+                isUpdating = true
+                parent.text = newText
+                isUpdating = false
+            } else {
+                // 일반 타이핑: 150ms 디바운스 (연속 입력 중 SwiftUI 재렌더 방지)
+                debounceTimer?.invalidate()
+                debounceTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self] _ in
+                    guard let self, let tv = self.container?.textView, !self.isUpdating else { return }
+                    self.isUpdating = true
+                    self.parent.text = tv.string
+                    self.isUpdating = false
+                }
+            }
+
             container?.updatePlaceholder()
             container?.recalcHeight()
         }
@@ -227,6 +278,7 @@ private struct _Representable: NSViewRepresentable {
                     return true
                 }
                 if let onSubmit = parent.onSubmit {
+                    syncText()  // submit 직전 바인딩 동기화
                     onSubmit()
                     return true
                 }

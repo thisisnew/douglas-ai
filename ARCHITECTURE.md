@@ -965,7 +965,7 @@ executeWithTools() 루프 (최대 10회):
 
 - **Intent 분류** (`IntentClassifier`): 2종 intent (quickAnswer / task). 규칙 기반 즉시 분류 (`quickClassify`) → 실패 시 LLM 분류 (`classifyWithLLM`). `quickClassify`가 nil(판단 불가)이면 `executeIntentPhase`에서 LLM 추천 intent와 함께 **IntentSelectionCard** UI를 표시하여 사용자가 2종 intent 중 선택. `pendingIntentSelection` + `intentContinuations`으로 비동기 게이트 구현. 분류 실패 시 `.quickAnswer` 폴백 (가장 가벼운 워크플로우). 레거시 research/implementation 문자열은 `.task`로 자동 마이그레이션.
 - **문서화 요청 감지** (`DocumentRequestDetector`): 2단계 감지 — ① intent 확정 후 초기 task에서 패턴 감지, ② clarify 후 사용자 피드백에서 재감지 (`detectDocumentSignalFromMessages`). 감지 시 `room.autoDocOutput = true` + `room.documentType` 설정. autoDocOutput이면 assemble 시 1명 제한 해제 (리서치+문서 에이전트 복합 구성), task 완료 후 자동 문서화 (preferredKeywords 기반 최적 에이전트 선택) + NSSavePanel 저장 (클릭 가능 file:// 링크 제공). 후속 사이클에서도 "문서로 정리해줘" 등 감지 가능 (1차 키워드 + 2차 LLM 폴백).
-- **복명복창 Clarify** (`executeClarifyPhase`): DOUGLAS가 요청을 요약 → 사용자 승인/거부 → 거부 시 피드백 반영 재요약 → 승인까지 무한 반복. 승인 시 `room.clarifySummary`에 저장 → 이후 토론/브리핑/계획 프롬프트에서 의도 앵커링용으로 참조.
+- **복명복창 Clarify** (`executeClarifyPhase`): DOUGLAS가 요청을 요약 → 사용자 승인/거부 → 거부 시 피드백 반영 재요약 → 승인까지 무한 반복. 승인 시 `room.clarifySummary`에 저장 + `[delegation]` 블록 파싱 → `room.delegationInfo`(`DelegationInfo`)에 저장. explicit 타입이면 assemble에서 LLM 역할 분석 스킵 → 지정 에이전트만 배정. open이면 기존 흐름.
 - **동적 Plan 판단** (`classifyNeedsPlan`): assemble 완료 후, clarify 요약 + 에이전트 정보를 기반으로 LLM이 plan 필요 여부를 YES/NO로 판별. 코드 생성/수정/다단계/파일시스템 변경 → true. 분석/리서치/브레인스토밍/단일 문서 → false. 실패 시 false (안전한 기본값). 결과를 `room.needsPlan`에 저장.
 - **Plan 실행** (`executePlanPhase`): needsPlan=true일 때만 호출. 전문가 2명+ → 토론 + 브리핑 + 계획 수립 + 승인 루프. 전문가 1명 → 계획 수립 + 승인 루프 (soloAnalysis 스킵, requestPlan이 직접 분석).
 - **토론 알고리즘** (`executeDiscussion`): 발산→수렴→합의 = 1사이클. 매 사이클 후 사용자 체크포인트 (DiscussionCheckpointCard). 사용자 피드백 시 새 사이클, "진행"(빈 입력) 시 브리핑으로. 사이클 무제한 (사용자 주도 종료). `DiscussionRoundType`: `.diverge`(발산) / `.converge`(수렴) / `.conclude`(합의) — 각 라운드마다 목적별 프롬프트 지시. 모든 에이전트 프롬프트에 `clarifySummary` 앵커링 포함. **발산 라운드 병렬화**: `.diverge` 라운드에서 모든 에이전트가 동일 히스토리 스냅샷 기준으로 동시 실행 (`generateDiscussionResponse` + `withTaskGroup`). 수렴/합의는 순차 유지.
@@ -1082,8 +1082,8 @@ executeWithTools() 루프 (최대 10회):
 ```
 ① Intake ── 입력 파싱 (Jira fetch, URL 감지, IntakeData 저장, 플레이북 로드)
 ② Intent ── 작업 유형 표시 (방 생성 시 IntentClassifier가 분류)
-③ Clarify ─ 복명복창 (task만; quickAnswer는 스킵, Jira 중립 컨텍스트로 환각 방지)
-④ Assemble ─ 전문가 초대 (키워드+NLEmbedding 하이브리드 매칭, 직접매칭은 task/clarifySummary만 사용) + classifyNeedsPlan
+③ Clarify ─ 복명복창 + DelegationInfo 출력 (explicit/open, Jira 중립 컨텍스트)
+④ Assemble ─ explicit→지정 에이전트만 / open→하이브리드 매칭(키워드+NLEmbedding) + classifyNeedsPlan
   └─ needsPlan=true → [Plan] 토론→계획→승인 (동적 삽입)
 ⑤ Execute ── quickAnswer(즉답) / task+needsPlan(계획 기반) / task+!needsPlan(토론/분석+문서)
 ```
