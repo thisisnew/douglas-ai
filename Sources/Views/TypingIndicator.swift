@@ -58,10 +58,16 @@ struct TypingIndicator: View {
         return nil
     }
 
+    /// 토론 vs 작업 구분: plan(토론) 단계면 "발언 중", execute 단계면 "작업 중"
+    private var isDiscussionPhase: Bool {
+        room.currentPhase != .execute
+    }
+
     private var statusText: String {
+        let verb = isDiscussionPhase ? "발언 중" : "작업 중"
         // 1순위: 명시적 발언자 (speakingAgentIDByRoom — LLM 호출 중 설정됨)
         if let agent = speakingAgent {
-            return agent.isMaster ? "DOUGLAS 분석 중" : "\(agent.name) 발언 중"
+            return agent.isMaster ? "DOUGLAS 분석 중" : "\(agent.name) \(verb)"
         }
         // 2순위: 토론 요약 중 (plan 단계 + 브리핑 미생성 + 토론 이력 있음)
         if room.currentPhase == .plan && room.briefing == nil
@@ -70,7 +76,7 @@ struct TypingIndicator: View {
         }
         // 3순위: 에이전트 활동 중 (agent.status 기반 — 마스터 단계에서는 마스터 우선)
         if let agent = workingAgent {
-            return agent.isMaster ? "DOUGLAS 분석 중" : "\(agent.name) 발언 중"
+            return agent.isMaster ? "DOUGLAS 분석 중" : "\(agent.name) \(verb)"
         }
         // 기본
         return "DOUGLAS 분석 중"
