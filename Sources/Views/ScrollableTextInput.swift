@@ -102,6 +102,18 @@ private struct _Representable: NSViewRepresentable {
         }
     }
 
+    // MARK: - 경량 NSTextView (불필요한 백그라운드 처리 제거)
+
+    final class _TextView: NSTextView {
+        /// 텍스트 분석(스펠체크, 데이터 감지 등) 비활성화
+        override func checkTextInDocument(_ sender: Any?) {}
+        /// Undo 스택 비활성화 (선택 변경 시 undo 그룹 생성 방지)
+        override var allowsUndo: Bool {
+            get { false }
+            set {}
+        }
+    }
+
     // MARK: - SwiftUI 스크롤 이벤트 가로채기 방지 NSScrollView
 
     final class _ScrollView: NSScrollView {
@@ -117,7 +129,7 @@ private struct _Representable: NSViewRepresentable {
 
     final class _Container: NSView {
         let scrollView: _ScrollView
-        let textView: NSTextView
+        let textView: _TextView
         private let placeholderField: NSTextField
         let coordinator: Coordinator
 
@@ -137,12 +149,13 @@ private struct _Representable: NSViewRepresentable {
             tc.widthTracksTextView = true
 
             let lm = NSLayoutManager()
+            lm.allowsNonContiguousLayout = true  // 보이는 영역만 레이아웃
             lm.addTextContainer(tc)
 
             let ts = NSTextStorage()
             ts.addLayoutManager(lm)
 
-            let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 20), textContainer: tc)
+            let tv = _TextView(frame: NSRect(x: 0, y: 0, width: 200, height: 20), textContainer: tc)
             tv.minSize = NSSize(width: 0, height: 20)
             tv.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
             tv.isVerticallyResizable = true
@@ -160,6 +173,7 @@ private struct _Representable: NSViewRepresentable {
             tv.isAutomaticLinkDetectionEnabled = false
             tv.isAutomaticDataDetectionEnabled = false
             tv.isAutomaticTextCompletionEnabled = false
+            tv.allowsCharacterPickerTouchBarItem = false
             tv.drawsBackground = false
             tv.textContainerInset = NSSize(width: 0, height: 1)
             tc.lineFragmentPadding = 2
@@ -204,10 +218,27 @@ private struct _Representable: NSViewRepresentable {
             return fh + textView.textContainerInset.height * 2
         }
 
+        /// 경량 높이 계산 — ensureLayout 대신 boundingRect 사용 (레이아웃 매니저 부하 제거)
         func recalcHeight() {
-            textView.layoutManager?.ensureLayout(for: textView.textContainer!)
-            let usedRect = textView.layoutManager?.usedRect(for: textView.textContainer!) ?? .zero
-            let content = usedRect.height + textView.textContainerInset.height * 2
+            let str = textView.string as NSString
+            let f = textView.font ?? NSFont.systemFont(ofSize: 13)
+            let inset = textView.textContainerInset
+            let padding = textView.textContainer?.lineFragmentPadding ?? 2
+            let containerWidth = textView.textContainer?.containerSize.width ?? textView.bounds.width
+            let maxTextWidth = max(containerWidth - padding * 2, 1)
+
+            let content: CGFloat
+            if str.length == 0 {
+                content = lineHeight
+            } else {
+                let rect = str.boundingRect(
+                    with: NSSize(width: maxTextWidth, height: .greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    attributes: [.font: f]
+                )
+                content = ceil(rect.height) + inset.height * 2
+            }
+
             let target = max(content, lineHeight)
             let clamped = min(target, coordinator.parent.maxHeight)
 
