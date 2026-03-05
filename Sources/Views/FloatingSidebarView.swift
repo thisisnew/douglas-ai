@@ -1036,6 +1036,7 @@ struct FloatingSidebarView: View {
         // /clear 처리
         if text.lowercased() == "/clear" {
             chatVM.clearMessages(for: id)
+            inputAccessor.clear()
             inputText = ""
             previousInputText = ""
             pendingAttachments = []
@@ -1045,6 +1046,7 @@ struct FloatingSidebarView: View {
         }
 
         let attachments = pendingAttachments.isEmpty ? nil : pendingAttachments
+        inputAccessor.clear()
         inputText = ""
         previousInputText = ""
         pendingAttachments = []

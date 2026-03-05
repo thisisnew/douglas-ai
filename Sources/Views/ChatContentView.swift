@@ -126,6 +126,7 @@ struct ChatContentView: View {
         inputAccessor.sync()
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        inputAccessor.clear()
         inputText = ""
         chatVM.sendMessage(text, agentID: agentID)
     }

@@ -156,13 +156,22 @@ struct ProgressActivityBubble: View {
                         .frame(width: 12)
 
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(activity.content)
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary.opacity(0.6))
-                            .lineLimit(2)
+                        // 한국어 도구명 + 대상
+                        if let detail = activity.toolDetail {
+                            Text("\(detail.displayName)\(detail.subject.map { " → \($0)" } ?? "")")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary.opacity(0.6))
+                                .lineLimit(2)
+                        } else {
+                            Text(activity.content)
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary.opacity(0.6))
+                                .lineLimit(2)
+                        }
 
-                        // 파일 경로 / 명령어 / URL
-                        if let subject = activity.toolDetail?.subject {
+                        // 파일 경로 (subject가 경로일 때)
+                        if let subject = activity.toolDetail?.subject,
+                           subject.hasPrefix("/") || subject.hasPrefix("~/") {
                             Text(subject)
                                 .font(.system(size: 9, design: .monospaced))
                                 .foregroundColor(.secondary.opacity(0.45))
@@ -270,13 +279,12 @@ struct ProgressActivityBubble: View {
         return formatter.string(from: date)
     }
 
-    /// 마지막 활동 요약 (도구명 + 대상)
+    /// 마지막 활동 요약 (한국어 도구명 + 대상)
     private var lastActivityLabel: String {
         guard let last = activities.last else { return "실행 중..." }
         if let detail = last.toolDetail {
-            let tool = detail.toolName
             let subject = detail.subject.map { " → \($0)" } ?? ""
-            return "\(tool)\(subject)"
+            return "\(detail.displayName)\(subject)"
         }
         return last.content.isEmpty ? "실행 중..." : last.content
     }

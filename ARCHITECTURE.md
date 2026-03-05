@@ -373,6 +373,23 @@ struct Agent: Identifiable, Codable, Hashable {
 - `resolvedCategory`: 명시 설정이 있으면 사용, 없으면 `inferCategory()` 로 페르소나 키워드 기반 자동 추론
 - `suggestedModels`: 카테고리별 추천 프로바이더+모델 목록
 
+### ModelPreferences (`Models/ModelPreferences.swift`)
+
+카테고리별 선호 모델 매핑을 UserDefaults에 저장/로드:
+
+- `preferred(for:)`: 특정 카테고리의 오버라이드 매핑 조회
+- `all()` / `setAll(_:)`: 전체 매핑 일괄 로드/저장
+- `resolvedModel(for:)`: 에이전트의 카테고리에 맞는 최종 (provider, model) 반환 — 오버라이드 없으면 에이전트 원래 값
+- RoomManager.executeStep()에서 실행 직전 자동 적용
+
+### ModelMappingSettingsView (`Views/ModelMappingSettingsView.swift`)
+
+설정 윈도우의 "모델 매핑" 탭 UI:
+
+- 카테고리별 프로바이더 Picker + 모델명 TextField
+- sparkles 메뉴로 추천 모델 원클릭 선택
+- 저장/초기화 버튼
+
 ### AgentManifest (`Models/AgentManifest.swift`)
 
 에이전트를 플랫폼 무관한 JSON `.douglas` 파일로 내보내기/가져오기하는 이식 포맷.

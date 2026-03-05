@@ -380,6 +380,7 @@ class RoomManager: ObservableObject {
         cancelReviewAutoApproval(roomID: roomID)
         let msg = ChatMessage(role: .user, content: "승인")
         appendMessage(msg, to: roomID)
+        pluginEventDelegate?(.approvalResolved(roomID: roomID, approved: true))
 
         if let cont = approvalContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: true)
@@ -397,6 +398,7 @@ class RoomManager: ObservableObject {
         cancelReviewAutoApproval(roomID: roomID)
         let msg = ChatMessage(role: .system, content: "수정 요청")
         appendMessage(msg, to: roomID)
+        pluginEventDelegate?(.approvalResolved(roomID: roomID, approved: false))
 
         if let cont = approvalContinuations.removeValue(forKey: roomID) {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
@@ -933,6 +935,26 @@ class RoomManager: ObservableObject {
         if hasSpecialists1 { detectPlaybookOverrides(roomID: roomID) }
     }
 
+    // MARK: - 카테고리 기반 모델 오버라이드
+
+    /// 에이전트의 카테고리에 맞는 프로바이더+모델로 오버라이드된 에이전트 반환
+    /// ModelPreferences에 매핑이 없으면 원래 에이전트를 그대로 반환
+    private func applyModelPreferences(_ agent: Agent) -> Agent {
+        let resolved = ModelPreferences.resolvedModel(for: agent)
+        guard resolved.provider != agent.providerName || resolved.model != agent.modelName else {
+            return agent
+        }
+        // 오버라이드 프로바이더가 실제 존재하는지 확인
+        guard !resolved.provider.isEmpty,
+              providerManager?.provider(named: resolved.provider) != nil else {
+            return agent
+        }
+        var overridden = agent
+        overridden.providerName = resolved.provider
+        overridden.modelName = resolved.model
+        return overridden
+    }
+
     // MARK: - 도구 실행 컨텍스트
 
     private func makeToolContext(
@@ -1202,9 +1224,15 @@ class RoomManager: ObservableObject {
         syncAgentStatuses()
         scheduleSave()
 
-        if !silent, let agentName = agentStore?.agents.first(where: { $0.id == agentID })?.name {
+        let agentName = agentStore?.agents.first(where: { $0.id == agentID })?.name
+        if !silent, let agentName {
             let systemMsg = ChatMessage(role: .system, content: "\(agentName)\(subjectParticle(for: agentName)) 방에 참여했습니다.")
             appendMessage(systemMsg, to: roomID)
+        }
+
+        // 플러그인 이벤트
+        if let agentName {
+            pluginEventDelegate?(.agentInvited(roomID: roomID, agentName: agentName))
         }
     }
 
@@ -2203,6 +2231,7 @@ class RoomManager: ObservableObject {
                     messageType: .approvalRequest
                 )
                 appendMessage(approvalMsg, to: roomID)
+                pluginEventDelegate?(.approvalRequested(roomID: roomID, stepDescription: stepsDesc))
                 scheduleSave()
 
                 let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
@@ -2941,6 +2970,7 @@ class RoomManager: ObservableObject {
                         messageType: .approvalRequest
                     )
                     appendMessage(approvalMsg, to: roomID)
+                    pluginEventDelegate?(.approvalRequested(roomID: roomID, stepDescription: step.text))
                     scheduleSave()
 
                     // 자동 승인 타이머: 15초 후 자동 승인 (사용자 개입 시 취소)
@@ -3168,6 +3198,7 @@ class RoomManager: ObservableObject {
                     )
                     appendMessage(reviewMsg, to: roomID)
                     scheduleSave()
+                    pluginEventDelegate?(.approvalRequested(roomID: roomID, stepDescription: step.text))
 
                     // 자동 승인 타이머: 15초 후 자동 승인 (사용자 개입 시 취소)
                     startReviewAutoApproval(roomID: roomID, seconds: 15)
@@ -3315,8 +3346,10 @@ class RoomManager: ObservableObject {
         fileWriteTracker: FileWriteTracker? = nil,
         progressGroupID: UUID? = nil
     ) async -> Bool {
-        guard let agent = agentStore?.agents.first(where: { $0.id == agentID }),
-              let provider = providerManager?.provider(named: agent.providerName) else { return false }
+        guard let baseAgent = agentStore?.agents.first(where: { $0.id == agentID }) else { return false }
+        // 카테고리 기반 모델 오버라이드 적용
+        let agent = applyModelPreferences(baseAgent)
+        guard let provider = providerManager?.provider(named: agent.providerName) else { return false }
 
         let room = rooms.first(where: { $0.id == roomID })
 
@@ -3441,6 +3474,13 @@ class RoomManager: ObservableObject {
                     }
                 }
             )
+
+            // 에이전트 응답 이벤트
+            pluginEventDelegate?(.agentResponseReceived(
+                roomID: roomID,
+                agentName: agent.name,
+                responsePreview: String(response.prefix(300))
+            ))
 
             // llm_result 완료 활동
             if let progressGroupID {

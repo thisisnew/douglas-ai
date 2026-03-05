@@ -75,20 +75,23 @@ enum DocumentRequestDetector {
     /// 강한 문서 출력 패턴 (정규식 캐시)
     private static let strongTriggers: [Trigger] = {
         let patterns: [(String, DocumentType?)] = [
-            ("문서로\\s?(정리|만들|작성|뽑)", nil),
-            ("파일로\\s?(저장|내보내|뽑|만들)", nil),
-            ("pdf로\\s?(정리|만들|뽑|저장|변환)", nil),
-            ("마크다운으로\\s?(정리|만들|뽑|저장)", nil),
-            ("md로\\s?(정리|만들|뽑|저장)", nil),
-            ("워드로\\s?(정리|만들|뽑|저장)", nil),
+            // 구체적 유형 먼저 매칭 (순서 중요)
             ("보고서로\\s?(정리|만들|뽑|작성)", .report),
             ("기획서로\\s?(정리|만들|뽑|작성)", .prd),
             ("prd로\\s?(정리|만들|뽑|작성)", .prd),
             ("테스트\\s?계획서로\\s?(정리|만들|뽑|작성)", .testPlan),
             ("설계\\s?문서로\\s?(정리|만들|뽑|작성)", .technicalDesign),
             ("api\\s?문서로\\s?(정리|만들|뽑|작성)", .apiDoc),
-            ("문서\\s?작성", nil),
-            ("문서화\\s?해", nil),
+            // 일반 문서/파일 요청 → .freeform (nil이면 hasDocRequest 판정 실패)
+            ("문서로\\s?(정리|만들|작성|뽑)", .freeform),
+            ("파일로\\s?(저장|내보내|뽑|만들)", .freeform),
+            ("pdf로\\s?(정리|만들|뽑|저장|변환)", .freeform),
+            ("마크다운으로\\s?(정리|만들|뽑|저장)", .freeform),
+            ("md로\\s?(정리|만들|뽑|저장)", .freeform),
+            ("md파일로\\s?(정리|만들|뽑|저장)", .freeform),
+            ("워드로\\s?(정리|만들|뽑|저장)", .freeform),
+            ("문서\\s?작성", .freeform),
+            ("문서화\\s?해", .freeform),
         ]
         return patterns.compactMap { (pattern, docType) in
             guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return nil }
