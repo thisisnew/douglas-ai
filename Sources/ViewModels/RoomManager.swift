@@ -136,6 +136,8 @@ class RoomManager: ObservableObject {
     @Published var pendingIntentSelection: [UUID: WorkflowIntent] = [:]
     /// 문서 유형 선택 대기 중인 방 (향후 재활용 가능)
     @Published var pendingDocTypeSelection: [UUID: Bool] = [:]
+    /// 에이전트 선택 피커 대기 중인 방 (방 ID → 후보 agentID 목록)
+    @Published var pendingAgentPicker: [UUID: [UUID]] = [:]
     /// 리뷰 게이트 자동 승인 카운트다운 (방 ID → 남은 초)
     @Published var reviewAutoApprovalRemaining: [UUID: Int] = [:]
 
@@ -157,6 +159,8 @@ class RoomManager: ObservableObject {
     private var intentContinuations: [UUID: CheckedContinuation<WorkflowIntent, Never>] = [:]
     /// 문서 유형 선택 대기 중인 continuation
     private var docTypeContinuations: [UUID: CheckedContinuation<DocumentType, Never>] = [:]
+    /// 에이전트 피커 선택 대기 중인 continuation (방 ID → continuation, UUID? = 선택된 에이전트 또는 nil)
+    private var agentPickerContinuations: [UUID: CheckedContinuation<UUID?, Never>] = [:]
     /// 이전 사이클 완료 시점의 에이전트 수 (후속 사이클에서 에이전트 변동 감지용)
     private var previousCycleAgentCount: [UUID: Int] = [:]
     /// 멘션으로 지명된 에이전트 (라우팅 우선권 — executeQuickAnswer/executeSoloAnalysis에서 소비)
@@ -467,6 +471,36 @@ class RoomManager: ObservableObject {
             rooms[idx].transitionTo(.planning)
             launchWorkflow(roomID: roomID, task: rooms[idx].title)
         }
+    }
+
+    // MARK: - 에이전트 피커 게이트
+
+    /// 사용자가 에이전트 피커에서 에이전트를 선택
+    func selectAgentFromPicker(roomID: UUID, agentID: UUID) {
+        pendingAgentPicker.removeValue(forKey: roomID)
+        addAgent(agentID, to: roomID)
+        if let name = agentStore?.agents.first(where: { $0.id == agentID })?.name {
+            let msg = ChatMessage(role: .system, content: "'\(name)'이(가) 작업을 담당합니다.")
+            appendMessage(msg, to: roomID)
+        }
+        if let cont = agentPickerContinuations.removeValue(forKey: roomID) {
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.planning)
+            }
+            cont.resume(returning: agentID)
+        }
+        scheduleSave()
+    }
+
+    /// 사용자가 에이전트 피커에서 건너뛰기
+    func skipAgentPicker(roomID: UUID) {
+        pendingAgentPicker.removeValue(forKey: roomID)
+        let msg = ChatMessage(role: .system, content: "에이전트 선택을 건너뛰었습니다.")
+        appendMessage(msg, to: roomID)
+        if let cont = agentPickerContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: nil)
+        }
+        scheduleSave()
     }
 
     // MARK: - 문서 파일 저장
@@ -1008,6 +1042,43 @@ class RoomManager: ObservableObject {
         let _ = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
             self.suggestionContinuations[roomID] = cont
         }
+    }
+
+    /// 에이전트 제안 취소 후: 기존 에이전트 피커를 표시하거나, 후보가 없으면 워크플로우 완료
+    private func showAgentPickerOrComplete(roomID: UUID) async {
+        let subAgents = agentStore?.subAgents ?? []
+        let roomAgentIDs = rooms.first(where: { $0.id == roomID })?.assignedAgentIDs ?? []
+        let candidates = subAgents.filter { !roomAgentIDs.contains($0.id) }.map { $0.id }
+
+        if candidates.isEmpty {
+            // 후보 에이전트도 없음 → 워크플로우 완료
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].currentPhase = nil
+                rooms[i].status = .completed
+                rooms[i].completedAt = Date()
+            }
+            syncAgentStatuses()
+            scheduleSave()
+            return
+        }
+
+        // 에이전트 피커 표시 → 사용자 선택 대기
+        pendingAgentPicker[roomID] = candidates
+        let selected = await withCheckedContinuation { (cont: CheckedContinuation<UUID?, Never>) in
+            self.agentPickerContinuations[roomID] = cont
+        }
+
+        if selected == nil {
+            // 건너뛰기 → 워크플로우 완료
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].currentPhase = nil
+                rooms[i].status = .completed
+                rooms[i].completedAt = Date()
+            }
+            syncAgentStatuses()
+            scheduleSave()
+        }
+        // selected != nil → selectAgentFromPicker에서 이미 addAgent 처리됨
     }
 
     // MARK: - 방에 에이전트 추가
@@ -1834,16 +1905,10 @@ class RoomManager: ObservableObject {
                 addAgentSuggestion(suggestion, to: roomID)
                 await waitForSuggestionResponse(roomID: roomID)
 
-                // 취소 후 전문가 없으면 → 워크플로우 즉시 완료
+                // 취소 후 전문가 없으면 → 기존 에이전트 피커 표시
                 let postSkipSpecialists = executingAgentIDs(in: roomID)
                 if postSkipSpecialists.isEmpty {
-                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                        rooms[i].currentPhase = nil
-                        rooms[i].status = .completed
-                        rooms[i].completedAt = Date()
-                    }
-                    syncAgentStatuses()
-                    scheduleSave()
+                    await showAgentPickerOrComplete(roomID: roomID)
                 }
                 return
             }
@@ -1886,16 +1951,10 @@ class RoomManager: ObservableObject {
             if hadUnmatched {
                 await waitForSuggestionResponse(roomID: roomID)
 
-                // 취소 후 전문가 없으면 → 워크플로우 즉시 완료
+                // 취소 후 전문가 없으면 → 기존 에이전트 피커 표시
                 let postSkipSpecialists = executingAgentIDs(in: roomID)
                 if postSkipSpecialists.isEmpty {
-                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                        rooms[i].currentPhase = nil
-                        rooms[i].status = .completed
-                        rooms[i].completedAt = Date()
-                    }
-                    syncAgentStatuses()
-                    scheduleSave()
+                    await showAgentPickerOrComplete(roomID: roomID)
                 }
             }
 
@@ -4414,8 +4473,12 @@ class RoomManager: ObservableObject {
         if let cont = docTypeContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: .freeform)
         }
+        if let cont = agentPickerContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: nil)
+        }
         pendingIntentSelection.removeValue(forKey: roomID)
         pendingDocTypeSelection.removeValue(forKey: roomID)
+        pendingAgentPicker.removeValue(forKey: roomID)
         guard rooms[idx].transitionTo(.completed) else { return }
         rooms[idx].completedAt = Date()
         // 에이전트 수 스냅샷 (다음 후속 사이클에서 변동 감지용)
@@ -4450,8 +4513,12 @@ class RoomManager: ObservableObject {
         if let cont = docTypeContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: .freeform)
         }
+        if let cont = agentPickerContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: nil)
+        }
         pendingIntentSelection.removeValue(forKey: roomID)
         pendingDocTypeSelection.removeValue(forKey: roomID)
+        pendingAgentPicker.removeValue(forKey: roomID)
         rooms[idx].transitionTo(.failed)
         rooms[idx].completedAt = Date()
         let msg = ChatMessage(role: .system, content: "사용자가 작업을 취소했습니다.", messageType: .error)
@@ -4493,8 +4560,12 @@ class RoomManager: ObservableObject {
         if let cont = docTypeContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: .freeform)
         }
+        if let cont = agentPickerContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: nil)
+        }
         pendingIntentSelection.removeValue(forKey: roomID)
         pendingDocTypeSelection.removeValue(forKey: roomID)
+        pendingAgentPicker.removeValue(forKey: roomID)
 
         // 첨부 이미지 파일 삭제
         if let room = rooms.first(where: { $0.id == roomID }) {

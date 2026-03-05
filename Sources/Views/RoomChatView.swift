@@ -61,6 +61,12 @@ struct RoomChatView: View {
                 }
                 .animation(.easeInOut(duration: 0.3), value: room.pendingAgentSuggestions.filter { $0.status == .pending }.count)
 
+                // 에이전트 피커 카드 (제안 취소 후 기존 에이전트 선택)
+                if let candidateIDs = roomManager.pendingAgentPicker[room.id] {
+                    AgentPickerCard(candidateIDs: candidateIDs, roomID: room.id)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
                 // Intent 선택 카드 (quickClassify 실패 시)
                 if let suggestedIntent = roomManager.pendingIntentSelection[room.id] {
                     IntentSelectionCard(roomID: room.id, suggestedIntent: suggestedIntent)
@@ -1710,6 +1716,88 @@ struct AgentSuggestionCard: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - 에이전트 피커 카드
+
+struct AgentPickerCard: View {
+    let candidateIDs: [UUID]
+    let roomID: UUID
+    @EnvironmentObject var roomManager: RoomManager
+    @EnvironmentObject var agentStore: AgentStore
+    @Environment(\.colorPalette) private var palette
+
+    var body: some View {
+        CardContainer(accentColor: palette.accent, opacity: 0.06) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "person.2")
+                        .font(.caption)
+                        .foregroundColor(palette.accent.opacity(0.7))
+                    Text("에이전트 선택")
+                        .font(.caption2.bold())
+                        .foregroundColor(palette.accent.opacity(0.7))
+                }
+
+                Text("기존 에이전트 중 작업을 담당할 에이전트를 선택하세요.")
+                    .font(.system(size: DesignTokens.FontSize.xs))
+                    .foregroundColor(.secondary)
+
+                ForEach(candidates) { agent in
+                    Button {
+                        roomManager.selectAgentFromPicker(roomID: roomID, agentID: agent.id)
+                    } label: {
+                        HStack(spacing: 10) {
+                            AgentAvatarView(agent: agent, size: 28)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(agent.name)
+                                    .font(.caption.bold())
+                                    .foregroundColor(.primary)
+                                Text(String(agent.persona.prefix(50)) + (agent.persona.count > 50 ? "..." : ""))
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                HStack {
+                    Spacer()
+                    Button {
+                        roomManager.skipAgentPicker(roomID: roomID)
+                    } label: {
+                        Text("건너뛰기")
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundColor(palette.textSecondary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
+                                    .fill(palette.inputBackground)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
+                                    .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1)
+                            )
+                            .shadow(color: palette.buttonShadow.opacity(0.1), radius: 2, y: 1)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private var candidates: [Agent] {
+        candidateIDs.compactMap { id in agentStore.agents.first(where: { $0.id == id }) }
     }
 }
 
