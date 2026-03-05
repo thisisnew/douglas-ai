@@ -245,10 +245,8 @@ private struct _Representable: NSViewRepresentable {
             // 값이 동일하면 SwiftUI 재렌더 방지
             guard abs(coordinator.parent.dynamicHeight - clamped) > 0.5 else { return }
 
-            // SwiftUI에 높이 변경 전달
-            DispatchQueue.main.async { [weak self] in
-                self?.coordinator.parent.dynamicHeight = clamped
-            }
+            // SwiftUI에 높이 변경 전달 (동기 — async 시 마우스 드래그 중 지연 실행되어 부하 유발)
+            coordinator.parent.dynamicHeight = clamped
         }
 
         func updatePlaceholder() {
@@ -302,12 +300,9 @@ private struct _Representable: NSViewRepresentable {
             let lengthDelta = abs(newText.count - previousLength)
             previousLength = newText.count
 
-            // 즉시 동기화가 필요한 경우만:
-            // - "/" 시작: 슬래시 명령 자동완성 트리거
-            // - 길이 급변(>3): 붙여넣기/드롭 → onChange 파일경로 감지 필요
-            // - 텍스트 비움: placeholder 등 UI 상태 반영
-            // 일반 타이핑은 전송 시점(syncText)까지 SwiftUI 바인딩을 건드리지 않음
-            if newText.hasPrefix("/") || lengthDelta > 3 || newText.isEmpty {
+            // "/" 시작만 즉시 동기화 (슬래시 명령 자동완성 필요)
+            // 그 외 모든 입력(타이핑, 붙여넣기, 드롭)은 전송 시점까지 SwiftUI 건드리지 않음
+            if newText.hasPrefix("/") {
                 isUpdating = true
                 parent.text = newText
                 isUpdating = false
