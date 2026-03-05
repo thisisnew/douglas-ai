@@ -6,7 +6,7 @@ struct SettingsTabView: View {
     @State private var selectedTab: SettingsTab = .general
 
     enum SettingsTab: CaseIterable {
-        case general, api, theme, plugins
+        case general, api, theme, plugins, agents
 
         var title: String {
             switch self {
@@ -14,6 +14,7 @@ struct SettingsTabView: View {
             case .api:     return "API 설정"
             case .theme:   return "테마"
             case .plugins: return "플러그인"
+            case .agents:  return "에이전트"
             }
         }
 
@@ -23,6 +24,7 @@ struct SettingsTabView: View {
             case .api:     return "key.fill"
             case .theme:   return "paintpalette.fill"
             case .plugins: return "puzzlepiece.extension.fill"
+            case .agents:  return "person.2.fill"
             }
         }
 
@@ -32,6 +34,7 @@ struct SettingsTabView: View {
             case .api:     return Color(red: 0.55, green: 0.78, blue: 0.85)
             case .theme:   return Color(red: 0.82, green: 0.62, blue: 0.86)
             case .plugins: return Color(red: 0.93, green: 0.73, blue: 0.52)
+            case .agents:  return Color(red: 0.58, green: 0.80, blue: 0.65)
             }
         }
     }
@@ -61,6 +64,8 @@ struct SettingsTabView: View {
                     ThemeSettingsView(isEmbedded: true)
                 case .plugins:
                     PluginSettingsView(isEmbedded: true)
+                case .agents:
+                    AgentSettingsView(isEmbedded: true)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

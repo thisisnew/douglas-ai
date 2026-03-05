@@ -187,9 +187,6 @@ struct AddAgentSheet: View {
                     // 참조 프로젝트
                     referenceProjectSection
 
-                    // 구분선 + 가져오기
-                    importSection
-
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 16)
@@ -375,42 +372,6 @@ struct AddAgentSheet: View {
             .font(.caption)
             .foregroundColor(.orange)
             .transition(.opacity.combined(with: .move(edge: .top)))
-    }
-
-    // MARK: - 가져오기
-
-    @ViewBuilder
-    private var importSection: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Rectangle()
-                    .fill(palette.separator.opacity(0.3))
-                    .frame(height: 1)
-                Text("또는")
-                    .font(.caption)
-                    .foregroundColor(palette.textSecondary)
-                Rectangle()
-                    .fill(palette.separator.opacity(0.3))
-                    .frame(height: 1)
-            }
-
-            Button {
-                AgentPorter.importAgents(into: agentStore)
-                dismiss()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "square.and.arrow.down")
-                    Text("에이전트 파일 가져오기")
-                }
-                .font(.system(size: DesignTokens.FontSize.body, weight: .medium, design: .rounded))
-                .foregroundColor(palette.textSecondary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(palette.inputBackground)
-                .continuousRadius(DesignTokens.Radius.lg)
-            }
-            .buttonStyle(.plain)
-        }
     }
 
     // MARK: - 참조 프로젝트

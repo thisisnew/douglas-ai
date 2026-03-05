@@ -111,7 +111,7 @@ DOUGLAS/
 │       ├── ChatView.swift           # 채팅 뷰 (메시지 버블)
 │       ├── ChatContentView.swift    # 공유 채팅 UI (메시지 목록, 입력창, 취소 버튼)
 │       ├── ChatWindowView.swift     # 독립 채팅 윈도우 래퍼
-│       ├── AddAgentSheet.swift      # 에이전트 등록 시트
+│       ├── AddAgentSheet.swift      # 에이전트 등록 시트 (가져오기는 AgentSettingsView로 이동)
 │       ├── EditAgentSheet.swift     # 에이전트 편집 시트
 │       ├── AddProviderSheet.swift   # 프로바이더 설정 시트
 │       ├── CreateRoomSheet.swift    # 방 생성 시트
@@ -125,7 +125,8 @@ DOUGLAS/
 │       ├── ThemeEnvironment.swift   # 테마 환경 (ThemedView, colorPalette EnvironmentKey, .fontDesign(.rounded) 전역 적용)
 │       ├── ThemeSettingsView.swift  # 테마 설정 뷰 (테마 카드 프리뷰, 커스텀 색상 선택)
 │       ├── GeneralSettingsView.swift # 일반 설정 (문서 저장 폴더 등)
-│       ├── SettingsTabView.swift   # 통합 설정 윈도우 (일반 / API 설정 / 테마 / 플러그인 탭)
+│       ├── AgentSettingsView.swift # 에이전트 설정 (내보내기 멀티 선택 / 가져오기)
+│       ├── SettingsTabView.swift   # 통합 설정 윈도우 (일반 / API 설정 / 테마 / 플러그인 / 에이전트 탭)
 │       ├── SharedComponents.swift   # 공유 UI 컴포넌트 (SheetNavHeader, CardContainer, SendButton 등)
 │       ├── ProgressActivityBubble.swift # 확장형 진행 버블 (활동 로그 인라인 표시)
 │       ├── TypingIndicator.swift    # 타이핑 인디케이터 (점 바운스 애니메이션, 경과 시간 표시)
@@ -782,11 +783,12 @@ MessageType에 따른 시각 차별화:
 
 ### 통합 설정 윈도우 (`Views/SettingsTabView.swift`)
 
-기존 분산된 설정을 **4탭 통합 윈도우**로 병합:
+기존 분산된 설정을 **5탭 통합 윈도우**로 병합:
 - **일반** 탭: GeneralSettingsView — 문서 저장 폴더 설정 (NSOpenPanel 폴더 선택, UserDefaults `documentSaveDirectory`)
 - **API 설정** 탭: AddProviderSheet(isEmbedded: true) — Claude Code, OpenAI, Google, Jira Cloud
 - **테마** 탭: ThemeSettingsView(isEmbedded: true) — 프리셋 3종 + 커스텀 색상
 - **플러그인** 탭: PluginSettingsView(isEmbedded: true) — 빌트인/외부 플러그인 관리
+- **에이전트** 탭: AgentSettingsView(isEmbedded: true) — 에이전트 내보내기(멀티 선택)/가져오기
 
 문서 저장 경로가 설정되면 `DocumentExporter.saveDocument()`가 NSSavePanel 없이 해당 폴더에 자동 저장 (동일 파일명 시 `(2)`, `(3)` 자동 부여). 미설정 시 기존 NSSavePanel 동작.
 
