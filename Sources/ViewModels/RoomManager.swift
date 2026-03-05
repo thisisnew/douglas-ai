@@ -70,6 +70,12 @@ private func stripHallucinatedAuthLines(_ text: String) -> String {
         .trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
+/// LLM 응답의 `~/` 경로를 절대경로로 확장
+private func expandTildePaths(_ text: String) -> String {
+    let home = FileManager.default.homeDirectoryForCurrentUser.path
+    return text.replacingOccurrences(of: "~/", with: "\(home)/")
+}
+
 /// 스트리밍 청크 누적용 스레드-안전 버퍼
 private final class StreamBuffer: @unchecked Sendable {
     private var _value = ""
@@ -1541,7 +1547,7 @@ class RoomManager: ObservableObject {
         // 1) 마스터에게 역할 요구사항 산출 요청
         var contextParts: [String] = []
         if let intakeData = rooms[idx].intakeData {
-            contextParts.append(intakeData.asContextString())
+            contextParts.append(intakeData.asClarifyContextString())
         }
         if let assumptions = rooms[idx].assumptions, !assumptions.isEmpty {
             contextParts.append("[가정]\n" + assumptions.map { "- \($0.text)" }.joined(separator: "\n"))
@@ -1631,10 +1637,8 @@ class RoomManager: ObservableObject {
         } else {
             directMatchText = task
         }
-        // sourceType 기반 키워드 주입: Jira URL → "jira" 키워드 추가 (에이전트 직접 매칭용)
-        if rooms[idx].intakeData?.sourceType == .jira {
-            directMatchText += " jira"
-        }
+        // Jira 키워드 자동 주입 제거: clarifySummary에 사용자 의도가 이미 반영됨
+        // (sourceType만으로 Jira 전문가를 강제 매칭하면 false positive 발생)
         let taskLowered = directMatchText.lowercased()
         let taskWords = taskLowered
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
@@ -1988,7 +1992,7 @@ class RoomManager: ObservableObject {
         let context = makeToolContext(roomID: roomID, currentAgentID: agentID)
         var history: [ConversationMessage] = []
         if let intakeData = room?.intakeData, intakeData.sourceType != .text {
-            history.append(ConversationMessage.user(intakeData.asContextString()))
+            history.append(ConversationMessage.user(intakeData.asClarifyContextString()))
         }
         if let workLog = rooms.first(where: { $0.id == roomID })?.workLog {
             history.append(ConversationMessage.user("[이전 작업 컨텍스트]\n\(workLog.asContextString())"))
@@ -2119,10 +2123,10 @@ class RoomManager: ObservableObject {
 
         speakingAgentIDByRoom[roomID] = agentID
 
-        // intake 데이터 (Jira 티켓 등 원본 컨텍스트)
+        // intake 데이터 (Jira 트리거 제거된 중립 버전)
         let intakeBlock: String
         if let intakeData = room?.intakeData, intakeData.sourceType != .text {
-            intakeBlock = "\n" + intakeData.asContextString()
+            intakeBlock = "\n" + intakeData.asClarifyContextString()
         } else {
             intakeBlock = ""
         }
@@ -2330,10 +2334,10 @@ class RoomManager: ObservableObject {
             return nil
         }
 
-        // intake 데이터 (Jira 티켓 등 원본 컨텍스트)
+        // intake 데이터 (Jira 트리거 제거된 중립 버전)
         let intakeContext: String
         if let intakeData = room.intakeData {
-            intakeContext = "\n" + intakeData.asContextString()
+            intakeContext = "\n" + intakeData.asClarifyContextString()
         } else {
             intakeContext = ""
         }
@@ -2947,7 +2951,7 @@ class RoomManager: ObservableObject {
         // 브리핑 기반 컨텍스트 (압축) + 최근 메시지 + 첫 사용자 메시지(이미지 포함) 보장
         var history: [ConversationMessage] = []
         if let intakeData = room?.intakeData, intakeData.sourceType != .text {
-            history.append(ConversationMessage.user(intakeData.asContextString()))
+            history.append(ConversationMessage.user(intakeData.asClarifyContextString()))
         }
         if let briefing = room?.briefing {
             history.append(ConversationMessage.user("작업 브리핑:\n\(briefing.asContextString())"))
@@ -3091,7 +3095,7 @@ class RoomManager: ObservableObject {
             }
 
             // 중간 단계는 toolActivity(접힘), 마지막 단계만 일반 메시지로 표시
-            let cleanedResponse = stripTrailingOptions(response)
+            let cleanedResponse = expandTildePaths(stripHallucinatedAuthLines(stripTrailingOptions(response)))
             if isLastStep || totalSteps == 1 {
                 let reply = ChatMessage(role: .assistant, content: cleanedResponse, agentName: agent.name)
                 appendMessage(reply, to: roomID)
@@ -3559,8 +3563,8 @@ class RoomManager: ObservableObject {
         // 마스터(오케스트레이터) 여부 판별
         let isMasterAgent = agent.isMaster
 
-        // intake 데이터 (JIRA 티켓 등 원본 컨텍스트)
-        let intakeText = roomRef?.intakeData?.asContextString() ?? ""
+        // intake 데이터 (Jira 트리거 제거된 중립 버전 — LLM 환각 방지)
+        let intakeText = roomRef?.intakeData?.asClarifyContextString() ?? ""
         let intakeBlock = intakeText.isEmpty ? "" : "\n\(intakeText)"
 
         // clarify 요약 앵커링 (토론 범위 제한)
@@ -3587,6 +3591,7 @@ class RoomManager: ObservableObject {
             [절대 금지] 다른 에이전트(\(specialistDesc)) 역할로 발언하거나, 그들의 발언을 대신 작성
             [절대 금지] **[백엔드 개발자]** 등 다른 이름으로 발언 — 반드시 \(agent.name)으로만 발언
             [절대 금지] 번역, 코딩, 문서 작성 등 실제 작업 수행
+            [절대 금지] 도구·인증·API 연동 관련 언급 — 필요한 데이터는 이미 수집 완료됨
 
             [회의실] \(topic)
             라운드 \(round + 1) | 전문가: \(specialistDesc)
@@ -3601,6 +3606,7 @@ class RoomManager: ObservableObject {
             let masterNote = masterAgent != nil ? "\(masterAgent!.name)은 진행자입니다. 전문적인 질문은 다른 전문가에게 직접 하세요." : ""
             discussionPrompt = """
             \(agent.resolvedSystemPrompt)
+            [시스템] 필요한 외부 데이터는 이미 수집되었습니다. 도구·인증·API 연동 관련 언급을 하지 마세요.
             \(intakeBlock)\(anchorBlock)
 
             [회의실] \(topic)
@@ -3744,8 +3750,8 @@ class RoomManager: ObservableObject {
             }
             let displayResponse = ArtifactParser.stripArtifactBlocks(from: cleanResponse)
 
-            // placeholder를 최종 정리된 텍스트로 업데이트
-            let finalText = stripTrailingOptions(displayResponse.isEmpty ? cleanResponse : displayResponse)
+            // placeholder를 최종 정리된 텍스트로 업데이트 (환각 제거 + ~/ 확장)
+            let finalText = expandTildePaths(stripHallucinatedAuthLines(stripTrailingOptions(displayResponse.isEmpty ? cleanResponse : displayResponse)))
             updateMessageContent(placeholderID, newContent: finalText, in: roomID)
 
             return agreed
@@ -3825,6 +3831,7 @@ class RoomManager: ObservableObject {
             [절대 금지] 다른 에이전트(\(specialistDesc)) 역할로 발언하거나, 그들의 발언을 대신 작성
             [절대 금지] **[백엔드 개발자]** 등 다른 이름으로 발언 — 반드시 \(agent.name)으로만 발언
             [절대 금지] 번역, 코딩, 문서 작성 등 실제 작업 수행
+            [절대 금지] 도구·인증·API 연동 관련 언급 — 필요한 데이터는 이미 수집 완료됨
 
             [회의실] \(topic)
             라운드 \(round + 1) | 전문가: \(specialistDesc)
@@ -3838,6 +3845,7 @@ class RoomManager: ObservableObject {
             let masterNote = masterAgent != nil ? "\(masterAgent!.name)은 진행자입니다. 전문적인 질문은 다른 전문가에게 직접 하세요." : ""
             discussionPrompt = """
             \(agent.resolvedSystemPrompt)
+            [시스템] 필요한 외부 데이터는 이미 수집되었습니다. 도구·인증·API 연동 관련 언급을 하지 마세요.
             \(anchorBlock)
 
             [회의실] \(topic)
@@ -3926,7 +3934,7 @@ class RoomManager: ObservableObject {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let displayResponse = ArtifactParser.stripArtifactBlocks(from: cleanResponse)
 
-            let finalText = stripTrailingOptions(displayResponse.isEmpty ? cleanResponse : displayResponse)
+            let finalText = expandTildePaths(stripHallucinatedAuthLines(stripTrailingOptions(displayResponse.isEmpty ? cleanResponse : displayResponse)))
             let msg = ChatMessage(
                 role: .assistant,
                 content: finalText,
