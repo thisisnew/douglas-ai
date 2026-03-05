@@ -133,8 +133,12 @@ final class ScriptPlugin: DougPlugin {
             let env = ["ROOM_ID": roomID.uuidString, "ROOM_TITLE": title]
             _ = await runScript(script, env: env)
 
-        case .workflowPhaseChanged:
-            break // 스크립트 플러그인에서는 미지원
+        case .workflowPhaseChanged,
+             .toolExecutionStarted, .toolExecutionCompleted,
+             .agentInvited, .agentResponseReceived,
+             .approvalRequested, .approvalResolved,
+             .fileWritten, .fileRead:
+            break // 스크립트 플러그인에서는 미지원 (향후 확장 가능)
         }
     }
 

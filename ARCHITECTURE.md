@@ -346,8 +346,10 @@ struct Agent: Identifiable, Codable, Hashable {
     var isMaster: Bool            // 마스터 에이전트 여부
     var errorMessage: String?     // 마지막 오류 메시지
     var hasImage: Bool            // 아바타 이미지 유무 (파일시스템 저장)
+    var category: AgentCategory?  // 작업 카테고리 (nil = 자동 추론)
     var resolvedToolIDs: [String] { ... }    // 항상 ToolRegistry.allToolIDs (모든 에이전트 전체 도구)
     var hasToolsEnabled: Bool { ... }        // 항상 true
+    var resolvedCategory: AgentCategory { ... } // 명시 설정 > 페르소나 기반 자동 추론
 }
 ```
 
@@ -355,6 +357,21 @@ struct Agent: Identifiable, Codable, Hashable {
 - Hashable: id만 사용
 - `createMaster()`: 기본 마스터 에이전트 팩토리 (Claude Code + 위임 페르소나)
 - 이미지: `~/Library/Application Support/DOUGLAS/avatars/{id}.png`에 저장 (static save/load/delete)
+
+### AgentCategory (`Models/Agent.swift`)
+
+태스크 성격에 따른 최적 모델 자동 선택 시스템:
+
+| 카테고리 | 용도 | 추천 모델 |
+|---------|------|----------|
+| `.coding` | 코드 작성/수정/디버깅 | Sonnet, GPT-4o |
+| `.reasoning` | 설계/분석/아키텍처 | Opus, o3 |
+| `.quick` | 번역/요약/간단 수정 | Haiku, GPT-4o-mini |
+| `.visual` | UI/디자인/이미지 분석 | Gemini Pro, GPT-4o |
+| `.writing` | 문서/보고서/API 스펙 | Sonnet, Opus |
+
+- `resolvedCategory`: 명시 설정이 있으면 사용, 없으면 `inferCategory()` 로 페르소나 키워드 기반 자동 추론
+- `suggestedModels`: 카테고리별 추천 프로바이더+모델 목록
 
 ### AgentManifest (`Models/AgentManifest.swift`)
 
@@ -1223,15 +1240,19 @@ executeWithTools() 루프 (최대 10회):
 │  activePluginIDs: Set<String>                             │
 │  configure(roomManager:, agentStore:)                     │
 │  dispatch(_ event: PluginEvent)                           │
+│  interceptTool(name:arguments:) → ToolInterceptResult    │
+│  postProcessResponse(agentName:response:) → String       │
 └───────────────────────────────────────────────────────────┘
         │                           ▲
-        │ configure(context:)       │ pluginEventDelegate closure
+        │ configure(context:)       │ pluginEventDelegate + interceptToolDelegate
         ▼                           │
 ┌─ DougPlugin Protocol ─┐    ┌─ RoomManager ─┐
 │  info: PluginInfo      │    │  appendMessage → .messageAdded
 │  activate() → Bool     │    │  createRoom → .roomCreated
 │  deactivate()          │    │  완료/실패 → .roomCompleted/.roomFailed
-│  handle(event:)        │    └───────────────┘
+│  handle(event:)        │    │  도구 실행 → .toolExecutionStarted/.Completed
+│  interceptToolExecution│    │  파일 I/O → .fileWritten/.fileRead
+│  postProcessResponse   │    └───────────────┘
 └────────────────────────┘
         │
         ▼
@@ -1254,9 +1275,18 @@ executeWithTools() 루프 (최대 10회):
 
 ### 이벤트 흐름
 
-1. RoomManager에서 `pluginEventDelegate?(.event)` 호출 (클로저 — 플러그인 존재 무지)
+**관찰 이벤트** (15종):
+1. RoomManager/ToolExecutor에서 `dispatchPluginEvent(.event)` 호출
 2. AppDelegate가 `roomManager.pluginEventDelegate = { pluginManager.dispatch($0) }` 연결
 3. PluginManager가 모든 활성 플러그인에 `handle(event:)` 브로드캐스트
+
+이벤트: roomCreated/Completed/Failed, messageAdded, workflowPhaseChanged, toolExecutionStarted/Completed, agentInvited/ResponseReceived, approvalRequested/Resolved, fileWritten/Read
+
+**인터셉트 훅** (동작 변경 가능):
+1. ToolExecutor가 도구 실행 전 `context.interceptTool(name, args)` 호출
+2. AppDelegate가 `roomManager.pluginInterceptToolDelegate = { pluginManager.interceptTool(...) }` 연결
+3. PluginManager가 활성 플러그인 순회, 첫 override/block 반환 시 도구 실행 대체/차단
+4. `postProcessResponse`로 에이전트 응답 후처리도 가능
 
 ### 플러그인 추가 방법
 

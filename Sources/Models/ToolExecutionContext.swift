@@ -15,6 +15,10 @@ struct ToolExecutionContext: Sendable {
     let askUser: @Sendable (String, String?, [String]?) async -> String  // 사용자에게 질문
     let currentPhase: WorkflowPhase?      // 현재 워크플로우 단계
 
+    // 플러그인 훅
+    let dispatchPluginEvent: @Sendable (PluginEvent) -> Void
+    let interceptTool: @Sendable (String, [String: String]) async -> ToolInterceptResult
+
     init(
         roomID: UUID?,
         agentsByName: [String: UUID],
@@ -26,7 +30,9 @@ struct ToolExecutionContext: Sendable {
         currentAgentName: String? = nil,
         fileWriteTracker: FileWriteTracker? = nil,
         askUser: @escaping @Sendable (String, String?, [String]?) async -> String = { _, _, _ in "" },
-        currentPhase: WorkflowPhase? = nil
+        currentPhase: WorkflowPhase? = nil,
+        dispatchPluginEvent: @escaping @Sendable (PluginEvent) -> Void = { _ in },
+        interceptTool: @escaping @Sendable (String, [String: String]) async -> ToolInterceptResult = { _, _ in .passthrough }
     ) {
         self.roomID = roomID
         self.agentsByName = agentsByName
@@ -39,6 +45,8 @@ struct ToolExecutionContext: Sendable {
         self.fileWriteTracker = fileWriteTracker
         self.askUser = askUser
         self.currentPhase = currentPhase
+        self.dispatchPluginEvent = dispatchPluginEvent
+        self.interceptTool = interceptTool
     }
 
     static let empty = ToolExecutionContext(

@@ -274,42 +274,93 @@ enum ToolExecutor {
     // MARK: - 개별 도구 실행
 
     private static func executeSingleTool(_ call: ToolCall, context: ToolExecutionContext = .empty) async -> ToolResult {
+        // 플러그인 인터셉트 훅
+        let argStrings = call.arguments.mapValues { arg -> String in
+            switch arg {
+            case .string(let s): return s
+            case .integer(let i): return "\(i)"
+            case .boolean(let b): return "\(b)"
+            case .array(let a): return a.joined(separator: ", ")
+            }
+        }
+        let intercept = await context.interceptTool(call.toolName, argStrings)
+        switch intercept {
+        case .override(let content, let isError):
+            return ToolResult(callID: call.id, content: content, isError: isError)
+        case .block(let reason):
+            return ToolResult(callID: call.id, content: "도구 차단됨: \(reason)", isError: true)
+        case .passthrough:
+            break
+        }
+
+        // 도구 실행 시작 이벤트
+        context.dispatchPluginEvent(.toolExecutionStarted(
+            roomID: context.roomID,
+            toolName: call.toolName,
+            arguments: argStrings
+        ))
+
+        let result: ToolResult
         switch call.toolName {
         case "file_read":
-            return await executeFileRead(call, context: context)
+            result = await executeFileRead(call, context: context)
         case "file_write":
-            return await executeFileWrite(call, context: context)
+            result = await executeFileWrite(call, context: context)
         case "shell_exec":
-            return await executeShellExec(call, context: context)
+            result = await executeShellExec(call, context: context)
         case "web_search":
-            return await executeWebSearch(call)
+            result = await executeWebSearch(call)
         case "web_fetch":
-            return await executeWebFetch(call)
+            result = await executeWebFetch(call)
         case "invite_agent":
-            return await executeInviteAgent(call, context: context)
+            result = await executeInviteAgent(call, context: context)
         case "list_agents":
-            return await executeListAgents(call, context: context)
+            result = await executeListAgents(call, context: context)
         case "suggest_agent_creation":
-            return await executeSuggestAgentCreation(call, context: context)
+            result = await executeSuggestAgentCreation(call, context: context)
         case "jira_create_subtask":
-            return await executeJiraCreateSubtask(call)
+            result = await executeJiraCreateSubtask(call)
         case "jira_update_status":
-            return await executeJiraUpdateStatus(call)
+            result = await executeJiraUpdateStatus(call)
         case "jira_add_comment":
-            return await executeJiraAddComment(call)
+            result = await executeJiraAddComment(call)
         case "ask_user":
-            return await executeAskUser(call, context: context)
+            result = await executeAskUser(call, context: context)
         case "code_search":
-            return await executeCodeSearch(call, context: context)
+            result = await executeCodeSearch(call, context: context)
         case "code_symbols":
-            return await executeCodeSymbols(call, context: context)
+            result = await executeCodeSymbols(call, context: context)
         case "code_diagnostics":
-            return await executeCodeDiagnostics(call, context: context)
+            result = await executeCodeDiagnostics(call, context: context)
         case "code_outline":
-            return await executeCodeOutline(call, context: context)
+            result = await executeCodeOutline(call, context: context)
         default:
-            return ToolResult(callID: call.id, content: "알 수 없는 도구: \(call.toolName)", isError: true)
+            result = ToolResult(callID: call.id, content: "알 수 없는 도구: \(call.toolName)", isError: true)
         }
+
+        // 도구 실행 완료 이벤트
+        context.dispatchPluginEvent(.toolExecutionCompleted(
+            roomID: context.roomID,
+            toolName: call.toolName,
+            result: String(result.content.prefix(500)),
+            isError: result.isError
+        ))
+
+        // 파일 I/O 이벤트
+        switch call.toolName {
+        case "file_write":
+            if let path = call.arguments["path"]?.stringValue {
+                context.dispatchPluginEvent(.fileWritten(path: path, agentName: context.currentAgentName))
+            }
+        case "file_read":
+            if let path = call.arguments["path"]?.stringValue {
+                context.dispatchPluginEvent(.fileRead(path: path, agentName: context.currentAgentName))
+            }
+        default:
+            break
+        }
+
+        return result
     }
 
     // MARK: - invite_agent

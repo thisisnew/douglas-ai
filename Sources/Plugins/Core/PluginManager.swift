@@ -223,6 +223,33 @@ final class PluginManager: ObservableObject {
         }
     }
 
+    // MARK: - 인터셉트 훅
+
+    /// 도구 실행 전 인터셉트 — 첫 번째로 override/block을 반환하는 플러그인이 우선
+    func interceptTool(name: String, arguments: [String: String]) async -> ToolInterceptResult {
+        for plugin in plugins where plugin.isActive {
+            let result = await plugin.interceptToolExecution(toolName: name, arguments: arguments)
+            switch result {
+            case .passthrough:
+                continue
+            case .override, .block:
+                return result
+            }
+        }
+        return .passthrough
+    }
+
+    /// 에이전트 응답 후처리 — 모든 활성 플러그인이 순차적으로 응답을 변환
+    func postProcessResponse(agentName: String, response: String) async -> String {
+        var current = response
+        for plugin in plugins where plugin.isActive {
+            if let transformed = await plugin.postProcessResponse(agentName: agentName, response: current) {
+                current = transformed
+            }
+        }
+        return current
+    }
+
     // MARK: - 도구 등록
 
     var pluginTools: [AgentTool] {

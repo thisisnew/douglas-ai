@@ -181,6 +181,9 @@ class RoomManager: ObservableObject {
     /// 플러그인 이벤트 디스패치 (PluginManager가 설정)
     var pluginEventDelegate: ((PluginEvent) -> Void)?
 
+    /// 플러그인 도구 인터셉트 (PluginManager가 설정)
+    var pluginInterceptToolDelegate: ((String, [String: String]) async -> ToolInterceptResult)?
+
     // MARK: - 계산 프로퍼티
 
     var activeRooms: [Room] {
@@ -998,7 +1001,18 @@ class RoomManager: ObservableObject {
                 }
                 return answer
             },
-            currentPhase: room?.currentPhase
+            currentPhase: room?.currentPhase,
+            dispatchPluginEvent: { @Sendable [weak self] event in
+                Task { @MainActor [weak self] in
+                    self?.pluginEventDelegate?(event)
+                }
+            },
+            interceptTool: { @Sendable [weak self] toolName, arguments in
+                guard let delegate = await MainActor.run(body: { self?.pluginInterceptToolDelegate }) else {
+                    return .passthrough
+                }
+                return await delegate(toolName, arguments)
+            }
         )
     }
 
