@@ -547,9 +547,10 @@ class RoomManager: ObservableObject {
         // 1차: 에이전트가 실제 생성한 문서 파일 확인
         if let docURL = DocumentExporter.findActualDocumentFile(from: room) {
             let doneMsg = ChatMessage(
-                role: .assistant,
-                content: "문서가 저장되었습니다: [\(docURL.lastPathComponent)](\(docURL.absoluteString))\n`\(docURL.path)`",
-                messageType: .text
+                role: .system,
+                content: "문서가 저장되었습니다\n\(docURL.lastPathComponent)\n\(docURL.path)",
+                messageType: .phaseTransition,
+                documentURL: docURL.absoluteString
             )
             appendMessage(doneMsg, to: roomID)
             return
@@ -560,14 +561,15 @@ class RoomManager: ObservableObject {
 
         let suggestedName = DocumentExporter.suggestedFilename(room: room)
 
-        let savingMsg = ChatMessage(role: .assistant, content: "문서를 파일로 저장합니다…", messageType: .text)
+        let savingMsg = ChatMessage(role: .system, content: "문서를 파일로 저장합니다…", messageType: .phaseTransition)
         appendMessage(savingMsg, to: roomID)
 
         if let url = DocumentExporter.saveDocument(content: content, suggestedName: suggestedName, defaultExtension: "md") {
             let doneMsg = ChatMessage(
-                role: .assistant,
-                content: "문서가 저장되었습니다: [\(url.lastPathComponent)](\(url.absoluteString))\n`\(url.path)`",
-                messageType: .text
+                role: .system,
+                content: "문서가 저장되었습니다\n\(url.lastPathComponent)\n\(url.path)",
+                messageType: .phaseTransition,
+                documentURL: url.absoluteString
             )
             appendMessage(doneMsg, to: roomID)
         }

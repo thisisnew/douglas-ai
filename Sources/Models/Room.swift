@@ -14,30 +14,11 @@ struct DelegationInfo: Codable, Equatable {
 
 // MARK: - 토론 라운드 타입
 
-/// 토론 라운드의 목적 (발산→수렴→합의 = 1사이클)
+/// 토론 라운드 타입 (Codable 호환 유지)
 enum DiscussionRoundType: String, Codable {
     case diverge   // 발산: 각자 의견 자유 제시
     case converge  // 수렴: 반론/보완, 공통점 탐색
     case conclude  // 합의: 결론 도출
-
-    var label: String {
-        switch self {
-        case .diverge:  return "발산"
-        case .converge: return "수렴"
-        case .conclude: return "합의"
-        }
-    }
-
-    var instruction: String {
-        switch self {
-        case .diverge:
-            return "[이번 라운드 목적: 발산] 자유롭게 의견을 제시하세요. 다양한 관점에서 접근합니다."
-        case .converge:
-            return "[이번 라운드 목적: 수렴] 다른 참여자의 의견을 검토하고 반론하거나 보완하세요. 공통점을 찾으세요."
-        case .conclude:
-            return "[이번 라운드 목적: 합의] 핵심 합의점을 도출하세요. 결론을 정리하고 반드시 [합의] 태그를 붙이세요."
-        }
-    }
 }
 
 // MARK: - 방 모드

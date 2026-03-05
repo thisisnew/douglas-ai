@@ -86,7 +86,9 @@ struct MessageBubble: View {
 
     var body: some View {
         // 시스템 메시지 — 별도 스타일
-        if message.role == .system {
+        if message.documentURL != nil {
+            documentCompletionView
+        } else if message.role == .system {
             systemMessageView
         } else if isEmptyPlaceholder {
             EmptyView()
@@ -280,6 +282,64 @@ struct MessageBubble: View {
                 .fill(LinearGradient(colors: [palette.separator.opacity(0.2), .clear], startPoint: .leading, endPoint: .trailing))
                 .frame(height: 0.5)
                 .frame(maxWidth: 40)
+            Spacer()
+        }
+        .padding(.vertical, 4)
+    }
+
+    // MARK: - 문서 저장 완료 카드
+
+    private var documentCompletionView: some View {
+        let lines = message.content.components(separatedBy: "\n")
+        let filename = lines.count > 1 ? lines[1] : "문서"
+        let filepath = lines.count > 2 ? lines[2] : ""
+
+        return HStack(spacing: 0) {
+            Spacer()
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "doc.text.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.green.opacity(0.7))
+                    Text("문서가 저장되었습니다")
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(.primary.opacity(0.8))
+                }
+
+                Button {
+                    if let urlStr = message.documentURL, let url = URL(string: urlStr) {
+                        NSWorkspace.shared.open(url)
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.up.right.square")
+                            .font(.system(size: 10))
+                        Text(filename)
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundStyle(palette.accent)
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                }
+
+                if !filepath.isEmpty {
+                    Text(filepath)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(.secondary.opacity(0.5))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(palette.messageSummary.opacity(0.08))
+            .overlay(
+                RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                    .strokeBorder(palette.messageSummary.opacity(0.15), lineWidth: 1)
+            )
+            .continuousRadius(DesignTokens.CozyGame.cardRadius)
             Spacer()
         }
         .padding(.vertical, 4)

@@ -1055,7 +1055,7 @@ struct ApprovalCard: View {
         }
         let content = msg.content
         if content.hasPrefix("실행 계획:") {
-            return ("실행 계획을 확인해주세요", String(content.dropFirst("실행 계획:".count)).trimmingCharacters(in: .whitespacesAndNewlines))
+            return ("작업 계획을 확인해주세요", String(content.dropFirst("실행 계획:".count)).trimmingCharacters(in: .whitespacesAndNewlines))
         }
         if content.contains("이 단계는 승인이 필요합니다") {
             return ("단계 승인이 필요합니다", content)
@@ -1090,7 +1090,6 @@ struct ApprovalCard: View {
                     Text(detail)
                         .font(.system(size: 11, design: .rounded))
                         .foregroundStyle(.secondary)
-                        .lineLimit(6)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 8)

@@ -796,6 +796,8 @@ MessageType에 따른 시각 차별화:
 1. **실제 파일 탐지** (`findActualDocumentFile`): 에이전트가 도구(file_write/Write)로 생성한 문서 파일 또는 응답 텍스트에 backtick으로 언급된 절대 경로를 탐색 → 파일 존재 확인 후 해당 경로 링크
 2. **MD 폴백**: 실제 파일이 없으면 메시지 콘텐츠를 추출하여 `.md`로 저장
 
+**문서 완료 카드**: 저장 완료 메시지는 `ChatMessage.documentURL` 필드가 설정된 `.phaseTransition` 시스템 메시지로 생성. `MessageBubble.documentCompletionView`가 파일 아이콘 + 클릭 가능 파일명 (`NSWorkspace.shared.open`) + 경로를 카드 형태로 표시.
+
 헤더의 "설정" 버튼 하나로 진입. `UtilityWindowManager`에 `pluginManager` 환경 주입 추가.
 
 ### 헤더 버튼 디자인 (`CuteHeaderButtonStyle`)

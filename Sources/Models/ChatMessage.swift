@@ -45,6 +45,8 @@ struct ChatMessage: Identifiable, Codable {
     let activityGroupID: UUID?
     /// 도구 실행 상세 (toolActivity 메시지에만 존재)
     let toolDetail: ToolActivityDetail?
+    /// 문서 저장 완료 시 파일 URL (file:// 스킴)
+    let documentURL: String?
 
     init(
         id: UUID = UUID(),
@@ -55,7 +57,8 @@ struct ChatMessage: Identifiable, Codable {
         messageType: MessageType = .text,
         attachments: [FileAttachment]? = nil,
         activityGroupID: UUID? = nil,
-        toolDetail: ToolActivityDetail? = nil
+        toolDetail: ToolActivityDetail? = nil,
+        documentURL: String? = nil
     ) {
         self.id = id
         self.role = role
@@ -66,6 +69,7 @@ struct ChatMessage: Identifiable, Codable {
         self.attachments = attachments
         self.activityGroupID = activityGroupID
         self.toolDetail = toolDetail
+        self.documentURL = documentURL
     }
 
     // 기존 저장 데이터 호환
@@ -80,5 +84,6 @@ struct ChatMessage: Identifiable, Codable {
         attachments = try container.decodeIfPresent([FileAttachment].self, forKey: .attachments)
         activityGroupID = try container.decodeIfPresent(UUID.self, forKey: .activityGroupID)
         toolDetail = try container.decodeIfPresent(ToolActivityDetail.self, forKey: .toolDetail)
+        documentURL = try container.decodeIfPresent(String.self, forKey: .documentURL)
     }
 }
