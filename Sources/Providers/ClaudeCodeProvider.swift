@@ -36,24 +36,35 @@ private final class StreamJsonHandler: @unchecked Sendable {
 
         let type = json["type"] as? String
 
-        if type == "assistant", let message = json["message"] as? [String: Any] {
+        // 1) tool_use 이벤트: {"type": "tool_use", "tool": {"name": "Read", "input": {...}}}
+        if type == "tool_use", let tool = json["tool"] as? [String: Any] {
+            emitToolUse(tool)
+        }
+        // 2) assistant 메시지: content 배열 안에 tool_use가 포함될 수 있음
+        else if type == "assistant", let message = json["message"] as? [String: Any] {
+            // 직접 tool_use인 경우 (레거시 형식)
             if message["type"] as? String == "tool_use" {
-                let toolName = message["name"] as? String ?? "unknown"
-                let input = message["input"] as? [String: Any]
-                let subject = Self.extractSubject(toolName: toolName, input: input)
-                let label = "도구 사용: \(toolName)\(subject.map { " → \($0)" } ?? "")"
-                let detail = ToolActivityDetail(
-                    toolName: toolName, subject: subject,
-                    contentPreview: nil, isError: false
-                )
-                onActivity(label, detail)
+                emitToolUse(message)
             }
-        } else if type == "result", let resultText = json["result"] as? String {
-            lock.lock()
-            _resultText = resultText
-            lock.unlock()
-        } else if type == "error" {
-            // CLI 에러 이벤트: 활동으로 표시
+            // content 배열에서 tool_use 추출
+            if let content = message["content"] as? [[String: Any]] {
+                for item in content where item["type"] as? String == "tool_use" {
+                    emitToolUse(item)
+                }
+            }
+        }
+        // 3) result 이벤트
+        else if type == "result" {
+            let resultText = json["result"] as? String
+                ?? (json["result"] as? [String: Any])?["text"] as? String
+            if let resultText {
+                lock.lock()
+                _resultText = resultText
+                lock.unlock()
+            }
+        }
+        // 4) error 이벤트
+        else if type == "error" {
             let errorMsg = (json["error"] as? [String: Any])?["message"] as? String
                 ?? json["error"] as? String
                 ?? "알 수 없는 오류"
@@ -63,6 +74,21 @@ private final class StreamJsonHandler: @unchecked Sendable {
             )
             onActivity("오류: \(errorMsg)", detail)
         }
+    }
+
+    /// tool_use JSON 객체에서 활동 이벤트 방출
+    private func emitToolUse(_ tool: [String: Any]) {
+        let toolName = tool["name"] as? String ?? "unknown"
+        let input = tool["input"] as? [String: Any]
+        let subject = Self.extractSubject(toolName: toolName, input: input)
+        let preview = Self.extractContentPreview(toolName: toolName, input: input)
+        let displayName = ToolActivityDetail(toolName: toolName, subject: nil, contentPreview: nil, isError: false).displayName
+        let label = "\(displayName)\(subject.map { " → \($0)" } ?? "")"
+        let detail = ToolActivityDetail(
+            toolName: toolName, subject: subject,
+            contentPreview: preview, isError: false
+        )
+        onActivity(label, detail)
     }
 
     private static func extractSubject(toolName: String, input: [String: Any]?) -> String? {
@@ -85,6 +111,71 @@ private final class StreamJsonHandler: @unchecked Sendable {
             return input["url"] as? String
         case "WebSearch", "web_search":
             return input["query"] as? String
+        default:
+            return nil
+        }
+    }
+
+    /// tool_use input에서 상세 미리보기 추출 (최대 500자)
+    private static func extractContentPreview(toolName: String, input: [String: Any]?) -> String? {
+        guard let input else { return nil }
+        let maxLen = 500
+
+        switch toolName {
+        case "Bash", "shell_exec":
+            // 긴 명령어의 전체 텍스트 표시
+            guard let cmd = input["command"] as? String, cmd.count > 80 else { return nil }
+            return String(cmd.prefix(maxLen))
+
+        case "Edit":
+            // old_string → new_string 변경 내용
+            let old = input["old_string"] as? String ?? ""
+            let new = input["new_string"] as? String ?? ""
+            guard !old.isEmpty || !new.isEmpty else { return nil }
+            let oldPreview = old.count > 200 ? String(old.prefix(197)) + "..." : old
+            let newPreview = new.count > 200 ? String(new.prefix(197)) + "..." : new
+            return "- \(oldPreview)\n+ \(newPreview)"
+
+        case "Write", "file_write":
+            // 작성할 내용의 첫 부분
+            guard let content = input["content"] as? String, !content.isEmpty else { return nil }
+            let lines = content.components(separatedBy: "\n").prefix(10)
+            let preview = lines.joined(separator: "\n")
+            return preview.count > maxLen ? String(preview.prefix(maxLen - 3)) + "..." : preview
+
+        case "Grep":
+            // 검색 패턴 + 경로 + 타입 종합
+            var parts: [String] = []
+            if let pattern = input["pattern"] as? String { parts.append("패턴: \(pattern)") }
+            if let path = input["path"] as? String { parts.append("경로: \(path)") }
+            if let glob = input["glob"] as? String { parts.append("필터: \(glob)") }
+            if let type = input["type"] as? String { parts.append("타입: \(type)") }
+            return parts.count > 1 ? parts.joined(separator: "\n") : nil
+
+        case "Read", "file_read":
+            // offset/limit가 있으면 표시
+            let offset = input["offset"] as? Int
+            let limit = input["limit"] as? Int
+            if let o = offset, let l = limit {
+                return "범위: \(o)행부터 \(l)줄"
+            } else if let o = offset {
+                return "시작: \(o)행부터"
+            } else if let l = limit {
+                return "제한: \(l)줄"
+            }
+            return nil
+
+        case "WebSearch", "web_search":
+            // 검색 쿼리 + 도메인 필터
+            var parts: [String] = []
+            if let domains = input["allowed_domains"] as? [String], !domains.isEmpty {
+                parts.append("도메인: \(domains.joined(separator: ", "))")
+            }
+            if let blocked = input["blocked_domains"] as? [String], !blocked.isEmpty {
+                parts.append("제외: \(blocked.joined(separator: ", "))")
+            }
+            return parts.isEmpty ? nil : parts.joined(separator: "\n")
+
         default:
             return nil
         }

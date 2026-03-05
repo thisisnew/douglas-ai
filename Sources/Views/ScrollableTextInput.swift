@@ -21,8 +21,11 @@ struct ScrollableTextInput: View {
     /// 외부에서 텍스트 동기화를 트리거하는 핸들 (전송 버튼 등)
     final class Accessor {
         fileprivate var syncAction: (() -> Void)?
+        fileprivate var clearAction: (() -> Void)?
         /// NSTextView의 현재 텍스트를 SwiftUI 바인딩에 즉시 동기화
         func sync() { syncAction?() }
+        /// NSTextView + 바인딩 + 높이를 직접 초기화 (전송 후 호출)
+        func clear() { clearAction?() }
     }
 
     @State private var dynamicHeight: CGFloat = 20
@@ -62,10 +65,13 @@ private struct _Representable: NSViewRepresentable {
         let container = _Container(coordinator: context.coordinator)
         context.coordinator.container = container
 
-        // Accessor에 sync 클로저 연결
+        // Accessor에 sync/clear 클로저 연결
         let coord = context.coordinator
         accessor?.syncAction = { [weak coord] in
             coord?.syncText()
+        }
+        accessor?.clearAction = { [weak coord] in
+            coord?.clearText()
         }
 
         // 초기 높이 설정
@@ -81,9 +87,12 @@ private struct _Representable: NSViewRepresentable {
         let coord = context.coordinator
         coord.parent = self
 
-        // Accessor sync 클로저 갱신 (coordinator 참조 유지)
+        // Accessor sync/clear 클로저 갱신 (coordinator 참조 유지)
         accessor?.syncAction = { [weak coord] in
             coord?.syncText()
+        }
+        accessor?.clearAction = { [weak coord] in
+            coord?.clearText()
         }
 
         // 외부 text 변경 반영 (전송 후 text="" 등)
@@ -139,6 +148,8 @@ private struct _Representable: NSViewRepresentable {
             // ScrollView
             let sv = _ScrollView()
             sv.hasVerticalScroller = true
+            sv.hasHorizontalScroller = false
+            sv.horizontalScrollElasticity = .none
             sv.autohidesScrollers = true
             sv.borderType = .noBorder
             sv.drawsBackground = false
@@ -213,6 +224,17 @@ private struct _Representable: NSViewRepresentable {
 
         required init?(coder: NSCoder) { fatalError() }
 
+        override func layout() {
+            super.layout()
+            // 텍스트뷰 너비를 스크롤뷰 클립뷰에 맞춰 가로 스크롤 방지
+            let clipWidth = scrollView.contentView.bounds.width
+            if clipWidth > 0 && abs(textView.frame.width - clipWidth) > 1 {
+                textView.frame.size.width = clipWidth
+                textView.textContainer?.containerSize.width = clipWidth - (textView.textContainer?.lineFragmentPadding ?? 2) * 2
+                recalcHeight()
+            }
+        }
+
         var lineHeight: CGFloat {
             let fh = textView.font?.boundingRectForFont.height ?? 16
             return fh + textView.textContainerInset.height * 2
@@ -263,9 +285,17 @@ private struct _Representable: NSViewRepresentable {
             return super.hitTest(point)
         }
 
-        /// SwiftUI가 스크롤 이벤트를 가로채지 않도록 NSScrollView로 직접 전달
+        /// 텍스트 스크롤 가능 시 NSScrollView로, 아니면 부모(SwiftUI ScrollView)로 전달
         override func scrollWheel(with event: NSEvent) {
-            scrollView.scrollWheel(with: event)
+            let hasScrollableContent = scrollView.documentView
+                .map { $0.frame.height > scrollView.contentView.bounds.height }
+                ?? false
+
+            if hasScrollableContent {
+                scrollView.scrollWheel(with: event)
+            } else {
+                super.scrollWheel(with: event)
+            }
         }
     }
 
@@ -291,6 +321,18 @@ private struct _Representable: NSViewRepresentable {
             parent.text = tv.string
             isUpdating = false
             isDirty = false
+        }
+
+        /// NSTextView + 바인딩 + 높이를 직접 초기화
+        func clearText() {
+            guard let tv = container?.textView else { return }
+            isUpdating = true
+            tv.string = ""
+            parent.text = ""
+            isUpdating = false
+            isDirty = false
+            container?.updatePlaceholder()
+            container?.recalcHeight()
         }
 
         func textDidChange(_ notification: Notification) {
