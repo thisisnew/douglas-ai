@@ -1375,6 +1375,7 @@ struct DiscussionCheckpointCard: View {
     @EnvironmentObject var roomManager: RoomManager
     @Environment(\.colorPalette) private var palette
     @State private var inputText = ""
+    @State private var countdown = 15
     @FocusState private var isFocused: Bool
 
     var body: some View {
@@ -1387,6 +1388,10 @@ struct DiscussionCheckpointCard: View {
                     Text("하실 말씀 있으신가요?")
                         .font(.caption2.bold())
                         .foregroundColor(.primary)
+                    Spacer()
+                    Text("\(countdown)초 후 자동 진행")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.secondary.opacity(0.5))
                 }
 
                 HStack(spacing: 8) {
@@ -1402,6 +1407,9 @@ struct DiscussionCheckpointCard: View {
                         )
                         .focused($isFocused)
                         .onSubmit { submitFeedback() }
+                        .onChange(of: inputText) { _ in
+                            countdown = 15  // 입력 중이면 타이머 리셋
+                        }
 
                     let canSubmit = !inputText.trimmingCharacters(in: .whitespaces).isEmpty
                     Button { submitFeedback() } label: {
@@ -1412,13 +1420,34 @@ struct DiscussionCheckpointCard: View {
                     .buttonStyle(.plain)
                     .disabled(!canSubmit)
 
-                    Button("진행") { proceed() }
-                        .buttonStyle(CozyButtonStyle(.green))
-                        .controlSize(.small)
+                    Button { proceed() } label: {
+                        Text("진행")
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundColor(palette.accent)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(palette.accent.opacity(0.1))
+                            .continuousRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        if hovering { NSCursor.pointingHand.push() }
+                        else { NSCursor.pop() }
+                    }
                 }
             }
         }
-        .onAppear { isFocused = true }
+        .onAppear {
+            isFocused = true
+            Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { timer in
+                if countdown > 1 {
+                    countdown -= 1
+                } else {
+                    timer.invalidate()
+                    proceed()
+                }
+            }
+        }
     }
 
     private func submitFeedback() {
