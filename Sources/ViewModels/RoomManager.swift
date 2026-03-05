@@ -866,7 +866,8 @@ class RoomManager: ObservableObject {
         let previousAgentCount = previousCycleAgentCount[roomID] ?? specialists.count
         let agentsChanged = specialists.count != previousAgentCount
         let hasDocRequest = detectedDocType != nil
-        if resolvedIntent == .quickAnswer && !specialists.isEmpty && !agentsChanged && !hasDocRequest {
+        if !specialists.isEmpty && !agentsChanged &&
+           (resolvedIntent == .quickAnswer || hasDocRequest) {
             completedPhases.insert(.assemble)
         }
         // 문서 후속 요청: clarify 불필요 (사용자 의도가 명확함)
@@ -3967,8 +3968,8 @@ class RoomManager: ObservableObject {
 
         let discussionPrompt = """
         [역할] 당신은 **\(agent.name)**입니다.
-        \(agent.resolvedSystemPrompt)
         \(domainHint)
+        \(agent.resolvedSystemPrompt)
         [필수 규칙]
         - 첫 문장을 반드시 **\(agent.name)의 전문 영역 시각**으로 시작하세요.
         - 예: "\(agent.name) 관점에서 보면..."
