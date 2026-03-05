@@ -2904,34 +2904,19 @@ class RoomManager: ObservableObject {
                         appendMessage(resumeMsg, to: roomID)
                         approvalLoop = false
                     } else {
-                        // 거절 → 피드백 대기
-                        let feedbackPrompt = ChatMessage(
-                            role: .system,
-                            content: "수정 지시를 입력해주세요. 입력 후 해당 단계를 다시 수행합니다."
-                        )
-                        appendMessage(feedbackPrompt, to: roomID)
+                        // 거절 → 마지막 사용자 메시지를 피드백으로 사용
+                        let feedback = rooms.first(where: { $0.id == roomID })?
+                            .messages.last(where: { $0.role == .user })?.content ?? ""
 
                         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                             rooms[i].transitionTo(.inProgress)
                         }
-                        scheduleSave()
-
-                        // 사용자 입력 대기
-                        let feedback = await withCheckedContinuation { (cont: CheckedContinuation<String, Never>) in
-                            userInputContinuations[roomID] = cont
-                        }
-                        userInputContinuations.removeValue(forKey: roomID)
-                        guard !Task.isCancelled else { return }
 
                         stepFeedback = feedback
 
-                        // 피드백을 반영하여 해당 단계 재수행
-                        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                            rooms[i].transitionTo(.inProgress)
-                        }
                         let retryMsg = ChatMessage(
                             role: .system,
-                            content: "피드백 반영: \"\(feedback)\"\n단계 \(stepIndex + 1)을 재수행합니다.",
+                            content: "피드백을 반영하여 단계 \(stepIndex + 1)을 재수행합니다.",
                             messageType: .progress
                         )
                         appendMessage(retryMsg, to: roomID)
@@ -3101,15 +3086,8 @@ class RoomManager: ObservableObject {
                 previousStepResponse = latestResponse
             }
 
-            // 단계 완료 후 리뷰 게이트:
-            // - 첫 단계: 방향 검증
-            // - 마지막 단계: 최종 산출물 확인
-            // - 외부 영향 단계: PR, push, 배포 등 되돌리기 어려운 작업 (키워드 감지)
-            let isFirstStep = stepIndex == 0
-            let isLastStep2 = stepIndex == plan.steps.count - 1
-            let hasExternalEffect = Self.hasExternalEffectKeywords(step.text)
-            if isFirstStep || isLastStep2 || hasExternalEffect {
-                // 리뷰 게이트: 승인 대기 (자동 승인 타이머 포함)
+            // 단계 완료 후 리뷰 게이트: 모든 단계에서 자동 승인 (사용자 개입 가능)
+            do {
                 var stepApproved = false
                 while !stepApproved {
                     guard !Task.isCancelled,
@@ -3197,13 +3175,6 @@ class RoomManager: ObservableObject {
                         }
                     }
                 }
-            } else {
-                // 리뷰 게이트 없는 중간 단계 — 완료 확인 메시지
-                let doneMsg = ChatMessage(
-                    role: .system,
-                    content: "단계 \(stepIndex + 1) 완료. 다음 단계로 진행합니다."
-                )
-                appendMessage(doneMsg, to: roomID)
             }
         }
 
