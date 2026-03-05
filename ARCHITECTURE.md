@@ -897,21 +897,26 @@ MessageType에 따른 시각 차별화:
 
 ### 내장 도구 (ToolRegistry)
 
-모든 에이전트는 전체 12종 도구에 접근 가능 (프리셋 제한 없음).
+모든 에이전트는 전체 16종 도구에 접근 가능 (프리셋 제한 없음).
 
 | ID | 이름 | 설명 |
 |----|------|------|
 | `file_read` | 파일 읽기 | 지정 경로 파일 내용 읽기 (50K자 제한) |
 | `file_write` | 파일 쓰기 | 지정 경로에 파일 작성 |
 | `shell_exec` | 셸 실행 | zsh 명령어 실행 (30K자 출력 제한) |
-| `web_search` | 웹 검색 | 웹 검색 (미구현 placeholder) |
+| `web_search` | 웹 검색 | DuckDuckGo HTML 검색 (상위 8건) |
 | `web_fetch` | 웹 페이지 가져오기 | URL → HTML 가져오기 + Jira REST API 티켓 조회 (JiraConfig 연동) |
 | `invite_agent` | 에이전트 초대 | 방에 다른 에이전트를 런타임 초대 (params: agent_name, reason) |
 | `list_agents` | 에이전트 목록 | 등록된 서브 에이전트 목록 조회 (params: 없음) |
+| `suggest_agent_creation` | 에이전트 생성 제안 | 필요한 역할의 새 에이전트 생성 제안 (사용자 승인 필요) |
 | `ask_user` | 사용자 질문 | Clarify 단계에서만 사용 가능. 사용자에게 질문 (params: question, context?, options?) |
 | `jira_create_subtask` | Jira 서브태스크 생성 | 상위 이슈에 서브태스크 자동 생성 (params: parent_key, summary, project_key?) |
 | `jira_update_status` | Jira 상태 변경 | 이슈 상태 전이 (params: issue_key, status_name) |
 | `jira_add_comment` | Jira 코멘트 작성 | ADF 형식으로 코멘트 추가 (params: issue_key, comment) |
+| **`code_search`** | **코드 검색** | **ripgrep 기반 코드 패턴 검색 — 정규식, 파일 글로브, 컨텍스트 라인, 대소문자 옵션** |
+| **`code_symbols`** | **심볼 검색** | **프로젝트 심볼 정의 검색 — class/struct/func/enum/protocol/interface (Swift/TS/JS/Python/Go/Rust)** |
+| **`code_diagnostics`** | **코드 진단** | **컴파일러/린터 실행 후 구조화된 에러/경고 반환 — SPM/TSC/ESLint/Cargo/Go Vet 자동 감지** |
+| **`code_outline`** | **코드 구조** | **파일의 구조적 아웃라인 — 선언 트리 + 줄 번호 (Swift/TS/JS/Python/Go/Rust)** |
 
 ### ToolFormatConverter (`Providers/ToolFormatConverter.swift`)
 
@@ -976,14 +981,14 @@ executeWithTools() 루프 (최대 10회):
 사용자 입력 → Pre-Intent 라우팅 → Intent 분류 (규칙 + LLM) → 방 생성
   → ① Intake: 입력 파싱 (Jira fetch, URL 감지)
   → ② Intent: 작업 유형 표시 (문서 요청 감지 시 autoDocOutput 설정)
-  → ③ Clarify: 복명복창 (task만, quickAnswer는 스킵)
+  → ③ Clarify: 복명복창 (task만, quickAnswer·문서 요청은 스킵)
   → ④ Assemble: 전문가 초대 (역할 매칭 + 생성 제안)
   → ⑤ [needsPlan?] Plan: 동적 판단 후 토론→계획→승인 (assemble 완료 후 LLM 판별)
   → ⑥ Execute: quickAnswer(즉답) / task+needsPlan(계획 기반 실행) / task+!needsPlan(토론/분석+문서)
 ```
 
 - **Intent 분류** (`IntentClassifier`): 2종 intent (quickAnswer / task). 규칙 기반 즉시 분류 (`quickClassify`) → 실패 시 LLM 분류 (`classifyWithLLM`). `quickClassify`가 nil(판단 불가)이면 `executeIntentPhase`에서 LLM 추천 intent와 함께 **IntentSelectionCard** UI를 표시하여 사용자가 2종 intent 중 선택. `pendingIntentSelection` + `intentContinuations`으로 비동기 게이트 구현. 분류 실패 시 `.quickAnswer` 폴백 (가장 가벼운 워크플로우). 레거시 research/implementation 문자열은 `.task`로 자동 마이그레이션.
-- **문서화 요청 감지** (`DocumentRequestDetector`): 2단계 감지 — ① intent 확정 후 초기 task에서 패턴 감지, ② clarify 후 사용자 피드백에서 재감지 (`detectDocumentSignalFromMessages`). 감지 시 `room.autoDocOutput = true` + `room.documentType` 설정. autoDocOutput이면 assemble 시 1명 제한 해제 (리서치+문서 에이전트 복합 구성), task 완료 후 자동 문서화 (preferredKeywords 기반 최적 에이전트 선택) + NSSavePanel 저장 (클릭 가능 file:// 링크 제공). 후속 사이클에서도 "문서로 정리해줘" 등 감지 가능 (1차 키워드 + 2차 LLM 폴백).
+- **문서화 요청 감지** (`DocumentRequestDetector`): 2단계 감지 — ① intent 확정 후 초기 task에서 패턴 감지, ② clarify 후 사용자 피드백에서 재감지 (`detectDocumentSignalFromMessages`). 감지 시 `room.autoDocOutput = true` + `room.documentType` 설정 (suggestedDocType nil → .freeform 폴백). **문서 요청이 감지되면 clarify 단계 자동 스킵** (사용자 의도가 명확하므로 복명복창 불필요). autoDocOutput이면 assemble 시 1명 제한 해제 (리서치+문서 에이전트 복합 구성), task 완료 후 자동 문서화 (preferredKeywords 기반 최적 에이전트 선택) + NSSavePanel 저장 (클릭 가능 file:// 링크 제공). 후속 사이클에서도 "문서로 정리해줘" 등 감지 가능 (1차 키워드 + 2차 LLM 폴백).
 - **복명복창 Clarify** (`executeClarifyPhase`): DOUGLAS가 요청을 요약 → 사용자 승인/거부 → 거부 시 피드백 반영 재요약 → 승인까지 무한 반복. 승인 시 `room.clarifySummary`에 저장 + `[delegation]` 블록 파싱 → `room.delegationInfo`(`DelegationInfo`)에 저장. explicit 타입이면 assemble에서 LLM 역할 분석 스킵 → 지정 에이전트만 배정. open이면 기존 흐름.
 - **동적 Plan 판단** (`classifyNeedsPlan`): assemble 완료 후 2단계 판별. ① 키워드 기반 즉시 판별(`classifyNeedsPlanByKeywords`): clarifySummary+task에서 구현 키워드(수정/구현/fix/쿼리 등)와 분석 키워드(리서치/요약/번역 등)를 가중치 합산 — planScore≥5이면 즉시 true, noPlanScore≥5 && planScore<3이면 즉시 false. ② 키워드 애매 시 LLM 폴백: light model이 YES/NO 판별. 실패 시 false (안전한 기본값). 결과를 `room.needsPlan`에 저장.
 - **Plan 실행** (`executePlanPhase`): needsPlan=true일 때만 호출. 전문가 2명+ → 토론 + 브리핑 + 계획 수립 + 승인 루프. 전문가 1명 → 계획 수립 + 승인 루프 (soloAnalysis 스킵, requestPlan이 직접 분석).
@@ -1304,7 +1309,7 @@ executeWithTools() 루프 (최대 10회):
 | EditAgentSheet.swift | ~240 | 에이전트 편집 |
 | AppDelegate.swift | ~320 | 윈도우/패널 관리 |
 | ToolFormatConverter.swift | ~290 | 프로바이더별 도구/이미지 형식 변환 |
-| AgentTool.swift | ~230 | 도구 시스템 타입 (ToolRegistry 11종 도구) |
+| AgentTool.swift | ~310 | 도구 시스템 타입 (ToolRegistry 16종 도구, 코드 인텔리전스 포함) |
 | ChatView.swift | ~200 | 채팅 UI + 메시지 버블 (이미지 썸네일) |
 | Agent.swift | ~160 | 에이전트 모델 (isMaster, 이미지, 전체 도구) |
 | AddAgentSheet.swift | ~154 | 에이전트 등록 |

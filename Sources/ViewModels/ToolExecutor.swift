@@ -299,6 +299,14 @@ enum ToolExecutor {
             return await executeJiraAddComment(call)
         case "ask_user":
             return await executeAskUser(call, context: context)
+        case "code_search":
+            return await executeCodeSearch(call, context: context)
+        case "code_symbols":
+            return await executeCodeSymbols(call, context: context)
+        case "code_diagnostics":
+            return await executeCodeDiagnostics(call, context: context)
+        case "code_outline":
+            return await executeCodeOutline(call, context: context)
         default:
             return ToolResult(callID: call.id, content: "알 수 없는 도구: \(call.toolName)", isError: true)
         }
@@ -904,6 +912,14 @@ enum ToolExecutor {
             subject = call.arguments["url"]?.stringValue
         case "web_search":
             subject = call.arguments["query"]?.stringValue
+        case "code_search":
+            subject = call.arguments["pattern"]?.stringValue
+        case "code_symbols":
+            subject = call.arguments["query"]?.stringValue ?? call.arguments["kind"]?.stringValue
+        case "code_diagnostics":
+            subject = call.arguments["command"]?.stringValue ?? call.arguments["path"]?.stringValue
+        case "code_outline":
+            subject = call.arguments["path"]?.stringValue
         default:
             subject = nil
         }
@@ -994,5 +1010,519 @@ enum ToolExecutor {
             content: output,
             isError: exitCode != 0
         )
+    }
+
+    // MARK: - 코드 인텔리전스 도구
+
+    /// ripgrep 바이너리 경로 (Homebrew → 시스템 순으로 탐색)
+    private static let rgPath: String = {
+        let candidates = [
+            "/opt/homebrew/bin/rg",
+            "/usr/local/bin/rg",
+            "/usr/bin/rg"
+        ]
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) } ?? "rg"
+    }()
+
+    // MARK: - code_search
+
+    private static func executeCodeSearch(_ call: ToolCall, context: ToolExecutionContext) async -> ToolResult {
+        guard let pattern = call.arguments["pattern"]?.stringValue, !pattern.isEmpty else {
+            return ToolResult(callID: call.id, content: "pattern 파라미터가 필요합니다.", isError: true)
+        }
+
+        let searchPath: String
+        if let p = call.arguments["path"]?.stringValue {
+            searchPath = resolvePath(p, projectPaths: context.projectPaths)
+        } else {
+            searchPath = context.projectPaths.first ?? "."
+        }
+
+        guard isPathAllowed(searchPath, projectPaths: context.projectPaths) else {
+            return ToolResult(callID: call.id, content: "접근이 허용되지 않은 경로입니다: \(searchPath)", isError: true)
+        }
+
+        var maxResults = 30
+        if case .integer(let n) = call.arguments["max_results"] {
+            maxResults = min(max(n, 1), 100)
+        }
+
+        var contextLines = 0
+        if case .integer(let n) = call.arguments["context_lines"] {
+            contextLines = min(max(n, 0), 5)
+        }
+
+        let caseSensitive: Bool
+        if case .boolean(let b) = call.arguments["case_sensitive"] {
+            caseSensitive = b
+        } else {
+            caseSensitive = true
+        }
+
+        var args = [
+            "--no-heading", "--line-number", "--column",
+            "--max-count", "\(maxResults)",
+            "--max-columns", "200",
+            "--max-columns-preview"
+        ]
+        if contextLines > 0 {
+            args += ["-C", "\(contextLines)"]
+        }
+        if !caseSensitive {
+            args.append("-i")
+        }
+        if let glob = call.arguments["file_glob"]?.stringValue, !glob.isEmpty {
+            args += ["-g", glob]
+        }
+        args += [pattern, searchPath]
+
+        let result = await ProcessRunner.run(
+            executable: rgPath,
+            args: args,
+            env: ShellEnvironment.mergedEnvironment(),
+            workDir: context.projectPaths.first
+        )
+
+        // rg exit code: 0=matches, 1=no matches, 2=error
+        if result.exitCode == 2 {
+            let errMsg = result.stderr.isEmpty ? result.stdout : result.stderr
+            return ToolResult(callID: call.id, content: "검색 오류: \(errMsg)", isError: true)
+        }
+
+        if result.exitCode == 1 || result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return ToolResult(callID: call.id, content: "검색 결과 없음: \(pattern)", isError: false)
+        }
+
+        var output = result.stdout
+        let maxLen = 40_000
+        if output.count > maxLen {
+            output = String(output.prefix(maxLen)) + "\n\n... (결과가 잘렸습니다)"
+        }
+
+        // 매치 수 카운트
+        let matchCount = output.components(separatedBy: "\n").filter { !$0.isEmpty && !$0.hasPrefix("--") }.count
+        return ToolResult(
+            callID: call.id,
+            content: "검색 결과 (\(matchCount)건, 패턴: \(pattern)):\n\n\(output)",
+            isError: false
+        )
+    }
+
+    // MARK: - code_symbols
+
+    /// 언어별 심볼 정의 패턴
+    private static let symbolPatterns: [(kind: String, langs: String, pattern: String)] = [
+        // Swift
+        ("class",    "*.swift", "^\\s*(public |private |internal |open |fileprivate )?\\s*(final )?class\\s+\\w+"),
+        ("struct",   "*.swift", "^\\s*(public |private |internal )?struct\\s+\\w+"),
+        ("enum",     "*.swift", "^\\s*(public |private |internal )?enum\\s+\\w+"),
+        ("protocol", "*.swift", "^\\s*(public |private |internal )?protocol\\s+\\w+"),
+        ("function", "*.swift", "^\\s*(public |private |internal |open |fileprivate |static |class )?\\s*(override )?func\\s+\\w+"),
+        ("property", "*.swift", "^\\s*(public |private |internal |static |lazy )?\\s*(var|let)\\s+\\w+"),
+        // TypeScript / JavaScript
+        ("class",    "*.{ts,tsx,js,jsx}", "^\\s*(export\\s+)?(default\\s+)?class\\s+\\w+"),
+        ("interface","*.{ts,tsx}", "^\\s*(export\\s+)?interface\\s+\\w+"),
+        ("type",     "*.{ts,tsx}", "^\\s*(export\\s+)?type\\s+\\w+\\s*="),
+        ("function", "*.{ts,tsx,js,jsx}", "^\\s*(export\\s+)?(default\\s+)?(async\\s+)?function\\s+\\w+"),
+        ("function", "*.{ts,tsx,js,jsx}", "^\\s*(export\\s+)?(const|let|var)\\s+\\w+\\s*=\\s*(async\\s+)?\\("),
+        // Python
+        ("class",    "*.py", "^class\\s+\\w+"),
+        ("function", "*.py", "^\\s*def\\s+\\w+"),
+        // Go
+        ("struct",   "*.go", "^type\\s+\\w+\\s+struct"),
+        ("interface","*.go", "^type\\s+\\w+\\s+interface"),
+        ("function", "*.go", "^func\\s+(\\(\\w+\\s+\\*?\\w+\\)\\s+)?\\w+"),
+        // Rust
+        ("struct",   "*.rs", "^\\s*(pub\\s+)?struct\\s+\\w+"),
+        ("enum",     "*.rs", "^\\s*(pub\\s+)?enum\\s+\\w+"),
+        ("function", "*.rs", "^\\s*(pub\\s+)?(async\\s+)?fn\\s+\\w+"),
+    ]
+
+    private static func executeCodeSymbols(_ call: ToolCall, context: ToolExecutionContext) async -> ToolResult {
+        let searchPath: String
+        if let p = call.arguments["path"]?.stringValue {
+            searchPath = resolvePath(p, projectPaths: context.projectPaths)
+        } else {
+            searchPath = context.projectPaths.first ?? "."
+        }
+
+        guard isPathAllowed(searchPath, projectPaths: context.projectPaths) else {
+            return ToolResult(callID: call.id, content: "접근이 허용되지 않은 경로입니다: \(searchPath)", isError: true)
+        }
+
+        var maxResults = 50
+        if case .integer(let n) = call.arguments["max_results"] {
+            maxResults = min(max(n, 1), 200)
+        }
+
+        let queryFilter = call.arguments["query"]?.stringValue
+        let kindFilter = call.arguments["kind"]?.stringValue
+        let fileGlob = call.arguments["file_glob"]?.stringValue
+
+        // 적용할 패턴 필터링
+        var patterns = symbolPatterns
+        if let kind = kindFilter {
+            patterns = patterns.filter { $0.kind == kind }
+        }
+        if let glob = fileGlob {
+            // 사용자가 파일 글로브를 지정하면 해당 글로브의 패턴만 남기거나, 모든 패턴을 해당 글로브에 적용
+            patterns = symbolPatterns.map { (kind: $0.kind, langs: glob, pattern: $0.pattern) }
+            if let kind = kindFilter {
+                patterns = patterns.filter { $0.kind == kind }
+            }
+        }
+
+        if patterns.isEmpty {
+            return ToolResult(callID: call.id, content: "지정된 kind '\(kindFilter ?? "")'에 해당하는 패턴이 없습니다.", isError: true)
+        }
+
+        // 각 패턴별로 rg 실행 후 결과 합산
+        struct SymbolMatch: Comparable {
+            let kind: String
+            let name: String
+            let file: String
+            let line: Int
+            let text: String
+
+            static func < (lhs: SymbolMatch, rhs: SymbolMatch) -> Bool {
+                if lhs.file != rhs.file { return lhs.file < rhs.file }
+                return lhs.line < rhs.line
+            }
+        }
+
+        var allMatches: [SymbolMatch] = []
+
+        for pat in patterns {
+            var args = [
+                "--no-heading", "--line-number",
+                "-g", pat.langs,
+                "--max-count", "200",
+                "--max-columns", "200",
+                pat.pattern, searchPath
+            ]
+            // 쿼리 필터가 있으면 심볼 이름에 추가 필터
+            if queryFilter != nil {
+                // rg에서 직접 필터링은 어려우므로 결과에서 후처리
+            }
+            _ = args // suppress unused warning
+
+            let result = await ProcessRunner.run(
+                executable: rgPath,
+                args: [
+                    "--no-heading", "--line-number",
+                    "-g", pat.langs,
+                    "--max-count", "200",
+                    "--max-columns", "200",
+                    pat.pattern, searchPath
+                ],
+                env: ShellEnvironment.mergedEnvironment(),
+                workDir: context.projectPaths.first
+            )
+
+            guard result.exitCode != 2 else { continue }
+
+            for line in result.stdout.components(separatedBy: "\n") where !line.isEmpty {
+                // 형식: file:line:text
+                let parts = line.split(separator: ":", maxSplits: 2)
+                guard parts.count >= 3,
+                      let lineNum = Int(parts[1]) else { continue }
+                let file = String(parts[0])
+                let text = String(parts[2]).trimmingCharacters(in: .whitespaces)
+
+                // 심볼 이름 추출 (선언 키워드 뒤의 첫 단어)
+                let namePattern = "(?:class|struct|enum|protocol|interface|func|function|def|type|fn)\\s+(\\w+)"
+                let name: String
+                if let range = text.range(of: namePattern, options: .regularExpression),
+                   let nameRange = text[range].split(separator: " ").last {
+                    name = String(nameRange).trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+                } else {
+                    name = text.prefix(40).trimmingCharacters(in: .whitespaces)
+                }
+
+                // 쿼리 필터 적용
+                if let query = queryFilter, !query.isEmpty {
+                    let lowerName = name.lowercased()
+                    let lowerText = text.lowercased()
+                    let lowerQuery = query.lowercased()
+                    // 정규식 매칭 시도, 실패하면 단순 포함 검사
+                    let matches: Bool
+                    if let regex = try? NSRegularExpression(pattern: query, options: .caseInsensitive) {
+                        let nameRange = NSRange(name.startIndex..., in: name)
+                        matches = regex.firstMatch(in: name, range: nameRange) != nil
+                    } else {
+                        matches = lowerName.contains(lowerQuery) || lowerText.contains(lowerQuery)
+                    }
+                    guard matches else { continue }
+                }
+
+                allMatches.append(SymbolMatch(kind: pat.kind, name: name, file: file, line: lineNum, text: text))
+            }
+        }
+
+        // 중복 제거 (같은 파일, 같은 줄)
+        var seen = Set<String>()
+        allMatches = allMatches.filter { seen.insert("\($0.file):\($0.line)").inserted }
+        allMatches.sort()
+
+        if allMatches.isEmpty {
+            let desc = [kindFilter, queryFilter].compactMap { $0 }.joined(separator: ", ")
+            return ToolResult(callID: call.id, content: "심볼을 찾을 수 없습니다\(desc.isEmpty ? "" : " (\(desc))")", isError: false)
+        }
+
+        // 프로젝트 루트 기준 상대 경로로 변환
+        let basePrefix = (searchPath.hasSuffix("/") ? searchPath : searchPath + "/")
+
+        let truncated = Array(allMatches.prefix(maxResults))
+        var output = "심볼 \(truncated.count)개"
+        if allMatches.count > maxResults {
+            output += " (전체 \(allMatches.count)개 중 상위 \(maxResults)개)"
+        }
+        output += ":\n\n"
+
+        for m in truncated {
+            let relPath = m.file.hasPrefix(basePrefix) ? String(m.file.dropFirst(basePrefix.count)) : m.file
+            output += "[\(m.kind)] \(m.name)  — \(relPath):\(m.line)\n"
+        }
+
+        return ToolResult(callID: call.id, content: output, isError: false)
+    }
+
+    // MARK: - code_diagnostics
+
+    private static func executeCodeDiagnostics(_ call: ToolCall, context: ToolExecutionContext) async -> ToolResult {
+        let projectPath: String
+        if let p = call.arguments["path"]?.stringValue {
+            projectPath = resolvePath(p, projectPaths: context.projectPaths)
+        } else {
+            projectPath = context.projectPaths.first ?? "."
+        }
+
+        guard isPathAllowed(projectPath, projectPaths: context.projectPaths) else {
+            return ToolResult(callID: call.id, content: "접근이 허용되지 않은 경로입니다: \(projectPath)", isError: true)
+        }
+
+        let severityFilter = call.arguments["severity"]?.stringValue ?? "all"
+
+        // 사용자 지정 명령 또는 프로젝트 유형 자동 감지
+        let command: String
+        if let customCmd = call.arguments["command"]?.stringValue, !customCmd.isEmpty {
+            command = customCmd
+        } else {
+            command = detectDiagnosticCommand(projectPath: projectPath)
+        }
+
+        let env = ShellEnvironment.mergedEnvironment()
+        let result = await ProcessRunner.run(
+            executable: "/bin/zsh",
+            args: ["-c", command],
+            env: env,
+            workDir: projectPath
+        )
+
+        var output = result.stdout
+        if !result.stderr.isEmpty {
+            output += (output.isEmpty ? "" : "\n") + result.stderr
+        }
+
+        if output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return ToolResult(callID: call.id, content: "진단 결과: 문제 없음 ✓", isError: false)
+        }
+
+        // severity 필터링
+        if severityFilter == "error" {
+            let lines = output.components(separatedBy: "\n")
+            let filtered = lines.filter { line in
+                let lower = line.lowercased()
+                return lower.contains("error") || lower.contains("오류")
+            }
+            if filtered.isEmpty {
+                return ToolResult(callID: call.id, content: "에러 없음 (경고가 있을 수 있음). 전체 보기: severity=all", isError: false)
+            }
+            output = filtered.joined(separator: "\n")
+        } else if severityFilter == "warning" {
+            let lines = output.components(separatedBy: "\n")
+            let filtered = lines.filter { line in
+                let lower = line.lowercased()
+                return lower.contains("warning") || lower.contains("error") || lower.contains("경고") || lower.contains("오류")
+            }
+            output = filtered.isEmpty ? output : filtered.joined(separator: "\n")
+        }
+
+        // 크기 제한
+        let maxLen = 40_000
+        if output.count > maxLen {
+            output = String(output.prefix(maxLen)) + "\n\n... (출력이 잘렸습니다)"
+        }
+
+        // 에러/경고 수 카운트
+        let errorCount = output.lowercased().components(separatedBy: "error").count - 1
+        let warningCount = output.lowercased().components(separatedBy: "warning").count - 1
+        let summary = "진단 결과: 에러 \(errorCount)건, 경고 \(warningCount)건 (명령: \(command))\n\n"
+
+        return ToolResult(
+            callID: call.id,
+            content: summary + output,
+            isError: errorCount > 0
+        )
+    }
+
+    /// 프로젝트 디렉토리에서 빌드 시스템 자동 감지
+    private static func detectDiagnosticCommand(projectPath: String) -> String {
+        let fm = FileManager.default
+        let exists = { (name: String) -> Bool in
+            fm.fileExists(atPath: (projectPath as NSString).appendingPathComponent(name))
+        }
+
+        if exists("Package.swift") {
+            return "swift build 2>&1 | tail -100"
+        } else if exists("tsconfig.json") {
+            return "npx tsc --noEmit 2>&1 | tail -100"
+        } else if exists("package.json") {
+            // eslint이 있으면 사용
+            let packagePath = (projectPath as NSString).appendingPathComponent("package.json")
+            if let data = fm.contents(atPath: packagePath),
+               let content = String(data: data, encoding: .utf8),
+               content.contains("eslint") {
+                return "npx eslint . --max-warnings=50 2>&1 | tail -100"
+            }
+            return "npx tsc --noEmit 2>&1 || echo 'tsc not available' | tail -100"
+        } else if exists("Cargo.toml") {
+            return "cargo check 2>&1 | tail -100"
+        } else if exists("go.mod") {
+            return "go vet ./... 2>&1 | tail -100"
+        } else if exists("requirements.txt") || exists("pyproject.toml") || exists("setup.py") {
+            return "python -m py_compile $(find . -name '*.py' -maxdepth 3 | head -20) 2>&1 | tail -100"
+        } else if exists("Makefile") || exists("makefile") {
+            return "make -n 2>&1 | head -20; echo '--- dry run above ---'"
+        }
+
+        return "echo '빌드 시스템을 감지할 수 없습니다. command 파라미터로 명령을 직접 지정하세요.'"
+    }
+
+    // MARK: - code_outline
+
+    private static func executeCodeOutline(_ call: ToolCall, context: ToolExecutionContext) async -> ToolResult {
+        guard let rawPath = call.arguments["path"]?.stringValue else {
+            return ToolResult(callID: call.id, content: "path 파라미터가 필요합니다.", isError: true)
+        }
+        let path = resolvePath(rawPath, projectPaths: context.projectPaths)
+        guard isPathAllowed(path, projectPaths: context.projectPaths) else {
+            return ToolResult(callID: call.id, content: "접근이 허용되지 않은 경로입니다: \(path)", isError: true)
+        }
+
+        var maxDepth = 3
+        if case .integer(let n) = call.arguments["depth"] {
+            maxDepth = min(max(n, 1), 10)
+        }
+
+        guard let content = try? String(contentsOfFile: path, encoding: .utf8) else {
+            return ToolResult(callID: call.id, content: "파일을 읽을 수 없습니다: \(path)", isError: true)
+        }
+
+        let ext = (path as NSString).pathExtension.lowercased()
+        let outline = buildOutline(content: content, extension: ext, maxDepth: maxDepth)
+
+        if outline.isEmpty {
+            return ToolResult(callID: call.id, content: "구조를 추출할 수 없습니다 (지원 확장자: swift, ts, tsx, js, py, go, rs)", isError: false)
+        }
+
+        let fileName = (path as NSString).lastPathComponent
+        let lineCount = content.components(separatedBy: "\n").count
+        return ToolResult(
+            callID: call.id,
+            content: "파일 구조: \(fileName) (\(lineCount)줄)\n\n\(outline)",
+            isError: false
+        )
+    }
+
+    /// 소스 파일의 구조적 아웃라인을 생성
+    private static func buildOutline(content: String, extension ext: String, maxDepth: Int) -> String {
+        let lines = content.components(separatedBy: "\n")
+        var result: [String] = []
+
+        // 언어별 선언 패턴 정의
+        let patterns: [(regex: NSRegularExpression, kind: String, extractName: Bool)]
+        switch ext {
+        case "swift":
+            patterns = compilePatterns([
+                ("^(\\s*)(public |private |internal |open |fileprivate )?(final )?(class|struct|enum|protocol|extension|actor)\\s+(\\w+)", "decl", true),
+                ("^(\\s*)(public |private |internal |open |fileprivate |static |class )?(override )?func\\s+(\\w+)", "func", true),
+                ("^(\\s*)(public |private |internal |static |lazy )?\\s*(?:var|let)\\s+(\\w+)\\s*[:=]", "prop", true),
+                ("^(\\s*)// MARK: -?\\s*(.+)", "mark", true),
+            ])
+        case "ts", "tsx", "js", "jsx":
+            patterns = compilePatterns([
+                ("^(\\s*)(export\\s+)?(default\\s+)?class\\s+(\\w+)", "decl", true),
+                ("^(\\s*)(export\\s+)?interface\\s+(\\w+)", "decl", true),
+                ("^(\\s*)(export\\s+)?type\\s+(\\w+)\\s*=", "decl", true),
+                ("^(\\s*)(export\\s+)?(default\\s+)?(async\\s+)?function\\s+(\\w+)", "func", true),
+                ("^(\\s*)(export\\s+)?(const|let|var)\\s+(\\w+)\\s*=\\s*(async\\s+)?[\\(\\[]", "func", true),
+            ])
+        case "py":
+            patterns = compilePatterns([
+                ("^(\\s*)class\\s+(\\w+)", "decl", true),
+                ("^(\\s*)def\\s+(\\w+)", "func", true),
+            ])
+        case "go":
+            patterns = compilePatterns([
+                ("^type\\s+(\\w+)\\s+(struct|interface)", "decl", true),
+                ("^func\\s+(\\(\\w+\\s+\\*?\\w+\\)\\s+)?(\\w+)", "func", true),
+            ])
+        case "rs":
+            patterns = compilePatterns([
+                ("^(\\s*)(pub\\s+)?struct\\s+(\\w+)", "decl", true),
+                ("^(\\s*)(pub\\s+)?enum\\s+(\\w+)", "decl", true),
+                ("^(\\s*)(pub\\s+)?trait\\s+(\\w+)", "decl", true),
+                ("^(\\s*)(pub\\s+)?(async\\s+)?fn\\s+(\\w+)", "func", true),
+                ("^(\\s*)impl\\s+(\\w+)", "decl", true),
+            ])
+        default:
+            return ""
+        }
+
+        for (lineNum, line) in lines.enumerated() {
+            for pat in patterns {
+                let nsLine = line as NSString
+                let range = NSRange(location: 0, length: nsLine.length)
+                guard let match = pat.regex.firstMatch(in: line, range: range) else { continue }
+
+                // 들여쓰기 깊이 계산
+                let indent = line.prefix(while: { $0 == " " || $0 == "\t" }).count
+                let depth = indent / (ext == "py" ? 4 : 4)  // 4-space indent 기준
+                guard depth < maxDepth else { continue }
+
+                let prefix = String(repeating: "  ", count: depth)
+                let kindIcon: String
+                switch pat.kind {
+                case "decl": kindIcon = "◆"
+                case "func": kindIcon = "▸"
+                case "prop": kindIcon = "·"
+                case "mark": kindIcon = "━"
+                default: kindIcon = " "
+                }
+
+                // 줄 내용을 정리해서 표시
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                let display: String
+                if trimmed.count > 80 {
+                    display = String(trimmed.prefix(77)) + "..."
+                } else {
+                    display = trimmed
+                }
+
+                result.append("\(String(format: "%4d", lineNum + 1)) │ \(prefix)\(kindIcon) \(display)")
+                break  // 한 줄에 하나의 패턴만 매칭
+            }
+        }
+
+        return result.joined(separator: "\n")
+    }
+
+    /// 정규식 패턴을 컴파일 (실패 시 무시)
+    private static func compilePatterns(_ defs: [(pattern: String, kind: String, extractName: Bool)]) -> [(regex: NSRegularExpression, kind: String, extractName: Bool)] {
+        defs.compactMap { def in
+            guard let regex = try? NSRegularExpression(pattern: def.pattern, options: []) else { return nil }
+            return (regex: regex, kind: def.kind, extractName: def.extractName)
+        }
     }
 }

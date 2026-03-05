@@ -128,10 +128,25 @@ struct AgentToolTests {
 
     // MARK: - ToolRegistry
 
-    @Test("ToolRegistry 모든 도구 존재 (suggest_agent_creation 포함)")
+    @Test("ToolRegistry 모든 도구 존재 (코드 인텔리전스 포함)")
     func registryAllTools() {
-        #expect(ToolRegistry.allTools.count == 11)
-        #expect(ToolRegistry.allToolIDs.count == 11)
+        #expect(ToolRegistry.allTools.count == 15)
+        #expect(ToolRegistry.allToolIDs.count == 15)
+    }
+
+    @Test("ToolRegistry 코드 인텔리전스 도구 등록 확인")
+    func registryCodeIntelligenceTools() {
+        let codeToolIDs = ["code_search", "code_symbols", "code_diagnostics", "code_outline"]
+        for id in codeToolIDs {
+            let tool = ToolRegistry.allTools.first { $0.id == id }
+            #expect(tool != nil, "도구 \(id)가 등록되어 있어야 함")
+        }
+        // code_search는 pattern 필수
+        let search = ToolRegistry.allTools.first { $0.id == "code_search" }
+        #expect(search?.parameters.first { $0.name == "pattern" }?.required == true)
+        // code_outline은 path 필수
+        let outline = ToolRegistry.allTools.first { $0.id == "code_outline" }
+        #expect(outline?.parameters.first { $0.name == "path" }?.required == true)
     }
 
     @Test("ToolRegistry invite_agent 등록 확인")

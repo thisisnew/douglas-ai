@@ -232,6 +232,71 @@ enum ToolRegistry {
                 .init(name: "recommended_model", type: .string, description: "Preferred model ID", required: false, enumValues: nil),
                 .init(name: "reason", type: .string, description: "Reason why this agent is needed", required: false, enumValues: nil)
             ]
+        ),
+
+        // MARK: 코드 인텔리전스 도구
+
+        AgentTool(
+            id: "code_search",
+            name: "코드 검색",
+            description: """
+            Search code in the project using ripgrep. Returns matched lines with file paths and line numbers. \
+            Much more powerful than file_read for finding specific code patterns across the entire codebase. \
+            Supports regex patterns. Use file_glob to narrow by file type (e.g. "*.swift", "*.ts").
+            """,
+            parameters: [
+                .init(name: "pattern", type: .string, description: "Regex pattern to search for (e.g. 'func viewDidLoad', 'class.*ViewModel', 'TODO|FIXME')", required: true, enumValues: nil),
+                .init(name: "path", type: .string, description: "Directory or file to search in. Defaults to project root.", required: false, enumValues: nil),
+                .init(name: "file_glob", type: .string, description: "File glob filter (e.g. '*.swift', '*.{ts,tsx}', '*.py')", required: false, enumValues: nil),
+                .init(name: "max_results", type: .integer, description: "Max number of matches to return (default: 30, max: 100)", required: false, enumValues: nil),
+                .init(name: "context_lines", type: .integer, description: "Number of context lines before and after each match (default: 0, max: 5)", required: false, enumValues: nil),
+                .init(name: "case_sensitive", type: .boolean, description: "Case-sensitive search (default: true)", required: false, enumValues: nil)
+            ]
+        ),
+        AgentTool(
+            id: "code_symbols",
+            name: "코드 심볼 검색",
+            description: """
+            Find symbol definitions (classes, structs, functions, protocols, enums, interfaces, types) across the project. \
+            Returns symbol name, kind, file path, and line number. Use this to understand project structure \
+            or find where a specific type/function is defined.
+            """,
+            parameters: [
+                .init(name: "query", type: .string, description: "Symbol name or pattern to search for (e.g. 'ViewModel', 'handle.*Request'). Leave empty to list all symbols.", required: false, enumValues: nil),
+                .init(name: "path", type: .string, description: "Directory or file to search in. Defaults to project root.", required: false, enumValues: nil),
+                .init(name: "kind", type: .string, description: "Filter by symbol kind", required: false,
+                      enumValues: ["class", "struct", "enum", "protocol", "interface", "function", "property", "type"]),
+                .init(name: "file_glob", type: .string, description: "File glob filter (e.g. '*.swift')", required: false, enumValues: nil),
+                .init(name: "max_results", type: .integer, description: "Max results (default: 50, max: 200)", required: false, enumValues: nil)
+            ]
+        ),
+        AgentTool(
+            id: "code_diagnostics",
+            name: "코드 진단",
+            description: """
+            Run compiler or linter on the project and return structured errors and warnings. \
+            Automatically detects project type (Swift/SPM, Node/TypeScript, Python, etc.) or you can specify a custom command. \
+            Use this before making changes to check existing issues, or after changes to verify correctness.
+            """,
+            parameters: [
+                .init(name: "path", type: .string, description: "Project directory to run diagnostics on. Defaults to project root.", required: false, enumValues: nil),
+                .init(name: "command", type: .string, description: "Custom diagnostic command (e.g. 'swiftlint lint', 'eslint src/', 'mypy .'). If omitted, auto-detects.", required: false, enumValues: nil),
+                .init(name: "severity", type: .string, description: "Minimum severity to report", required: false,
+                      enumValues: ["error", "warning", "all"])
+            ]
+        ),
+        AgentTool(
+            id: "code_outline",
+            name: "코드 구조 보기",
+            description: """
+            Get the structural outline of a source file — classes, structs, functions, properties, and their nesting. \
+            Returns a tree-like view of declarations with line numbers. \
+            Use this to quickly understand a file's structure without reading the entire content.
+            """,
+            parameters: [
+                .init(name: "path", type: .string, description: "Absolute file path to analyze", required: true, enumValues: nil),
+                .init(name: "depth", type: .integer, description: "Max nesting depth to show (default: 3)", required: false, enumValues: nil)
+            ]
         )
     ]
 
