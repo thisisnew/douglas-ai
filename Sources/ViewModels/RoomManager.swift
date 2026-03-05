@@ -124,6 +124,16 @@ private final class StreamBuffer: @unchecked Sendable {
     }
 }
 
+/// 팀 구성 확인 게이트 상태
+struct TeamConfirmationState: Equatable {
+    /// 현재 선택된 에이전트 (자동 매칭된 + 사용자 추가)
+    var selectedAgentIDs: Set<UUID>
+    /// 추가 가능한 에이전트 (방에 없는 서브에이전트)
+    var candidateAgentIDs: [UUID]
+    /// "구성 변경" 편집 모드 여부
+    var isEditing: Bool = false
+}
+
 @MainActor
 class RoomManager: ObservableObject {
     @Published var rooms: [Room] = []
@@ -136,8 +146,8 @@ class RoomManager: ObservableObject {
     @Published var pendingIntentSelection: [UUID: WorkflowIntent] = [:]
     /// 문서 유형 선택 대기 중인 방 (향후 재활용 가능)
     @Published var pendingDocTypeSelection: [UUID: Bool] = [:]
-    /// 에이전트 선택 피커 대기 중인 방 (방 ID → 후보 agentID 목록)
-    @Published var pendingAgentPicker: [UUID: [UUID]] = [:]
+    /// 팀 구성 확인 대기 중인 방 (방 ID → 확인 상태)
+    @Published var pendingTeamConfirmation: [UUID: TeamConfirmationState] = [:]
     /// 리뷰 게이트 자동 승인 카운트다운 (방 ID → 남은 초)
     @Published var reviewAutoApprovalRemaining: [UUID: Int] = [:]
 
@@ -159,8 +169,8 @@ class RoomManager: ObservableObject {
     private var intentContinuations: [UUID: CheckedContinuation<WorkflowIntent, Never>] = [:]
     /// 문서 유형 선택 대기 중인 continuation
     private var docTypeContinuations: [UUID: CheckedContinuation<DocumentType, Never>] = [:]
-    /// 에이전트 피커 선택 대기 중인 continuation (방 ID → continuation, UUID? = 선택된 에이전트 또는 nil)
-    private var agentPickerContinuations: [UUID: CheckedContinuation<UUID?, Never>] = [:]
+    /// 팀 구성 확인 대기 중인 continuation (방 ID → continuation, Set<UUID>? = 최종 선택 또는 nil)
+    private var teamConfirmationContinuations: [UUID: CheckedContinuation<Set<UUID>?, Never>] = [:]
     /// 이전 사이클 완료 시점의 에이전트 수 (후속 사이클에서 에이전트 변동 감지용)
     private var previousCycleAgentCount: [UUID: Int] = [:]
     /// 멘션으로 지명된 에이전트 (라우팅 우선권 — executeQuickAnswer/executeSoloAnalysis에서 소비)
@@ -473,31 +483,52 @@ class RoomManager: ObservableObject {
         }
     }
 
-    // MARK: - 에이전트 피커 게이트
+    // MARK: - 팀 구성 확인 게이트
 
-    /// 사용자가 에이전트 피커에서 에이전트를 선택
-    func selectAgentFromPicker(roomID: UUID, agentID: UUID) {
-        pendingAgentPicker.removeValue(forKey: roomID)
-        addAgent(agentID, to: roomID)
-        if let name = agentStore?.agents.first(where: { $0.id == agentID })?.name {
-            let msg = ChatMessage(role: .system, content: "'\(name)'이(가) 작업을 담당합니다.")
-            appendMessage(msg, to: roomID)
-        }
-        if let cont = agentPickerContinuations.removeValue(forKey: roomID) {
-            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].transitionTo(.planning)
-            }
-            cont.resume(returning: agentID)
+    /// "이대로 진행" — 현재 선택 그대로 확정
+    func confirmTeam(roomID: UUID) {
+        guard let state = pendingTeamConfirmation[roomID] else { return }
+        let finalIDs = state.selectedAgentIDs
+        pendingTeamConfirmation.removeValue(forKey: roomID)
+        if let cont = teamConfirmationContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: finalIDs)
         }
         scheduleSave()
     }
 
-    /// 사용자가 에이전트 피커에서 건너뛰기
-    func skipAgentPicker(roomID: UUID) {
-        pendingAgentPicker.removeValue(forKey: roomID)
-        let msg = ChatMessage(role: .system, content: "에이전트 선택을 건너뛰었습니다.")
+    /// "구성 변경" 모드 진입
+    func startEditingTeam(roomID: UUID) {
+        guard pendingTeamConfirmation[roomID] != nil else { return }
+        pendingTeamConfirmation[roomID]?.isEditing = true
+    }
+
+    /// 편집 모드에서 에이전트 선택/해제 토글
+    func toggleAgentInTeam(roomID: UUID, agentID: UUID) {
+        guard pendingTeamConfirmation[roomID] != nil else { return }
+        if pendingTeamConfirmation[roomID]!.selectedAgentIDs.contains(agentID) {
+            pendingTeamConfirmation[roomID]!.selectedAgentIDs.remove(agentID)
+        } else {
+            pendingTeamConfirmation[roomID]!.selectedAgentIDs.insert(agentID)
+        }
+    }
+
+    /// 편집 확정 — 변경된 선택으로 확정
+    func confirmEditedTeam(roomID: UUID) {
+        guard let state = pendingTeamConfirmation[roomID] else { return }
+        let finalIDs = state.selectedAgentIDs
+        pendingTeamConfirmation.removeValue(forKey: roomID)
+        if let cont = teamConfirmationContinuations.removeValue(forKey: roomID) {
+            cont.resume(returning: finalIDs)
+        }
+        scheduleSave()
+    }
+
+    /// 건너뛰기 — 팀 구성 없이 완료
+    func skipTeamConfirmation(roomID: UUID) {
+        pendingTeamConfirmation.removeValue(forKey: roomID)
+        let msg = ChatMessage(role: .system, content: "팀 구성을 건너뛰었습니다.")
         appendMessage(msg, to: roomID)
-        if let cont = agentPickerContinuations.removeValue(forKey: roomID) {
+        if let cont = teamConfirmationContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: nil)
         }
         scheduleSave()
@@ -1045,13 +1076,15 @@ class RoomManager: ObservableObject {
     }
 
     /// 에이전트 제안 취소 후: 기존 에이전트 피커를 표시하거나, 후보가 없으면 워크플로우 완료
-    private func showAgentPickerOrComplete(roomID: UUID) async {
+    /// 팀 구성 확인 게이트: 자동 매칭된 에이전트를 사용자에게 확인받거나 변경 허용
+    private func showTeamConfirmation(roomID: UUID) async {
         let subAgents = agentStore?.subAgents ?? []
         let roomAgentIDs = rooms.first(where: { $0.id == roomID })?.assignedAgentIDs ?? []
-        let candidates = subAgents.filter { !roomAgentIDs.contains($0.id) }.map { $0.id }
+        let specialists = executingAgentIDs(in: roomID)
+        let candidates = subAgents.filter { !roomAgentIDs.contains($0.id) }.map(\.id)
 
-        if candidates.isEmpty {
-            // 후보 에이전트도 없음 → 워크플로우 완료
+        // 에이전트도 없고 후보도 없으면 → 워크플로우 완료
+        if specialists.isEmpty && candidates.isEmpty {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].currentPhase = nil
                 rooms[i].status = .completed
@@ -1062,14 +1095,63 @@ class RoomManager: ObservableObject {
             return
         }
 
-        // 에이전트 피커 표시 → 사용자 선택 대기
-        pendingAgentPicker[roomID] = candidates
-        let selected = await withCheckedContinuation { (cont: CheckedContinuation<UUID?, Never>) in
-            self.agentPickerContinuations[roomID] = cont
+        // 팀 확인 카드 표시 → 사용자 응답 대기
+        pendingTeamConfirmation[roomID] = TeamConfirmationState(
+            selectedAgentIDs: Set(specialists),
+            candidateAgentIDs: candidates
+        )
+
+        let result = await withCheckedContinuation { (cont: CheckedContinuation<Set<UUID>?, Never>) in
+            self.teamConfirmationContinuations[roomID] = cont
         }
 
-        if selected == nil {
-            // 건너뛰기 → 워크플로우 완료
+        // nil → 건너뛰기
+        guard let finalIDs = result else {
+            if executingAgentIDs(in: roomID).isEmpty {
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].currentPhase = nil
+                    rooms[i].status = .completed
+                    rooms[i].completedAt = Date()
+                }
+                syncAgentStatuses()
+                scheduleSave()
+            }
+            return
+        }
+
+        // 차이 적용: 제거할 에이전트 / 추가할 에이전트
+        let currentSpecialists = Set(executingAgentIDs(in: roomID))
+        let toRemove = currentSpecialists.subtracting(finalIDs)
+        let toAdd = finalIDs.subtracting(currentSpecialists)
+
+        if let idx = rooms.firstIndex(where: { $0.id == roomID }) {
+            for agentID in toRemove {
+                rooms[idx].assignedAgentIDs.removeAll(where: { $0 == agentID })
+            }
+        }
+        for agentID in toAdd {
+            addAgent(agentID, to: roomID, silent: true)
+        }
+
+        // 변경 사항 메시지
+        var changes: [String] = []
+        for agentID in toAdd {
+            if let name = agentStore?.agents.first(where: { $0.id == agentID })?.name {
+                changes.append("+ \(name)")
+            }
+        }
+        for agentID in toRemove {
+            if let name = agentStore?.agents.first(where: { $0.id == agentID })?.name {
+                changes.append("- \(name)")
+            }
+        }
+        if !changes.isEmpty {
+            let msg = ChatMessage(role: .system, content: "팀 구성 변경: \(changes.joined(separator: ", "))")
+            appendMessage(msg, to: roomID)
+        }
+
+        // 최종적으로 에이전트 없으면 완료
+        if executingAgentIDs(in: roomID).isEmpty {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].currentPhase = nil
                 rooms[i].status = .completed
@@ -1078,7 +1160,6 @@ class RoomManager: ObservableObject {
             syncAgentStatuses()
             scheduleSave()
         }
-        // selected != nil → selectAgentFromPicker에서 이미 addAgent 처리됨
     }
 
     // MARK: - 방에 에이전트 추가
@@ -1794,6 +1875,7 @@ class RoomManager: ObservableObject {
                     appendMessage(joinMsg, to: roomID)
                 }
                 scheduleSave()
+                await showTeamConfirmation(roomID: roomID)
                 return  // LLM 역할 분석 스킵
             }
             // 매칭 실패 → 기존 directMatch + LLM 흐름으로 폴스루
@@ -1851,6 +1933,7 @@ class RoomManager: ObservableObject {
                 appendMessage(joinMsg, to: roomID)
             }
             scheduleSave()
+            await showTeamConfirmation(roomID: roomID)
             return
         }
 
@@ -1889,9 +1972,10 @@ class RoomManager: ObservableObject {
             }
 
             if requirements.isEmpty {
-                // 기존 전문가가 있으면 그대로 진행
+                // 기존 전문가가 있으면 팀 확인 후 진행
                 let existingSpecialists = executingAgentIDs(in: roomID)
                 if !existingSpecialists.isEmpty {
+                    await showTeamConfirmation(roomID: roomID)
                     return
                 }
 
@@ -1905,11 +1989,8 @@ class RoomManager: ObservableObject {
                 addAgentSuggestion(suggestion, to: roomID)
                 await waitForSuggestionResponse(roomID: roomID)
 
-                // 취소 후 전문가 없으면 → 기존 에이전트 피커 표시
-                let postSkipSpecialists = executingAgentIDs(in: roomID)
-                if postSkipSpecialists.isEmpty {
-                    await showAgentPickerOrComplete(roomID: roomID)
-                }
+                // 제안 해결 후 → 팀 확인 게이트
+                await showTeamConfirmation(roomID: roomID)
                 return
             }
 
@@ -1950,13 +2031,10 @@ class RoomManager: ObservableObject {
             let hadUnmatched = matched.contains(where: { $0.status == .unmatched })
             if hadUnmatched {
                 await waitForSuggestionResponse(roomID: roomID)
-
-                // 취소 후 전문가 없으면 → 기존 에이전트 피커 표시
-                let postSkipSpecialists = executingAgentIDs(in: roomID)
-                if postSkipSpecialists.isEmpty {
-                    await showAgentPickerOrComplete(roomID: roomID)
-                }
             }
+
+            // 5) 팀 구성 확인 게이트
+            await showTeamConfirmation(roomID: roomID)
 
         } catch {
             let errorMsg = ChatMessage(
@@ -4473,12 +4551,12 @@ class RoomManager: ObservableObject {
         if let cont = docTypeContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: .freeform)
         }
-        if let cont = agentPickerContinuations.removeValue(forKey: roomID) {
+        if let cont = teamConfirmationContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: nil)
         }
+        pendingTeamConfirmation.removeValue(forKey: roomID)
         pendingIntentSelection.removeValue(forKey: roomID)
         pendingDocTypeSelection.removeValue(forKey: roomID)
-        pendingAgentPicker.removeValue(forKey: roomID)
         guard rooms[idx].transitionTo(.completed) else { return }
         rooms[idx].completedAt = Date()
         // 에이전트 수 스냅샷 (다음 후속 사이클에서 변동 감지용)
@@ -4513,12 +4591,12 @@ class RoomManager: ObservableObject {
         if let cont = docTypeContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: .freeform)
         }
-        if let cont = agentPickerContinuations.removeValue(forKey: roomID) {
+        if let cont = teamConfirmationContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: nil)
         }
+        pendingTeamConfirmation.removeValue(forKey: roomID)
         pendingIntentSelection.removeValue(forKey: roomID)
         pendingDocTypeSelection.removeValue(forKey: roomID)
-        pendingAgentPicker.removeValue(forKey: roomID)
         rooms[idx].transitionTo(.failed)
         rooms[idx].completedAt = Date()
         let msg = ChatMessage(role: .system, content: "사용자가 작업을 취소했습니다.", messageType: .error)
@@ -4560,12 +4638,12 @@ class RoomManager: ObservableObject {
         if let cont = docTypeContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: .freeform)
         }
-        if let cont = agentPickerContinuations.removeValue(forKey: roomID) {
+        if let cont = teamConfirmationContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: nil)
         }
+        pendingTeamConfirmation.removeValue(forKey: roomID)
         pendingIntentSelection.removeValue(forKey: roomID)
         pendingDocTypeSelection.removeValue(forKey: roomID)
-        pendingAgentPicker.removeValue(forKey: roomID)
 
         // 첨부 이미지 파일 삭제
         if let room = rooms.first(where: { $0.id == roomID }) {

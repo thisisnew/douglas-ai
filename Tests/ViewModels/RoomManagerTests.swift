@@ -79,6 +79,11 @@ struct RoomManagerTests {
                 manager.rejectAgentSuggestion(suggestionID: suggestion.id, in: roomID)
             }
             manager.resumeSuggestionContinuationIfResolved(roomID: roomID)
+
+            // 팀 구성 확인 → 자동 확인
+            if manager.pendingTeamConfirmation[roomID] != nil {
+                manager.confirmTeam(roomID: roomID)
+            }
         }
     }
 
@@ -632,6 +637,10 @@ struct RoomManagerTests {
                 manager.rejectAgentSuggestion(suggestionID: s.id, in: room.id)
             }
             manager.resumeSuggestionContinuationIfResolved(roomID: room.id)
+
+            if manager.pendingTeamConfirmation[room.id] != nil {
+                manager.confirmTeam(roomID: room.id)
+            }
 
             try? await Task.sleep(for: .milliseconds(50))
         }

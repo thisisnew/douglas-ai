@@ -61,9 +61,9 @@ struct RoomChatView: View {
                 }
                 .animation(.easeInOut(duration: 0.3), value: room.pendingAgentSuggestions.filter { $0.status == .pending }.count)
 
-                // 에이전트 피커 카드 (제안 취소 후 기존 에이전트 선택)
-                if let candidateIDs = roomManager.pendingAgentPicker[room.id] {
-                    AgentPickerCard(candidateIDs: candidateIDs, roomID: room.id)
+                // 팀 구성 확인 카드
+                if let teamState = roomManager.pendingTeamConfirmation[room.id] {
+                    TeamConfirmationCard(state: teamState, roomID: room.id)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
@@ -1719,10 +1719,10 @@ struct AgentSuggestionCard: View {
     }
 }
 
-// MARK: - 에이전트 피커 카드
+// MARK: - 팀 구성 확인 카드
 
-struct AgentPickerCard: View {
-    let candidateIDs: [UUID]
+struct TeamConfirmationCard: View {
+    let state: TeamConfirmationState
     let roomID: UUID
     @EnvironmentObject var roomManager: RoomManager
     @EnvironmentObject var agentStore: AgentStore
@@ -1731,73 +1731,157 @@ struct AgentPickerCard: View {
     var body: some View {
         CardContainer(accentColor: palette.accent, opacity: 0.06) {
             VStack(alignment: .leading, spacing: 8) {
+                // 헤더
                 HStack(spacing: 6) {
                     Image(systemName: "person.2")
                         .font(.caption)
                         .foregroundColor(palette.accent.opacity(0.7))
-                    Text("에이전트 선택")
+                    Text(state.isEditing ? "팀 구성 변경" : "팀 구성")
                         .font(.caption2.bold())
                         .foregroundColor(palette.accent.opacity(0.7))
                 }
 
-                Text("기존 에이전트 중 작업을 담당할 에이전트를 선택하세요.")
-                    .font(.system(size: DesignTokens.FontSize.xs))
-                    .foregroundColor(.secondary)
-
-                ForEach(candidates) { agent in
-                    Button {
-                        roomManager.selectAgentFromPicker(roomID: roomID, agentID: agent.id)
-                    } label: {
-                        HStack(spacing: 10) {
-                            AgentAvatarView(agent: agent, size: 28)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(agent.name)
-                                    .font(.caption.bold())
-                                    .foregroundColor(.primary)
-                                Text(String(agent.persona.prefix(50)) + (agent.persona.count > 50 ? "..." : ""))
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.vertical, 4)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                HStack {
-                    Spacer()
-                    Button {
-                        roomManager.skipAgentPicker(roomID: roomID)
-                    } label: {
-                        Text("건너뛰기")
-                            .font(.system(size: 11, weight: .medium, design: .rounded))
-                            .foregroundColor(palette.textSecondary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 6)
-                            .background(
-                                RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
-                                    .fill(palette.inputBackground)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
-                                    .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1)
-                            )
-                            .shadow(color: palette.buttonShadow.opacity(0.1), radius: 2, y: 1)
-                    }
-                    .buttonStyle(.plain)
+                if state.isEditing {
+                    editingBody
+                } else {
+                    confirmBody
                 }
             }
         }
     }
 
-    private var candidates: [Agent] {
-        candidateIDs.compactMap { id in agentStore.agents.first(where: { $0.id == id }) }
+    // MARK: - 기본 모드: 확인
+
+    private var confirmBody: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if selectedAgents.isEmpty {
+                Text("작업을 담당할 에이전트를 선택하세요.")
+                    .font(.system(size: DesignTokens.FontSize.xs))
+                    .foregroundColor(.secondary)
+            } else {
+                ForEach(selectedAgents) { agent in
+                    agentRow(agent: agent, isSelected: true, interactive: false)
+                }
+            }
+
+            HStack(spacing: 8) {
+                Spacer()
+                if !candidateAgents.isEmpty || selectedAgents.isEmpty {
+                    cardButton("구성 변경") {
+                        roomManager.startEditingTeam(roomID: roomID)
+                    }
+                }
+                if !selectedAgents.isEmpty {
+                    cardButton("이대로 진행", primary: true) {
+                        roomManager.confirmTeam(roomID: roomID)
+                    }
+                } else {
+                    cardButton("건너뛰기") {
+                        roomManager.skipTeamConfirmation(roomID: roomID)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - 편집 모드
+
+    private var editingBody: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // 현재 선택된 + 후보를 합쳐서 표시
+            let allAgents = allEditableAgents
+            ForEach(allAgents) { agent in
+                let isSelected = state.selectedAgentIDs.contains(agent.id)
+                Button {
+                    roomManager.toggleAgentInTeam(roomID: roomID, agentID: agent.id)
+                } label: {
+                    agentRow(agent: agent, isSelected: isSelected, interactive: true)
+                }
+                .buttonStyle(.plain)
+            }
+
+            HStack(spacing: 8) {
+                Spacer()
+                if !state.selectedAgentIDs.isEmpty {
+                    cardButton("확인", primary: true) {
+                        roomManager.confirmEditedTeam(roomID: roomID)
+                    }
+                } else {
+                    cardButton("건너뛰기") {
+                        roomManager.skipTeamConfirmation(roomID: roomID)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - 공통 컴포넌트
+
+    private func agentRow(agent: Agent, isSelected: Bool, interactive: Bool) -> some View {
+        HStack(spacing: 10) {
+            if interactive {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.caption)
+                    .foregroundColor(isSelected ? palette.accent : .secondary)
+            }
+            AgentAvatarView(agent: agent, size: 28)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(agent.name)
+                    .font(.caption.bold())
+                    .foregroundColor(.primary)
+                Text(String(agent.persona.prefix(50)) + (agent.persona.count > 50 ? "..." : ""))
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+    }
+
+    private func cardButton(_ title: String, primary: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundColor(primary ? .white : palette.textSecondary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
+                        .fill(primary ? palette.accent : palette.inputBackground)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
+                        .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: primary ? 0 : 1)
+                )
+                .shadow(color: palette.buttonShadow.opacity(0.1), radius: 2, y: 1)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - 데이터
+
+    private var selectedAgents: [Agent] {
+        state.selectedAgentIDs.compactMap { id in agentStore.agents.first(where: { $0.id == id }) }
+            .sorted { $0.name < $1.name }
+    }
+
+    private var candidateAgents: [Agent] {
+        state.candidateAgentIDs.compactMap { id in agentStore.agents.first(where: { $0.id == id }) }
+            .sorted { $0.name < $1.name }
+    }
+
+    private var allEditableAgents: [Agent] {
+        let allIDs = Array(state.selectedAgentIDs) + state.candidateAgentIDs
+        let unique = Array(Set(allIDs))
+        return unique.compactMap { id in agentStore.agents.first(where: { $0.id == id }) }
+            .sorted { a, b in
+                let aSelected = state.selectedAgentIDs.contains(a.id)
+                let bSelected = state.selectedAgentIDs.contains(b.id)
+                if aSelected != bSelected { return aSelected }
+                return a.name < b.name
+            }
     }
 }
 
