@@ -32,7 +32,6 @@ enum ToolExecutor {
 
         // 도구 없거나 프로바이더가 도구 미지원 또는 명시적 비활성화 → 기존 경로
         guard useTools, !toolIDs.isEmpty, provider.supportsToolCalling else {
-            onToolActivity?("API 요청: \(agent.providerName) (\(agent.modelName))", nil)
             let result: String
             if let onStreamChunk, provider.supportsStreaming {
                 result = try await provider.sendMessageStreaming(
@@ -58,7 +57,6 @@ enum ToolExecutor {
                 )
                 if let onStreamChunk { onStreamChunk(result) }
             }
-            onToolActivity?("응답 수신 성공 (\(result.count)자)", nil)
             return result
         }
 
@@ -106,7 +104,6 @@ enum ToolExecutor {
                 guard let content = msg.content else { return nil }
                 return (role: msg.role, content: content)
             }
-            onToolActivity?("API 요청: \(agent.providerName) (\(agent.modelName))", nil)
             let result: String
             if let onStreamChunk, provider.supportsStreaming {
                 result = try await provider.sendMessageStreaming(
@@ -132,7 +129,6 @@ enum ToolExecutor {
                 )
                 if let onStreamChunk { onStreamChunk(result) }
             }
-            onToolActivity?("응답 수신 성공 (\(result.count)자)", nil)
             return result
         }
 
@@ -175,23 +171,37 @@ enum ToolExecutor {
 
             case .toolCalls(let calls):
                 messages.append(.assistantToolCalls(calls, text: nil))
+                // 도구 호출 시작 활동 로깅
+                for call in calls {
+                    let detail = buildCallStartDetail(call: call)
+                    onToolActivity?(detail.displayName + (detail.subject.map { " → \($0)" } ?? ""), detail)
+                }
                 let results = await executeToolCallsInParallel(calls, context: context)
                 for result in results {
                     let call = calls.first(where: { $0.id == result.callID })
-                    let detail = buildActivityDetail(call: call, result: result)
-                    let toolLabel = call?.toolName ?? result.callID
-                    onToolActivity?("도구 결과: \(toolLabel) → \(result.isError ? "오류" : "성공")", detail)
+                    if result.isError {
+                        let detail = buildActivityDetail(call: call, result: result)
+                        let toolLabel = call?.toolName ?? result.callID
+                        onToolActivity?("도구 오류: \(toolLabel)", detail)
+                    }
                     messages.append(.toolResult(callID: result.callID, content: result.content, isError: result.isError))
                 }
 
             case .mixed(let text, let calls):
                 messages.append(.assistantToolCalls(calls, text: text))
+                // 도구 호출 시작 활동 로깅
+                for call in calls {
+                    let detail = buildCallStartDetail(call: call)
+                    onToolActivity?(detail.displayName + (detail.subject.map { " → \($0)" } ?? ""), detail)
+                }
                 let results = await executeToolCallsInParallel(calls, context: context)
                 for result in results {
                     let call = calls.first(where: { $0.id == result.callID })
-                    let detail = buildActivityDetail(call: call, result: result)
-                    let toolLabel = call?.toolName ?? result.callID
-                    onToolActivity?("도구 결과: \(toolLabel) → \(result.isError ? "오류" : "성공")", detail)
+                    if result.isError {
+                        let detail = buildActivityDetail(call: call, result: result)
+                        let toolLabel = call?.toolName ?? result.callID
+                        onToolActivity?("도구 오류: \(toolLabel)", detail)
+                    }
                     messages.append(.toolResult(callID: result.callID, content: result.content, isError: result.isError))
                 }
             }
@@ -877,6 +887,28 @@ enum ToolExecutor {
     }
 
     // MARK: - 도구 활동 상세 생성
+
+    /// 도구 호출 시작 시 UI 표시용 상세 정보 생성 (결과 없이 호출 정보만)
+    private static func buildCallStartDetail(call: ToolCall) -> ToolActivityDetail {
+        let toolName = call.toolName
+        let subject: String?
+        switch toolName {
+        case "file_read":
+            subject = call.arguments["path"]?.stringValue ?? call.arguments["file_path"]?.stringValue
+        case "file_write":
+            subject = call.arguments["path"]?.stringValue ?? call.arguments["file_path"]?.stringValue
+        case "shell_exec":
+            let cmd = call.arguments["command"]?.stringValue ?? ""
+            subject = cmd.count > 80 ? String(cmd.prefix(77)) + "..." : cmd
+        case "web_fetch":
+            subject = call.arguments["url"]?.stringValue
+        case "web_search":
+            subject = call.arguments["query"]?.stringValue
+        default:
+            subject = nil
+        }
+        return ToolActivityDetail(toolName: toolName, subject: subject, contentPreview: nil, isError: false)
+    }
 
     /// 도구 호출 결과에서 UI 표시용 상세 정보 생성
     private static func buildActivityDetail(call: ToolCall?, result: ToolResult) -> ToolActivityDetail {

@@ -291,22 +291,6 @@ class RoomManager: ObservableObject {
         appendMessage(progressMsg, to: roomID)
         let groupID = progressMsg.id
 
-        let startDetail = ToolActivityDetail(
-            toolName: "llm_call",
-            subject: "\(providerName) / \(modelName)",
-            contentPreview: nil,
-            isError: false
-        )
-        let startActivity = ChatMessage(
-            role: .assistant,
-            content: "API 호출: \(providerName) (\(modelName))",
-            agentName: agentName,
-            messageType: .toolActivity,
-            activityGroupID: groupID,
-            toolDetail: startDetail
-        )
-        appendMessage(startActivity, to: roomID)
-
         let onToolActivity: (String, ToolActivityDetail?) -> Void = { [weak self] activity, detail in
             guard let self else { return }
             Task { @MainActor in
@@ -698,9 +682,7 @@ class RoomManager: ObservableObject {
         if let docResult = DocumentRequestDetector.quickDetect(recentUserMessages),
            docResult.isDocumentRequest {
             rooms[idx].autoDocOutput = true
-            if let dt = docResult.suggestedDocType {
-                rooms[idx].documentType = dt
-            }
+            rooms[idx].documentType = docResult.suggestedDocType ?? .freeform
         }
     }
 
@@ -793,7 +775,7 @@ class RoomManager: ObservableObject {
         // 문서 요청 감지 → 플래그만 설정 (숏컷 제거 — assemble 경유로 적합 에이전트 판단)
         var detectedDocType: DocumentType? = nil
         if let docResult = DocumentRequestDetector.quickDetect(task), docResult.isDocumentRequest {
-            detectedDocType = docResult.suggestedDocType
+            detectedDocType = docResult.suggestedDocType ?? .freeform
         } else if task.count >= 20,
            let firstAgentID = rooms[idx].assignedAgentIDs.first,
            let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
@@ -803,7 +785,7 @@ class RoomManager: ObservableObject {
                 text: task, provider: provider, model: lightModel
             )
             if llmResult.isDocumentRequest {
-                detectedDocType = llmResult.suggestedDocType
+                detectedDocType = llmResult.suggestedDocType ?? .freeform
             }
         }
 
@@ -1371,9 +1353,7 @@ class RoomManager: ObservableObject {
             let currentTask = task
             if let docResult = DocumentRequestDetector.quickDetect(currentTask), docResult.isDocumentRequest {
                 rooms[resolvedIdx].autoDocOutput = true
-                if let dt = docResult.suggestedDocType {
-                    rooms[resolvedIdx].documentType = dt
-                }
+                rooms[resolvedIdx].documentType = docResult.suggestedDocType ?? .freeform
             }
         }
     }
@@ -3352,25 +3332,8 @@ class RoomManager: ObservableObject {
             agentStore?.updateStatus(agentID: agentID, status: .working)
             speakingAgentIDByRoom[roomID] = agentID
 
-            // llm_call 시작 활동
+            // 실행 시작 시각 (완료 활동에서 소요 시간 계산용)
             let stepStartTime = Date()
-            if let progressGroupID {
-                let startDetail = ToolActivityDetail(
-                    toolName: "llm_call",
-                    subject: "\(agent.providerName) / \(agent.modelName)",
-                    contentPreview: nil,
-                    isError: false
-                )
-                let startMsg = ChatMessage(
-                    role: .assistant,
-                    content: "API 호출: \(agent.providerName) (\(agent.modelName))",
-                    agentName: agent.name,
-                    messageType: .toolActivity,
-                    activityGroupID: progressGroupID,
-                    toolDetail: startDetail
-                )
-                appendMessage(startMsg, to: roomID)
-            }
 
             let context = makeToolContext(roomID: roomID, currentAgentID: agentID, fileWriteTracker: fileWriteTracker)
             let messagesWithStep = history + [ConversationMessage.user(stepPrompt)]
@@ -3908,21 +3871,6 @@ class RoomManager: ObservableObject {
             )
             appendMessage(progressMsg, to: roomID)
 
-            let callDetail = ToolActivityDetail(
-                toolName: "llm_call",
-                subject: "\(agent.providerName) / \(agent.modelName)",
-                contentPreview: nil, isError: false
-            )
-            let callActivity = ChatMessage(
-                role: .assistant,
-                content: "API 호출: \(agent.providerName) (\(agent.modelName))",
-                agentName: agent.name,
-                messageType: .toolActivity,
-                activityGroupID: progressGroupID,
-                toolDetail: callDetail
-            )
-            appendMessage(callActivity, to: roomID)
-
             // 스트리밍용 placeholder 메시지 — 청크가 실시간으로 표시됨
             let placeholderID = UUID()
             let placeholder = ChatMessage(
@@ -4113,21 +4061,6 @@ class RoomManager: ObservableObject {
                 activityGroupID: progressGroupID
             )
             appendMessage(progressMsg, to: roomID)
-
-            let callDetail = ToolActivityDetail(
-                toolName: "llm_call",
-                subject: "\(agent.providerName) / \(agent.modelName)",
-                contentPreview: nil, isError: false
-            )
-            let callActivity = ChatMessage(
-                role: .assistant,
-                content: "API 호출: \(agent.providerName) (\(agent.modelName))",
-                agentName: agent.name,
-                messageType: .toolActivity,
-                activityGroupID: progressGroupID,
-                toolDetail: callDetail
-            )
-            appendMessage(callActivity, to: roomID)
 
             // 병렬 실행이므로 비스트리밍 (placeholder 충돌 방지)
             let responseContent = try await provider.sendMessageWithTools(
