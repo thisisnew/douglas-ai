@@ -596,10 +596,17 @@ class RoomManager: ObservableObject {
         scheduleSave()
 
         // 기존 에이전트로 토론 히스토리 기반 문서 작성
-        await executeDocumentWritingStep(roomID: roomID, docType: docType, task: task)
+        let docMsgID = await executeDocumentWritingStep(roomID: roomID, docType: docType, task: task)
 
         // 자동 저장
         await offerDocumentSave(roomID: roomID)
+
+        // 저장 성공 후 본문 메시지 숨김 (채팅에 문서 전문이 표시되는 것 방지)
+        if let docMsgID,
+           let i = rooms.firstIndex(where: { $0.id == roomID }),
+           let mi = rooms[i].messages.firstIndex(where: { $0.id == docMsgID }) {
+            rooms[i].messages[mi].messageType = .discussion
+        }
 
         // 완료
         if let i = rooms.firstIndex(where: { $0.id == roomID }),
@@ -610,9 +617,10 @@ class RoomManager: ObservableObject {
         scheduleSave()
     }
 
-    /// 토론 히스토리 기반 문서 작성 실행
-    private func executeDocumentWritingStep(roomID: UUID, docType: DocumentType, task: String) async {
-        guard let room = rooms.first(where: { $0.id == roomID }) else { return }
+    /// 토론 히스토리 기반 문서 작성 실행. 반환값: 스트리밍 메시지 ID (저장 후 숨김 용도)
+    @discardableResult
+    private func executeDocumentWritingStep(roomID: UUID, docType: DocumentType, task: String) async -> UUID? {
+        guard let room = rooms.first(where: { $0.id == roomID }) else { return nil }
 
         // 에이전트 선택: docType preferredKeywords 기반 최적 선택 → 폴백: 첫 번째 전문가 → 마스터
         let specialistIDs = executingAgentIDs(in: roomID)
@@ -634,7 +642,7 @@ class RoomManager: ObservableObject {
         }()
         guard let id = agentID,
               let agent = agentStore?.agents.first(where: { $0.id == id }),
-              let provider = providerManager?.provider(named: agent.providerName) else { return }
+              let provider = providerManager?.provider(named: agent.providerName) else { return nil }
 
         speakingAgentIDByRoom[roomID] = id
 
@@ -657,8 +665,8 @@ class RoomManager: ObservableObject {
         반드시 전체 문서 본문을 출력하세요.
         """
 
+        let msgID = UUID()
         do {
-            let msgID = UUID()
             let placeholder = ChatMessage(id: msgID, role: .assistant, content: "", agentName: agent.name)
             appendMessage(placeholder, to: roomID)
 
@@ -681,6 +689,7 @@ class RoomManager: ObservableObject {
         }
 
         speakingAgentIDByRoom.removeValue(forKey: roomID)
+        return msgID
     }
 
     // MARK: - clarify 후 문서 신호 재감지
