@@ -5,6 +5,9 @@ struct CreateRoomSheet: View {
     @Environment(\.colorPalette) private var palette
     @EnvironmentObject var agentStore: AgentStore
     @EnvironmentObject var roomManager: RoomManager
+    @EnvironmentObject var providerManager: ProviderManager
+    @EnvironmentObject var chatVM: ChatViewModel
+    @EnvironmentObject var themeManager: ThemeManager
     @Environment(\.dismiss) private var dismiss
 
     @State private var title = ""
@@ -318,7 +321,7 @@ struct CreateRoomSheet: View {
 
         let trimmedBuild = buildCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedTest = testCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-        roomManager.createManualRoom(
+        let roomID = roomManager.createManualRoom(
             title: trimmedTitle,
             agentIDs: Array(selectedAgentIDs),
             task: trimmedTask,
@@ -326,8 +329,18 @@ struct CreateRoomSheet: View {
             buildCommand: trimmedBuild.isEmpty ? nil : trimmedBuild,
             testCommand: trimmedTest.isEmpty ? nil : trimmedTest
         )
-        // NSWindow 닫기
+        // 생성 시트 닫고 방 채팅 창 바로 열기
         UtilityWindowManager.shared.closeKeyWindow()
+        UtilityWindowManager.shared.open(
+            title: trimmedTitle, identifier: roomID.uuidString,
+            width: DesignTokens.WindowSize.roomChat.width,
+            height: DesignTokens.WindowSize.roomChat.height,
+            agentStore: agentStore, providerManager: providerManager,
+            chatVM: chatVM, roomManager: roomManager,
+            themeManager: themeManager
+        ) {
+            RoomChatView(roomID: roomID)
+        }
     }
 
     private func pickProjectDirectories() {

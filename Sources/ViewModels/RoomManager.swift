@@ -227,8 +227,9 @@ class RoomManager: ObservableObject {
         return room
     }
 
-    /// 사용자 수동 방 생성 + 바로 작업 시작
-    func createManualRoom(title: String, agentIDs: [UUID], task: String, projectPaths: [String] = [], buildCommand: String? = nil, testCommand: String? = nil, intent: WorkflowIntent? = nil) {
+    /// 사용자 수동 방 생성 + 바로 작업 시작. 생성된 roomID 반환.
+    @discardableResult
+    func createManualRoom(title: String, agentIDs: [UUID], task: String, projectPaths: [String] = [], buildCommand: String? = nil, testCommand: String? = nil, intent: WorkflowIntent? = nil) -> UUID {
         // 마스터를 첫 번째로 배치 (intake/clarify는 항상 마스터가 수행)
         var orderedIDs = agentIDs
         if let masterID = agentStore?.masterAgent?.id {
@@ -243,6 +244,7 @@ class RoomManager: ObservableObject {
 
         // 워크플로우 시작 (추적 가능)
         launchWorkflow(roomID: room.id, task: task)
+        return room.id
     }
 
     /// 워크플로우를 추적 가능한 Task로 시작
