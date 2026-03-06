@@ -536,10 +536,10 @@ class RoomManager: ObservableObject {
         scheduleSave()
     }
 
-    /// 건너뛰기 — 팀 구성 없이 완료
+    /// 취소 — 팀 구성 없이 완료
     func skipTeamConfirmation(roomID: UUID) {
         pendingTeamConfirmation.removeValue(forKey: roomID)
-        let msg = ChatMessage(role: .system, content: "팀 구성을 건너뛰었습니다.")
+        let msg = ChatMessage(role: .system, content: "팀 구성이 취소되었습니다.")
         appendMessage(msg, to: roomID)
         if let cont = teamConfirmationContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: nil)
@@ -2150,11 +2150,37 @@ class RoomManager: ObservableObject {
                     return
                 }
 
-                // 전문가 없음 → 생성 제안 (후속 질문 대응을 위해 모든 intent 공통)
+                // 전문가 없음 → 작업 내용 기반 구체적 에이전트 제안
+                let taskSnippet = String(task.prefix(60))
+                let suggestedName: String
+                let suggestedPersona: String
+                if let brief = rooms[idx].taskBrief {
+                    // taskBrief 기반: 목표에서 전문 분야 추출
+                    let domain = brief.goal.prefix(30)
+                    suggestedName = brief.outputType == .answer || brief.outputType == .analysis
+                        ? "리서치 전문가" : "\(intentName) 전문가"
+                    suggestedPersona = "\(domain) 관련 질문에 답변하고 분석하는 전문가입니다."
+                } else {
+                    // taskBrief 없음: 키워드 기반 추론
+                    let lower = task.lowercased()
+                    if lower.contains("트렌드") || lower.contains("동향") {
+                        suggestedName = "트렌드 분석가"
+                        suggestedPersona = "기술 트렌드와 산업 동향을 분석하는 전문가입니다."
+                    } else if lower.contains("코드") || lower.contains("개발") || lower.contains("구현") {
+                        suggestedName = "소프트웨어 엔지니어"
+                        suggestedPersona = "소프트웨어 설계 및 구현 전문가입니다."
+                    } else if lower.contains("문서") || lower.contains("보고서") || lower.contains("작성") {
+                        suggestedName = "문서 작성 전문가"
+                        suggestedPersona = "보고서, 기획서 등 문서 작성 전문가입니다."
+                    } else {
+                        suggestedName = "범용 전문가"
+                        suggestedPersona = "'\(taskSnippet)' 작업을 수행하는 전문가입니다."
+                    }
+                }
                 let suggestion = RoomAgentSuggestion(
-                    name: "\(intentName) 전문가",
-                    persona: "'\(intentName)' 작업을 수행하는 전문가입니다.",
-                    reason: "작업 수행에 전문가가 필요합니다.",
+                    name: suggestedName,
+                    persona: suggestedPersona,
+                    reason: "'\(taskSnippet)' 작업에 적합한 전문가가 필요합니다.",
                     suggestedBy: agent.name
                 )
                 addAgentSuggestion(suggestion, to: roomID)
@@ -3731,6 +3757,13 @@ class RoomManager: ObservableObject {
                     }
                 }
             }
+        }
+
+        // quickAnswer: deliver에서 실제 답변 실행 (requiredPhases에 execute 없음)
+        if room.intent == .quickAnswer {
+            await executeQuickAnswer(roomID: roomID, task: task)
+            guard !Task.isCancelled,
+                  rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
         }
 
         // 최종 전달 메시지

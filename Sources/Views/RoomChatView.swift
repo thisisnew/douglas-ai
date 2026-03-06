@@ -1832,7 +1832,7 @@ struct TeamConfirmationCard: View {
                         roomManager.confirmTeam(roomID: roomID)
                     }
                 } else {
-                    cardButton("건너뛰기") {
+                    cardButton("취소") {
                         roomManager.skipTeamConfirmation(roomID: roomID)
                     }
                 }
@@ -1863,7 +1863,7 @@ struct TeamConfirmationCard: View {
                         roomManager.confirmEditedTeam(roomID: roomID)
                     }
                 } else {
-                    cardButton("건너뛰기") {
+                    cardButton("취소") {
                         roomManager.skipTeamConfirmation(roomID: roomID)
                     }
                 }
