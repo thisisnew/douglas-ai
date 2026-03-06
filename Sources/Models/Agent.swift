@@ -46,6 +46,127 @@ enum AgentCategory: String, Codable, CaseIterable {
     }
 }
 
+// MARK: - 업무형태 (에이전트가 할 수 있는 일)
+
+enum WorkMode: String, Codable, CaseIterable {
+    case plan       // 계획/설계/전략
+    case create     // 콘텐츠 생성 (문서, 이메일, 코드, 디자인 시안, 번역)
+    case execute    // 실행 (코드 구현, 파일 조작, API 호출, 자동화)
+    case review     // 검토/감수/교정
+    case research   // 조사/분석/데이터 수집
+
+    var displayName: String {
+        switch self {
+        case .plan:     return "계획/설계"
+        case .create:   return "콘텐츠 생성"
+        case .execute:  return "실행/구현"
+        case .review:   return "검토/감수"
+        case .research: return "조사/분석"
+        }
+    }
+}
+
+// MARK: - 산출물 유형 (에이전트가 만들 수 있는 것)
+
+enum OutputStyle: String, Codable, CaseIterable {
+    case code           // 코드, 스크립트
+    case document       // 문서, 보고서, 기획서
+    case data           // 데이터 분석, 차트, 테이블
+    case communication  // 이메일, 메시지, 공지
+    case review         // 리뷰, 피드백, 검토 의견
+    case translation    // 번역물
+    case plan           // 계획, 로드맵, 전략
+
+    var displayName: String {
+        switch self {
+        case .code:          return "코드"
+        case .document:      return "문서"
+        case .data:          return "데이터"
+        case .communication: return "메일/메시지"
+        case .review:        return "리뷰"
+        case .translation:   return "번역"
+        case .plan:          return "계획"
+        }
+    }
+}
+
+// MARK: - 도구 권한 (에이전트 레벨)
+
+enum ActionScope: String, Codable, CaseIterable {
+    // 읽기 (항상 안전)
+    case readFiles          // file_read, code_search, code_symbols, code_outline, code_diagnostics
+    case readWeb            // web_search, web_fetch
+    // 로컬 생성 (되돌릴 수 있음)
+    case writeFiles         // file_write
+    case runCommands        // shell_exec
+    // 외부 영향 (되돌리기 어려움)
+    case modifyExternal     // jira_create_subtask, jira_update_status, jira_add_comment
+    case sendMessages       // 이메일, 슬랙, 메시지 전송
+    case publish            // 배포, 게시, PR merge
+
+    var displayName: String {
+        switch self {
+        case .readFiles:       return "파일 읽기"
+        case .readWeb:         return "웹 검색"
+        case .writeFiles:      return "파일 생성/수정"
+        case .runCommands:     return "셸 명령"
+        case .modifyExternal:  return "외부 시스템 변경"
+        case .sendMessages:    return "메시지 전송"
+        case .publish:         return "배포/게시"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .readFiles:       return "프로젝트 파일을 읽을 수 있습니다"
+        case .readWeb:         return "인터넷 검색 및 웹 페이지를 조회합니다"
+        case .writeFiles:      return "파일을 새로 만들거나 수정합니다"
+        case .runCommands:     return "터미널 명령어를 실행합니다"
+        case .modifyExternal:  return "Jira, GitHub 등 외부 서비스를 변경합니다"
+        case .sendMessages:    return "이메일, 슬랙 등 메시지를 발송합니다"
+        case .publish:         return "코드 배포나 콘텐츠를 게시합니다"
+        }
+    }
+}
+
+// MARK: - 제약 (에이전트가 하면 안 되는 것)
+
+enum AgentRestriction: String, Codable, CaseIterable {
+    case noExternalSend    // 이메일/슬랙/메시지 전송 금지
+    case noPublish         // SNS/블로그/외부 게시 금지
+    case noPayment         // 결제/구매/주문 금지
+    case noDataWrite       // DB/스프레드시트 쓰기 금지
+    case noCodeExec        // 셸/코드 실행 금지
+    case noMerge           // PR merge/배포 금지
+    case draftOnly         // 모든 산출물을 초안 상태로만
+
+    var displayName: String {
+        switch self {
+        case .noExternalSend: return "외부 전송 금지"
+        case .noPublish:      return "게시 금지"
+        case .noPayment:      return "결제 금지"
+        case .noDataWrite:    return "데이터 쓰기 금지"
+        case .noCodeExec:     return "코드 실행 금지"
+        case .noMerge:        return "머지/배포 금지"
+        case .draftOnly:      return "초안만 가능"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .noExternalSend: return "이메일/슬랙 등 외부 전송을 차단합니다"
+        case .noPublish:      return "배포나 게시 작업을 차단합니다"
+        case .noPayment:      return "결제 관련 작업을 차단합니다"
+        case .noDataWrite:    return "DB 쓰기 작업을 차단합니다"
+        case .noCodeExec:     return "셸 명령어 실행을 차단합니다"
+        case .noMerge:        return "코드 머지나 배포를 차단합니다"
+        case .draftOnly:      return "모든 외부 작업을 차단, 초안만 생성합니다"
+        }
+    }
+}
+
+// MARK: - 에이전트
+
 struct Agent: Identifiable, Codable, Hashable {
     static func == (lhs: Agent, rhs: Agent) -> Bool {
         lhs.id == rhs.id &&
@@ -73,6 +194,13 @@ struct Agent: Identifiable, Codable, Hashable {
     // 참조 프로젝트 디렉토리 (여러 건)
     var referenceProjectPaths: [String]
 
+    // Plan C: 에이전트 카드 확장 (라우팅/매칭/안전장치)
+    var skillTags: [String]                        // 자유 태그: ["spring", "java"] 또는 ["문서", "번역", "메일"]
+    var workModes: Set<WorkMode>                   // 업무형태: [.create, .execute, .review]
+    var outputStyles: Set<OutputStyle>             // 산출물 유형: [.code, .document]
+    var restrictions: Set<AgentRestriction>        // 제약: [.noExternalSend, .draftOnly]
+    var actionPermissions: Set<ActionScope>        // 도구 권한: [.readFiles, .writeFiles]
+
     /// 실행 시점에 사용할 완전한 시스템 프롬프트 (페르소나 + 작업 규칙)
     var resolvedSystemPrompt: String {
         guard let rules = workingRules, !rules.isEmpty else {
@@ -90,9 +218,14 @@ struct Agent: Identifiable, Codable, Hashable {
         """
     }
 
-    /// 모든 에이전트는 전체 도구에 접근 가능
+    /// 에이전트 권한에 따라 접근 가능한 도구 ID 목록
+    /// actionPermissions가 비어있으면 전체 도구 접근 (역호환)
     var resolvedToolIDs: [String] {
-        ToolRegistry.allToolIDs
+        guard !actionPermissions.isEmpty else { return ToolRegistry.allToolIDs }
+        return ToolRegistry.allTools.filter { tool in
+            guard let required = tool.requiredActionScope else { return true }
+            return actionPermissions.contains(required)
+        }.map(\.id)
     }
 
     var hasToolsEnabled: Bool { true }
@@ -101,6 +234,7 @@ struct Agent: Identifiable, Codable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case id, name, persona, providerName, modelName, status, isMaster, errorMessage, hasImage
         case category, referenceProjectPaths, workingRules
+        case skillTags, workModes, outputStyles, restrictions, actionPermissions
     }
 
     /// 레거시 JSON의 roleTemplateID 디코딩용
@@ -134,7 +268,12 @@ struct Agent: Identifiable, Codable, Hashable {
         imageData: Data? = nil,
         referenceProjectPaths: [String] = [],
         workingRules: WorkingRulesSource? = nil,
-        category: AgentCategory? = nil
+        category: AgentCategory? = nil,
+        skillTags: [String] = [],
+        workModes: Set<WorkMode> = [],
+        outputStyles: Set<OutputStyle> = [],
+        restrictions: Set<AgentRestriction> = [],
+        actionPermissions: Set<ActionScope> = []
     ) {
         self.id = id
         self.name = name
@@ -147,6 +286,11 @@ struct Agent: Identifiable, Codable, Hashable {
         self.category = category
         self.workingRules = workingRules
         self.referenceProjectPaths = referenceProjectPaths
+        self.skillTags = skillTags
+        self.workModes = workModes
+        self.outputStyles = outputStyles
+        self.restrictions = restrictions
+        self.actionPermissions = actionPermissions
         self.hasImage = false
         if let imageData {
             Self.saveImage(imageData, for: id)
@@ -169,6 +313,13 @@ struct Agent: Identifiable, Codable, Hashable {
         category = try container.decodeIfPresent(AgentCategory.self, forKey: .category)
         referenceProjectPaths = try container.decodeIfPresent([String].self, forKey: .referenceProjectPaths) ?? []
         workingRules = try container.decodeIfPresent(WorkingRulesSource.self, forKey: .workingRules)
+
+        // Plan C: 에이전트 카드 확장 필드 (역호환: 비어있으면 기존 동작)
+        skillTags = try container.decodeIfPresent([String].self, forKey: .skillTags) ?? []
+        workModes = try container.decodeIfPresent(Set<WorkMode>.self, forKey: .workModes) ?? []
+        outputStyles = try container.decodeIfPresent(Set<OutputStyle>.self, forKey: .outputStyles) ?? []
+        restrictions = try container.decodeIfPresent(Set<AgentRestriction>.self, forKey: .restrictions) ?? []
+        actionPermissions = try container.decodeIfPresent(Set<ActionScope>.self, forKey: .actionPermissions) ?? []
 
         // 레거시 마이그레이션: UserDefaults에 imageData가 있으면 파일로 이동
         struct LegacyKey: CodingKey {

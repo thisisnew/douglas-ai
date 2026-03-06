@@ -22,6 +22,13 @@ struct EditAgentSheet: View {
     @State private var inlineRules: String
     @State private var rulesFilePaths: [String]
 
+    // Plan C: 에이전트 카드 메타데이터
+    @State private var skillTagsText: String
+    @State private var selectedWorkModes: Set<WorkMode>
+    @State private var selectedOutputStyles: Set<OutputStyle>
+    @State private var selectedRestrictions: Set<AgentRestriction>
+    @State private var selectedPermissions: Set<ActionScope>
+
     init(agent: Agent) {
         self.agent = agent
         _name = State(initialValue: agent.name)
@@ -34,6 +41,13 @@ struct EditAgentSheet: View {
         // 작업 규칙 초기화
         _inlineRules = State(initialValue: agent.workingRules?.inlineText ?? "")
         _rulesFilePaths = State(initialValue: agent.workingRules?.filePaths ?? [])
+
+        // Plan C: 에이전트 카드 초기화
+        _skillTagsText = State(initialValue: agent.skillTags.joined(separator: ", "))
+        _selectedWorkModes = State(initialValue: agent.workModes)
+        _selectedOutputStyles = State(initialValue: agent.outputStyles)
+        _selectedRestrictions = State(initialValue: agent.restrictions)
+        _selectedPermissions = State(initialValue: agent.actionPermissions)
     }
 
     var body: some View {
@@ -102,6 +116,9 @@ struct EditAgentSheet: View {
                     // 작업 규칙 (마스터가 아닌 경우만)
                     if !agent.isMaster {
                         workingRulesSection
+
+                        // 에이전트 카드 메타데이터 (Plan C)
+                        agentCardSection
                     }
 
                     // 모델 설정 (그룹 카드)
@@ -181,6 +198,71 @@ struct EditAgentSheet: View {
             selectedModel = ""
             availableModels = []
             if !newValue.isEmpty { loadModels(for: newValue) }
+        }
+    }
+
+    // MARK: - 에이전트 카드 섹션
+
+    @ViewBuilder
+    private var agentCardSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionLabel("전문 분야 태그", required: false)
+            TextField("쉼표로 구분 (예: spring, java, api, 백엔드)", text: $skillTagsText)
+                .textFieldStyle(.plain)
+                .font(.callout)
+                .padding(10)
+                .background(palette.inputBackground)
+                .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                    .strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1))
+
+            sectionLabel("작업 모드", required: false)
+            FlowLayout(spacing: 6) {
+                ForEach(WorkMode.allCases, id: \.self) { mode in
+                    ToggleChip(label: mode.displayName, isSelected: selectedWorkModes.contains(mode)) {
+                        if selectedWorkModes.contains(mode) { selectedWorkModes.remove(mode) }
+                        else { selectedWorkModes.insert(mode) }
+                    }
+                }
+            }
+
+            sectionLabel("산출물 유형", required: false)
+            FlowLayout(spacing: 6) {
+                ForEach(OutputStyle.allCases, id: \.self) { style in
+                    ToggleChip(label: style.displayName, isSelected: selectedOutputStyles.contains(style)) {
+                        if selectedOutputStyles.contains(style) { selectedOutputStyles.remove(style) }
+                        else { selectedOutputStyles.insert(style) }
+                    }
+                }
+            }
+
+            sectionLabel("행동 권한", required: false)
+            FlowLayout(spacing: 6) {
+                ForEach(ActionScope.allCases, id: \.self) { scope in
+                    DescriptiveToggleChip(
+                        label: scope.displayName,
+                        description: scope.description,
+                        isSelected: selectedPermissions.contains(scope)
+                    ) {
+                        if selectedPermissions.contains(scope) { selectedPermissions.remove(scope) }
+                        else { selectedPermissions.insert(scope) }
+                    }
+                }
+            }
+
+            sectionLabel("제한 사항", required: false)
+            FlowLayout(spacing: 6) {
+                ForEach(AgentRestriction.allCases, id: \.self) { restriction in
+                    DescriptiveToggleChip(
+                        label: restriction.displayName,
+                        description: restriction.description,
+                        isSelected: selectedRestrictions.contains(restriction)
+                    ) {
+                        if selectedRestrictions.contains(restriction) { selectedRestrictions.remove(restriction) }
+                        else { selectedRestrictions.insert(restriction) }
+                    }
+                }
+            }
         }
     }
 
@@ -454,6 +536,13 @@ struct EditAgentSheet: View {
         }
     }
 
+    private var parsedSkillTags: [String] {
+        skillTagsText
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
     private func save() {
         var updated = agent
         updated.name = name
@@ -464,6 +553,11 @@ struct EditAgentSheet: View {
         updated.referenceProjectPaths = referenceProjectPaths
         if !agent.isMaster {
             updated.workingRules = WorkingRulesSource(inlineText: inlineRules, filePaths: rulesFilePaths)
+            updated.skillTags = parsedSkillTags
+            updated.workModes = selectedWorkModes
+            updated.outputStyles = selectedOutputStyles
+            updated.restrictions = selectedRestrictions
+            updated.actionPermissions = selectedPermissions
         }
         agentStore.updateAgent(updated)
         dismiss()

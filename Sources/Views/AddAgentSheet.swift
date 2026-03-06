@@ -21,6 +21,15 @@ struct AddAgentSheet: View {
     @State private var inlineRules: String = ""
     @State private var rulesFilePaths: [String] = []
 
+    // Plan C: 에이전트 카드 메타데이터
+    @State private var skillTagsText: String = ""
+    @State private var selectedWorkModes: Set<WorkMode> = []
+    @State private var selectedOutputStyles: Set<OutputStyle> = []
+    @State private var selectedRestrictions: Set<AgentRestriction> = []
+    @State private var selectedPermissions: Set<ActionScope> = []
+    @State private var selectedPreset: AgentPreset?
+    @State private var showPresetPicker = false
+
     // 사전 입력 (AgentSuggestionCard에서 호출 시)
     var prefillName: String?
     var prefillPersona: String?
@@ -110,6 +119,12 @@ struct AddAgentSheet: View {
                             validationHint("역할 설명을 입력하세요")
                         }
                     }
+
+                    // 프리셋으로 빠른 설정
+                    presetSection
+
+                    // 에이전트 카드 메타데이터 (Plan C)
+                    agentCardSection
 
                     // 작업 규칙 (필수)
                     workingRulesSection
@@ -202,6 +217,141 @@ struct AddAgentSheet: View {
             availableModels = []
             if !newValue.isEmpty { loadModels(for: newValue) }
         }
+    }
+
+    // MARK: - 프리셋 섹션
+
+    @ViewBuilder
+    private var presetSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionLabel("프리셋", required: false)
+            ForEach(AgentPreset.grouped, id: \.category) { group in
+                VStack(alignment: .leading, spacing: 4) {
+                    if group.category != .custom {
+                        Text(group.category.rawValue)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(palette.textSecondary.opacity(0.6))
+                            .padding(.leading, 2)
+                    }
+                    FlowLayout(spacing: 6) {
+                        ForEach(group.presets) { preset in
+                            Button {
+                                applyPreset(preset)
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: preset.icon)
+                                        .font(.caption)
+                                    Text(preset.name)
+                                        .font(.caption)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(selectedPreset?.id == preset.id ? palette.accent.opacity(0.15) : palette.inputBackground)
+                                .foregroundColor(selectedPreset?.id == preset.id ? palette.accent : palette.textSecondary)
+                                .continuousRadius(DesignTokens.Radius.md)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: DesignTokens.Radius.md, style: .continuous)
+                                        .strokeBorder(selectedPreset?.id == preset.id ? palette.accent.opacity(0.4) : .clear, lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - 에이전트 카드 섹션
+
+    @ViewBuilder
+    private var agentCardSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionLabel("전문 분야 태그", required: false)
+            TextField("쉼표로 구분 (예: spring, java, api, 백엔드)", text: $skillTagsText)
+                .textFieldStyle(.plain)
+                .font(.callout)
+                .padding(10)
+                .background(palette.inputBackground)
+                .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                    .strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1))
+
+            // 작업 모드
+            sectionLabel("작업 모드", required: false)
+            FlowLayout(spacing: 6) {
+                ForEach(WorkMode.allCases, id: \.self) { mode in
+                    ToggleChip(label: mode.displayName, isSelected: selectedWorkModes.contains(mode)) {
+                        if selectedWorkModes.contains(mode) {
+                            selectedWorkModes.remove(mode)
+                        } else {
+                            selectedWorkModes.insert(mode)
+                        }
+                    }
+                }
+            }
+
+            // 산출물 유형
+            sectionLabel("산출물 유형", required: false)
+            FlowLayout(spacing: 6) {
+                ForEach(OutputStyle.allCases, id: \.self) { style in
+                    ToggleChip(label: style.displayName, isSelected: selectedOutputStyles.contains(style)) {
+                        if selectedOutputStyles.contains(style) {
+                            selectedOutputStyles.remove(style)
+                        } else {
+                            selectedOutputStyles.insert(style)
+                        }
+                    }
+                }
+            }
+
+            // 행동 권한
+            sectionLabel("행동 권한", required: false)
+            FlowLayout(spacing: 6) {
+                ForEach(ActionScope.allCases, id: \.self) { scope in
+                    DescriptiveToggleChip(
+                        label: scope.displayName,
+                        description: scope.description,
+                        isSelected: selectedPermissions.contains(scope)
+                    ) {
+                        if selectedPermissions.contains(scope) {
+                            selectedPermissions.remove(scope)
+                        } else {
+                            selectedPermissions.insert(scope)
+                        }
+                    }
+                }
+            }
+
+            // 제한 사항
+            sectionLabel("제한 사항", required: false)
+            FlowLayout(spacing: 6) {
+                ForEach(AgentRestriction.allCases, id: \.self) { restriction in
+                    DescriptiveToggleChip(
+                        label: restriction.displayName,
+                        description: restriction.description,
+                        isSelected: selectedRestrictions.contains(restriction)
+                    ) {
+                        if selectedRestrictions.contains(restriction) {
+                            selectedRestrictions.remove(restriction)
+                        } else {
+                            selectedRestrictions.insert(restriction)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - 프리셋 적용
+
+    private func applyPreset(_ preset: AgentPreset) {
+        selectedPreset = preset
+        skillTagsText = preset.tags.joined(separator: ", ")
+        selectedWorkModes = preset.modes
+        selectedOutputStyles = preset.outputs
+        selectedPermissions = preset.permissions
+        selectedRestrictions = preset.restrictions
     }
 
     // MARK: - 작업 규칙 섹션
@@ -505,6 +655,13 @@ struct AddAgentSheet: View {
         }
     }
 
+    private var parsedSkillTags: [String] {
+        skillTagsText
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
     private func addAgent() {
         let rules = WorkingRulesSource(inlineText: inlineRules, filePaths: rulesFilePaths)
 
@@ -515,7 +672,12 @@ struct AddAgentSheet: View {
             modelName: selectedModel,
             imageData: imageData,
             referenceProjectPaths: referenceProjectPaths,
-            workingRules: rules
+            workingRules: rules,
+            skillTags: parsedSkillTags,
+            workModes: selectedWorkModes,
+            outputStyles: selectedOutputStyles,
+            restrictions: selectedRestrictions,
+            actionPermissions: selectedPermissions
         )
         agentStore.addAgent(agent)
 

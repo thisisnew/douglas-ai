@@ -386,6 +386,60 @@ struct FlowLayout: Layout {
     }
 }
 
+// MARK: - ToggleChip (선택 가능한 태그 칩)
+
+struct ToggleChip: View {
+    @Environment(\.colorPalette) private var palette
+    let label: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.caption)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(isSelected ? palette.accent.opacity(0.15) : palette.inputBackground)
+                .foregroundColor(isSelected ? palette.accent : palette.textSecondary)
+                .clipShape(Capsule())
+                .overlay(Capsule().strokeBorder(isSelected ? palette.accent.opacity(0.4) : palette.cardBorder.opacity(0.15), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// 설명이 포함된 토글 칩 (행동권한/제한사항용)
+struct DescriptiveToggleChip: View {
+    @Environment(\.colorPalette) private var palette
+    let label: String
+    let description: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                    .font(.caption)
+                Text(description)
+                    .font(.system(size: 9))
+                    .foregroundStyle(isSelected ? palette.accent.opacity(0.7) : palette.textSecondary.opacity(0.5))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(isSelected ? palette.accent.opacity(0.15) : palette.inputBackground)
+            .foregroundColor(isSelected ? palette.accent : palette.textSecondary)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(isSelected ? palette.accent.opacity(0.4) : palette.cardBorder.opacity(0.15), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 // MARK: - SwiftUI Animation 편의 확장
 
 extension SwiftUI.Animation {
