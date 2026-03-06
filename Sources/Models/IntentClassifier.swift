@@ -272,13 +272,33 @@ enum IntentClassifier {
     // MARK: - TaskBrief 생성 (Plan C)
 
     /// LLM을 사용하여 사용자 요청에서 TaskBrief를 생성
+    /// - userHasExplicitIntent: 사용자가 URL/파일 외에 구체적 작업 의도를 명시했는지 여부
     static func generateTaskBrief(
         task: String,
         intakeContext: String?,
         clarifySummary: String?,
+        userHasExplicitIntent: Bool = true,
         provider: any AIProvider,
         model: String
     ) async -> TaskBrief? {
+        let clarificationGuideline: String
+        if !userHasExplicitIntent {
+            clarificationGuideline = """
+            needsClarification 기준:
+            - 사용자가 URL이나 파일만 제공하고 구체적 작업을 명시하지 않았습니다.
+            - 반드시 needsClarification: true로 설정하세요.
+            - questions에 "이 내용을 바탕으로 어떤 작업을 진행할까요? (예: 기획, 개발, 분석, 요약 등)" 같은 질문을 포함하세요.
+            """
+        } else {
+            clarificationGuideline = """
+            needsClarification 기준:
+            - false (기본값): 요청이 충분히 명확하여 바로 작업 가능
+            - URL이나 외부 데이터와 함께 구체적 작업 요청이 있는 경우: false
+            - true: 핵심 정보가 누락되어 작업 진행 불가 (수신인, 대상 시스템, 필수 파라미터 등)
+            - true일 때 questions에 최대 2개의 구체적 한국어 질문을 포함하세요.
+            """
+        }
+
         let systemPrompt = """
         사용자의 작업 요청을 분석하여 구조화된 작업 브리프(JSON)를 생성하세요.
         반드시 한국어로 작성하세요. 아래 JSON 형식으로만 출력하세요. 다른 텍스트를 포함하지 마세요.
@@ -294,11 +314,7 @@ enum IntentClassifier {
           "questions": []
         }
 
-        needsClarification 기준:
-        - false (기본값): 요청이 충분히 명확하여 바로 작업 가능
-        - URL이나 외부 데이터가 함께 제공된 경우: 해당 내용을 기반으로 작업 가능하므로 false
-        - true: 핵심 정보가 누락되어 작업 진행 불가 (수신인, 대상 시스템, 필수 파라미터 등)
-        - true일 때 questions에 최대 2개의 구체적 한국어 질문을 포함하세요.
+        \(clarificationGuideline)
 
         overallRisk 기준:
         - low: 읽기 전용, 분석, 설명, 번역, 내부 문서 작성
@@ -379,7 +395,7 @@ enum IntentClassifier {
     }
 
     /// 사용자가 URL 외에 명시적 의도를 작성했는지 (ex: "이거 구현해", "분석해줘")
-    private static func hasExplicitUserIntent(_ text: String) -> Bool {
+    static func hasExplicitUserIntent(_ text: String) -> Bool {
         // Jira 첨부 데이터(--- Jira 티켓 내용 ... --- 끝 ---) 제거 후 사용자 입력만 확인
         let userText: String
         if let jiraStart = text.range(of: "--- jira") {

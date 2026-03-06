@@ -777,12 +777,10 @@ class RoomManager: ObservableObject {
 
         // 작업 진행 중: 워크플로우를 취소하지 않음 (승인 대기·입력 대기·실행 중 모두 포함)
         if room.isActive {
-            if userInputContinuations[roomID] != nil {
-                let noteMsg = ChatMessage(
-                    role: .system,
-                    content: "추가 요건이 반영되었습니다."
-                )
-                appendMessage(noteMsg, to: roomID)
+            let userText = cleanText.isEmpty ? text : cleanText
+            if let cont = userInputContinuations.removeValue(forKey: roomID) {
+                // 입력 대기 중이면 사용자 텍스트를 답변으로 전달
+                cont.resume(returning: userText)
             }
             scheduleSave()
             return
@@ -1289,6 +1287,8 @@ class RoomManager: ObservableObject {
 
         var workflowStart = Date()
         var completedPhases: Set<WorkflowPhase> = []
+        // 파일만 업로드된 경우 understand 단계에서 사용자 입력으로 task가 갱신됨
+        var resolvedTask = task
 
         while true {
             guard !Task.isCancelled,
@@ -1325,20 +1325,20 @@ class RoomManager: ObservableObject {
 
             switch nextPhase {
             case .intake:
-                await executeIntakePhase(roomID: roomID, task: task)
+                await executeIntakePhase(roomID: roomID, task: resolvedTask)
             case .intent:
-                await executeIntentPhase(roomID: roomID, task: task)
+                await executeIntentPhase(roomID: roomID, task: resolvedTask)
             case .clarify:
-                await executeClarifyPhase(roomID: roomID, task: task)
+                await executeClarifyPhase(roomID: roomID, task: resolvedTask)
                 // clarify 후 문서 요청 재감지 (사용자 피드백에 문서 신호 있을 수 있음)
                 detectDocumentSignalFromMessages(roomID: roomID)
             case .assemble:
-                await executeAssemblePhase(roomID: roomID, task: task)
+                await executeAssemblePhase(roomID: roomID, task: resolvedTask)
 
                 // assemble 완료 후: task intent이면 needsPlan 동적 판단
                 if let currentRoom2 = rooms.first(where: { $0.id == roomID }),
                    currentRoom2.intent == .task {
-                    let planNeeded = await classifyNeedsPlan(roomID: roomID, task: task)
+                    let planNeeded = await classifyNeedsPlan(roomID: roomID, task: resolvedTask)
                     if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                         rooms[i].needsPlan = planNeeded
                     }
@@ -1351,7 +1351,7 @@ class RoomManager: ObservableObject {
                         }
                         scheduleSave()
                         let planIntent = rooms.first(where: { $0.id == roomID })?.intent ?? .task
-                        await executePlanPhase(roomID: roomID, task: task, intent: planIntent)
+                        await executePlanPhase(roomID: roomID, task: resolvedTask, intent: planIntent)
                         completedPhases.insert(.plan)
                         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                             rooms[i].completedPhases = completedPhases
@@ -1362,26 +1362,30 @@ class RoomManager: ObservableObject {
             case .plan:
                 // requiredPhases에 .plan이 없으므로 여기에 오지 않음 (안전장치)
                 let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .quickAnswer
-                await executePlanPhase(roomID: roomID, task: task, intent: intent)
+                await executePlanPhase(roomID: roomID, task: resolvedTask, intent: intent)
             case .execute:
                 let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .quickAnswer
-                await executeExecutePhase(roomID: roomID, task: task, intent: intent)
+                await executeExecutePhase(roomID: roomID, task: resolvedTask, intent: intent)
             case .understand:
                 // Plan C: Understand 통합 단계 — intake+intent+clarify+TaskBrief
-                await executeUnderstandPhase(roomID: roomID, task: task)
+                await executeUnderstandPhase(roomID: roomID, task: resolvedTask)
+                // understand 후 사용자가 입력한 실제 task로 갱신 (파일만 업로드 등)
+                if resolvedTask.isEmpty, let room = rooms.first(where: { $0.id == roomID }) {
+                    resolvedTask = room.taskBrief?.goal ?? room.title
+                }
                 detectDocumentSignalFromMessages(roomID: roomID)
             case .design:
                 // Plan C: 3턴 고정 프로토콜 (Propose → Critique → Revise)
-                await executeDesignPhase(roomID: roomID, task: task)
+                await executeDesignPhase(roomID: roomID, task: resolvedTask)
             case .build:
                 // Plan C: Creator 단계별 실행 (riskLevel별 정책)
-                await executeBuildPhase(roomID: roomID, task: task)
+                await executeBuildPhase(roomID: roomID, task: resolvedTask)
             case .review:
                 // Plan C: Reviewer 검토
-                await executeReviewPhase(roomID: roomID, task: task)
+                await executeReviewPhase(roomID: roomID, task: resolvedTask)
             case .deliver:
                 // Plan C: 최종 전달 (high = Draft 프리뷰 + 명시 승인)
-                await executeDeliverPhase(roomID: roomID, task: task)
+                await executeDeliverPhase(roomID: roomID, task: resolvedTask)
             }
 
             completedPhases.insert(nextPhase)
@@ -2273,13 +2277,74 @@ class RoomManager: ObservableObject {
 
     /// Understand 단계 (Plan C): intake + intent + TaskBrief 생성 (clarify 루프 제거)
     private func executeUnderstandPhase(roomID: UUID, task: String) async {
+        var actualTask = task
+
+        // 0) 파일만 업로드된 경우: 사용자에게 작업 의도 확인
+        if task.isEmpty {
+            let questionMsg = ChatMessage(
+                role: .assistant,
+                content: "어떤 작업을 진행할까요?\n(예: 이미지 분석, 텍스트 추출, 디자인 피드백, 코드 리뷰 등)",
+                agentName: masterAgentName,
+                messageType: .userQuestion
+            )
+            appendMessage(questionMsg, to: roomID)
+
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.awaitingUserInput)
+            }
+            scheduleSave()
+
+            // 2분 타임아웃으로 사용자 응답 대기
+            let answer: String? = await withTaskGroup(of: String?.self) { group in
+                group.addTask { @MainActor [weak self] in
+                    guard let self else { return nil }
+                    return await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+                        self.userInputContinuations[roomID] = continuation
+                    }
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 120_000_000_000)
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+
+            guard let userAnswer = answer, !userAnswer.isEmpty else {
+                // 타임아웃 → 종료
+                let timeoutMsg = ChatMessage(
+                    role: .system,
+                    content: "입력 대기 시간이 초과되었습니다. 새로 요청해주세요.",
+                    messageType: .error
+                )
+                appendMessage(timeoutMsg, to: roomID)
+                userInputContinuations.removeValue(forKey: roomID)
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.failed)
+                    rooms[i].completedAt = Date()
+                }
+                syncAgentStatuses()
+                scheduleSave()
+                return
+            }
+
+            actualTask = userAnswer
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.planning)
+                let titleText = userAnswer.prefix(30).components(separatedBy: "\n").first ?? String(userAnswer.prefix(30))
+                rooms[i].title = String(titleText)
+            }
+            scheduleSave()
+        }
+
         // 1) Intake: URL/Jira fetch
-        await executeIntakePhase(roomID: roomID, task: task)
+        await executeIntakePhase(roomID: roomID, task: actualTask)
         guard !Task.isCancelled,
               rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
         // 2) Intent: quickAnswer vs task 분류
-        await executeIntentPhase(roomID: roomID, task: task)
+        await executeIntentPhase(roomID: roomID, task: actualTask)
         guard !Task.isCancelled,
               rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
@@ -2292,10 +2357,12 @@ class RoomManager: ObservableObject {
         let lightModel = providerManager?.lightModelName(for: agent.providerName) ?? agent.modelName
 
         let intakeContext = rooms[idx].intakeData?.asClarifyContextString()
+        let hasExplicitIntent = IntentClassifier.hasExplicitUserIntent(actualTask)
         guard let brief = await IntentClassifier.generateTaskBrief(
-            task: task,
+            task: actualTask,
             intakeContext: intakeContext,
             clarifySummary: rooms[idx].clarifySummary,
+            userHasExplicitIntent: hasExplicitIntent,
             provider: provider,
             model: lightModel
         ) else { return }
@@ -2305,7 +2372,7 @@ class RoomManager: ObservableObject {
 
         // 4) needsClarification이면 질문 최대 2회 → 자동 진행 (Plan C)
         var currentBrief = brief
-        var enrichedTask = task
+        var enrichedTask = actualTask
         let maxQuestions = 2
 
         for questionRound in 1...maxQuestions {
@@ -2352,6 +2419,7 @@ class RoomManager: ObservableObject {
                     task: enrichedTask,
                     intakeContext: intakeContext,
                     clarifySummary: rooms[idx].clarifySummary,
+                    userHasExplicitIntent: true,
                     provider: provider,
                     model: lightModel
                 ) {
@@ -2471,9 +2539,21 @@ class RoomManager: ObservableObject {
 
         var proposal = ""
         do {
+            // Progress 추적: Turn 1
+            let progressMsg = ChatMessage(role: .system, content: "\(turn1Agent.name) 설계 제안 중", messageType: .progress)
+            appendMessage(progressMsg, to: roomID)
+            let startActivity = ChatMessage(
+                role: .assistant, content: "\(turn1Agent.name) 설계 제안 중",
+                agentName: turn1Agent.name, messageType: .toolActivity,
+                activityGroupID: progressMsg.id,
+                toolDetail: ToolActivityDetail(toolName: "llm_call", subject: "\(turn1Agent.providerName) · \(turn1Agent.modelName)", contentPreview: nil, isError: false)
+            )
+            appendMessage(startActivity, to: roomID)
+
             let placeholderID = UUID()
             appendMessage(ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: turn1Agent.name), to: roomID)
 
+            let startTime = Date()
             let buffer = StreamBuffer()
             proposal = try await turn1Provider.sendMessageStreaming(
                 model: turn1Agent.modelName,
@@ -2486,6 +2566,16 @@ class RoomManager: ObservableObject {
                 }
             )
             updateMessageContent(placeholderID, newContent: proposal, in: roomID)
+
+            let duration = Date().timeIntervalSince(startTime)
+            let durationStr = duration < 60 ? String(format: "%.1f초", duration) : String(format: "%d분 %.0f초", Int(duration) / 60, duration.truncatingRemainder(dividingBy: 60))
+            let resultActivity = ChatMessage(
+                role: .assistant, content: "제안 완료 (\(durationStr))",
+                agentName: turn1Agent.name, messageType: .toolActivity,
+                activityGroupID: progressMsg.id,
+                toolDetail: ToolActivityDetail(toolName: "llm_result", subject: "\(durationStr) | \(proposal.count)자", contentPreview: nil, isError: false)
+            )
+            appendMessage(resultActivity, to: roomID)
         } catch {
             appendMessage(ChatMessage(role: .assistant, content: "설계 제안 오류: \(error.userFacingMessage)", agentName: turn1Agent.name, messageType: .error), to: roomID)
             return
@@ -2497,6 +2587,10 @@ class RoomManager: ObservableObject {
         // 2인: Reviewer만
         var critique = ""
         if usePlannerProtocol {
+            // Progress 추적: Turn 2 병렬 피드백
+            let parallelProgressMsg = ChatMessage(role: .system, content: "병렬 검토 진행 중", messageType: .progress)
+            appendMessage(parallelProgressMsg, to: roomID)
+
             // 병렬 피드백 수집
             let feedbackAgents = specialists.filter { $0 != turn1ID }
             var feedbacks: [(String, String)] = []
@@ -2517,6 +2611,12 @@ class RoomManager: ObservableObject {
                             await MainActor.run { [self] in
                                 self.speakingAgentIDByRoom[roomID] = agentID
                                 self.appendMessage(ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: agent.name), to: roomID)
+                                self.appendMessage(ChatMessage(
+                                    role: .assistant, content: "\(agent.name) 검토 중",
+                                    agentName: agent.name, messageType: .toolActivity,
+                                    activityGroupID: parallelProgressMsg.id,
+                                    toolDetail: ToolActivityDetail(toolName: "llm_call", subject: "\(agent.providerName) · \(agent.modelName)", contentPreview: nil, isError: false)
+                                ), to: roomID)
                             }
                             let buffer = StreamBuffer()
                             let result = try await provider.sendMessageStreaming(
@@ -2546,6 +2646,17 @@ class RoomManager: ObservableObject {
         } else {
             // 2인 프로토콜: Reviewer만
             speakingAgentIDByRoom[roomID] = reviewerID
+
+            // Progress 추적: Turn 2
+            let critiqueProgressMsg = ChatMessage(role: .system, content: "\(reviewerAgent.name) 검토 중", messageType: .progress)
+            appendMessage(critiqueProgressMsg, to: roomID)
+            appendMessage(ChatMessage(
+                role: .assistant, content: "\(reviewerAgent.name) 검토 중",
+                agentName: reviewerAgent.name, messageType: .toolActivity,
+                activityGroupID: critiqueProgressMsg.id,
+                toolDetail: ToolActivityDetail(toolName: "llm_call", subject: "\(reviewerAgent.providerName) · \(reviewerAgent.modelName)", contentPreview: nil, isError: false)
+            ), to: roomID)
+
             let critiquePrompt = """
             \(reviewerAgent.resolvedSystemPrompt)
 
@@ -2566,6 +2677,7 @@ class RoomManager: ObservableObject {
                 let placeholderID = UUID()
                 appendMessage(ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: reviewerAgent.name), to: roomID)
 
+                let critiqueStart = Date()
                 let buffer = StreamBuffer()
                 critique = try await reviewerProvider.sendMessageStreaming(
                     model: reviewerAgent.modelName,
@@ -2578,6 +2690,15 @@ class RoomManager: ObservableObject {
                     }
                 )
                 updateMessageContent(placeholderID, newContent: critique, in: roomID)
+
+                let critiqueDuration = Date().timeIntervalSince(critiqueStart)
+                let critiqueDurationStr = critiqueDuration < 60 ? String(format: "%.1f초", critiqueDuration) : String(format: "%d분 %.0f초", Int(critiqueDuration) / 60, critiqueDuration.truncatingRemainder(dividingBy: 60))
+                appendMessage(ChatMessage(
+                    role: .assistant, content: "검토 완료 (\(critiqueDurationStr))",
+                    agentName: reviewerAgent.name, messageType: .toolActivity,
+                    activityGroupID: critiqueProgressMsg.id,
+                    toolDetail: ToolActivityDetail(toolName: "llm_result", subject: "\(critiqueDurationStr) | \(critique.count)자", contentPreview: nil, isError: false)
+                ), to: roomID)
             } catch {
                 appendMessage(ChatMessage(role: .assistant, content: "검토 오류: \(error.userFacingMessage)", agentName: reviewerAgent.name, messageType: .error), to: roomID)
             }
@@ -2591,6 +2712,17 @@ class RoomManager: ObservableObject {
         if !critiqueApproved {
             // Turn 3: Revise (리더가 피드백 반영 → 최종 계획)
             speakingAgentIDByRoom[roomID] = turn1ID
+
+            // Progress 추적: Turn 3
+            let reviseProgressMsg = ChatMessage(role: .system, content: "\(turn1Agent.name) 계획 수정 중", messageType: .progress)
+            appendMessage(reviseProgressMsg, to: roomID)
+            appendMessage(ChatMessage(
+                role: .assistant, content: "\(turn1Agent.name) 계획 수정 중",
+                agentName: turn1Agent.name, messageType: .toolActivity,
+                activityGroupID: reviseProgressMsg.id,
+                toolDetail: ToolActivityDetail(toolName: "llm_call", subject: "\(turn1Agent.providerName) · \(turn1Agent.modelName)", contentPreview: nil, isError: false)
+            ), to: roomID)
+
             let revisePrompt = """
             \(turn1Agent.resolvedSystemPrompt)
 
@@ -2608,6 +2740,7 @@ class RoomManager: ObservableObject {
                 let placeholderID = UUID()
                 appendMessage(ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: turn1Agent.name), to: roomID)
 
+                let reviseStart = Date()
                 let buffer = StreamBuffer()
                 let revisedPlan = try await turn1Provider.sendMessageStreaming(
                     model: turn1Agent.modelName,
@@ -2623,6 +2756,15 @@ class RoomManager: ObservableObject {
                 )
                 updateMessageContent(placeholderID, newContent: revisedPlan, in: roomID)
                 finalDesignText = revisedPlan
+
+                let reviseDuration = Date().timeIntervalSince(reviseStart)
+                let reviseDurationStr = reviseDuration < 60 ? String(format: "%.1f초", reviseDuration) : String(format: "%d분 %.0f초", Int(reviseDuration) / 60, reviseDuration.truncatingRemainder(dividingBy: 60))
+                appendMessage(ChatMessage(
+                    role: .assistant, content: "수정 완료 (\(reviseDurationStr))",
+                    agentName: turn1Agent.name, messageType: .toolActivity,
+                    activityGroupID: reviseProgressMsg.id,
+                    toolDetail: ToolActivityDetail(toolName: "llm_result", subject: "\(reviseDurationStr) | \(revisedPlan.count)자", contentPreview: nil, isError: false)
+                ), to: roomID)
             } catch {
                 appendMessage(ChatMessage(role: .assistant, content: "수정 오류: \(error.userFacingMessage)", agentName: turn1Agent.name, messageType: .error), to: roomID)
             }

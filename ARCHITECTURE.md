@@ -977,7 +977,7 @@ executeWithTools() 루프 (최대 10회):
 
 **Pre-Intent 라우팅** (`IntentClassifier.preRoute`): 방 생성 전 입력을 5가지로 분류:
 - `.empty`: 텍스트+파일 없음 → 무시
-- `.fileOnly`: 파일만 업로드 → intent=nil로 방 생성 (사용자 선택 대기)
+- `.fileOnly`: 파일만 업로드 → intent=nil로 방 생성, 빈 task로 워크플로우 시작 → Understand 단계에서 사용자에게 작업 의도 질문 (2분 타임아웃)
 - `.command(.summonAgent)`: "에이전트 불러와" 등 시스템 명령 → 안내 메시지 표시
 - `.classified(intent)`: quickAnswer 또는 task 확정 → 정상 워크플로우
 - `.ambiguous`: 분류 불가 → intent=nil로 방 생성 (사용자 선택 UI)
@@ -1111,6 +1111,8 @@ executeWithTools() 루프 (최대 10회):
 **Plan C: 새 6단계 워크플로우** (런타임 구현 완료):
 ```
 ① Understand ─ intake+intent+TaskBrief 통합 (clarify 루프 제거, needsClarification → 최대 2회 질문 + 30초 타임아웃)
+              파일만 업로드(빈 task) 시 작업 의도 질문 후 대기 (2분 타임아웃)
+              bare URL(명시적 의도 없음) 시 needsClarification 강제 true → 작업 목적 질문
 ② Assemble ── 3-tier 가중치 에이전트 매칭 (Tier1: skillTags×5, Tier2: workModes+outputStyles×3, Tier3: keyword+semantic×2)
               confidence 0.7↑ 자동, 0.5~0.7 사용자확인, 0.5↓ 제외 + RuntimeRole 사전배정 + 팀 확정 메시지(Role 표시)
 ③ Design ──── 2인: 3턴 Propose→Critique→Revise (승인 시 Turn 3 스킵) / 3인+: Planner 프로토콜 / 1인: 구조화 플랜

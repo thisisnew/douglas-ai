@@ -143,11 +143,11 @@ class ChatViewModel: ObservableObject {
             return
 
         case .fileOnly:
-            // 파일만 업로드 → 방 생성 후 intent=nil (사용자 선택 대기)
+            // 파일만 업로드 → 방 생성 후 사용자 의도 대기
             let roomTitle = Self.extractRoomTitle(from: text, hasAttachments: hasAttachments)
             let startMsg = ChatMessage(
                 role: .assistant,
-                content: "파일을 받았습니다. 어떤 작업을 진행할까요?",
+                content: "파일을 받았습니다. 작업방에서 원하시는 작업을 알려주세요.",
                 agentName: agent.name,
                 messageType: .delegation
             )
@@ -163,7 +163,8 @@ class ChatViewModel: ObservableObject {
             roomManager.pendingAutoOpenRoomID = room.id
             let userMsg = ChatMessage(role: .user, content: text, attachments: attachments)
             roomManager.appendMessage(userMsg, to: room.id)
-            roomManager.launchWorkflow(roomID: room.id, task: "파일 분석")
+            // 빈 task로 워크플로우 시작 → executeUnderstandPhase에서 사용자 입력 대기
+            roomManager.launchWorkflow(roomID: room.id, task: "")
             agentStore.updateStatus(agentID: agent.id, status: .idle)
             sendNotification(agentName: agent.name, message: "파일 수신")
 
