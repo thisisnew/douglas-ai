@@ -1082,7 +1082,16 @@ struct ApprovalCard: View {
         if content.contains("Review") && content.contains("실패") {
             return ("Review 실패 — 확인이 필요합니다", content)
         }
-        return ("분석 결과를 확인해주세요", nil)
+        if content.hasPrefix("설계 완료:") {
+            return ("설계 결과를 확인해주세요", String(content.dropFirst("설계 완료:".count)).trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        if content.contains("추가할까요") {
+            return ("에이전트 추가 제안", content)
+        }
+        if content.contains("결과를 확인해주세요") {
+            return ("단계 결과를 확인해주세요", content)
+        }
+        return ("확인이 필요합니다", content)
     }
 
     var body: some View {
