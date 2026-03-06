@@ -19,19 +19,13 @@ enum DocumentExporter {
         let filename = sanitizeFilename(suggestedName, ext: defaultExtension)
 
         // 고정 경로가 설정되어 있으면 자동 저장
-        if let fixedDir = UserDefaults.standard.string(forKey: "documentSaveDirectory"),
-           !fixedDir.isEmpty,
-           {
-               var isDir: ObjCBool = false
-               return FileManager.default.fileExists(atPath: fixedDir, isDirectory: &isDir) && isDir.boolValue
-           }() {
-            let dirURL = URL(fileURLWithPath: fixedDir)
+        if let dirURL = resolveDocumentSaveDirectory() {
             let fileURL = uniqueFileURL(directory: dirURL, filename: filename)
             do {
                 try content.write(to: fileURL, atomically: true, encoding: .utf8)
                 return fileURL
             } catch {
-                // 자동 저장 실패 시 NSSavePanel 폴백
+                print("[DocumentExporter] 설정 폴더 저장 실패: \(error.localizedDescription) → 기본 폴더로 폴백")
             }
         }
 
@@ -48,6 +42,40 @@ enum DocumentExporter {
         } catch {
             return nil
         }
+    }
+
+    /// 설정된 문서 저장 폴더 URL 해석 (Bookmark → 경로 문자열 순서)
+    private static func resolveDocumentSaveDirectory() -> URL? {
+        // 1. Security Bookmark으로 해석 시도 (앱 재시작 후에도 접근 권한 유지)
+        if let bookmarkData = UserDefaults.standard.data(forKey: "documentSaveDirectoryBookmark") {
+            var isStale = false
+            if let url = try? URL(
+                resolvingBookmarkData: bookmarkData,
+                options: [],
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            ) {
+                var isDir: ObjCBool = false
+                if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+                    // Stale bookmark → 갱신
+                    if isStale, let newData = try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) {
+                        UserDefaults.standard.set(newData, forKey: "documentSaveDirectoryBookmark")
+                    }
+                    return url
+                }
+            }
+        }
+
+        // 2. 경로 문자열로 폴백
+        if let fixedDir = UserDefaults.standard.string(forKey: "documentSaveDirectory"),
+           !fixedDir.isEmpty {
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: fixedDir, isDirectory: &isDir), isDir.boolValue {
+                return URL(fileURLWithPath: fixedDir)
+            }
+        }
+
+        return nil
     }
 
     /// 같은 이름의 파일이 있으면 (2), (3)... 을 붙여 고유 파일명 생성

@@ -125,5 +125,14 @@ struct GeneralSettingsView: View {
 
         documentSavePath = url.path
         UserDefaults.standard.set(url.path, forKey: "documentSaveDirectory")
+
+        // Security Bookmark 저장 (앱 재시작 후에도 폴더 접근 권한 유지)
+        if let bookmarkData = try? url.bookmarkData(
+            options: [],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        ) {
+            UserDefaults.standard.set(bookmarkData, forKey: "documentSaveDirectoryBookmark")
+        }
     }
 }
