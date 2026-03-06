@@ -2041,8 +2041,24 @@ class RoomManager: ObservableObject {
                 rooms[i].agentRoles[soloName] = .creator
             }
 
+            // 참여 메시지 표시
+            let masterName = agentStore?.masterAgent?.name ?? "DOUGLAS"
+            let docDescs = executingAgentIDs(in: roomID).compactMap { id -> String? in
+                guard let name = agentStore?.agents.first(where: { $0.id == id })?.name else { return nil }
+                if let role = rooms.first(where: { $0.id == roomID })?.agentRoles[name] {
+                    return "\(name)(\(role.displayName))"
+                }
+                return name
+            }
+            if !docDescs.isEmpty {
+                appendMessage(ChatMessage(
+                    role: .system,
+                    content: "\(docDescs.joined(separator: ", "))님이 참여합니다.",
+                    agentName: masterName
+                ), to: roomID)
+            }
+
             scheduleSave()
-            // 문서 전용 에이전트는 확인 없이 바로 진행 (이미 생성/배정 메시지 표시됨)
             return
         }
 
@@ -3401,6 +3417,17 @@ class RoomManager: ObservableObject {
             appendMessage(ChatMessage(role: .assistant, content: "계획 수립 오류: \(error.userFacingMessage)", agentName: agent.name, messageType: .error), to: roomID)
         }
         speakingAgentIDByRoom.removeValue(forKey: roomID)
+
+        // plan 파싱 실패 시 복구: 계획 없이 바로 실행 단계로 진행
+        if rooms.first(where: { $0.id == roomID })?.plan == nil {
+            appendMessage(ChatMessage(
+                role: .system,
+                content: "계획 수립을 건너뛰고 바로 실행합니다.",
+                messageType: .progress
+            ), to: roomID)
+            scheduleSave()
+            return
+        }
 
         // 승인 루프 (최대 2회 수정 요청)
         if let plan = rooms.first(where: { $0.id == roomID })?.plan {
