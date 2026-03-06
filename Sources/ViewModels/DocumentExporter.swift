@@ -70,6 +70,16 @@ enum DocumentExporter {
         }
     }
 
+    /// 설정된 경로가 존재하지만 접근 불가한 경우 경고 문자열 반환
+    static func checkSaveDirectoryWarning() -> String? {
+        let configured = UserDefaults.standard.string(forKey: "documentSaveDirectory")
+        guard let configured, !configured.isEmpty else { return nil }
+        if resolveDocumentSaveDirectory() == nil {
+            return "설정된 저장 경로(\(configured))에 접근할 수 없어 기본 경로에 저장됩니다. 설정에서 경로를 다시 지정해 주세요."
+        }
+        return nil
+    }
+
     /// 설정된 문서 저장 폴더 URL 해석 (Bookmark → 경로 문자열 순서)
     private static func resolveDocumentSaveDirectory() -> URL? {
         // 1. Security Bookmark으로 해석 시도 (앱 재시작 후에도 접근 권한 유지)
@@ -106,22 +116,26 @@ enum DocumentExporter {
         return nil
     }
 
-    /// 같은 이름의 파일이 있으면 (2), (3)... 을 붙여 고유 파일명 생성
+    /// 날짜_번호 형식으로 고유 파일명 생성 (20260307_001.md, 20260307_002.md, ...)
     private static func uniqueFileURL(directory: URL, filename: String) -> URL {
         let base = (filename as NSString).deletingPathExtension
         let ext = (filename as NSString).pathExtension
-        var candidate = directory.appendingPathComponent(filename)
-        var counter = 2
-        while FileManager.default.fileExists(atPath: candidate.path) {
-            let newName = ext.isEmpty ? "\(base) (\(counter))" : "\(base) (\(counter)).\(ext)"
-            candidate = directory.appendingPathComponent(newName)
+        var counter = 1
+        while true {
+            let name = ext.isEmpty
+                ? String(format: "%@_%03d", base, counter)
+                : String(format: "%@_%03d.%@", base, counter, ext)
+            let candidate = directory.appendingPathComponent(name)
+            if !FileManager.default.fileExists(atPath: candidate.path) {
+                return candidate
+            }
             counter += 1
         }
-        return candidate
     }
 
-    /// 방에서 문서 내용 추출 (artifact 우선, fallback: 마지막 assistant 메시지)
-    static func extractDocumentContent(from room: Room) -> String? {
+    /// 방에서 문서 내용 추출 (artifact 우선, fallback: assistant 메시지)
+    /// - beforeLastUserMessage: true면 마지막 user 메시지 이전의 assistant 답변만 탐색 (포맷 변환용)
+    static func extractDocumentContent(from room: Room, beforeLastUserMessage: Bool = false) -> String? {
         // 1차: artifact type == .document (최신 버전 우선)
         if let docArtifact = room.artifacts
             .filter({ $0.type == .document })
@@ -130,8 +144,17 @@ enum DocumentExporter {
             return ArtifactParser.stripArtifactBlocks(from: docArtifact.content)
         }
 
-        // 2차: 마지막 assistant .text 메시지 (최소 200자 이상이어야 문서로 간주)
-        if let lastMsg = room.messages
+        // 탐색 대상 메시지 범위 결정
+        let targetMessages: [ChatMessage]
+        if beforeLastUserMessage,
+           let lastUserIdx = room.messages.lastIndex(where: { $0.role == .user }) {
+            targetMessages = Array(room.messages[..<lastUserIdx])
+        } else {
+            targetMessages = room.messages
+        }
+
+        // 2차: assistant .text 메시지 (최소 200자 이상이어야 문서로 간주)
+        if let lastMsg = targetMessages
             .reversed()
             .first(where: { $0.role == .assistant && $0.messageType == .text }) {
             let content = ArtifactParser.stripArtifactBlocks(from: lastMsg.content)
@@ -179,15 +202,11 @@ enum DocumentExporter {
         return nil
     }
 
-    /// 방 정보 + 문서 내용으로 제안 파일명 생성 (H1 제목 우선)
+    /// 날짜 기반 파일명 생성 (yyyyMMdd)
     static func suggestedFilename(room: Room, content: String? = nil) -> String {
-        if let content, let h1 = extractH1Title(from: content) {
-            return h1
-        }
-        if let docType = room.documentType, docType != .freeform {
-            return "\(docType.displayName) - \(room.title)"
-        }
-        return room.title
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd"
+        return formatter.string(from: Date())
     }
 
     /// Markdown content에서 H1 제목 추출

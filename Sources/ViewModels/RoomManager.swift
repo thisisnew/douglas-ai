@@ -590,6 +590,12 @@ class RoomManager: ObservableObject {
         let userTask = room.messages.first(where: { $0.role == .user })?.content.lowercased() ?? ""
         let wantsPDF = userTask.contains("pdf")
 
+        // 설정 경로 접근 불가 경고
+        if let warning = DocumentExporter.checkSaveDirectoryWarning() {
+            let warnMsg = ChatMessage(role: .system, content: warning, messageType: .phaseTransition)
+            appendMessage(warnMsg, to: roomID)
+        }
+
         let savingMsg = ChatMessage(role: .system, content: "문서를 파일로 저장합니다…", messageType: .phaseTransition)
         appendMessage(savingMsg, to: roomID)
 
@@ -928,9 +934,15 @@ class RoomManager: ObservableObject {
         // "md파일로 만들어줘", "문서로 정리해줘" 등 — understand/design 불필요, 바로 문서 출력
         if detectedDocType != nil && DocumentRequestDetector.isFormatConversionOnly(task) {
             // 기존 답변 추출 성공 → LLM 재작성 없이 직접 저장
-            if let existingContent = DocumentExporter.extractDocumentContent(from: rooms[idx]) {
+            if let existingContent = DocumentExporter.extractDocumentContent(from: rooms[idx], beforeLastUserMessage: true) {
                 rooms[idx].documentType = detectedDocType
                 rooms[idx].transitionTo(.inProgress)
+
+                // 설정 경로 접근 불가 경고
+                if let warning = DocumentExporter.checkSaveDirectoryWarning() {
+                    let warnMsg = ChatMessage(role: .system, content: warning, messageType: .phaseTransition)
+                    appendMessage(warnMsg, to: roomID)
+                }
 
                 let savingMsg = ChatMessage(
                     role: .system,
