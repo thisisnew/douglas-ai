@@ -64,9 +64,16 @@ struct TypingIndicator: View {
         return nil
     }
 
-    /// 토론 vs 작업 구분: plan(토론) 단계면 "발언 중", execute 단계면 "작업 중"
+    /// 토론 vs 작업 구분: discussion intent이거나 design 단계면 "발언 중", build/execute면 "작업 중"
     private var isDiscussionPhase: Bool {
-        room?.currentPhase != .execute
+        guard let room else { return false }
+        if room.intent == .discussion { return true }
+        switch room.currentPhase {
+        case .build, .execute, .review:
+            return false
+        default:
+            return true
+        }
     }
 
     private var statusText: String {

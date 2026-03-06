@@ -915,13 +915,20 @@ struct DiscussionProgressBar: View {
                     }
                 }
 
-                // 현재 발언 중인 에이전트
+                // 현재 활동 중인 에이전트 (토론: 발언 중, 작업: 작업 중)
                 if let speakingName = speakingAgentName {
                     HStack(spacing: 4) {
                         ProgressView()
                             .scaleEffect(0.4)
                             .frame(width: 12, height: 12)
-                        Text("\(speakingName) 발언 중...")
+                        let isDiscussion: Bool = {
+                            if room.intent == .discussion { return true }
+                            switch room.currentPhase {
+                            case .build, .execute, .review: return false
+                            default: return true
+                            }
+                        }()
+                        Text("\(speakingName) \(isDiscussion ? "발언" : "작업") 중...")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
