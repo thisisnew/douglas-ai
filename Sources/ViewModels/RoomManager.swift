@@ -900,14 +900,24 @@ class RoomManager: ObservableObject {
                 break
             case .clarify:
                 await executeClarifyPhase(roomID: roomID, task: task)
+            case .understand:
+                await executeUnderstandPhase(roomID: roomID, task: task)
             case .assemble:
                 await executeAssemblePhase(roomID: roomID, task: task)
+            case .design:
+                await executeDesignPhase(roomID: roomID, task: task)
             case .plan:
                 let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .quickAnswer
                 await executePlanPhase(roomID: roomID, task: task, intent: intent)
+            case .build:
+                await executeBuildPhase(roomID: roomID, task: task)
             case .execute:
                 let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .quickAnswer
                 await executeExecutePhase(roomID: roomID, task: task, intent: intent)
+            case .review:
+                await executeReviewPhase(roomID: roomID, task: task)
+            case .deliver:
+                await executeDeliverPhase(roomID: roomID, task: task)
             }
 
             completedPhases.insert(nextPhase)
@@ -966,9 +976,10 @@ class RoomManager: ObservableObject {
         guard let store = agentStore else { return .empty }
         let subAgents = store.subAgents
         let room = rooms.first { $0.id == roomID }
-        let currentAgentName = currentAgentID.flatMap { id in
-            store.agents.first { $0.id == id }?.name
+        let currentAgent = currentAgentID.flatMap { id in
+            store.agents.first { $0.id == id }
         }
+        let currentAgentName = currentAgent?.name
         return ToolExecutionContext(
             roomID: roomID,
             agentsByName: Dictionary(uniqueKeysWithValues: subAgents.map { ($0.name, $0.id) }),
@@ -990,6 +1001,8 @@ class RoomManager: ObservableObject {
             projectPaths: room?.projectPaths ?? [],
             currentAgentID: currentAgentID,
             currentAgentName: currentAgentName,
+            agentPermissions: currentAgent?.actionPermissions ?? [],
+            agentRestrictions: currentAgent?.restrictions ?? [],
             fileWriteTracker: fileWriteTracker,
             askUser: { @Sendable [weak self] (question: String, context: String?, options: [String]?) -> String in
                 // 1) 질문 메시지 추가 + 상태 전이 (MainActor)
@@ -1352,6 +1365,22 @@ class RoomManager: ObservableObject {
             case .execute:
                 let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .quickAnswer
                 await executeExecutePhase(roomID: roomID, task: task, intent: intent)
+            case .understand:
+                // Plan C: Understand 통합 단계 — intake+intent+clarify+TaskBrief
+                await executeUnderstandPhase(roomID: roomID, task: task)
+                detectDocumentSignalFromMessages(roomID: roomID)
+            case .design:
+                // Plan C: 3턴 고정 프로토콜 (Propose → Critique → Revise)
+                await executeDesignPhase(roomID: roomID, task: task)
+            case .build:
+                // Plan C: Creator 단계별 실행 (riskLevel별 정책)
+                await executeBuildPhase(roomID: roomID, task: task)
+            case .review:
+                // Plan C: Reviewer 검토
+                await executeReviewPhase(roomID: roomID, task: task)
+            case .deliver:
+                // Plan C: 최종 전달 (high = Draft 프리뷰 + 명시 승인)
+                await executeDeliverPhase(roomID: roomID, task: task)
             }
 
             completedPhases.insert(nextPhase)
@@ -2183,6 +2212,954 @@ class RoomManager: ObservableObject {
     }
 
 
+    // MARK: - Plan C: 새 6단계 워크플로우
+
+    /// Understand 단계 (Plan C): intake + intent + TaskBrief 생성 (clarify 루프 제거)
+    private func executeUnderstandPhase(roomID: UUID, task: String) async {
+        // 1) Intake: URL/Jira fetch
+        await executeIntakePhase(roomID: roomID, task: task)
+        guard !Task.isCancelled,
+              rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
+
+        // 2) Intent: quickAnswer vs task 분류
+        await executeIntentPhase(roomID: roomID, task: task)
+        guard !Task.isCancelled,
+              rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
+
+        // 3) TaskBrief 생성 (clarify 루프 대신 1회 질문으로 대체)
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }),
+              let firstAgentID = rooms[idx].assignedAgentIDs.first,
+              let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
+              let provider = providerManager?.provider(named: agent.providerName) else { return }
+
+        let lightModel = providerManager?.lightModelName(for: agent.providerName) ?? agent.modelName
+
+        guard let brief = await IntentClassifier.generateTaskBrief(
+            task: task,
+            clarifySummary: rooms[idx].clarifySummary,
+            provider: provider,
+            model: lightModel
+        ) else { return }
+
+        rooms[idx].taskBrief = brief
+        scheduleSave()
+
+        // 4) needsClarification이면 질문 1회 표시 → 사용자 응답 또는 30초 후 자동 진행
+        if brief.needsClarification, !brief.questions.isEmpty {
+            let questionText = brief.questions.joined(separator: "\n")
+            let questionMsg = ChatMessage(
+                role: .assistant,
+                content: "💡 추가 확인이 필요합니다:\n\n\(questionText)",
+                messageType: .userQuestion
+            )
+            appendMessage(questionMsg, to: roomID)
+
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.awaitingUserInput)
+            }
+            scheduleSave()
+
+            // 30초 타임아웃 or 사용자 응답
+            let answer: String? = await withTaskGroup(of: String?.self) { group in
+                group.addTask { @MainActor [weak self] in
+                    guard let self else { return nil }
+                    return await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+                        self.userInputContinuations[roomID] = continuation
+                    }
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 30_000_000_000)  // 30초
+                    return nil
+                }
+                // 먼저 완료되는 쪽 사용
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+
+            // 응답이 있으면 TaskBrief 재생성
+            if let answer, !answer.isEmpty {
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.planning)
+                }
+                let enrichedTask = "\(task)\n\n추가 정보: \(answer)"
+                if let updatedBrief = await IntentClassifier.generateTaskBrief(
+                    task: enrichedTask,
+                    clarifySummary: rooms[idx].clarifySummary,
+                    provider: provider,
+                    model: lightModel
+                ) {
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].taskBrief = updatedBrief
+                    }
+                }
+            } else {
+                // 타임아웃 — 기존 brief로 자동 진행
+                let autoMsg = ChatMessage(
+                    role: .system,
+                    content: "응답 대기 시간 초과 — 현재 정보로 진행합니다.",
+                    messageType: .phaseTransition
+                )
+                appendMessage(autoMsg, to: roomID)
+                userInputContinuations.removeValue(forKey: roomID)
+            }
+
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.planning)
+            }
+            scheduleSave()
+        }
+    }
+
+    /// Design 단계 (Plan C): 3턴 고정 프로토콜 (Propose → Critique → Revise) + 계획 승인
+    private func executeDesignPhase(roomID: UUID, task: String) async {
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
+
+        let specialists = executingAgentIDs(in: roomID)
+        let room = rooms[idx]
+
+        // 전문가 1명: 구조화된 플랜 생성 (Plan C: 1인 프로토콜)
+        if specialists.count < 2 {
+            await executeSoloDesign(roomID: roomID, task: task, room: room)
+            return
+        }
+
+        // TaskBrief 기반 컨텍스트
+        let briefContext: String
+        if let brief = room.taskBrief {
+            briefContext = """
+            [작업 브리프]
+            목표: \(brief.goal)
+            제약: \(brief.constraints.joined(separator: ", "))
+            성공기준: \(brief.successCriteria.joined(separator: ", "))
+            비목표: \(brief.nonGoals.joined(separator: ", "))
+            위험도: \(brief.overallRisk.rawValue)
+            산출물 유형: \(brief.outputType.rawValue)
+            """
+        } else {
+            briefContext = room.clarifySummary ?? task
+        }
+
+        let startMsg = ChatMessage(
+            role: .system,
+            content: "설계 토론을 시작합니다. (Propose → Critique → Revise)",
+            messageType: .phaseTransition
+        )
+        appendMessage(startMsg, to: roomID)
+
+        // RuntimeRole 할당: workModes 기반 (Plan C: 4d)
+        let (creatorID, reviewerID, plannerID) = assignDesignRoles(specialists: specialists)
+
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            let creatorName = agentStore?.agents.first(where: { $0.id == creatorID })?.name ?? ""
+            let reviewerName = agentStore?.agents.first(where: { $0.id == reviewerID })?.name ?? ""
+            rooms[i].agentRoles[creatorName] = .creator
+            rooms[i].agentRoles[reviewerName] = .reviewer
+            if let plannerID, let plannerName = agentStore?.agents.first(where: { $0.id == plannerID })?.name {
+                rooms[i].agentRoles[plannerName] = .planner
+            }
+        }
+
+        guard let creatorAgent = agentStore?.agents.first(where: { $0.id == creatorID }),
+              let creatorProvider = providerManager?.provider(named: creatorAgent.providerName),
+              let reviewerAgent = agentStore?.agents.first(where: { $0.id == reviewerID }),
+              let reviewerProvider = providerManager?.provider(named: reviewerAgent.providerName) else {
+            // 에이전트/프로바이더 없으면 plan 폴백
+            let intent = room.intent ?? .task
+            await executePlanPhase(roomID: roomID, task: task, intent: intent)
+            return
+        }
+
+        // Turn 1: Propose (Creator가 실행 계획 제안)
+        speakingAgentIDByRoom[roomID] = creatorID
+        let proposePrompt = """
+        \(creatorAgent.resolvedSystemPrompt)
+
+        당신은 설계(Design) 단계의 Creator입니다.
+        아래 작업 브리프를 바탕으로 **구체적인 실행 계획**을 제안하세요.
+
+        \(briefContext)
+
+        형식:
+        1. 각 단계를 번호로 나열
+        2. 각 단계에 [위험도: low/medium/high] 표시
+        3. 예상 산출물 명시
+        4. 주의사항/가정 나열
+        """
+
+        var proposal = ""
+        do {
+            let placeholderID = UUID()
+            appendMessage(ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: creatorAgent.name), to: roomID)
+
+            let buffer = StreamBuffer()
+            proposal = try await creatorProvider.sendMessageStreaming(
+                model: creatorAgent.modelName,
+                systemPrompt: proposePrompt,
+                messages: [("user", "작업 계획을 제안해주세요.\n\n\(briefContext)")],
+                onChunk: { [weak self] chunk in
+                    guard let self else { return }
+                    let current = buffer.append(chunk)
+                    Task { @MainActor in self.updateMessageContent(placeholderID, newContent: current, in: roomID) }
+                }
+            )
+            updateMessageContent(placeholderID, newContent: proposal, in: roomID)
+        } catch {
+            appendMessage(ChatMessage(role: .assistant, content: "설계 제안 오류: \(error.userFacingMessage)", agentName: creatorAgent.name, messageType: .error), to: roomID)
+            return
+        }
+        guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
+
+        // Turn 2: Critique (Reviewer가 제안 검토)
+        speakingAgentIDByRoom[roomID] = reviewerID
+        let critiquePrompt = """
+        \(reviewerAgent.resolvedSystemPrompt)
+
+        당신은 설계(Design) 단계의 Reviewer입니다.
+        Creator의 실행 계획을 검토하고 **구체적인 개선점**을 제시하세요.
+
+        검토 기준:
+        1. 위험도 평가가 적절한가?
+        2. 누락된 단계나 엣지케이스가 있는가?
+        3. 순서가 최적인가?
+        4. 산출물이 요구사항을 충족하는가?
+
+        간결하게 핵심만 지적하세요.
+        """
+
+        var critique = ""
+        do {
+            let placeholderID = UUID()
+            appendMessage(ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: reviewerAgent.name), to: roomID)
+
+            let buffer = StreamBuffer()
+            critique = try await reviewerProvider.sendMessageStreaming(
+                model: reviewerAgent.modelName,
+                systemPrompt: critiquePrompt,
+                messages: [("user", "다음 실행 계획을 검토해주세요:\n\n\(proposal)")],
+                onChunk: { [weak self] chunk in
+                    guard let self else { return }
+                    let current = buffer.append(chunk)
+                    Task { @MainActor in self.updateMessageContent(placeholderID, newContent: current, in: roomID) }
+                }
+            )
+            updateMessageContent(placeholderID, newContent: critique, in: roomID)
+        } catch {
+            appendMessage(ChatMessage(role: .assistant, content: "검토 오류: \(error.userFacingMessage)", agentName: reviewerAgent.name, messageType: .error), to: roomID)
+            // critique 실패해도 proposal로 계속 진행
+        }
+        guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
+
+        // 4a: Critique에서 "승인"/"동의" 시 Turn 3 스킵
+        let critiqueApproved = isCritiqueApproval(critique)
+        var finalDesignText = proposal
+
+        if !critiqueApproved {
+            // Turn 3: Revise (Creator가 피드백 반영 → 최종 계획)
+            speakingAgentIDByRoom[roomID] = creatorID
+            let revisePrompt = """
+            \(creatorAgent.resolvedSystemPrompt)
+
+            Reviewer의 피드백을 반영하여 최종 실행 계획을 작성하세요.
+            변경 사항이 없으면 원래 계획을 유지하세요.
+            최종 계획만 출력하세요 (변경 이유 설명 불필요).
+
+            형식:
+            1. [위험도] 단계 설명
+            2. [위험도] 단계 설명
+            ...
+            """
+
+            do {
+                let placeholderID = UUID()
+                appendMessage(ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: creatorAgent.name), to: roomID)
+
+                let buffer = StreamBuffer()
+                let revisedPlan = try await creatorProvider.sendMessageStreaming(
+                    model: creatorAgent.modelName,
+                    systemPrompt: revisePrompt,
+                    messages: [
+                        ("user", "원래 제안:\n\(proposal)\n\nReviewer 피드백:\n\(critique)\n\n피드백을 반영한 최종 계획을 작성하세요.")
+                    ],
+                    onChunk: { [weak self] chunk in
+                        guard let self else { return }
+                        let current = buffer.append(chunk)
+                        Task { @MainActor in self.updateMessageContent(placeholderID, newContent: current, in: roomID) }
+                    }
+                )
+                updateMessageContent(placeholderID, newContent: revisedPlan, in: roomID)
+                finalDesignText = revisedPlan
+            } catch {
+                appendMessage(ChatMessage(role: .assistant, content: "수정 오류: \(error.userFacingMessage)", agentName: creatorAgent.name, messageType: .error), to: roomID)
+            }
+            speakingAgentIDByRoom.removeValue(forKey: roomID)
+        }
+        guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
+
+        // 최종 계획을 Plan으로 파싱
+        let plan = await requestPlan(roomID: roomID, task: task, designOutput: finalDesignText)
+        if let plan, let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].plan = plan
+        }
+
+        // 승인 루프 (기존 plan 승인과 동일)
+        if let plan = rooms.first(where: { $0.id == roomID })?.plan {
+            var currentPlan = plan
+            while true {
+                guard !Task.isCancelled,
+                      let planIdx = rooms.firstIndex(where: { $0.id == roomID }),
+                      rooms[planIdx].isActive else { return }
+
+                rooms[planIdx].transitionTo(.awaitingApproval)
+                syncAgentStatuses()
+
+                let stepsDesc = currentPlan.steps.enumerated().map { "\($0.offset + 1). \($0.element.text)" }.joined(separator: "\n")
+                let approvalMsg = ChatMessage(
+                    role: .system,
+                    content: "설계 완료:\n\n\(stepsDesc)\n\n이 계획으로 진행하시겠습니까?",
+                    messageType: .approvalRequest
+                )
+                appendMessage(approvalMsg, to: roomID)
+                pluginEventDelegate?(.approvalRequested(roomID: roomID, stepDescription: stepsDesc))
+                scheduleSave()
+
+                let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                    approvalContinuations[roomID] = continuation
+                }
+                approvalContinuations.removeValue(forKey: roomID)
+                guard !Task.isCancelled else { return }
+
+                if approved {
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].transitionTo(.planning)
+                    }
+                    break
+                }
+
+                // 거부 → 피드백 반영 재계획
+                let feedback = rooms.first(where: { $0.id == roomID })?
+                    .messages.last(where: { $0.role == .user })?.content
+                let replanMsg = ChatMessage(role: .system, content: "피드백을 반영하여 계획을 수정합니다...")
+                appendMessage(replanMsg, to: roomID)
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.planning)
+                }
+
+                let newPlan = await requestPlan(roomID: roomID, task: task, previousPlan: currentPlan, feedback: feedback)
+                guard !Task.isCancelled else { return }
+                if let p = newPlan {
+                    currentPlan = p
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) { rooms[i].plan = p }
+                } else {
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].transitionTo(.failed)
+                        rooms[i].completedAt = Date()
+                    }
+                    syncAgentStatuses()
+                    scheduleSave()
+                    return
+                }
+            }
+        }
+        scheduleSave()
+    }
+
+    /// Critique 응답이 "승인/동의"인지 판별 (4a)
+    private func isCritiqueApproval(_ critique: String) -> Bool {
+        let approvalKeywords = ["승인", "동의합니다", "이상 없", "문제 없", "좋은 계획", "적절합니다", "동의합니다"]
+        let lower = critique.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 짧은 긍정 응답이거나 명확한 승인 키워드가 있으면 승인
+        return lower.count < 100 && approvalKeywords.contains(where: { lower.contains($0) })
+    }
+
+    /// workModes 기반 RuntimeRole 배정 (4d)
+    private func assignDesignRoles(specialists: [UUID]) -> (creator: UUID, reviewer: UUID, planner: UUID?) {
+        guard specialists.count >= 2 else {
+            return (specialists[0], specialists[0], nil)
+        }
+
+        var creatorID: UUID?
+        var reviewerID: UUID?
+        var plannerID: UUID?
+
+        for id in specialists {
+            guard let agent = agentStore?.agents.first(where: { $0.id == id }) else { continue }
+            if creatorID == nil && agent.workModes.contains(.create) { creatorID = id }
+            if reviewerID == nil && agent.workModes.contains(.review) { reviewerID = id }
+            if plannerID == nil && agent.workModes.contains(.research) { plannerID = id }
+        }
+
+        // 폴백: 지정 안 된 역할은 순서대로 할당
+        let creator = creatorID ?? specialists[0]
+        let reviewer = reviewerID ?? specialists.first(where: { $0 != creator }) ?? specialists[0]
+        let planner = specialists.count >= 3 ? (plannerID ?? specialists.first(where: { $0 != creator && $0 != reviewer })) : nil
+
+        return (creator, reviewer, planner)
+    }
+
+    /// 1인 에이전트 구조화된 플랜 생성 (4b: executePlanPhase 대신)
+    private func executeSoloDesign(roomID: UUID, task: String, room: Room) async {
+        let briefContext: String
+        if let brief = room.taskBrief {
+            briefContext = """
+            [작업 브리프]
+            목표: \(brief.goal)
+            제약: \(brief.constraints.joined(separator: ", "))
+            성공기준: \(brief.successCriteria.joined(separator: ", "))
+            위험도: \(brief.overallRisk.rawValue)
+            """
+        } else {
+            briefContext = room.clarifySummary ?? task
+        }
+
+        let specialists = executingAgentIDs(in: roomID)
+        guard let agentID = specialists.first,
+              let agent = agentStore?.agents.first(where: { $0.id == agentID }),
+              let provider = providerManager?.provider(named: agent.providerName) else {
+            let intent = room.intent ?? .task
+            await executePlanPhase(roomID: roomID, task: task, intent: intent)
+            return
+        }
+
+        let startMsg = ChatMessage(role: .system, content: "실행 계획을 수립합니다...", messageType: .phaseTransition)
+        appendMessage(startMsg, to: roomID)
+
+        speakingAgentIDByRoom[roomID] = agentID
+        let soloPrompt = """
+        \(agent.resolvedSystemPrompt)
+
+        아래 작업을 수행하기 위한 실행 계획을 JSON으로 작성하세요.
+
+        \(briefContext)
+
+        반드시 아래 JSON 형식으로만 출력하세요:
+        ```json
+        {
+          "plan": {
+            "summary": "계획 요약",
+            "estimated_minutes": 10,
+            "steps": [
+              {"text": "단계 설명", "risk_level": "low"}
+            ]
+          }
+        }
+        ```
+        risk_level: low(읽기/분석), medium(파일수정/코드생성), high(외부시스템)
+        """
+
+        do {
+            let placeholderID = UUID()
+            appendMessage(ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: agent.name), to: roomID)
+
+            let buffer = StreamBuffer()
+            let response = try await provider.sendMessageStreaming(
+                model: agent.modelName,
+                systemPrompt: soloPrompt,
+                messages: [("user", task)],
+                onChunk: { [weak self] chunk in
+                    guard let self else { return }
+                    let current = buffer.append(chunk)
+                    Task { @MainActor in self.updateMessageContent(placeholderID, newContent: current, in: roomID) }
+                }
+            )
+            updateMessageContent(placeholderID, newContent: response, in: roomID)
+
+            if let plan = parsePlan(from: response),
+               let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].plan = plan
+            }
+        } catch {
+            appendMessage(ChatMessage(role: .assistant, content: "계획 수립 오류: \(error.userFacingMessage)", agentName: agent.name, messageType: .error), to: roomID)
+        }
+        speakingAgentIDByRoom.removeValue(forKey: roomID)
+
+        // 승인 루프
+        if let plan = rooms.first(where: { $0.id == roomID })?.plan {
+            var currentPlan = plan
+            while true {
+                guard !Task.isCancelled,
+                      let planIdx = rooms.firstIndex(where: { $0.id == roomID }),
+                      rooms[planIdx].isActive else { return }
+
+                rooms[planIdx].transitionTo(.awaitingApproval)
+                syncAgentStatuses()
+
+                let stepsDesc = currentPlan.steps.enumerated().map { "\($0.offset + 1). \($0.element.text)" }.joined(separator: "\n")
+                let approvalMsg = ChatMessage(
+                    role: .system,
+                    content: "실행 계획:\n\n\(stepsDesc)\n\n이 계획으로 진행하시겠습니까?",
+                    messageType: .approvalRequest
+                )
+                appendMessage(approvalMsg, to: roomID)
+                scheduleSave()
+
+                let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                    approvalContinuations[roomID] = continuation
+                }
+                approvalContinuations.removeValue(forKey: roomID)
+                guard !Task.isCancelled else { return }
+
+                if approved {
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].transitionTo(.planning)
+                    }
+                    break
+                }
+
+                // 거부 → 피드백 반영 재계획
+                let feedback = rooms.first(where: { $0.id == roomID })?
+                    .messages.last(where: { $0.role == .user })?.content
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.planning)
+                }
+                let newPlan = await requestPlan(roomID: roomID, task: task, previousPlan: currentPlan, feedback: feedback)
+                guard !Task.isCancelled else { return }
+                if let p = newPlan {
+                    currentPlan = p
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) { rooms[i].plan = p }
+                } else {
+                    break
+                }
+            }
+        }
+        scheduleSave()
+    }
+
+    /// Build 단계 (Plan C): Creator가 단계별 실행 — riskLevel별 정책 적용
+    private func executeBuildPhase(roomID: UUID, task: String) async {
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
+        let intent = rooms[idx].intent ?? .task
+
+        // 계획이 없으면 기존 execute 폴백
+        guard let plan = rooms[idx].plan else {
+            if intent == .quickAnswer {
+                await executeQuickAnswer(roomID: roomID, task: task)
+            } else {
+                await executeExecutePhase(roomID: roomID, task: task, intent: intent)
+            }
+            return
+        }
+
+        // Plan C: step 단위 루프 — riskLevel별 정책
+        let tracker = FileWriteTracker()
+
+        rooms[idx].timerDurationSeconds = plan.estimatedSeconds
+        rooms[idx].timerStartedAt = Date()
+        rooms[idx].transitionTo(.inProgress)
+        scheduleSave()
+
+        for (stepIndex, step) in plan.steps.enumerated() {
+            guard !Task.isCancelled,
+                  let currentRoom = rooms.first(where: { $0.id == roomID }),
+                  currentRoom.status == .inProgress else { break }
+
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].setCurrentStep(stepIndex)
+            }
+
+            // high-risk step → DeferredAction 생성, 실행하지 않음
+            if step.riskLevel == .high {
+                let deferred = DeferredAction(
+                    id: UUID(),
+                    toolName: "step_\(stepIndex + 1)",
+                    arguments: ["text": .string(step.text)],
+                    description: step.text,
+                    riskLevel: .high,
+                    previewContent: "[\(stepIndex + 1)/\(plan.steps.count)] \(step.text)",
+                    status: .pending
+                )
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].deferredActions.append(deferred)
+                }
+                let deferMsg = ChatMessage(
+                    role: .system,
+                    content: "⏸ 단계 \(stepIndex + 1) (high-risk): Deliver에서 승인 후 실행됩니다.\n→ \(step.text)",
+                    messageType: .progress
+                )
+                appendMessage(deferMsg, to: roomID)
+                scheduleSave()
+                continue
+            }
+
+            // low/medium → 자동 실행
+            await tracker.reset()
+            let shortLabel = Self.shortenStepLabel(step.text)
+            let progressMsg = ChatMessage(
+                role: .system,
+                content: shortLabel,
+                messageType: .progress
+            )
+            appendMessage(progressMsg, to: roomID)
+
+            let targetAgentIDs: [UUID]
+            if let assignedID = step.assignedAgentID {
+                targetAgentIDs = [assignedID]
+            } else {
+                let specialists = executingAgentIDs(in: roomID)
+                let room = rooms.first(where: { $0.id == roomID })
+                targetAgentIDs = specialists.isEmpty ? (room?.assignedAgentIDs ?? []) : specialists
+            }
+
+            var failedAgentIDs: [UUID] = []
+            await withTaskGroup(of: (UUID, Bool).self) { group in
+                for agentID in targetAgentIDs {
+                    group.addTask { [self] in
+                        let success = await self.executeStep(
+                            step: step.text,
+                            fullTask: task,
+                            agentID: agentID,
+                            roomID: roomID,
+                            stepIndex: stepIndex,
+                            totalSteps: plan.steps.count,
+                            fileWriteTracker: tracker,
+                            progressGroupID: progressMsg.id
+                        )
+                        return (agentID, success)
+                    }
+                }
+                for await (agentID, success) in group {
+                    if !success { failedAgentIDs.append(agentID) }
+                }
+            }
+
+            // 실패한 에이전트 1회 재시도
+            if !failedAgentIDs.isEmpty {
+                var stillFailed: [UUID] = []
+                for agentID in failedAgentIDs {
+                    let success = await executeStep(
+                        step: step.text,
+                        fullTask: task,
+                        agentID: agentID,
+                        roomID: roomID,
+                        stepIndex: stepIndex,
+                        totalSteps: plan.steps.count,
+                        fileWriteTracker: tracker,
+                        progressGroupID: progressMsg.id
+                    )
+                    if !success { stillFailed.append(agentID) }
+                }
+                failedAgentIDs = stillFailed
+            }
+
+            // 전원 실패 → 워크플로우 중단
+            if failedAgentIDs.count == targetAgentIDs.count && !targetAgentIDs.isEmpty {
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.failed)
+                    rooms[i].completedAt = Date()
+                }
+                let failMsg = ChatMessage(
+                    role: .system,
+                    content: "단계 \(stepIndex + 1): 모든 에이전트 실패로 워크플로우를 중단합니다.",
+                    messageType: .error
+                )
+                appendMessage(failMsg, to: roomID)
+                syncAgentStatuses()
+                scheduleSave()
+                return
+            }
+        }
+        scheduleSave()
+    }
+
+    /// Review 단계 (Plan C): Reviewer가 Build 결과물 검토
+    private func executeReviewPhase(roomID: UUID, task: String) async {
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
+        let room = rooms[idx]
+
+        // reviewer 역할의 에이전트 찾기
+        let reviewerName = room.agentRoles.first(where: { $0.value == .reviewer })?.key
+        let reviewerAgent: Agent?
+        if let name = reviewerName {
+            reviewerAgent = agentStore?.agents.first(where: { $0.name == name })
+        } else {
+            let specialists = executingAgentIDs(in: roomID)
+            if specialists.count >= 2 {
+                reviewerAgent = agentStore?.agents.first(where: { $0.id == specialists[1] })
+            } else {
+                return  // 전문가 1명: review 스킵
+            }
+        }
+
+        guard let reviewer = reviewerAgent,
+              let reviewerProvider = providerManager?.provider(named: reviewer.providerName) else { return }
+
+        // Creator 찾기 (fail 시 수정 요청용)
+        let creatorName = room.agentRoles.first(where: { $0.value == .creator })?.key
+        let creatorAgent = creatorName.flatMap { name in agentStore?.agents.first(where: { $0.name == name }) }
+            ?? executingAgentIDs(in: roomID).first.flatMap { id in agentStore?.agents.first(where: { $0.id == id }) }
+
+        let briefContext: String
+        if let brief = room.taskBrief {
+            briefContext = "목표: \(brief.goal)\n성공기준: \(brief.successCriteria.joined(separator: ", "))"
+        } else {
+            briefContext = room.clarifySummary ?? task
+        }
+
+        let maxRetries = 2
+        var retryCount = 0
+
+        while retryCount <= maxRetries {
+            guard !Task.isCancelled,
+                  rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
+
+            // Build 결과 수집
+            let currentRoom = rooms.first(where: { $0.id == roomID })
+            let recentMessages = (currentRoom?.messages ?? []).suffix(15)
+            let buildOutput = recentMessages
+                .filter { $0.role == .assistant }
+                .compactMap { $0.content }
+                .joined(separator: "\n---\n")
+
+            guard !buildOutput.isEmpty else { return }
+
+            let reviewPrompt = """
+            \(reviewer.resolvedSystemPrompt)
+
+            당신은 Review 단계의 Reviewer입니다.
+            Build 결과물이 작업 목표와 성공기준을 충족하는지 검토하세요.
+
+            \(briefContext)
+
+            검토 후 반드시 첫 줄에 판정을 작성하세요:
+            - PASS: 결과물이 기준을 충족함
+            - FAIL: 핵심 기준 미충족, 수정 필요 (사유를 구체적으로 작성)
+
+            간결하게 핵심만 작성하세요.
+            """
+
+            speakingAgentIDByRoom[roomID] = reviewer.id
+            var reviewResult = ""
+            do {
+                let placeholderID = UUID()
+                appendMessage(ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: reviewer.name), to: roomID)
+
+                let buffer = StreamBuffer()
+                reviewResult = try await reviewerProvider.sendMessageStreaming(
+                    model: reviewer.modelName,
+                    systemPrompt: reviewPrompt,
+                    messages: [("user", "다음 결과물을 검토해주세요:\n\n\(buildOutput)")],
+                    onChunk: { [weak self] chunk in
+                        guard let self else { return }
+                        let current = buffer.append(chunk)
+                        Task { @MainActor in self.updateMessageContent(placeholderID, newContent: current, in: roomID) }
+                    }
+                )
+                updateMessageContent(placeholderID, newContent: reviewResult, in: roomID)
+            } catch {
+                appendMessage(ChatMessage(role: .assistant, content: "검토 오류: \(error.userFacingMessage)", agentName: reviewer.name, messageType: .error), to: roomID)
+                break
+            }
+            speakingAgentIDByRoom.removeValue(forKey: roomID)
+
+            // Verdict 파싱
+            let verdict = parseReviewVerdict(reviewResult)
+            if verdict == .pass {
+                break  // Review 통과
+            }
+
+            retryCount += 1
+            if retryCount > maxRetries {
+                // 최대 재시도 초과 → 사용자 에스컬레이션
+                let escalateMsg = ChatMessage(
+                    role: .system,
+                    content: "Review \(maxRetries)회 실패. 사용자 확인이 필요합니다.\n\n사유: \(reviewResult.prefix(200))",
+                    messageType: .approvalRequest
+                )
+                appendMessage(escalateMsg, to: roomID)
+
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.awaitingApproval)
+                }
+                syncAgentStatuses()
+                scheduleSave()
+
+                let approved = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+                    approvalContinuations[roomID] = cont
+                }
+                approvalContinuations.removeValue(forKey: roomID)
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.inProgress)
+                }
+                break
+            }
+
+            // FAIL → Creator에게 수정 요청
+            guard let creator = creatorAgent,
+                  let creatorProvider = providerManager?.provider(named: creator.providerName) else { break }
+
+            let fixMsg = ChatMessage(
+                role: .system,
+                content: "Review 실패 (\(retryCount)/\(maxRetries)). Creator에게 수정을 요청합니다.",
+                messageType: .progress
+            )
+            appendMessage(fixMsg, to: roomID)
+
+            speakingAgentIDByRoom[roomID] = creator.id
+            let fixPrompt = """
+            \(creator.resolvedSystemPrompt)
+
+            Reviewer가 결과물을 반려했습니다. 피드백을 반영하여 수정하세요.
+
+            [Reviewer 피드백]
+            \(reviewResult)
+
+            수정된 결과물만 출력하세요.
+            """
+
+            do {
+                let placeholderID = UUID()
+                appendMessage(ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: creator.name), to: roomID)
+
+                let buffer = StreamBuffer()
+                let fixedOutput = try await creatorProvider.sendMessageStreaming(
+                    model: creator.modelName,
+                    systemPrompt: fixPrompt,
+                    messages: [("user", "Reviewer 피드백을 반영하여 수정해주세요.")],
+                    onChunk: { [weak self] chunk in
+                        guard let self else { return }
+                        let current = buffer.append(chunk)
+                        Task { @MainActor in self.updateMessageContent(placeholderID, newContent: current, in: roomID) }
+                    }
+                )
+                updateMessageContent(placeholderID, newContent: fixedOutput, in: roomID)
+            } catch {
+                appendMessage(ChatMessage(role: .assistant, content: "수정 오류: \(error.userFacingMessage)", agentName: creator.name, messageType: .error), to: roomID)
+                break
+            }
+            speakingAgentIDByRoom.removeValue(forKey: roomID)
+            // 루프 → 다시 Review
+        }
+        scheduleSave()
+    }
+
+    /// Review verdict 파싱: PASS / FAIL
+    private func parseReviewVerdict(_ text: String) -> ReviewVerdict {
+        let upper = text.uppercased()
+        let firstLine = text.components(separatedBy: .newlines).first?.uppercased() ?? ""
+        if firstLine.contains("PASS") || firstLine.contains("✅") || upper.hasPrefix("PASS") {
+            return .pass
+        }
+        if firstLine.contains("FAIL") || firstLine.contains("❌") || upper.hasPrefix("FAIL") {
+            return .fail
+        }
+        // "조건부 승인"/"⚠️" → pass 처리
+        if firstLine.contains("⚠️") || text.contains("조건부 승인") {
+            return .pass
+        }
+        return .pass  // 불확실하면 pass
+    }
+
+    private enum ReviewVerdict {
+        case pass, fail
+    }
+
+    /// Deliver 단계 (Plan C): 최종 전달 — high risk인 경우 Draft 프리뷰 + 명시 승인
+    private func executeDeliverPhase(roomID: UUID, task: String) async {
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
+        let room = rooms[idx]
+
+        // DeferredAction 처리 (high risk 도구 호출이 보류된 경우)
+        if !room.deferredActions.isEmpty {
+            let pending = room.deferredActions.filter { $0.status == .pending }
+            if !pending.isEmpty {
+                let deferredDesc = pending.enumerated().map { i, action in
+                    "\(i + 1). [\(action.riskLevel.rawValue)] \(action.description)"
+                }.joined(separator: "\n")
+
+                let approvalMsg = ChatMessage(
+                    role: .system,
+                    content: "보류된 작업 \(pending.count)건이 있습니다:\n\n\(deferredDesc)\n\n실행하시겠습니까?",
+                    messageType: .approvalRequest
+                )
+                appendMessage(approvalMsg, to: roomID)
+
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.awaitingApproval)
+                }
+                syncAgentStatuses()
+                scheduleSave()
+
+                let approved = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+                    approvalContinuations[roomID] = cont
+                }
+                approvalContinuations.removeValue(forKey: roomID)
+
+                if approved {
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].transitionTo(.inProgress)
+                    }
+
+                    // 승인된 deferred 도구 실제 실행
+                    for action in pending {
+                        if let i = rooms.firstIndex(where: { $0.id == roomID }),
+                           let j = rooms[i].deferredActions.firstIndex(where: { $0.id == action.id }) {
+                            rooms[i].deferredActions[j].status = .approved
+                        }
+
+                        let execMsg = ChatMessage(
+                            role: .system,
+                            content: "▶ 실행 중: \(action.description)",
+                            messageType: .progress
+                        )
+                        appendMessage(execMsg, to: roomID)
+
+                        // step 기반 deferred (step_N) → executeStep으로 실행
+                        if action.toolName.hasPrefix("step_") {
+                            let stepText = action.arguments["text"]?.stringValue ?? action.description
+                            let specialists = executingAgentIDs(in: roomID)
+                            let agentID = specialists.first ?? room.assignedAgentIDs.first
+                            if let agentID {
+                                _ = await executeStep(
+                                    step: stepText,
+                                    fullTask: task,
+                                    agentID: agentID,
+                                    roomID: roomID,
+                                    stepIndex: 0,
+                                    totalSteps: 1,
+                                    fileWriteTracker: nil,
+                                    progressGroupID: execMsg.id
+                                )
+                            }
+                        } else {
+                            // 도구 기반 deferred → ToolExecutor로 직접 실행
+                            let context = makeToolContext(
+                                roomID: roomID,
+                                currentAgentID: room.assignedAgentIDs.first
+                            )
+                            let toolCall = ToolCall(
+                                id: UUID().uuidString,
+                                toolName: action.toolName,
+                                arguments: action.arguments
+                            )
+                            _ = await ToolExecutor.executeSingleTool(toolCall, context: context)
+                        }
+
+                        if let i = rooms.firstIndex(where: { $0.id == roomID }),
+                           let j = rooms[i].deferredActions.firstIndex(where: { $0.id == action.id }) {
+                            rooms[i].deferredActions[j].status = .executed
+                        }
+                        scheduleSave()
+                    }
+                } else {
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        for j in rooms[i].deferredActions.indices where rooms[i].deferredActions[j].status == .pending {
+                            rooms[i].deferredActions[j].status = .cancelled
+                        }
+                    }
+                }
+            }
+        }
+
+        // 최종 전달 메시지
+        let deliverMsg = ChatMessage(
+            role: .system,
+            content: "작업이 완료되었습니다.",
+            messageType: .phaseTransition
+        )
+        appendMessage(deliverMsg, to: roomID)
+        scheduleSave()
+    }
+
     /// Plan 단계: needsPlan=true일 때만 호출됨. 토론 → 계획 수립 → 승인 루프
     private func executePlanPhase(roomID: UUID, task: String, intent: WorkflowIntent) async {
         let specialistCount = executingAgentIDs(in: roomID).count
@@ -2686,7 +3663,7 @@ class RoomManager: ObservableObject {
     }
 
     /// 에이전트에게 계획 수립 요청
-    private func requestPlan(roomID: UUID, task: String, previousPlan: RoomPlan? = nil, feedback: String? = nil) async -> RoomPlan? {
+    private func requestPlan(roomID: UUID, task: String, previousPlan: RoomPlan? = nil, feedback: String? = nil, designOutput: String? = nil) async -> RoomPlan? {
         guard let room = rooms.first(where: { $0.id == roomID }) else {
             return nil
         }
@@ -2821,8 +3798,11 @@ class RoomManager: ObservableObject {
             }
         }
 
+        // Design 단계 결과가 있으면 해당 텍스트를 직접 구조화
+        let designContext = designOutput.map { "\n\n[Design 단계 결과]\n\($0)\n\n위 설계 결과를 JSON 형식의 실행 계획으로 변환하세요." } ?? ""
+
         let planMessages: [(role: String, content: String)] = [
-            ("user", "브리핑:\n\(briefingContext)\(artifactContext)\(playbookContext)\(attachmentContext)\(replanContext)\n\n실행 계획을 JSON으로 작성해주세요. 작업: \(task)")
+            ("user", "브리핑:\n\(briefingContext)\(artifactContext)\(playbookContext)\(attachmentContext)\(replanContext)\(designContext)\n\n실행 계획을 JSON으로 작성해주세요. 작업: \(task)")
         ]
 
         speakingAgentIDByRoom[roomID] = firstAgentID

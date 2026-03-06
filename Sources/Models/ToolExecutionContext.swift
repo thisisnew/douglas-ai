@@ -10,10 +10,14 @@ struct ToolExecutionContext: Sendable {
     let projectPaths: [String]            // 프로젝트 디렉토리 경로 (복수)
     let currentAgentID: UUID?             // 현재 실행 중인 에이전트
     let currentAgentName: String?         // 현재 실행 중인 에이전트 이름
+    let agentPermissions: Set<ActionScope>  // 에이전트 행동 권한 (비어있으면 모두 허용)
+    let agentRestrictions: Set<AgentRestriction>  // 에이전트 제한 사항
     let fileWriteTracker: FileWriteTracker?  // 파일 쓰기 충돌 추적
     // 워크플로우 (Phase E)
     let askUser: @Sendable (String, String?, [String]?) async -> String  // 사용자에게 질문
     let currentPhase: WorkflowPhase?      // 현재 워크플로우 단계
+    let deferHighRiskTools: Bool          // Plan C: external 도구를 DeferredAction으로 수집
+    let collectDeferred: @Sendable (DeferredAction) -> Void  // deferred 수집 콜백
 
     // 플러그인 훅
     let dispatchPluginEvent: @Sendable (PluginEvent) -> Void
@@ -28,9 +32,13 @@ struct ToolExecutionContext: Sendable {
         projectPaths: [String] = [],
         currentAgentID: UUID? = nil,
         currentAgentName: String? = nil,
+        agentPermissions: Set<ActionScope> = [],
+        agentRestrictions: Set<AgentRestriction> = [],
         fileWriteTracker: FileWriteTracker? = nil,
         askUser: @escaping @Sendable (String, String?, [String]?) async -> String = { _, _, _ in "" },
         currentPhase: WorkflowPhase? = nil,
+        deferHighRiskTools: Bool = false,
+        collectDeferred: @escaping @Sendable (DeferredAction) -> Void = { _ in },
         dispatchPluginEvent: @escaping @Sendable (PluginEvent) -> Void = { _ in },
         interceptTool: @escaping @Sendable (String, [String: String]) async -> ToolInterceptResult = { _, _ in .passthrough }
     ) {
@@ -42,9 +50,13 @@ struct ToolExecutionContext: Sendable {
         self.projectPaths = projectPaths
         self.currentAgentID = currentAgentID
         self.currentAgentName = currentAgentName
+        self.agentPermissions = agentPermissions
+        self.agentRestrictions = agentRestrictions
         self.fileWriteTracker = fileWriteTracker
         self.askUser = askUser
         self.currentPhase = currentPhase
+        self.deferHighRiskTools = deferHighRiskTools
+        self.collectDeferred = collectDeferred
         self.dispatchPluginEvent = dispatchPluginEvent
         self.interceptTool = interceptTool
     }

@@ -269,6 +269,101 @@ enum IntentClassifier {
         }
     }
 
+    // MARK: - TaskBrief 생성 (Plan C)
+
+    /// LLM을 사용하여 사용자 요청에서 TaskBrief를 생성
+    static func generateTaskBrief(
+        task: String,
+        clarifySummary: String?,
+        provider: any AIProvider,
+        model: String
+    ) async -> TaskBrief? {
+        let systemPrompt = """
+        사용자의 작업 요청을 분석하여 구조화된 작업 브리프(JSON)를 생성하세요.
+        아래 JSON 형식으로만 출력하세요. 다른 텍스트를 포함하지 마세요.
+
+        {
+          "goal": "작업의 핵심 목표 (1-2문장)",
+          "constraints": ["제약조건1", "제약조건2"],
+          "successCriteria": ["성공기준1", "성공기준2"],
+          "nonGoals": ["이 작업에서 하지 않을 것"],
+          "overallRisk": "low 또는 medium 또는 high",
+          "outputType": "code 또는 document 또는 message 또는 analysis 또는 data 또는 design 또는 answer",
+          "needsClarification": false,
+          "questions": []
+        }
+
+        needsClarification 기준:
+        - false (기본값): 요청이 충분히 명확하여 바로 작업 가능
+        - true: 핵심 정보가 누락되어 작업 진행 불가 (수신인, 대상 시스템, 필수 파라미터 등)
+        - true일 때 questions에 최대 2개의 구체적 질문을 포함하세요.
+
+        overallRisk 기준:
+        - low: 읽기 전용, 분석, 설명, 번역, 내부 문서 작성
+        - medium: 로컬 파일 수정, 코드 생성, 내부 코드 리팩토링
+        - high: 외부 시스템 변경 (Jira, 배포, API 호출, 메시지 발송)
+
+        outputType 기준:
+        - code: 소스코드 생성/수정
+        - document: 문서, 보고서, 기획서
+        - message: 이메일, 메시지, 대응문
+        - analysis: 분석 결과, 리서치
+        - data: 데이터 처리, 변환, 시각화
+        - design: UI/UX 설계
+        - answer: 단순 답변, 설명
+        """
+
+        let context = clarifySummary.map { "요약: \($0)\n\n원본: \(task)" } ?? task
+
+        do {
+            let response = try await provider.sendMessage(
+                model: model,
+                systemPrompt: systemPrompt,
+                messages: [("user", context)]
+            )
+            return parseTaskBrief(from: response)
+        } catch {
+            return nil
+        }
+    }
+
+    /// JSON 응답에서 TaskBrief 파싱
+    private static func parseTaskBrief(from text: String) -> TaskBrief? {
+        // JSON 블록 추출 (```json ... ``` 또는 { ... })
+        let jsonString: String
+        if let start = text.range(of: "{"), let end = text.range(of: "}", options: .backwards) {
+            jsonString = String(text[start.lowerBound...end.upperBound])
+        } else {
+            return nil
+        }
+
+        guard let data = jsonString.data(using: .utf8) else { return nil }
+
+        struct BriefDTO: Decodable {
+            let goal: String
+            let constraints: [String]?
+            let successCriteria: [String]?
+            let nonGoals: [String]?
+            let overallRisk: String?
+            let outputType: String?
+            let needsClarification: Bool?
+            let questions: [String]?
+        }
+
+        guard let dto = try? JSONDecoder().decode(BriefDTO.self, from: data) else { return nil }
+
+        return TaskBrief(
+            goal: dto.goal,
+            constraints: dto.constraints ?? [],
+            successCriteria: dto.successCriteria ?? [],
+            nonGoals: dto.nonGoals ?? [],
+            overallRisk: RiskLevel(rawValue: dto.overallRisk ?? "low") ?? .low,
+            outputType: OutputType(rawValue: dto.outputType ?? "answer") ?? .answer,
+            needsClarification: dto.needsClarification ?? false,
+            questions: Array((dto.questions ?? []).prefix(2))
+        )
+    }
+
     /// Jira/이슈 트래커 URL 포함 여부
     private static func containsTicketURL(_ text: String) -> Bool {
         let patterns = ["atlassian.net/browse/", "jira.", "github.com/", "/issues/", "/pull/"]

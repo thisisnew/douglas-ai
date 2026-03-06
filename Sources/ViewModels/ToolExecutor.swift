@@ -273,7 +273,7 @@ enum ToolExecutor {
 
     // MARK: - 개별 도구 실행
 
-    private static func executeSingleTool(_ call: ToolCall, context: ToolExecutionContext = .empty) async -> ToolResult {
+    static func executeSingleTool(_ call: ToolCall, context: ToolExecutionContext = .empty) async -> ToolResult {
         // 플러그인 인터셉트 훅
         let argStrings = call.arguments.mapValues { arg -> String in
             switch arg {
@@ -291,6 +291,67 @@ enum ToolExecutor {
             return ToolResult(callID: call.id, content: "도구 차단됨: \(reason)", isError: true)
         case .passthrough:
             break
+        }
+
+        // Layer 1: 에이전트 권한 검사 (actionPermissions가 비어있으면 모두 허용 — 역호환)
+        if !context.agentPermissions.isEmpty,
+           let tool = ToolRegistry.allTools.first(where: { $0.id == call.toolName }),
+           let requiredScope = tool.requiredActionScope,
+           !context.agentPermissions.contains(requiredScope) {
+            return ToolResult(
+                callID: call.id,
+                content: "권한 부족: \(context.currentAgentName ?? "에이전트")에게 '\(requiredScope.rawValue)' 권한이 없습니다.",
+                isError: true
+            )
+        }
+
+        // Layer 2: 에이전트 제한 검사
+        if let tool = ToolRegistry.allTools.first(where: { $0.id == call.toolName }) {
+            // draftOnly 제한: external 도구 차단
+            if context.agentRestrictions.contains(.draftOnly) && tool.risk == .external {
+                return ToolResult(
+                    callID: call.id,
+                    content: "제한됨: \(context.currentAgentName ?? "에이전트")는 draftOnly 모드로, 외부 도구를 실행할 수 없습니다.",
+                    isError: true
+                )
+            }
+            // noCodeExec 제한: shell_exec 차단
+            if context.agentRestrictions.contains(.noCodeExec) && call.toolName == "shell_exec" {
+                return ToolResult(
+                    callID: call.id,
+                    content: "제한됨: \(context.currentAgentName ?? "에이전트")는 코드 실행이 제한되어 있습니다.",
+                    isError: true
+                )
+            }
+            // noExternalSend 제한: sendMessages 권한 필요 도구 차단
+            if context.agentRestrictions.contains(.noExternalSend) && tool.requiredActionScope == .sendMessages {
+                return ToolResult(
+                    callID: call.id,
+                    content: "제한됨: \(context.currentAgentName ?? "에이전트")는 외부 전송이 제한되어 있습니다.",
+                    isError: true
+                )
+            }
+        }
+
+        // Layer 3: Plan C — high-risk 도구 지연 실행 (Build 단계에서 external 도구 defer)
+        if context.deferHighRiskTools,
+           let tool = ToolRegistry.allTools.first(where: { $0.id == call.toolName }),
+           tool.risk == .external {
+            let deferred = DeferredAction(
+                id: UUID(),
+                toolName: call.toolName,
+                arguments: argStrings.mapValues { ToolArgumentValue.string($0) },
+                description: "\(call.toolName): \(argStrings.values.joined(separator: ", ").prefix(100))",
+                riskLevel: .high,
+                previewContent: argStrings.map { "\($0.key): \($0.value)" }.joined(separator: "\n"),
+                status: .pending
+            )
+            context.collectDeferred(deferred)
+            return ToolResult(
+                callID: call.id,
+                content: "⏸ 이 작업은 high-risk로 분류되어 Deliver 단계에서 승인 후 실행됩니다: \(call.toolName)",
+                isError: false
+            )
         }
 
         // 도구 실행 시작 이벤트

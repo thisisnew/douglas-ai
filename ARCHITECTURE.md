@@ -40,17 +40,18 @@ DOUGLAS/
 │   │   ├── BundleExtension.swift    # Bundle.appModule — .app 배포 시 안전한 리소스 번들 접근
 │   │   └── UtilityWindowManager.swift # 유틸리티 윈도우 관리
 │   ├── Models/
-│   │   ├── Agent.swift              # 에이전트 모델 (이름, 페르소나, 이미지, isMaster, workingRules, referenceProjectPaths)
-│   │   ├── AgentManifest.swift     # 에이전트 매니페스트 (.douglas 파일 포맷, Agent↔AgentEntry 변환)
+│   │   ├── Agent.swift              # 에이전트 모델 (+ Plan C: skillTags, workModes, outputStyles, restrictions, actionPermissions)
+│   │   ├── AgentManifest.swift     # 에이전트 매니페스트 (.douglas 포맷, Plan C 카드 필드 포함)
+│   │   ├── AgentPreset.swift       # 12종 빌트인 에이전트 프리셋 (메타데이터 포함)
 │   │   ├── WorkingRules.swift       # 작업 규칙 (WorkingRulesSource — 인라인+파일 동시 지원)
-│   │   ├── AgentTool.swift          # 도구 시스템 (AgentTool, ToolCall, ToolResult, ToolRegistry, ConversationMessage)
+│   │   ├── AgentTool.swift          # 도구 시스템 (AgentTool + ToolRisk + requiredActionScope, ToolCall, ToolResult, ToolRegistry)
 │   │   ├── ArtifactParser.swift     # 토론 산출물 파서 (artifact 블록 추출/제거)
 │   │   ├── ChatMessage.swift        # 메시지 모델 (MessageType 포함: toolActivity, buildStatus, qaStatus, approvalRequest 등, FileAttachment 첨부)
 │   │   ├── DiscussionArtifact.swift # 토론 산출물 모델 (ArtifactType, 버전 관리)
 │   │   ├── FileAttachment.swift     # 파일 첨부 모델 (이미지+문서, 디스크 저장, base64 로드, MIME 판별)
 │   │   ├── BuildResult.swift         # 빌드 결과 모델 + BuildLoopStatus + QAResult + QALoopStatus
 │   │   ├── FileWriteTracker.swift   # 병렬 실행 파일 쓰기 충돌 감지 (actor)
-│   │   ├── ToolExecutionContext.swift # 도구 실행 컨텍스트 (방/에이전트/프로젝트 정보 스냅샷, askUser, currentPhase)
+│   │   ├── ToolExecutionContext.swift # 도구 실행 컨텍스트 (+ Plan C: agentPermissions, agentRestrictions)
 │   │   ├── WorkflowIntent.swift    # 워크플로우 의도 (WorkflowPhase, WorkflowIntent 2종: quickAnswer/task)
 │   │   ├── DocumentType.swift     # 문서 유형 (6종 + 섹션 템플릿, 문서화 요청 시 사용)
 │   │   ├── DocumentRequestDetector.swift # 문서화 요청 감지 (NLTokenizer + LLM 폴백)
@@ -71,7 +72,7 @@ DOUGLAS/
 │   │   ├── PluginTemplate.swift     # 플러그인 빌더 모델 (PluginActionType, HandlerConfig, ScriptGenerator, PluginSlug)
 │   │   ├── ShellEnvironment.swift   # 셸 환경 캐싱 (NVM 경로 1회 스캔, PATH 병합, 실행 파일 탐색)
 │   │   ├── ProcessRunner.swift      # 테스트 가능한 프로세스 실행기 (DI seam)
-│   │   ├── Room.swift               # 프로젝트 방 모델 (상태 전이, 타이머, 토론 모드, RoomBriefing, RoomStep 승인 게이트)
+│   │   ├── Room.swift               # 프로젝트 방 모델 (+ Plan C: TaskBrief, agentRoles, deferredActions, RiskLevel, OutputType, RuntimeRole)
 │   │   └── KeychainHelper.swift     # 파일 기반 API 키 저장 (Keychain 레거시 마이그레이션)
 │   ├── ViewModels/
 │   │   ├── AgentStore.swift         # 에이전트 CRUD, 마스터 생명주기
@@ -1136,24 +1137,38 @@ executeWithTools() 루프 (최대 10회):
 | E-6 | **레거시 제거**: `legacyStartRoomWorkflow` 삭제. `executePlanLite`/`executePlanExec` 삭제 → `executePlanPhase` 하나로 통합. | ✅ |
 | E-7 | **ArtifactType 확장**: `researchReport`, `brainstormResult`, `document` 추가. | ✅ |
 
-**6단계 워크플로우 (모든 Intent 공통 프리픽스)**:
+**Plan C: 새 6단계 워크플로우** (런타임 구현 완료):
 ```
-① Intake ── 입력 파싱 (Jira fetch, URL 감지, IntakeData 저장, 플레이북 로드)
-② Intent ── 작업 유형 표시 (방 생성 시 IntentClassifier가 분류)
-③ Clarify ─ 복명복창 + DelegationInfo 출력 (explicit/open, Jira 중립 컨텍스트)
-④ Assemble ─ explicit→지정 에이전트만 / open→하이브리드 매칭(키워드+NLEmbedding) + classifyNeedsPlan
-  └─ needsPlan=true → [Plan] 토론→계획→승인 (동적 삽입)
-⑤ Execute ── quickAnswer(즉답) / task+needsPlan(계획 기반) / task+!needsPlan(토론/분석+문서)
+① Understand ─ intake+intent+TaskBrief 통합 (clarify 루프 제거, needsClarification → 1회 질문 + 30초 타임아웃)
+② Assemble ── 에이전트 매칭 (skillTags 가중 매칭, workModes 보너스) + RuntimeRole 할당
+③ Design ──── 2인: 3턴 Propose→Critique→Revise (승인 시 Turn 3 스킵) / 1인: 구조화 플랜 / workModes 기반 역할
+④ Build ───── step 루프: low/medium=자동실행, high=DeferredAction 생성 (auto-approval 없음)
+⑤ Review ──── verdict 파싱 (PASS/FAIL) + fail 시 Creator 수정 → 재검토 (최대 2회, 초과 시 에스컬레이션)
+⑥ Deliver ─── DeferredAction 승인 → 실제 실행, 거부 → 취소, 무응답 → 유지
 ```
 
 **Intent별 경로**:
-| Intent | needsPlan | clarify | 토론 | 계획+승인 | 실행 |
-|--------|-----------|---------|------|-----------|------|
-| quickAnswer | - | - | - | - | 즉답 |
-| task | false | O | O (execute에서) | - | 토론/분석 (autoDocOutput 시 자동 문서화) |
-| task | true | O | O (plan에서) | O | 계획 기반 단계별 실행 |
+| Intent | 단계 |
+|--------|------|
+| quickAnswer | Understand → Assemble → Deliver |
+| task | Understand → Assemble → Design → Build → Review → Deliver |
 
-**역호환**: `room.intent == nil` → `.quickAnswer` 자동 폴백. 레거시 저장 데이터의 research/implementation/brainstorm/requirementsAnalysis/testPlanning/taskDecomposition/documentation → `.task` 자동 마이그레이션 (커스텀 Codable). `room.needsPlan`은 `decodeIfPresent` + `false` 기본값. 모든 새 Room 필드는 `decodeIfPresent` + 기본값.
+**레거시 호환**: 기존 6단계(intake→intent→clarify→assemble→plan→execute)도 그대로 동작.
+`room.intent == nil` → `.quickAnswer` 폴백. 레거시 intent → `.task` 자동 마이그레이션.
+모든 새 필드(`taskBrief`, `agentRoles`, `deferredActions`, Agent 5종 메타데이터)는 `decodeIfPresent` + 빈 기본값.
+
+**에이전트 카드 (Plan C)**:
+- `skillTags: [String]` — 매칭 시 가장 강한 신호 (weight 4)
+- `workModes: Set<WorkMode>` — plan/create/execute/review/research
+- `outputStyles: Set<OutputStyle>` — code/document/data/communication/review/translation/plan
+- `actionPermissions: Set<ActionScope>` — 7종 행동 권한 (비어있으면 모두 허용)
+- `restrictions: Set<AgentRestriction>` — 7종 제한 (draftOnly, noCodeExec 등)
+
+**2-layer 안전 시스템**:
+- Layer 1: 도구 자체 위험도 `ToolRisk` (safe/local/external) + 도구별 `requiredActionScope`
+- Layer 2: 에이전트 `actionPermissions` + `restrictions` — ToolExecutor에서 실행 전 검사
+
+**12종 빌트인 프리셋** (`AgentPreset.builtIn`): 백엔드/프론트엔드/QA/DevOps/기획자/리서처/문서작성자/마케터/디자이너/법무/데이터분석가/CS
 
 **Plan 승인 피드백 루프** (E-8~E-11):
 - `requestPlan(previousPlan:feedback:)`: 거부된 이전 계획과 사용자 피드백을 재계획 프롬프트에 주입.

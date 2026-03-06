@@ -1,5 +1,131 @@
 import Foundation
 
+// MARK: - Plan C: 리스크 레벨 (실행 단계 태그)
+
+enum RiskLevel: String, Codable {
+    case low      // 내부 작업: 초안 작성, 분석, 리서치, 요약, 로컬 파일 생성
+    case medium   // 수정 가능한 외부 작업: Draft PR, 문서 초안, 임시 저장
+    case high     // 되돌리기 어려운 외부 작업: 메일 전송, merge, 배포, 결제, DB 변경
+
+    var displayName: String {
+        switch self {
+        case .low:    return "안전"
+        case .medium: return "주의"
+        case .high:   return "위험"
+        }
+    }
+}
+
+// MARK: - Plan C: 산출물 유형 (TaskBrief용)
+
+enum OutputType: String, Codable {
+    case code           // 코드/PR/커밋
+    case document       // 문서/보고서/기획서
+    case message        // 이메일/슬랙/메시지
+    case analysis       // 분석 결과/리서치 요약
+    case data           // 스프레드시트/DB 변경
+    case design         // 디자인 시안/와이어프레임
+    case answer         // 즉답 (quickAnswer)
+}
+
+// MARK: - Plan C: 런타임 역할 (작업마다 배정)
+
+enum RuntimeRole: String, Codable {
+    case creator    // 산출물을 만드는 역할
+    case reviewer   // 산출물을 검토하는 역할
+    case planner    // 3명+ 일 때 전체 설계를 잡는 역할
+
+    var displayName: String {
+        switch self {
+        case .creator:  return "작성자"
+        case .reviewer: return "검토자"
+        case .planner:  return "설계자"
+        }
+    }
+}
+
+// MARK: - Plan C: TaskBrief (Understand 출력)
+
+struct TaskBrief: Codable, Equatable {
+    var goal: String              // "거래처 납기 지연 사과 메일 발송"
+    var constraints: [String]     // ["격식체", "새 납기일: 3/20"]
+    var successCriteria: [String] // ["사과 표현", "새 납기일 명시"]
+    var nonGoals: [String]        // ["전체 공지 아님"]
+    var overallRisk: RiskLevel    // .high (이메일 전송)
+    var outputType: OutputType    // .message
+    var needsClarification: Bool  // 정보 부족 시 true → 질문 1회 표시
+    var questions: [String]       // needsClarification=true 시 질문 목록 (최대 2개)
+
+    init(
+        goal: String,
+        constraints: [String] = [],
+        successCriteria: [String] = [],
+        nonGoals: [String] = [],
+        overallRisk: RiskLevel = .low,
+        outputType: OutputType = .answer,
+        needsClarification: Bool = false,
+        questions: [String] = []
+    ) {
+        self.goal = goal
+        self.constraints = constraints
+        self.successCriteria = successCriteria
+        self.nonGoals = nonGoals
+        self.overallRisk = overallRisk
+        self.outputType = outputType
+        self.needsClarification = needsClarification
+        self.questions = questions
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        goal = try container.decode(String.self, forKey: .goal)
+        constraints = try container.decodeIfPresent([String].self, forKey: .constraints) ?? []
+        successCriteria = try container.decodeIfPresent([String].self, forKey: .successCriteria) ?? []
+        nonGoals = try container.decodeIfPresent([String].self, forKey: .nonGoals) ?? []
+        overallRisk = try container.decodeIfPresent(RiskLevel.self, forKey: .overallRisk) ?? .low
+        outputType = try container.decodeIfPresent(OutputType.self, forKey: .outputType) ?? .answer
+        needsClarification = try container.decodeIfPresent(Bool.self, forKey: .needsClarification) ?? false
+        questions = try container.decodeIfPresent([String].self, forKey: .questions) ?? []
+    }
+}
+
+// MARK: - Plan C: DeferredAction (Build에서 Deliver로 넘기는 작업)
+
+struct DeferredAction: Codable, Identifiable, Equatable {
+    let id: UUID
+    let toolName: String           // "shell_exec", 미래의 "email_send" 등
+    let arguments: [String: ToolArgumentValue]
+    let description: String        // "고객에게 사과 메일 전송"
+    let riskLevel: RiskLevel       // .high
+    let previewContent: String?    // Draft 프리뷰용 텍스트
+    var status: DeferredStatus
+
+    enum DeferredStatus: String, Codable {
+        case pending    // 사용자 승인 대기
+        case approved   // 승인됨 → 실행 예정
+        case executed   // 실행 완료
+        case cancelled  // 취소됨
+    }
+
+    init(
+        id: UUID = UUID(),
+        toolName: String,
+        arguments: [String: ToolArgumentValue],
+        description: String,
+        riskLevel: RiskLevel = .high,
+        previewContent: String? = nil,
+        status: DeferredStatus = .pending
+    ) {
+        self.id = id
+        self.toolName = toolName
+        self.arguments = arguments
+        self.description = description
+        self.riskLevel = riskLevel
+        self.previewContent = previewContent
+        self.status = status
+    }
+}
+
 // MARK: - 위임 정보 (Clarify → Assemble 전달)
 
 /// clarify 단계에서 LLM이 판단한 에이전트 위임 정보
@@ -83,11 +209,13 @@ struct RoomStep: Codable, Equatable {
     let text: String
     let requiresApproval: Bool
     var assignedAgentID: UUID?
+    var riskLevel: RiskLevel
 
-    init(text: String, requiresApproval: Bool = false, assignedAgentID: UUID? = nil) {
+    init(text: String, requiresApproval: Bool = false, assignedAgentID: UUID? = nil, riskLevel: RiskLevel = .low) {
         self.text = text
         self.requiresApproval = requiresApproval
         self.assignedAgentID = assignedAgentID
+        self.riskLevel = riskLevel
     }
 
     /// 커스텀 디코딩: plain String 또는 {"text":..., "requires_approval":...} 둘 다 지원
@@ -98,6 +226,7 @@ struct RoomStep: Codable, Equatable {
             self.text = str
             self.requiresApproval = false
             self.assignedAgentID = nil
+            self.riskLevel = .low
             return
         }
         // object 형태
@@ -105,11 +234,12 @@ struct RoomStep: Codable, Equatable {
         self.text = try container.decode(String.self, forKey: .text)
         self.requiresApproval = try container.decodeIfPresent(Bool.self, forKey: .requiresApproval) ?? false
         self.assignedAgentID = try container.decodeIfPresent(UUID.self, forKey: .assignedAgentID)
+        self.riskLevel = try container.decodeIfPresent(RiskLevel.self, forKey: .riskLevel) ?? .low
     }
 
     func encode(to encoder: Encoder) throws {
         // 승인 불필요 + 배정 없으면 plain String으로 인코딩 (역호환)
-        if !requiresApproval && assignedAgentID == nil {
+        if !requiresApproval && assignedAgentID == nil && riskLevel == .low {
             var container = encoder.singleValueContainer()
             try container.encode(text)
         } else {
@@ -117,6 +247,9 @@ struct RoomStep: Codable, Equatable {
             try container.encode(text, forKey: .text)
             try container.encode(requiresApproval, forKey: .requiresApproval)
             try container.encodeIfPresent(assignedAgentID, forKey: .assignedAgentID)
+            if riskLevel != .low {
+                try container.encode(riskLevel, forKey: .riskLevel)
+            }
         }
     }
 
@@ -124,6 +257,7 @@ struct RoomStep: Codable, Equatable {
         case text
         case requiresApproval = "requires_approval"
         case assignedAgentID = "assigned_agent_id"
+        case riskLevel = "risk_level"
     }
 }
 
@@ -131,6 +265,7 @@ extension RoomStep: ExpressibleByStringLiteral {
     init(stringLiteral value: String) {
         self.text = value
         self.requiresApproval = false
+        self.riskLevel = .low
     }
 }
 
@@ -326,6 +461,10 @@ struct Room: Identifiable, Codable {
     var isDiscussionCheckpoint: Bool
     // 토론 결정 로그
     var decisionLog: [DecisionEntry]
+    // Plan C: 새 워크플로우 필드
+    var taskBrief: TaskBrief?
+    var agentRoles: [String: RuntimeRole]       // agentID.uuidString → RuntimeRole
+    var deferredActions: [DeferredAction]
 
     /// 남은 시간 (초). 타이머 미시작 시 nil
     var remainingSeconds: Int? {
@@ -368,8 +507,16 @@ struct Room: Identifiable, Codable {
         switch currentPhase {
         case .intake, .intent, .assemble:
             return "준비 중"
-        case .clarify:
+        case .clarify, .understand:
             return "요건 확인"
+        case .design:
+            return "설계 중"
+        case .build:
+            return "구현 중"
+        case .review:
+            return "검토 중"
+        case .deliver:
+            return "전달 중"
         case .plan:
             if currentRound > 0 { return "토론 중 (\(currentRound)R)" }
             if plan != nil { return "계획 검토 중" }
@@ -475,6 +622,9 @@ struct Room: Identifiable, Codable {
         self.delegationInfo = nil
         self.isDiscussionCheckpoint = false
         self.decisionLog = []
+        self.taskBrief = nil
+        self.agentRoles = [:]
+        self.deferredActions = []
     }
 
     // 기존 저장 데이터 호환
@@ -537,5 +687,8 @@ struct Room: Identifiable, Codable {
         delegationInfo = try container.decodeIfPresent(DelegationInfo.self, forKey: .delegationInfo)
         isDiscussionCheckpoint = try container.decodeIfPresent(Bool.self, forKey: .isDiscussionCheckpoint) ?? false
         decisionLog = try container.decodeIfPresent([DecisionEntry].self, forKey: .decisionLog) ?? []
+        taskBrief = try container.decodeIfPresent(TaskBrief.self, forKey: .taskBrief)
+        agentRoles = try container.decodeIfPresent([String: RuntimeRole].self, forKey: .agentRoles) ?? [:]
+        deferredActions = try container.decodeIfPresent([DeferredAction].self, forKey: .deferredActions) ?? []
     }
 }
