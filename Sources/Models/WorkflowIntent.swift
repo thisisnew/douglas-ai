@@ -2,23 +2,33 @@ import Foundation
 
 // MARK: - 워크플로우 단계
 
-/// 워크플로우의 개별 단계
+/// 워크플로우의 개별 단계 (Plan C: 6단계)
 enum WorkflowPhase: String, Codable, CaseIterable {
     case intake       // ① 입력 파싱 (Jira fetch 등)
     case intent       // ② 작업 목적 확인
-    case clarify      // ③ 요구사항 컨펌 (사용자 확인까지 루프)
-    case assemble     // ④ 역할 매칭 + 에이전트 초대
-    case plan         // ⑤ 토론 + 계획 수립 (동적 삽입: needsPlan 시에만)
-    case execute      // ⑥ 실행 (즉답 / 토론+브리핑 / 단계별 실행)
+    case clarify      // ③ 요구사항 컨펌 (사용자 확인까지 루프) — 레거시 호환
+    case understand   // ①② Understand (intake+intent+clarify 통합, Plan C)
+    case assemble     // ③ 역할 매칭 + 에이전트 초대
+    case design       // ④ 3턴 고정 프로토콜 (Propose→Critique→Revise) + 계획 승인
+    case build        // ⑤ Creator가 단계별 실행 (riskLevel별 정책)
+    case review       // ⑥ Reviewer가 Build 결과물 검토
+    case deliver      // ⑦ 최종 산출물 전달 (high = Draft 프리뷰 + 명시 승인)
+    case plan         // 레거시 호환: 기존 토론 + 계획 수립
+    case execute      // 레거시 호환: 기존 실행
 
     var displayName: String {
         switch self {
-        case .intake:   return "입력 분석"
-        case .intent:   return "목적 확인"
-        case .clarify:  return "요건 확인"
-        case .assemble: return "팀 구성"
-        case .plan:     return "계획 수립"
-        case .execute:  return "실행"
+        case .intake:     return "입력 분석"
+        case .intent:     return "목적 확인"
+        case .clarify:    return "요건 확인"
+        case .understand: return "요청 분석"
+        case .assemble:   return "팀 구성"
+        case .design:     return "설계"
+        case .build:      return "구현"
+        case .review:     return "검토"
+        case .deliver:    return "전달"
+        case .plan:       return "계획 수립"
+        case .execute:    return "실행"
         }
     }
 }
@@ -62,16 +72,15 @@ enum WorkflowIntent: String, CaseIterable {
         }
     }
 
-    /// 이 의도에 필요한 워크플로우 단계 목록
-    /// task의 .plan은 여기에 포함하지 않음 — needsPlan 판단 후 동적 삽입
+    /// 이 의도에 필요한 워크플로우 단계 목록 (Plan C: 새 6단계)
     var requiredPhases: [WorkflowPhase] {
         switch self {
         case .quickAnswer:
-            // 질의응답: 복명복창 없이 최적 에이전트가 바로 답변
-            return [.intake, .intent, .assemble, .execute]
+            // 질의응답: Understand → Assemble → 바로 답변
+            return [.understand, .assemble, .deliver]
         case .task:
-            // 복합 작업: 요건 확인 → 팀 구성 → 실행 (.plan은 동적 삽입)
-            return [.intake, .intent, .clarify, .assemble, .execute]
+            // 복합 작업: Understand → Assemble → Design → Build → Review → Deliver
+            return [.understand, .assemble, .design, .build, .review, .deliver]
         }
     }
 

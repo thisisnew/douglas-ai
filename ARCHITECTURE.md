@@ -347,10 +347,8 @@ struct Agent: Identifiable, Codable, Hashable {
     var isMaster: Bool            // 마스터 에이전트 여부
     var errorMessage: String?     // 마지막 오류 메시지
     var hasImage: Bool            // 아바타 이미지 유무 (파일시스템 저장)
-    var category: AgentCategory?  // 작업 카테고리 (nil = 자동 추론)
     var resolvedToolIDs: [String] { ... }    // 항상 ToolRegistry.allToolIDs (모든 에이전트 전체 도구)
     var hasToolsEnabled: Bool { ... }        // 항상 true
-    var resolvedCategory: AgentCategory { ... } // 명시 설정 > 페르소나 기반 자동 추론
 }
 ```
 
@@ -358,38 +356,6 @@ struct Agent: Identifiable, Codable, Hashable {
 - Hashable: id만 사용
 - `createMaster()`: 기본 마스터 에이전트 팩토리 (Claude Code + 위임 페르소나)
 - 이미지: `~/Library/Application Support/DOUGLAS/avatars/{id}.png`에 저장 (static save/load/delete)
-
-### AgentCategory (`Models/Agent.swift`)
-
-태스크 성격에 따른 최적 모델 자동 선택 시스템:
-
-| 카테고리 | 용도 | 추천 모델 |
-|---------|------|----------|
-| `.coding` | 코드 작성/수정/디버깅 | Sonnet, GPT-4o |
-| `.reasoning` | 설계/분석/아키텍처 | Opus, o3 |
-| `.quick` | 번역/요약/간단 수정 | Haiku, GPT-4o-mini |
-| `.visual` | UI/디자인/이미지 분석 | Gemini Pro, GPT-4o |
-| `.writing` | 문서/보고서/API 스펙 | Sonnet, Opus |
-
-- `resolvedCategory`: 명시 설정이 있으면 사용, 없으면 `inferCategory()` 로 페르소나 키워드 기반 자동 추론
-- `suggestedModels`: 카테고리별 추천 프로바이더+모델 목록
-
-### ModelPreferences (`Models/ModelPreferences.swift`)
-
-카테고리별 선호 모델 매핑을 UserDefaults에 저장/로드:
-
-- `preferred(for:)`: 특정 카테고리의 오버라이드 매핑 조회
-- `all()` / `setAll(_:)`: 전체 매핑 일괄 로드/저장
-- `resolvedModel(for:)`: 에이전트의 카테고리에 맞는 최종 (provider, model) 반환 — 오버라이드 없으면 에이전트 원래 값
-- RoomManager.executeStep()에서 실행 직전 자동 적용
-
-### ModelMappingSettingsView (`Views/ModelMappingSettingsView.swift`)
-
-설정 윈도우의 "모델 매핑" 탭 UI:
-
-- 카테고리별 프로바이더 Picker + 모델명 TextField
-- sparkles 메뉴로 추천 모델 원클릭 선택
-- 저장/초기화 버튼
 
 ### AgentManifest (`Models/AgentManifest.swift`)
 
@@ -1139,12 +1105,14 @@ executeWithTools() 루프 (최대 10회):
 
 **Plan C: 새 6단계 워크플로우** (런타임 구현 완료):
 ```
-① Understand ─ intake+intent+TaskBrief 통합 (clarify 루프 제거, needsClarification → 1회 질문 + 30초 타임아웃)
+① Understand ─ intake+intent+TaskBrief 통합 (clarify 루프 제거, needsClarification → 최대 2회 질문 + 30초 타임아웃)
 ② Assemble ── 에이전트 매칭 (skillTags 가중 매칭, workModes 보너스) + RuntimeRole 할당
-③ Design ──── 2인: 3턴 Propose→Critique→Revise (승인 시 Turn 3 스킵) / 1인: 구조화 플랜 / workModes 기반 역할
-④ Build ───── step 루프: low/medium=자동실행, high=DeferredAction 생성 (auto-approval 없음)
-⑤ Review ──── verdict 파싱 (PASS/FAIL) + fail 시 Creator 수정 → 재검토 (최대 2회, 초과 시 에스컬레이션)
-⑥ Deliver ─── DeferredAction 승인 → 실제 실행, 거부 → 취소, 무응답 → 유지
+③ Design ──── 2인: 3턴 Propose→Critique→Revise (승인 시 Turn 3 스킵) / 3인+: Planner 프로토콜 / 1인: 구조화 플랜
+              승인 거부→재수정 최대 2회, 초과 시 최종 선택 / riskLevel 표시
+④ Build ───── step 루프: low/medium=자동실행, high=DeferredAction (auto-approval 없음)
+              도구 레벨: deferHighRiskTools=true → external 도구도 DeferredAction으로 수집
+⑤ Review ──── verdict 파싱 (PASS/FAIL/통과/불합격) + fail 시 Creator 수정 → 재검토 (최대 2회, 초과 시 에스컬레이션)
+⑥ Deliver ─── DeferredAction 프리뷰 + 승인 → 실제 실행, 거부 → 취소, 무응답 → HOLD
 ```
 
 **Intent별 경로**:
@@ -1158,21 +1126,22 @@ executeWithTools() 루프 (최대 10회):
 모든 새 필드(`taskBrief`, `agentRoles`, `deferredActions`, Agent 5종 메타데이터)는 `decodeIfPresent` + 빈 기본값.
 
 **에이전트 카드 (Plan C)**:
-- `skillTags: [String]` — 매칭 시 가장 강한 신호 (weight 4)
+- `skillTags: [String]` — 매칭 시 가장 강한 신호 (weight +4)
 - `workModes: Set<WorkMode>` — plan/create/execute/review/research
 - `outputStyles: Set<OutputStyle>` — code/document/data/communication/review/translation/plan
 - `actionPermissions: Set<ActionScope>` — 7종 행동 권한 (비어있으면 모두 허용)
 - `restrictions: Set<AgentRestriction>` — 7종 제한 (draftOnly, noCodeExec 등)
 
-**2-layer 안전 시스템**:
-- Layer 1: 도구 자체 위험도 `ToolRisk` (safe/local/external) + 도구별 `requiredActionScope`
-- Layer 2: 에이전트 `actionPermissions` + `restrictions` — ToolExecutor에서 실행 전 검사
+**3-layer 안전 시스템**:
+- Layer 1: 에이전트 `actionPermissions` — 도구별 `requiredActionScope` 대조
+- Layer 2: 에이전트 `restrictions` — draftOnly/noCodeExec/noExternalSend
+- Layer 3: `deferHighRiskTools` — Build 단계에서 external 도구 → DeferredAction으로 수집 (Deliver에서 실행)
 
 **12종 빌트인 프리셋** (`AgentPreset.builtIn`): 백엔드/프론트엔드/QA/DevOps/기획자/리서처/문서작성자/마케터/디자이너/법무/데이터분석가/CS
 
 **Plan 승인 피드백 루프** (E-8~E-11):
 - `requestPlan(previousPlan:feedback:)`: 거부된 이전 계획과 사용자 피드백을 재계획 프롬프트에 주입.
-- `executePlanPhase` 승인 while 루프: 거부 → 피드백 추출 → 재계획 → 다시 승인 카드 (무제한).
+- `executePlanPhase` 승인 while 루프: 거부 → 피드백 추출 → 재계획 → 다시 승인 카드 (최대 2회 수정).
 - `executeSoloAnalysis`: 전문가 1명 Solo 분석 (토론 대신). task + !needsPlan에서 `specialistCount == 1`일 때 자동 호출.
 - `executeStep` 문서 템플릿 주입: `documentType != nil`일 때 `documentType.templatePromptBlock()` + "이미 완성" 응답 금지 지침. Assemble에서 `documentType != nil`이면 1명 제한.
 - `launchFollowUpCycle`: 완료/실패 방 후속 질문 → 방 재활성화 → assemble부터 경량 워크플로우.

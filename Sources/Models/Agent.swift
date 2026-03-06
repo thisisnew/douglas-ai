@@ -7,45 +7,6 @@ enum AgentStatus: String, Codable {
     case error      // 오류 발생
 }
 
-/// 에이전트 작업 카테고리 — 태스크 성격에 따라 최적 모델 자동 선택에 사용
-enum AgentCategory: String, Codable, CaseIterable {
-    case coding     // 코드 작성/수정/리뷰 → 추론 강한 모델 (Opus, GPT-4o)
-    case reasoning  // 설계/분석/아키텍처 → 추론 특화 모델
-    case quick      // 번역/요약/간단 수정 → 빠르고 저렴한 모델 (Haiku, GPT-4o-mini)
-    case visual     // UI/디자인/멀티모달 → 비전 모델 (Gemini)
-    case writing    // 문서/보고서/기술 문서 → 긴 출력 모델
-
-    var displayName: String {
-        switch self {
-        case .coding:    return "코딩"
-        case .reasoning: return "추론/설계"
-        case .quick:     return "빠른 작업"
-        case .visual:    return "비주얼/UI"
-        case .writing:   return "문서 작성"
-        }
-    }
-
-    var description: String {
-        switch self {
-        case .coding:    return "코드 작성, 수정, 디버깅, 리뷰"
-        case .reasoning: return "시스템 설계, 아키텍처, 분석"
-        case .quick:     return "번역, 요약, 포맷 변환, 간단 수정"
-        case .visual:    return "UI 구현, 디자인 검토, 이미지 분석"
-        case .writing:   return "기술 문서, 보고서, API 스펙"
-        }
-    }
-
-    var suggestedModels: [(provider: String, model: String)] {
-        switch self {
-        case .coding:    return [("Claude Code", "claude-sonnet-4-6"), ("OpenAI", "gpt-4o")]
-        case .reasoning: return [("Claude Code", "claude-opus-4-6"), ("OpenAI", "o3")]
-        case .quick:     return [("Claude Code", "claude-haiku-4-5-20251001"), ("OpenAI", "gpt-4o-mini")]
-        case .visual:    return [("Google", "gemini-2.5-pro"), ("OpenAI", "gpt-4o")]
-        case .writing:   return [("Claude Code", "claude-sonnet-4-6"), ("Claude Code", "claude-opus-4-6")]
-        }
-    }
-}
-
 // MARK: - 업무형태 (에이전트가 할 수 있는 일)
 
 enum WorkMode: String, Codable, CaseIterable {
@@ -185,9 +146,6 @@ struct Agent: Identifiable, Codable, Hashable {
     var errorMessage: String?
     var hasImage: Bool
 
-    // 에이전트 카테고리 (nil = 자동 추론)
-    var category: AgentCategory?
-
     // 작업 규칙 (nil = 마스터 등 규칙 불필요)
     var workingRules: WorkingRulesSource?
 
@@ -233,7 +191,7 @@ struct Agent: Identifiable, Codable, Hashable {
     // imageData는 Codable에서 제외 — 파일 시스템에 저장
     private enum CodingKeys: String, CodingKey {
         case id, name, persona, providerName, modelName, status, isMaster, errorMessage, hasImage
-        case category, referenceProjectPaths, workingRules
+        case referenceProjectPaths, workingRules
         case skillTags, workModes, outputStyles, restrictions, actionPermissions
     }
 
@@ -268,7 +226,6 @@ struct Agent: Identifiable, Codable, Hashable {
         imageData: Data? = nil,
         referenceProjectPaths: [String] = [],
         workingRules: WorkingRulesSource? = nil,
-        category: AgentCategory? = nil,
         skillTags: [String] = [],
         workModes: Set<WorkMode> = [],
         outputStyles: Set<OutputStyle> = [],
@@ -283,7 +240,6 @@ struct Agent: Identifiable, Codable, Hashable {
         self.status = status
         self.isMaster = isMaster
         self.errorMessage = errorMessage
-        self.category = category
         self.workingRules = workingRules
         self.referenceProjectPaths = referenceProjectPaths
         self.skillTags = skillTags
@@ -310,7 +266,6 @@ struct Agent: Identifiable, Codable, Hashable {
         isMaster = try container.decodeIfPresent(Bool.self, forKey: .isMaster) ?? false
         errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
         hasImage = try container.decodeIfPresent(Bool.self, forKey: .hasImage) ?? false
-        category = try container.decodeIfPresent(AgentCategory.self, forKey: .category)
         referenceProjectPaths = try container.decodeIfPresent([String].self, forKey: .referenceProjectPaths) ?? []
         workingRules = try container.decodeIfPresent(WorkingRulesSource.self, forKey: .workingRules)
 
@@ -409,48 +364,4 @@ struct Agent: Identifiable, Codable, Hashable {
         deleteImage(for: id)
     }
 
-    // MARK: - 카테고리 자동 추론
-
-    /// 에이전트의 유효 카테고리 (명시 설정 > 페르소나 기반 자동 추론)
-    var resolvedCategory: AgentCategory {
-        if let category { return category }
-        return Self.inferCategory(from: persona, name: name)
-    }
-
-    /// 페르소나 + 이름 키워드로 카테고리 자동 추론
-    static func inferCategory(from persona: String, name: String) -> AgentCategory {
-        let text = "\(name) \(persona)".lowercased()
-
-        let scores: [(AgentCategory, Int)] = [
-            (.coding, countKeywords(text, [
-                "코드", "개발", "구현", "디버", "리팩", "프로그래", "코딩",
-                "code", "develop", "implement", "debug", "refactor", "program",
-                "swift", "typescript", "python", "java", "react", "backend", "frontend",
-                "백엔드", "프론트엔드", "api", "서버", "배포", "테스트", "test"
-            ])),
-            (.reasoning, countKeywords(text, [
-                "설계", "아키텍", "분석", "전략", "리서치", "조사", "검토",
-                "architect", "design", "analy", "research", "strategy", "review",
-                "시스템", "구조", "패턴", "알고리즘", "최적화", "optimiz"
-            ])),
-            (.quick, countKeywords(text, [
-                "번역", "요약", "변환", "포맷", "정리", "간단",
-                "translat", "summar", "convert", "format", "simple", "quick"
-            ])),
-            (.visual, countKeywords(text, [
-                "ui", "ux", "디자인", "화면", "레이아웃", "스타일", "css",
-                "design", "visual", "layout", "style", "figma", "image", "이미지"
-            ])),
-            (.writing, countKeywords(text, [
-                "문서", "보고서", "작성", "기술 문서", "스펙", "명세",
-                "document", "report", "write", "spec", "prd", "technical"
-            ])),
-        ]
-
-        return scores.max(by: { $0.1 < $1.1 })?.0 ?? .coding
-    }
-
-    private static func countKeywords(_ text: String, _ keywords: [String]) -> Int {
-        keywords.reduce(0) { $0 + (text.contains($1) ? 1 : 0) }
-    }
 }

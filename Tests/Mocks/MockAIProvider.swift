@@ -49,13 +49,15 @@ class MockAIProvider: AIProvider {
     var supportsStreaming: Bool { _supportsStreaming }
     var streamingChunks: [String] = ["mock ", "stream ", "response"]
 
+    var sendMessageStreamingCallCount = 0
+
     func sendMessageStreaming(
         model: String,
         systemPrompt: String,
         messages: [(role: String, content: String)],
         onChunk: @escaping @Sendable (String) -> Void
     ) async throws -> String {
-        sendMessageCallCount += 1
+        sendMessageStreamingCallCount += 1
         lastSendMessageArgs = (model, systemPrompt, messages)
         var full = ""
         for chunk in streamingChunks {

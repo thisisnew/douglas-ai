@@ -458,7 +458,9 @@ struct ProviderTests {
 
         let tools = [AgentTool(
             id: "file_read", name: "파일 읽기", description: "Read file",
-            parameters: [.init(name: "path", type: .string, description: "Path", required: true, enumValues: nil)]
+            parameters: [.init(name: "path", type: .string, description: "Path", required: true, enumValues: nil)],
+            risk: .safe,
+            requiredActionScope: nil
         )]
         let result = try await provider.sendMessageWithTools(
             model: "gpt-4o",

@@ -32,7 +32,12 @@ struct AgentManifestTests {
             providerType: "OpenAI",
             preferredModel: "gpt-4o",
             workingRules: "- 코드 작성 시 테스트 포함 필수",
-            avatarBase64: nil
+            avatarBase64: nil,
+            skillTags: nil,
+            workModes: nil,
+            outputStyles: nil,
+            restrictions: nil,
+            actionPermissions: nil
         )
         let manifest = AgentManifest(
             formatVersion: 1,
@@ -68,7 +73,12 @@ struct AgentManifestTests {
             providerType: "Anthropic",
             preferredModel: "claude-sonnet-4-6",
             workingRules: nil,
-            avatarBase64: base64
+            avatarBase64: base64,
+            skillTags: nil,
+            workModes: nil,
+            outputStyles: nil,
+            restrictions: nil,
+            actionPermissions: nil
         )
         let manifest = makeManifest(agents: [entry])
         let data = try encode(manifest)
@@ -108,7 +118,12 @@ struct AgentManifestTests {
             providerType: "OpenAI",
             preferredModel: "gpt-4o",
             workingRules: "- Given/When/Then 형식",
-            avatarBase64: nil
+            avatarBase64: nil,
+            skillTags: nil,
+            workModes: nil,
+            outputStyles: nil,
+            restrictions: nil,
+            actionPermissions: nil
         )
         let agent = entry.toAgent()
 
@@ -129,7 +144,12 @@ struct AgentManifestTests {
             providerType: "Claude Code",
             preferredModel: "claude-sonnet-4-6",
             workingRules: nil,
-            avatarBase64: nil
+            avatarBase64: nil,
+            skillTags: nil,
+            workModes: nil,
+            outputStyles: nil,
+            restrictions: nil,
+            actionPermissions: nil
         )
         let agent = entry.toAgent()
         #expect(agent.isMaster == false)
@@ -146,7 +166,12 @@ struct AgentManifestTests {
             providerType: "OpenAI",
             preferredModel: "gpt-4o",
             workingRules: nil,
-            avatarBase64: nil
+            avatarBase64: nil,
+            skillTags: nil,
+            workModes: nil,
+            outputStyles: nil,
+            restrictions: nil,
+            actionPermissions: nil
         )
         let agent = entry.toAgent()
         #expect(agent.workingRules == nil)
@@ -161,7 +186,12 @@ struct AgentManifestTests {
             providerType: "OpenAI",
             preferredModel: "gpt-4o",
             workingRules: "",
-            avatarBase64: nil
+            avatarBase64: nil,
+            skillTags: nil,
+            workModes: nil,
+            outputStyles: nil,
+            restrictions: nil,
+            actionPermissions: nil
         )
         let agent = entry.toAgent()
         #expect(agent.workingRules == nil)
@@ -244,17 +274,23 @@ struct AgentManifestTests {
             AgentManifest.AgentEntry(
                 name: "백엔드", persona: "백엔드 전문가", isMaster: false,
                 providerType: "OpenAI", preferredModel: "gpt-4o",
-                workingRules: nil, avatarBase64: nil
+                workingRules: nil, avatarBase64: nil,
+                skillTags: nil, workModes: nil, outputStyles: nil,
+                restrictions: nil, actionPermissions: nil
             ),
             AgentManifest.AgentEntry(
                 name: "프론트엔드", persona: "프론트엔드 전문가", isMaster: false,
                 providerType: "Anthropic", preferredModel: "claude-sonnet-4-6",
-                workingRules: "- React 사용", avatarBase64: nil
+                workingRules: "- React 사용", avatarBase64: nil,
+                skillTags: nil, workModes: nil, outputStyles: nil,
+                restrictions: nil, actionPermissions: nil
             ),
             AgentManifest.AgentEntry(
                 name: "DOUGLAS", persona: "AI 집사", isMaster: true,
                 providerType: "Claude Code", preferredModel: "claude-sonnet-4-6",
-                workingRules: nil, avatarBase64: nil
+                workingRules: nil, avatarBase64: nil,
+                skillTags: nil, workModes: nil, outputStyles: nil,
+                restrictions: nil, actionPermissions: nil
             ),
         ]
         let manifest = makeManifest(agents: entries)

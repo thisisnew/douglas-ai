@@ -8,6 +8,8 @@ struct AgentTool: Identifiable, Codable, Hashable {
     let name: String            // 표시 이름: "파일 읽기"
     let description: String     // LLM에 전달되는 설명
     let parameters: [ToolParameter]
+    let risk: ToolRisk                         // 도구 자체 위험도
+    let requiredActionScope: ActionScope?      // 에이전트에게 필요한 권한 (nil = 항상 허용)
 
     struct ToolParameter: Codable, Hashable {
         let name: String
@@ -129,6 +131,15 @@ struct ConversationMessage {
     }
 }
 
+// MARK: - 도구 리스크 등급
+
+/// 도구 자체의 위험도 — 시스템이 하드코딩, LLM 판단에 의존하지 않음
+enum ToolRisk: String, Codable {
+    case safe          // 읽기만. 부작용 없음
+    case local         // 로컬 변경. 되돌릴 수 있음
+    case external      // 외부 시스템 변경/전송. 되돌리기 어려움
+}
+
 // MARK: - 도구 레지스트리
 
 /// 내장 도구 카탈로그
@@ -140,7 +151,8 @@ enum ToolRegistry {
             description: "Read the contents of a file at the given path. Returns the file content as text.",
             parameters: [
                 .init(name: "path", type: .string, description: "Absolute file path to read", required: true, enumValues: nil)
-            ]
+            ],
+            risk: .safe, requiredActionScope: .readFiles
         ),
         AgentTool(
             id: "file_write",
@@ -149,7 +161,8 @@ enum ToolRegistry {
             parameters: [
                 .init(name: "path", type: .string, description: "Absolute file path to write", required: true, enumValues: nil),
                 .init(name: "content", type: .string, description: "Content to write to the file", required: true, enumValues: nil)
-            ]
+            ],
+            risk: .local, requiredActionScope: .writeFiles
         ),
         AgentTool(
             id: "shell_exec",
@@ -158,7 +171,8 @@ enum ToolRegistry {
             parameters: [
                 .init(name: "command", type: .string, description: "Shell command to execute", required: true, enumValues: nil),
                 .init(name: "working_directory", type: .string, description: "Working directory for the command (optional)", required: false, enumValues: nil)
-            ]
+            ],
+            risk: .external, requiredActionScope: .runCommands
         ),
         AgentTool(
             id: "web_search",
@@ -166,7 +180,8 @@ enum ToolRegistry {
             description: "Search the web for information using DuckDuckGo. Returns titles, URLs, and snippets of search results.",
             parameters: [
                 .init(name: "query", type: .string, description: "Search query string", required: true, enumValues: nil)
-            ]
+            ],
+            risk: .safe, requiredActionScope: .readWeb
         ),
         AgentTool(
             id: "web_fetch",
@@ -176,7 +191,8 @@ enum ToolRegistry {
                 .init(name: "url", type: .string, description: "URL to fetch", required: true, enumValues: nil),
                 .init(name: "method", type: .string, description: "HTTP method (GET, POST). Default: GET", required: false, enumValues: ["GET", "POST"]),
                 .init(name: "body", type: .string, description: "Request body for POST requests", required: false, enumValues: nil)
-            ]
+            ],
+            risk: .safe, requiredActionScope: .readWeb
         ),
         AgentTool(
             id: "invite_agent",
@@ -185,13 +201,15 @@ enum ToolRegistry {
             parameters: [
                 .init(name: "agent_name", type: .string, description: "Name of the agent to invite", required: true, enumValues: nil),
                 .init(name: "reason", type: .string, description: "Reason for inviting this agent", required: false, enumValues: nil)
-            ]
+            ],
+            risk: .safe, requiredActionScope: nil
         ),
         AgentTool(
             id: "list_agents",
             name: "에이전트 목록",
             description: "List all available agents that can be invited to the current room.",
-            parameters: []
+            parameters: [],
+            risk: .safe, requiredActionScope: nil
         ),
         AgentTool(
             id: "jira_create_subtask",
@@ -201,7 +219,8 @@ enum ToolRegistry {
                 .init(name: "parent_key", type: .string, description: "Parent issue key (e.g. PROJ-123)", required: true, enumValues: nil),
                 .init(name: "summary", type: .string, description: "Sub-task summary/title", required: true, enumValues: nil),
                 .init(name: "project_key", type: .string, description: "Project key (optional, inferred from parent_key if omitted)", required: false, enumValues: nil)
-            ]
+            ],
+            risk: .external, requiredActionScope: .modifyExternal
         ),
         AgentTool(
             id: "jira_update_status",
@@ -210,7 +229,8 @@ enum ToolRegistry {
             parameters: [
                 .init(name: "issue_key", type: .string, description: "Issue key (e.g. PROJ-123)", required: true, enumValues: nil),
                 .init(name: "status_name", type: .string, description: "Target status name (e.g. In Progress, Done)", required: true, enumValues: nil)
-            ]
+            ],
+            risk: .external, requiredActionScope: .modifyExternal
         ),
         AgentTool(
             id: "jira_add_comment",
@@ -219,7 +239,8 @@ enum ToolRegistry {
             parameters: [
                 .init(name: "issue_key", type: .string, description: "Issue key (e.g. PROJ-123)", required: true, enumValues: nil),
                 .init(name: "comment", type: .string, description: "Comment text to add", required: true, enumValues: nil)
-            ]
+            ],
+            risk: .external, requiredActionScope: .modifyExternal
         ),
         AgentTool(
             id: "suggest_agent_creation",
@@ -231,7 +252,8 @@ enum ToolRegistry {
                 .init(name: "recommended_provider", type: .string, description: "Preferred AI provider name", required: false, enumValues: nil),
                 .init(name: "recommended_model", type: .string, description: "Preferred model ID", required: false, enumValues: nil),
                 .init(name: "reason", type: .string, description: "Reason why this agent is needed", required: false, enumValues: nil)
-            ]
+            ],
+            risk: .safe, requiredActionScope: nil
         ),
 
         // MARK: 코드 인텔리전스 도구
@@ -251,7 +273,8 @@ enum ToolRegistry {
                 .init(name: "max_results", type: .integer, description: "Max number of matches to return (default: 30, max: 100)", required: false, enumValues: nil),
                 .init(name: "context_lines", type: .integer, description: "Number of context lines before and after each match (default: 0, max: 5)", required: false, enumValues: nil),
                 .init(name: "case_sensitive", type: .boolean, description: "Case-sensitive search (default: true)", required: false, enumValues: nil)
-            ]
+            ],
+            risk: .safe, requiredActionScope: .readFiles
         ),
         AgentTool(
             id: "code_symbols",
@@ -268,7 +291,8 @@ enum ToolRegistry {
                       enumValues: ["class", "struct", "enum", "protocol", "interface", "function", "property", "type"]),
                 .init(name: "file_glob", type: .string, description: "File glob filter (e.g. '*.swift')", required: false, enumValues: nil),
                 .init(name: "max_results", type: .integer, description: "Max results (default: 50, max: 200)", required: false, enumValues: nil)
-            ]
+            ],
+            risk: .safe, requiredActionScope: .readFiles
         ),
         AgentTool(
             id: "code_diagnostics",
@@ -283,7 +307,8 @@ enum ToolRegistry {
                 .init(name: "command", type: .string, description: "Custom diagnostic command (e.g. 'swiftlint lint', 'eslint src/', 'mypy .'). If omitted, auto-detects.", required: false, enumValues: nil),
                 .init(name: "severity", type: .string, description: "Minimum severity to report", required: false,
                       enumValues: ["error", "warning", "all"])
-            ]
+            ],
+            risk: .safe, requiredActionScope: .readFiles
         ),
         AgentTool(
             id: "code_outline",
@@ -296,7 +321,8 @@ enum ToolRegistry {
             parameters: [
                 .init(name: "path", type: .string, description: "Absolute file path to analyze", required: true, enumValues: nil),
                 .init(name: "depth", type: .integer, description: "Max nesting depth to show (default: 3)", required: false, enumValues: nil)
-            ]
+            ],
+            risk: .safe, requiredActionScope: .readFiles
         )
     ]
 

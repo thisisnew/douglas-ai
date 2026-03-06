@@ -128,23 +128,43 @@ enum AgentMatcher {
         var bestMatch: (agent: Agent, score: Double)?
 
         for agent in agents where !used.contains(agent.id) {
-            // --- 키워드 점수 (기존 로직) ---
+            // --- 키워드 점수 (기존 로직 + skillTags 매칭) ---
             var keywordScore = 0
             if hasKeywords {
                 let lowerPersona = agent.persona.lowercased()
                 let lowerName = agent.name.lowercased()
                 let lowerRules = (agent.workingRules.flatMap { $0.isEmpty ? nil : $0 }?.resolve() ?? "").lowercased()
+                let lowerTags = agent.skillTags.map { $0.lowercased() }
 
                 for keyword in keywords {
                     if lowerName.contains(keyword) { keywordScore += 3 }
                     if lowerPersona.contains(keyword) { keywordScore += 2 }
                     if lowerRules.contains(keyword) { keywordScore += 1 }
+                    // skillTags 매칭 (Plan C: 에이전트 카드 메타데이터)
+                    if lowerTags.contains(where: { $0.contains(keyword) || keyword.contains($0) }) {
+                        keywordScore += 4  // 태그 매칭은 가장 강한 신호
+                    }
                 }
 
                 for pkw in preferredKWs {
                     let lower = pkw.lowercased()
                     if lowerName.contains(lower) { keywordScore += 2 }
                     if lowerPersona.contains(lower) { keywordScore += 2 }
+                    if lowerTags.contains(where: { $0.contains(lower) }) { keywordScore += 3 }
+                }
+            }
+
+            // --- workModes 보너스 (Plan C: intent 기반 에이전트 적합도) ---
+            if let intent = intent, !agent.workModes.isEmpty {
+                switch intent {
+                case .task:
+                    if agent.workModes.contains(.create) || agent.workModes.contains(.execute) {
+                        keywordScore += 2
+                    }
+                case .quickAnswer:
+                    if agent.workModes.contains(.research) || agent.workModes.contains(.review) {
+                        keywordScore += 1
+                    }
                 }
             }
 

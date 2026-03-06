@@ -12,7 +12,9 @@ struct ToolFormatConverterTests {
             description: "Read file contents",
             parameters: [
                 .init(name: "path", type: .string, description: "File path", required: true, enumValues: nil)
-            ]
+            ],
+            risk: .safe,
+            requiredActionScope: nil
         )
     }
 

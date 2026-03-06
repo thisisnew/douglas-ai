@@ -865,8 +865,8 @@ struct RoomManagerTests {
 
     // MARK: - generateBriefing 오류
 
-    @Test("토론 브리핑 생성 실패 → 에러 메시지")
-    func discussionSummaryError() async {
+    @Test("Design 단계 계획 수립 실패 → 에러 메시지")
+    func designPlanError() async {
         let (manager, store, providerManager) = makeConfiguredManager()
         let a1 = makeTestAgent(name: "토론A", providerName: "MockProvider")
         let a2 = makeTestAgent(name: "토론B", providerName: "MockProvider")
@@ -877,34 +877,39 @@ struct RoomManagerTests {
         let planJSON = """
         {"plan": {"summary": "계획", "estimated_minutes": 1, "steps": ["실행"]}}
         """
-        // 토론은 sendMessageWithTools 사용
+        // Plan C: clarify → sendMessageWithTools
         mock.sendMessageWithToolsResults = [
             .success(.text("네, 이해했습니다")),      // clarify phase
-            .success(.text("동의합니다 [합의]")),     // discussion a1 round 1
-            .success(.text("저도 합의 [합의]")),      // discussion a2 round 1
+            .success(.text("동의합니다 [합의]")),     // Build→executePlanPhase discussion a1
+            .success(.text("저도 합의 [합의]")),      // Build→executePlanPhase discussion a2
         ]
+        // Design 단계: sendMessageStreaming 3회 (mock 자동 성공)
+        // → requestPlan → sendMessage (실패)
+        // Build 폴백: executePlanPhase → classifyNeedsPlan → requestPlan etc.
         mock.sendMessageResults = [
-            // classifyWithLLM 호출 없음: quickClassify("토론") → .task 직접 매칭
-            // assemble 호출 없음: "토론A"/"토론B" 이름이 task "토론"에 직접 매칭
+            .success("{}"),                                    // generateTaskBrief (파싱 실패 → nil)
+            .failure(AIProviderError.apiError("계획 오류")),    // requestPlan in Design → 실패
+            // Build → executePlanPhase fallback
             .success("YES"),                                   // classifyNeedsPlan
-            // discussion: sendMessageWithTools 사용 (위에서 설정됨)
             .failure(AIProviderError.apiError("요약 오류")),    // generateBriefing → 실패
-            // 브리핑 실패해도 계속 진행
             .success(planJSON),                                // requestPlan
-            .success("실행 완료"), .success("실행 완료"),       // executeStep (2 agents, 1 step)
+            .success("실행 완료"), .success("실행 완료"),       // executeStep
             .success("일지"),                                  // generateWorkLog
         ]
         providerManager.testProviderOverrides["MockProvider"] = mock
 
         let room = manager.createRoom(
-            title: "SummaryFail",
+            title: "DesignFail",
             agentIDs: [a1.id, a2.id],
             createdBy: .user
         )
         await runWorkflowAutoApprove(manager: manager, roomID: room.id, task: "토론")
 
         let msgs = manager.rooms.first(where: { $0.id == room.id })?.messages ?? []
-        #expect(msgs.contains(where: { $0.messageType == .error && $0.content.contains("브리핑 생성 실패") }))
+        // Design 단계 진입 확인
+        #expect(msgs.contains(where: { $0.content.contains("설계 토론을 시작합니다") }))
+        // 계획 수립 실패 에러 메시지 확인 (Design 단계에서 requestPlan 실패)
+        #expect(msgs.contains(where: { $0.messageType == .error && $0.content.contains("계획 수립 실패") }))
     }
 
     // MARK: - completedRooms 정렬

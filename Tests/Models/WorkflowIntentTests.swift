@@ -10,13 +10,20 @@ struct WorkflowIntentTests {
     @Test("WorkflowPhase — 전체 케이스 존재")
     func workflowPhaseAllCases() {
         let all = WorkflowPhase.allCases
-        #expect(all.count == 6)
+        #expect(all.count == 11)
+        // 레거시
         #expect(all.contains(.intake))
         #expect(all.contains(.intent))
         #expect(all.contains(.clarify))
         #expect(all.contains(.assemble))
         #expect(all.contains(.plan))
         #expect(all.contains(.execute))
+        // Plan C
+        #expect(all.contains(.understand))
+        #expect(all.contains(.design))
+        #expect(all.contains(.build))
+        #expect(all.contains(.review))
+        #expect(all.contains(.deliver))
     }
 
     @Test("WorkflowPhase rawValue")
@@ -79,22 +86,25 @@ struct WorkflowIntentTests {
 
     // MARK: - requiredPhases
 
-    @Test("quickAnswer — clarify 없이 4단계")
+    @Test("quickAnswer — Plan C: understand → assemble → deliver")
     func quickAnswerPhases() {
         let phases = WorkflowIntent.quickAnswer.requiredPhases
-        #expect(phases.count == 4)
-        #expect(!phases.contains(.clarify))
-        #expect(!phases.contains(.plan))
-        #expect(phases.contains(.execute))
+        #expect(phases.count == 3)
+        #expect(phases.contains(.understand))
+        #expect(phases.contains(.assemble))
+        #expect(phases.contains(.deliver))
     }
 
-    @Test("task — clarify 포함 5단계 (plan은 동적 삽입)")
+    @Test("task — Plan C: understand → assemble → design → build → review → deliver")
     func taskPhases() {
         let phases = (WorkflowIntent.task).requiredPhases
-        #expect(phases.count == 5)
-        #expect(phases.contains(.clarify))
-        #expect(!phases.contains(.plan))  // plan은 needsPlan에 의해 동적 삽입
-        #expect(phases.contains(.execute))
+        #expect(phases.count == 6)
+        #expect(phases.contains(.understand))
+        #expect(phases.contains(.assemble))
+        #expect(phases.contains(.design))
+        #expect(phases.contains(.build))
+        #expect(phases.contains(.review))
+        #expect(phases.contains(.deliver))
     }
 
     // MARK: - requiresDiscussion
@@ -114,11 +124,11 @@ struct WorkflowIntentTests {
         }
     }
 
-    @Test("실행 포함 여부 — 모든 Intent가 execute 포함")
+    @Test("실행 포함 여부 — Plan C에서는 build/deliver로 대체")
     func includesExecution() {
-        for intent in WorkflowIntent.allCases {
-            #expect(intent.includesExecution == true)
-        }
+        // Plan C: requiredPhases에 .execute가 없음 (build/deliver로 대체)
+        #expect(WorkflowIntent.quickAnswer.includesExecution == false)
+        #expect(WorkflowIntent.task.includesExecution == false)
     }
 
     // MARK: - 레거시 호환 (Codable)

@@ -18,7 +18,9 @@ struct AgentToolTests {
             parameters: [
                 .init(name: "input", type: .string, description: "Input text", required: true, enumValues: nil),
                 .init(name: "count", type: .integer, description: "Count", required: false, enumValues: nil)
-            ]
+            ],
+            risk: .safe,
+            requiredActionScope: nil
         )
         let data = try JSONEncoder().encode(tool)
         let decoded = try JSONDecoder().decode(AgentTool.self, from: data)
@@ -47,7 +49,9 @@ struct AgentToolTests {
             description: "Format text",
             parameters: [
                 .init(name: "style", type: .string, description: "Style", required: true, enumValues: ["bold", "italic", "plain"])
-            ]
+            ],
+            risk: .safe,
+            requiredActionScope: nil
         )
         let data = try JSONEncoder().encode(tool)
         let decoded = try JSONDecoder().decode(AgentTool.self, from: data)

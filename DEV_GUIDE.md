@@ -146,12 +146,45 @@ DOUGLAS/
 ### Tool Use (도구) 관례
 - 새 도구 추가: `ToolRegistry.allTools`에 `AgentTool` 추가 + `ToolExecutor.executeSingleTool()`에 case 추가
 - 도구 정의는 `AgentTool`로 프로바이더 무관하게 정의, 프로바이더별 형식 변환은 `ToolFormatConverter` 담당
-- 모든 에이전트는 전체 도구 보유 (`Agent.resolvedToolIDs == ToolRegistry.allToolIDs`)
+- **도구별 위험도**: `AgentTool.risk` (safe/local/external) + `requiredActionScope` (nil = 항상 허용)
+- **에이전트 권한 검사**: `ToolExecutor.executeSingleTool()`에서 2-layer 검사
+  - Layer 1: `agentPermissions`가 비어있으면 모두 허용 (역호환), 아니면 `requiredActionScope` 확인
+  - Layer 2: `agentRestrictions` — `draftOnly`는 external 도구 차단, `noCodeExec`는 shell_exec 차단
 - `ToolExecutor.smartSend()`: 도구 미사용 에이전트나 미지원 프로바이더는 자동으로 기존 `sendMessage()` 폴백
 - 도구 루프 최대 반복: 10회 (`ToolExecutor.maxIterations`)
 - ClaudeCodeProvider는 `supportsToolCalling = false` (CLI가 자체 도구 보유)
 - `ToolExecutionContext`에 `suggestAgentCreation` 콜백 — `suggest_agent_creation` 도구 실행 시 방에 제안 추가
 - 빌드/QA 루프는 시스템이 하드코딩하지 않음 — 에이전트가 계획에서 직접 shell_exec으로 처리
+
+### Plan C: 에이전트 카드 + 6단계 워크플로우
+
+**에이전트 카드 필드** (`Agent.swift`):
+- `skillTags: [String]` — 매칭 시 가장 강한 키워드 신호 (AgentMatcher weight 4)
+- `workModes: Set<WorkMode>` — plan/create/execute/review/research
+- `outputStyles: Set<OutputStyle>` — code/document/data/communication/review/translation/plan
+- `actionPermissions: Set<ActionScope>` — 7종 (비어있으면 모두 허용 — 역호환)
+- `restrictions: Set<AgentRestriction>` — 7종 (draftOnly, noCodeExec, noExternalSend 등)
+
+**새 필드 추가 시 규칙**:
+- 반드시 `decodeIfPresent` + 빈 기본값 (Set은 `[]`, Array는 `[]`)
+- `AgentManifest.AgentEntry`에도 optional String 배열로 추가
+- 기존 에이전트 데이터는 자동으로 빈 값으로 로드 (하위호환)
+
+**12종 프리셋** (`AgentPreset.builtIn`): 백엔드/프론트엔드/QA/DevOps/기획자/리서처/문서작성자/마케터/디자이너/법무/데이터분석가/CS
+- AddAgentSheet에서 프리셋 선택 시 이름, 페르소나, 태그, 모드, 권한 자동 입력
+- 프리셋은 시작점일 뿐 — 사용자가 모든 값을 자유롭게 수정 가능
+
+**6단계 워크플로우** (WorkflowPhase):
+1. **Understand**: intake+intent+clarify 통합 + TaskBrief 생성 (`IntentClassifier.generateTaskBrief()`)
+2. **Assemble**: skillTags 가중 매칭 + RuntimeRole 할당 (creator/reviewer)
+3. **Design**: 3턴 고정 프로토콜 (Propose → Critique → Revise), 전문가 2명+ 필요
+4. **Build**: Creator 단계별 실행, ToolRisk + ActionScope 2-layer 권한 검사
+5. **Review**: Reviewer가 성공기준 기반 결과물 검토
+6. **Deliver**: DeferredAction 프리뷰 + 명시 승인 (high risk)
+
+**TaskBrief** (`Room.taskBrief`): 구조화된 작업 목표/제약/성공기준/비목표/위험도/산출물유형
+**RuntimeRole** (`Room.agentRoles`): creator/reviewer/planner — 에이전트에 저장하지 않고 방별 할당
+**DeferredAction** (`Room.deferredActions`): high-risk 도구 호출을 Deliver 단계까지 보류
 
 ---
 

@@ -274,13 +274,14 @@ enum IntentClassifier {
     /// LLM을 사용하여 사용자 요청에서 TaskBrief를 생성
     static func generateTaskBrief(
         task: String,
+        intakeContext: String?,
         clarifySummary: String?,
         provider: any AIProvider,
         model: String
     ) async -> TaskBrief? {
         let systemPrompt = """
         사용자의 작업 요청을 분석하여 구조화된 작업 브리프(JSON)를 생성하세요.
-        아래 JSON 형식으로만 출력하세요. 다른 텍스트를 포함하지 마세요.
+        반드시 한국어로 작성하세요. 아래 JSON 형식으로만 출력하세요. 다른 텍스트를 포함하지 마세요.
 
         {
           "goal": "작업의 핵심 목표 (1-2문장)",
@@ -295,8 +296,9 @@ enum IntentClassifier {
 
         needsClarification 기준:
         - false (기본값): 요청이 충분히 명확하여 바로 작업 가능
+        - URL이나 외부 데이터가 함께 제공된 경우: 해당 내용을 기반으로 작업 가능하므로 false
         - true: 핵심 정보가 누락되어 작업 진행 불가 (수신인, 대상 시스템, 필수 파라미터 등)
-        - true일 때 questions에 최대 2개의 구체적 질문을 포함하세요.
+        - true일 때 questions에 최대 2개의 구체적 한국어 질문을 포함하세요.
 
         overallRisk 기준:
         - low: 읽기 전용, 분석, 설명, 번역, 내부 문서 작성
@@ -313,7 +315,13 @@ enum IntentClassifier {
         - answer: 단순 답변, 설명
         """
 
-        let context = clarifySummary.map { "요약: \($0)\n\n원본: \(task)" } ?? task
+        var context = task
+        if let intake = intakeContext, !intake.isEmpty {
+            context = "\(task)\n\n\(intake)"
+        }
+        if let summary = clarifySummary, !summary.isEmpty {
+            context = "요약: \(summary)\n\n\(context)"
+        }
 
         do {
             let response = try await provider.sendMessage(

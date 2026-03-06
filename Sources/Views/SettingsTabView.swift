@@ -6,13 +6,12 @@ struct SettingsTabView: View {
     @State private var selectedTab: SettingsTab = .general
 
     enum SettingsTab: CaseIterable {
-        case general, api, models, theme, plugins, agents
+        case general, api, theme, plugins, agents
 
         var title: String {
             switch self {
             case .general: return "일반"
             case .api:     return "API 설정"
-            case .models:  return "모델 매핑"
             case .theme:   return "테마"
             case .plugins: return "플러그인"
             case .agents:  return "에이전트"
@@ -23,7 +22,6 @@ struct SettingsTabView: View {
             switch self {
             case .general: return "gearshape.fill"
             case .api:     return "key.fill"
-            case .models:  return "cpu.fill"
             case .theme:   return "paintpalette.fill"
             case .plugins: return "puzzlepiece.extension.fill"
             case .agents:  return "person.2.fill"
@@ -34,7 +32,6 @@ struct SettingsTabView: View {
             switch self {
             case .general: return Color(red: 0.65, green: 0.72, blue: 0.80)
             case .api:     return Color(red: 0.55, green: 0.78, blue: 0.85)
-            case .models:  return Color(red: 0.70, green: 0.60, blue: 0.88)
             case .theme:   return Color(red: 0.82, green: 0.62, blue: 0.86)
             case .plugins: return Color(red: 0.93, green: 0.73, blue: 0.52)
             case .agents:  return Color(red: 0.58, green: 0.80, blue: 0.65)
@@ -63,8 +60,6 @@ struct SettingsTabView: View {
                     GeneralSettingsView(isEmbedded: true)
                 case .api:
                     AddProviderSheet(isEmbedded: true)
-                case .models:
-                    ModelMappingSettingsView(isEmbedded: true)
                 case .theme:
                     ThemeSettingsView(isEmbedded: true)
                 case .plugins:
