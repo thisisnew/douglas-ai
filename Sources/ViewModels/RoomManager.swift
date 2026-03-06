@@ -2726,6 +2726,10 @@ class RoomManager: ObservableObject {
 
         // 전문가 1명: 구조화된 플랜 생성 (Plan C: 1인 프로토콜)
         if specialists.count < 2 {
+            // 문서 작업은 Design(계획 수립) 스킵 → Build에서 handleDocumentOutput 직행
+            if room.autoDocOutput {
+                return
+            }
             await executeSoloDesign(roomID: roomID, task: task, room: room)
             return
         }
