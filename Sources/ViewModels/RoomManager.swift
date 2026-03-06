@@ -1619,35 +1619,30 @@ class RoomManager: ObservableObject {
     private func executeIntentPhase(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
-        let currentIntent = rooms[idx].intent
+        // intent 미설정 → quickClassify 재시도 → LLM 폴백 (선택 UI 없이 자동 결정)
+        if rooms[idx].intent == nil {
+            // 1) quickClassify 시도 (명확한 경우 즉시 결정)
+            if let quick = IntentClassifier.quickClassify(task) {
+                rooms[idx].intent = quick
+                scheduleSave()
+            } else {
+                // 2) LLM 분류 폴백 — 자동 적용, 사용자 선택 없음
+                guard let firstAgentID = rooms[idx].assignedAgentIDs.first,
+                      let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
+                      let provider = providerManager?.provider(named: agent.providerName) else {
+                    rooms[idx].intent = .task
+                    return
+                }
 
-        // 1) quickClassify가 nil → LLM 추천 후 사용자에게 선택 카드 표시
-        if currentIntent == nil {
-            guard let firstAgentID = rooms[idx].assignedAgentIDs.first,
-                  let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
-                  let provider = providerManager?.provider(named: agent.providerName) else {
-                rooms[idx].intent = .task
-                return
+                let lightModel = providerManager?.lightModelName(for: agent.providerName) ?? agent.modelName
+                let classified = await IntentClassifier.classifyWithLLM(
+                    task: task,
+                    provider: provider,
+                    model: lightModel
+                )
+                rooms[idx].intent = classified
+                scheduleSave()
             }
-
-            let lightModel = providerManager?.lightModelName(for: agent.providerName) ?? agent.modelName
-            let suggested = await IntentClassifier.classifyWithLLM(
-                task: task,
-                provider: provider,
-                model: lightModel
-            )
-
-            // 사용자 선택 UI 표시
-            pendingIntentSelection[roomID] = suggested
-
-            let selectedIntent = await withCheckedContinuation { (cont: CheckedContinuation<WorkflowIntent, Never>) in
-                intentContinuations[roomID] = cont
-            }
-
-            rooms[idx].intent = selectedIntent
-            scheduleSave()
-        } else {
-            // quickClassify가 결과를 반환한 경우 (quickAnswer 또는 task) — 그대로 사용
         }
 
         // 초기 메시지에서 문서 요청 감지 → autoDocOutput 플래그 설정

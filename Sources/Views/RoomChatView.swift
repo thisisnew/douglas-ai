@@ -67,12 +67,6 @@ struct RoomChatView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
-                // Intent 선택 카드 (quickClassify 실패 시)
-                if let suggestedIntent = roomManager.pendingIntentSelection[room.id] {
-                    IntentSelectionCard(roomID: room.id, suggestedIntent: suggestedIntent)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-
                 // 문서 유형 선택 카드 (documentation intent 선택 후)
                 if roomManager.pendingDocTypeSelection[room.id] != nil {
                     DocTypeSelectionCard(roomID: room.id)

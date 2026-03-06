@@ -38,7 +38,7 @@ enum WorkflowPhase: String, Codable, CaseIterable {
 /// 사용자의 작업 목적: quickAnswer(즉답), task(복합 작업), discussion(의견 교환)
 /// plan 필요 여부는 clarify 이후 동적으로 판단 (Room.needsPlan)
 enum WorkflowIntent: String, CaseIterable {
-    case quickAnswer            // 단순 질문/번역 — 한 번의 응답으로 끝남
+    case quickAnswer            // 단순 질문/정보 확인 — 한 번의 응답으로 끝남
     case task                   // 분석·리서치·구현·문서 작성 등 모든 복합 작업
     case discussion             // 의견 교환, 브레인스토밍, 관점 탐색
 
