@@ -287,6 +287,24 @@ class ClaudeCodeProvider: AIProvider {
         )
     }
 
+    /// 도구 제한이 가능한 스트리밍 모드 (allowedTools로 CLI 도구 필터링)
+    func sendMessageStreamingWithTools(
+        model: String,
+        systemPrompt: String,
+        messages: [(role: String, content: String)],
+        allowedTools: [String],
+        onChunk: @escaping @Sendable (String) -> Void
+    ) async throws -> String {
+        let userPrompt = buildUserPrompt(from: messages)
+        return try await runClaude(
+            path: config.baseURL, prompt: userPrompt, model: model,
+            systemPrompt: systemPrompt,
+            allowedTools: allowedTools,
+            onToolActivity: { _, _ in },
+            onTextChunk: onChunk
+        )
+    }
+
     /// 검색 허용 모드: WebSearch를 allowedTools에 포함
     func sendMessageWithSearch(
         model: String,

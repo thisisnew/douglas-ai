@@ -16,6 +16,19 @@ enum ToolExecutor {
         try await $urlSession.withValue(session, operation: body)
     }
 
+    /// 앱 tool ID → Claude Code CLI tool name 매핑
+    private static func cliToolName(for toolID: String) -> String? {
+        switch toolID {
+        case "web_search":  return "WebSearch"
+        case "web_fetch":   return "WebFetch"
+        case "file_read":   return "Read"
+        case "file_write":  return "Write"
+        case "shell_exec":  return "Bash"
+        case "code_search": return "Grep"
+        default:            return nil
+        }
+    }
+
     /// 도구 사용 가능한 경우 도구 루프 실행, 아니면 기존 sendMessage 폴백
     static func smartSend(
         provider: AIProvider,
@@ -105,7 +118,28 @@ enum ToolExecutor {
                 return (role: msg.role, content: content)
             }
             let result: String
-            if let onStreamChunk, provider.supportsStreaming {
+            // ClaudeCodeProvider + allowedToolIDs 지정 시: CLI 도구 제한 적용
+            if let claudeProvider = provider as? ClaudeCodeProvider, let allowedToolIDs {
+                let cliTools = allowedToolIDs.compactMap { Self.cliToolName(for: $0) }
+                if let onStreamChunk, !cliTools.isEmpty {
+                    result = try await claudeProvider.sendMessageStreamingWithTools(
+                        model: agent.modelName,
+                        systemPrompt: systemPrompt,
+                        messages: simple,
+                        allowedTools: cliTools,
+                        onChunk: onStreamChunk
+                    )
+                } else {
+                    result = try await claudeProvider.sendMessage(
+                        model: agent.modelName,
+                        systemPrompt: systemPrompt,
+                        messages: simple,
+                        workingDirectory: context.projectPaths.first,
+                        onToolActivity: onToolActivity
+                    )
+                    if let onStreamChunk { onStreamChunk(result) }
+                }
+            } else if let onStreamChunk, provider.supportsStreaming {
                 result = try await provider.sendMessageStreaming(
                     model: agent.modelName,
                     systemPrompt: systemPrompt,
