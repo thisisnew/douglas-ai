@@ -648,7 +648,7 @@ class RoomManager: ObservableObject {
             }) {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }),
                    !rooms[i].assignedAgentIDs.contains(docAgent.id) {
-                    rooms[i].assignedAgentIDs.append(docAgent.id)
+                    addAgent(docAgent.id, to: roomID, silent: false)
                 }
                 return docAgent.id
             }
@@ -886,7 +886,7 @@ class RoomManager: ObservableObject {
             }) {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }),
                    !rooms[i].assignedAgentIDs.contains(docAgent.id) {
-                    addAgent(docAgent.id, to: roomID, silent: true)
+                    addAgent(docAgent.id, to: roomID, silent: false)
                 }
             }
 
