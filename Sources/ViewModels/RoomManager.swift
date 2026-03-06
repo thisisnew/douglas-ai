@@ -2150,40 +2150,45 @@ class RoomManager: ObservableObject {
                     return
                 }
 
-                // 전문가 없음 → 작업 내용 기반 구체적 에이전트 제안
-                let taskSnippet = String(task.prefix(60))
-                let suggestedName: String
-                let suggestedPersona: String
-                if let brief = rooms[idx].taskBrief {
-                    // taskBrief 기반: 목표에서 전문 분야 추출
-                    let domain = brief.goal.prefix(30)
-                    suggestedName = brief.outputType == .answer || brief.outputType == .analysis
-                        ? "리서치 전문가" : "\(intentName) 전문가"
-                    suggestedPersona = "\(domain) 관련 질문에 답변하고 분석하는 전문가입니다."
+                // 전문가 없음 → 기존 에이전트 중 아무나 1명 초대 시도, 없으면 생성 제안
+                let subAgentsForFallback = agentStore?.subAgents ?? []
+                if let anyAgent = subAgentsForFallback.first {
+                    // 서브 에이전트가 존재하면 첫 번째를 자동 초대
+                    addAgent(anyAgent.id, to: roomID, silent: true)
                 } else {
-                    // taskBrief 없음: 키워드 기반 추론
-                    let lower = task.lowercased()
-                    if lower.contains("트렌드") || lower.contains("동향") {
-                        suggestedName = "트렌드 분석가"
-                        suggestedPersona = "기술 트렌드와 산업 동향을 분석하는 전문가입니다."
-                    } else if lower.contains("코드") || lower.contains("개발") || lower.contains("구현") {
-                        suggestedName = "소프트웨어 엔지니어"
-                        suggestedPersona = "소프트웨어 설계 및 구현 전문가입니다."
-                    } else if lower.contains("문서") || lower.contains("보고서") || lower.contains("작성") {
-                        suggestedName = "문서 작성 전문가"
-                        suggestedPersona = "보고서, 기획서 등 문서 작성 전문가입니다."
+                    // 서브 에이전트가 아예 없음 → 생성 제안
+                    let taskSnippet = String(task.prefix(60))
+                    let suggestedName: String
+                    let suggestedPersona: String
+                    if let brief = rooms[idx].taskBrief {
+                        let domain = brief.goal.prefix(30)
+                        suggestedName = brief.outputType == .answer || brief.outputType == .analysis
+                            ? "리서치 전문가" : "\(intentName) 전문가"
+                        suggestedPersona = "\(domain) 관련 질문에 답변하고 분석하는 전문가입니다."
                     } else {
-                        suggestedName = "범용 전문가"
-                        suggestedPersona = "'\(taskSnippet)' 작업을 수행하는 전문가입니다."
+                        let lower = task.lowercased()
+                        if lower.contains("트렌드") || lower.contains("동향") {
+                            suggestedName = "트렌드 분석가"
+                            suggestedPersona = "기술 트렌드와 산업 동향을 분석하는 전문가입니다."
+                        } else if lower.contains("코드") || lower.contains("개발") || lower.contains("구현") {
+                            suggestedName = "소프트웨어 엔지니어"
+                            suggestedPersona = "소프트웨어 설계 및 구현 전문가입니다."
+                        } else if lower.contains("문서") || lower.contains("보고서") || lower.contains("작성") {
+                            suggestedName = "문서 작성 전문가"
+                            suggestedPersona = "보고서, 기획서 등 문서 작성 전문가입니다."
+                        } else {
+                            suggestedName = "범용 전문가"
+                            suggestedPersona = "'\(taskSnippet)' 작업을 수행하는 전문가입니다."
+                        }
                     }
+                    let suggestion = RoomAgentSuggestion(
+                        name: suggestedName,
+                        persona: suggestedPersona,
+                        reason: "'\(taskSnippet)' 작업에 적합한 전문가가 필요합니다.",
+                        suggestedBy: agent.name
+                    )
+                    addAgentSuggestion(suggestion, to: roomID)
                 }
-                let suggestion = RoomAgentSuggestion(
-                    name: suggestedName,
-                    persona: suggestedPersona,
-                    reason: "'\(taskSnippet)' 작업에 적합한 전문가가 필요합니다.",
-                    suggestedBy: agent.name
-                )
-                addAgentSuggestion(suggestion, to: roomID)
                 await waitForSuggestionResponse(roomID: roomID)
 
                 // 제안 해결 후 → 팀 확인 게이트
@@ -2246,15 +2251,27 @@ class RoomManager: ObservableObject {
                 }
             }
 
-            // 4) [필수] 미매칭 역할은 에이전트 생성 제안 ([선택] 미매칭은 무시)
+            // 4) [필수] 미매칭 역할: 이름 유사 에이전트 탐색 → 없으면 생성 제안
             for req in matched where req.status == .unmatched && req.priority == .required {
-                let suggestion = RoomAgentSuggestion(
-                    name: req.roleName,
-                    persona: "이 에이전트는 '\(req.roleName)' 역할을 수행합니다. \(req.reason)",
-                    reason: req.reason,
-                    suggestedBy: agent.name
-                )
-                addAgentSuggestion(suggestion, to: roomID)
+                // 이름이 같거나 포함되는 기존 에이전트가 있으면 바로 초대
+                let roleLower = req.roleName.lowercased()
+                if let existingAgent = subAgents.first(where: {
+                    let nameLower = $0.name.lowercased()
+                    return nameLower == roleLower || nameLower.contains(roleLower) || roleLower.contains(nameLower)
+                }) {
+                    if let room = rooms.first(where: { $0.id == roomID }),
+                       !room.assignedAgentIDs.contains(existingAgent.id) {
+                        addAgent(existingAgent.id, to: roomID, silent: true)
+                    }
+                } else {
+                    let suggestion = RoomAgentSuggestion(
+                        name: req.roleName,
+                        persona: "이 에이전트는 '\(req.roleName)' 역할을 수행합니다. \(req.reason)",
+                        reason: req.reason,
+                        suggestedBy: agent.name
+                    )
+                    addAgentSuggestion(suggestion, to: roomID)
+                }
             }
 
             // 4.5) 미매칭 제안이 있으면 사용자가 추가/건너뛰기할 때까지 대기
