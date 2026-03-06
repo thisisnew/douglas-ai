@@ -306,7 +306,7 @@ protocol AIProvider {
 - 환경변수 `CLAUDECODE`를 제거하여 중첩 세션 감지 우회
 - PATH에 nvm 경로 추가하여 node 의존성 해결
 - 시스템 프롬프트 + 대화 히스토리를 단일 프롬프트로 조합
-- **도구 활동 추적**: `onToolActivity` 콜백 전달 시 `--output-format stream-json`으로 NDJSON 스트리밍 → `StreamJsonHandler`가 실시간 `tool_use` 이벤트 파싱 → `TypingIndicator`에 표시. 도구명은 한국어로 변환(`ToolActivityDetail.displayName`), `contentPreview`는 tool_use input에서 추출(Edit 변경사항, Bash 명령어, Grep 조건 등). `sendMessageWithSearch()`에도 `onToolActivity` 지원 (WebSearch/WebFetch 이벤트 추적)
+- **도구 활동 추적 + 텍스트 스트리밍**: `--output-format stream-json --verbose`로 NDJSON 스트리밍 → `StreamJsonHandler`가 `tool_use` 이벤트 + 텍스트 청크 실시간 파싱. `onToolActivity` 콜백으로 도구 활동 추적, `onTextChunk` 콜백으로 텍스트 스트리밍 (`--include-partial-messages`). `sendMessageStreaming()` 구현으로 Design/Plan/Review 단계에서도 실시간 텍스트 출력 지원. 도구명은 한국어 변환(`ToolActivityDetail.displayName`), `contentPreview`는 tool_use input에서 추출. `sendMessageWithSearch()`에도 `onToolActivity` 지원
 - **도구 정책**: `sendMessage()` = 도구 활성화 (`--allowedTools Edit Write Bash Read Glob Grep`), `sendRouterMessage()` = 도구 비활성화 (`--tools ""`). 계획 수립(`requestPlan`), 브리핑 생성(`generateBriefing`), 작업일지(`generateWorkLog`)는 `sendRouterMessage` 사용 — 계획 승인 전 파일 수정/셸 실행 방지.
 
 ### OpenAIProvider (`Providers/OpenAIProvider.swift`)

@@ -1,16 +1,25 @@
 import Foundation
 
-/// Claude Code stream-json NDJSON 이벤트를 실시간 파싱하여 도구 활동 추적
+/// Claude Code stream-json NDJSON 이벤트를 실시간 파싱하여 도구 활동 + 텍스트 스트리밍 추적
 private final class StreamJsonHandler: @unchecked Sendable {
     private let lock = NSLock()
     private var buffer = ""
     private var _resultText = ""
+    /// 누적된 어시스턴트 텍스트 (partial message 포함)
+    private var _streamedText = ""
     private let onActivity: (String, ToolActivityDetail?) -> Void
+    /// 텍스트 청크 콜백 (sendMessageStreaming용)
+    private let onTextChunk: (@Sendable (String) -> Void)?
 
     var resultText: String { lock.withLock { _resultText } }
+    var streamedText: String { lock.withLock { _streamedText } }
 
-    init(onActivity: @escaping (String, ToolActivityDetail?) -> Void) {
+    init(
+        onActivity: @escaping (String, ToolActivityDetail?) -> Void,
+        onTextChunk: (@Sendable (String) -> Void)? = nil
+    ) {
         self.onActivity = onActivity
+        self.onTextChunk = onTextChunk
     }
 
     func feed(_ chunk: String) {
@@ -40,16 +49,26 @@ private final class StreamJsonHandler: @unchecked Sendable {
         if type == "tool_use", let tool = json["tool"] as? [String: Any] {
             emitToolUse(tool)
         }
-        // 2) assistant 메시지: content 배열 안에 tool_use가 포함될 수 있음
+        // 2) assistant 메시지: content 배열 안에 tool_use + text가 포함될 수 있음
         else if type == "assistant", let message = json["message"] as? [String: Any] {
             // 직접 tool_use인 경우 (레거시 형식)
             if message["type"] as? String == "tool_use" {
                 emitToolUse(message)
             }
-            // content 배열에서 tool_use 추출
+            // content 배열에서 tool_use + text 추출
             if let content = message["content"] as? [[String: Any]] {
-                for item in content where item["type"] as? String == "tool_use" {
-                    emitToolUse(item)
+                for item in content {
+                    if item["type"] as? String == "tool_use" {
+                        emitToolUse(item)
+                    } else if item["type"] as? String == "text",
+                              let text = item["text"] as? String,
+                              let onTextChunk {
+                        // 텍스트 스트리밍: 전체 누적 텍스트를 콜백으로 전달
+                        lock.lock()
+                        _streamedText = text
+                        lock.unlock()
+                        onTextChunk(text)
+                    }
                 }
             }
         }
@@ -250,6 +269,24 @@ class ClaudeCodeProvider: AIProvider {
         )
     }
 
+    /// 스트리밍 지원: stream-json + --include-partial-messages로 실시간 텍스트 스트리밍
+    var supportsStreaming: Bool { true }
+
+    func sendMessageStreaming(
+        model: String,
+        systemPrompt: String,
+        messages: [(role: String, content: String)],
+        onChunk: @escaping @Sendable (String) -> Void
+    ) async throws -> String {
+        let userPrompt = buildUserPrompt(from: messages)
+        return try await runClaude(
+            path: config.baseURL, prompt: userPrompt, model: model,
+            systemPrompt: systemPrompt, disallowedTools: ["WebFetch"],
+            onToolActivity: { _, _ in },  // 스트리밍 모드 활성화 (stream-json 사용)
+            onTextChunk: onChunk
+        )
+    }
+
     /// 검색 허용 모드: WebSearch를 allowedTools에 포함
     func sendMessageWithSearch(
         model: String,
@@ -325,7 +362,8 @@ class ClaudeCodeProvider: AIProvider {
         disallowedTools: [String] = [],
         allowedTools: [String]? = nil,
         workingDirectory: String? = nil,
-        onToolActivity: ((String, ToolActivityDetail?) -> Void)? = nil
+        onToolActivity: ((String, ToolActivityDetail?) -> Void)? = nil,
+        onTextChunk: (@Sendable (String) -> Void)? = nil
     ) async throws -> String {
         // claude CLI는 Node.js 스크립트 → 같은 디렉토리의 node를 직접 사용
         let executable: String
@@ -359,10 +397,13 @@ class ClaudeCodeProvider: AIProvider {
             args += ["--disallowed-tools", tool]
         }
 
-        // 도구 활동 추적 모드: stream-json NDJSON 출력 (--verbose 필수)
-        let useStreaming = onToolActivity != nil
+        // 스트리밍 모드: stream-json NDJSON 출력 (도구 활동 추적 또는 텍스트 스트리밍)
+        let useStreaming = onToolActivity != nil || onTextChunk != nil
         if useStreaming {
             args += ["--output-format", "stream-json", "--verbose"]
+            if onTextChunk != nil {
+                args += ["--include-partial-messages"]
+            }
         }
 
         // 환경변수 상속
@@ -386,9 +427,10 @@ class ClaudeCodeProvider: AIProvider {
 
         let effectiveWorkDir = workingDirectory ?? homePath
 
-        // 스트리밍 모드: NDJSON 실시간 파싱으로 도구 활동 추적
-        if useStreaming, let onToolActivity {
-            let handler = StreamJsonHandler(onActivity: onToolActivity)
+        // 스트리밍 모드: NDJSON 실시간 파싱으로 도구 활동 + 텍스트 스트리밍
+        if useStreaming {
+            let activityHandler = onToolActivity ?? { _, _ in }
+            let handler = StreamJsonHandler(onActivity: activityHandler, onTextChunk: onTextChunk)
             let result = await ProcessRunner.runStreaming(
                 executable: executable, args: args, env: env,
                 workDir: effectiveWorkDir,
