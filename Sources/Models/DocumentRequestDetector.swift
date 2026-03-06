@@ -32,6 +32,39 @@ enum DocumentRequestDetector {
         return nil
     }
 
+    // MARK: - 포맷 변환 판별
+
+    /// 문서 요청 메시지가 기존 대화 내용의 포맷 변환인지 판별
+    /// true = 순수 포맷 변환 (새 작업 없음), false = 새 작업 포함
+    static func isFormatConversionOnly(_ text: String) -> Bool {
+        // 포맷/문서 관련 어간 — 이 어간으로 시작하는 토큰은 "포맷 요청"으로 간주
+        let formatStems: Set<String> = [
+            // 문서/파일 유형
+            "md", "파일", "문서", "보고서", "마크다운", "markdown", "pdf", "워드", "word",
+            // 동작 어간
+            "만들", "정리", "작성", "뽑", "저장", "내보내", "변환",
+            // 지시/참조 (기존 내용을 가리키는 표현)
+            "이거", "이걸", "위의", "결과", "내용", "대화",
+            // 연결/조사 (2자 이상)
+            "해줘", "해서", "으로", "까지", "에서",
+        ]
+
+        let tokenizer = NLTokenizer(unit: .word)
+        tokenizer.string = text
+        var totalMeaningful = 0
+        var formatMatched = 0
+        tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
+            let token = String(text[range]).lowercased()
+            guard token.count >= 2 else { return true }  // 1자 토큰 스킵 (조사, 어미)
+            totalMeaningful += 1
+            if formatStems.contains(where: { token.hasPrefix($0) }) {
+                formatMatched += 1
+            }
+            return true
+        }
+        return totalMeaningful == 0 || formatMatched == totalMeaningful
+    }
+
     // MARK: - 2차: LLM 폴백
 
     /// LLM으로 문서화 요청 여부 판별

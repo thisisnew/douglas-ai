@@ -54,7 +54,7 @@ DOUGLAS/
 │   │   ├── ToolExecutionContext.swift # 도구 실행 컨텍스트 (+ Plan C: agentPermissions)
 │   │   ├── WorkflowIntent.swift    # 워크플로우 의도 (WorkflowPhase, WorkflowIntent 2종: quickAnswer/task)
 │   │   ├── DocumentType.swift     # 문서 유형 (6종 + 섹션 템플릿, 문서화 요청 시 사용)
-│   │   ├── DocumentRequestDetector.swift # 문서화 요청 감지 (NLTokenizer + LLM 폴백)
+│   │   ├── DocumentRequestDetector.swift # 문서화 요청 감지 (NLTokenizer + LLM 폴백) + 포맷 변환 판별
 │   │   ├── IntentClassifier.swift # Intent 분류기 (PreIntentRoute + 규칙 기반 + LLM 폴백)
 │   │   ├── DecisionLog.swift      # 토론 결정 로그 (DecisionEntry)
 │   │   ├── WorkflowAssumption.swift # 가정 선언 (RiskLevel: low/medium/high) + UserAnswer
@@ -1157,6 +1157,9 @@ executeWithTools() 루프 (최대 10회):
 - `executeSoloAnalysis`: 전문가 1명 Solo 분석 (토론 대신). task + !needsPlan에서 `specialistCount == 1`일 때 자동 호출.
 - `executeStep` 문서 템플릿 주입: `documentType != nil`일 때 `documentType.templatePromptBlock()` + "이미 완성" 응답 금지 지침. Assemble에서 `documentType != nil`이면 1명 제한.
 - `launchFollowUpCycle`: 완료/실패 방 후속 질문 → 방 재활성화 → assemble부터 경량 워크플로우.
+  - **순수 포맷 변환** (`isFormatConversionOnly`): "md로 만들어줘" 등 기존 대화 내용의 문서화 요청 → understand/design/build 전부 스킵, `handleDocumentOutput` 직접 호출.
+  - **새 작업+문서**: "분석해서 md로 만들어" 등 실질적 새 작업 포함 → understand 실행하되 workLog 맥락 주입.
+- `executeUnderstandPhase` TaskBrief 생성 시 workLog 컨텍스트를 intakeContext에 포함 (후속 사이클에서 대화 맥락 유지).
 - `Room.canTransition`: `.completed → .planning`, `.failed → .planning` 전이 추가.
 
 ---

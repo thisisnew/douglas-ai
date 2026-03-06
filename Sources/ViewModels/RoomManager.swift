@@ -840,6 +840,35 @@ class RoomManager: ObservableObject {
         rooms[idx].transitionTo(.planning)
         rooms[idx].completedAt = nil
 
+        // 순수 포맷 변환 감지: 기존 대화 내용을 문서로 변환하는 요청 (새 작업 없음)
+        // "md파일로 만들어줘", "문서로 정리해줘" 등 — understand/design 불필요, 바로 문서 출력
+        if detectedDocType != nil && DocumentRequestDetector.isFormatConversionOnly(task) {
+            let specialists = executingAgentIDs(in: roomID)
+            if !specialists.isEmpty {
+                previousCycleAgentCount[roomID] = specialists.count
+                await handleDocumentOutput(roomID: roomID, task: task, suggestedType: detectedDocType)
+
+                // handleDocumentOutput이 .completed를 설정하지 못한 경우 보완
+                if let i = rooms.firstIndex(where: { $0.id == roomID }),
+                   rooms[i].status != .failed && rooms[i].status != .completed {
+                    rooms[i].currentPhase = nil
+                    rooms[i].status = .completed
+                    rooms[i].completedAt = Date()
+                    pluginEventDelegate?(.roomCompleted(roomID: roomID, title: rooms[i].title))
+                }
+                syncAgentStatuses()
+                scheduleSave()
+
+                // 작업일지
+                let hasSpec = !executingAgentIDs(in: roomID).isEmpty
+                if hasSpec, let room = rooms.first(where: { $0.id == roomID }), room.workLog == nil {
+                    await generateWorkLog(roomID: roomID, task: task)
+                }
+                if hasSpec { detectPlaybookOverrides(roomID: roomID) }
+                return
+            }
+        }
+
         // Intent 재분류 (후속 사이클 특화)
         // 짧은 후속 메시지(< 60자)는 즉답으로 처리 (기존 컨텍스트 내 빠른 액션)
         let ruleBasedIntent = IntentClassifier.quickClassify(task)
@@ -2401,7 +2430,16 @@ class RoomManager: ObservableObject {
 
         let lightModel = providerManager?.lightModelName(for: agent.providerName) ?? agent.modelName
 
-        let intakeContext = rooms[idx].intakeData?.asClarifyContextString()
+        var intakeContext = rooms[idx].intakeData?.asClarifyContextString()
+        // 후속 사이클: 이전 대화 컨텍스트를 TaskBrief에 전달 (맥락 없는 엉뚱한 질문 방지)
+        if let workLog = rooms[idx].workLog {
+            let logContext = workLog.asContextString()
+            if let existing = intakeContext {
+                intakeContext = existing + "\n\n" + logContext
+            } else {
+                intakeContext = logContext
+            }
+        }
         let hasExplicitIntent = IntentClassifier.hasExplicitUserIntent(actualTask)
         let brief = await IntentClassifier.generateTaskBrief(
             task: actualTask,
