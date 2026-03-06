@@ -1344,6 +1344,97 @@ struct AgentInfoSheet: View {
                             .textSelection(.enabled)
                     }
 
+                    // 전문 분야 태그
+                    if !agent.skillTags.isEmpty {
+                        infoSection(title: "전문 분야", icon: "tag") {
+                            FlowLayout(spacing: 6) {
+                                ForEach(agent.skillTags, id: \.self) { tag in
+                                    Text(tag)
+                                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                                        .foregroundColor(palette.accent)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(palette.accent.opacity(0.1))
+                                        .continuousRadius(6)
+                                }
+                            }
+                        }
+                    }
+
+                    // 작업 모드
+                    if !agent.workModes.isEmpty {
+                        infoSection(title: "작업 모드", icon: "gearshape.2") {
+                            FlowLayout(spacing: 6) {
+                                ForEach(Array(agent.workModes).sorted(by: { $0.rawValue < $1.rawValue }), id: \.self) { mode in
+                                    Text(mode.displayName)
+                                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                                        .foregroundColor(.primary.opacity(0.7))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(palette.inputBackground)
+                                        .continuousRadius(6)
+                                }
+                            }
+                        }
+                    }
+
+                    // 산출물 유형
+                    if !agent.outputStyles.isEmpty {
+                        infoSection(title: "산출물 유형", icon: "doc.on.doc") {
+                            FlowLayout(spacing: 6) {
+                                ForEach(Array(agent.outputStyles).sorted(by: { $0.rawValue < $1.rawValue }), id: \.self) { style in
+                                    Text(style.displayName)
+                                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                                        .foregroundColor(.primary.opacity(0.7))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(palette.inputBackground)
+                                        .continuousRadius(6)
+                                }
+                            }
+                        }
+                    }
+
+                    // 도구 권한
+                    if !agent.actionPermissions.isEmpty {
+                        infoSection(title: "도구 권한", icon: "lock.shield") {
+                            FlowLayout(spacing: 6) {
+                                ForEach(Array(agent.actionPermissions).sorted(by: { $0.rawValue < $1.rawValue }), id: \.self) { scope in
+                                    HStack(spacing: 4) {
+                                        Circle()
+                                            .fill(Color.green.opacity(0.6))
+                                            .frame(width: 5, height: 5)
+                                        Text(scope.displayName)
+                                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                                    }
+                                    .foregroundColor(.primary.opacity(0.7))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(palette.inputBackground)
+                                    .continuousRadius(6)
+                                }
+                            }
+                        }
+                    }
+
+                    // 참조 프로젝트
+                    if !agent.referenceProjectPaths.isEmpty {
+                        infoSection(title: "참조 프로젝트", icon: "folder") {
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(agent.referenceProjectPaths, id: \.self) { path in
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "folder.fill")
+                                            .font(.system(size: 10))
+                                            .foregroundColor(palette.accent.opacity(0.6))
+                                        Text((path as NSString).lastPathComponent)
+                                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                                            .foregroundColor(.primary.opacity(0.8))
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     if let rules = agent.workingRules, !rules.isEmpty {
                         infoSection(title: "작업 규칙", icon: "list.clipboard") {
                             VStack(alignment: .leading, spacing: 6) {
