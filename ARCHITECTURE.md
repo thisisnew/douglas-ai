@@ -1115,8 +1115,10 @@ executeWithTools() 루프 (최대 10회):
               bare URL(명시적 의도 없음) 시 needsClarification 강제 true → 작업 목적 질문
 ② Assemble ── 3-tier 가중치 에이전트 매칭 (Tier1: skillTags×5, Tier2: workModes+outputStyles×3, Tier3: keyword+semantic×2)
               confidence 0.7↑ 자동, 0.5~0.7 사용자확인, 0.5↓ 제외 + RuntimeRole 사전배정 + 팀 확정 메시지(Role 표시)
-③ Design ──── 2인: 3턴 Propose→Critique→Revise (승인 시 Turn 3 스킵) / 3인+: Planner 프로토콜 / 1인: 구조화 플랜
-              승인 거부→재수정 최대 2회, 초과 시 최종 선택 / riskLevel 표시
+③ Design ──── **outputType 분기**: analysis/answer → 토론 모드 / 나머지 → 계획 모드
+              토론 모드: 병렬 의견 제시 → 상호 피드백 → 1-step 종합 plan (승인 불요)
+              계획 모드: 2인 Propose→Critique→Revise / 3인+ Planner 프로토콜 / 1인 구조화 플랜
+              승인 거부→재수정 최대 2회 / assignDesignRoles: creator ≠ reviewer 강제
 ④ Build ───── step 루프: low/medium=자동실행, high=DeferredAction (auto-approval 없음)
               도구 레벨: deferHighRiskTools=true → external 도구도 DeferredAction으로 수집
 ⑤ Review ──── verdict 파싱 (PASS/FAIL/통과/불합격) + fail 시 Creator 수정 → 재검토 (최대 2회, 초과 시 에스컬레이션)
