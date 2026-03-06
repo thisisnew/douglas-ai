@@ -904,7 +904,42 @@ class RoomManager: ObservableObject {
         // 순수 포맷 변환 감지: 기존 대화 내용을 문서로 변환하는 요청 (새 작업 없음)
         // "md파일로 만들어줘", "문서로 정리해줘" 등 — understand/design 불필요, 바로 문서 출력
         if detectedDocType != nil && DocumentRequestDetector.isFormatConversionOnly(task) {
-            // 전용 문서 에이전트 배정 (assemble 건너뛰므로 여기서 직접 탐색)
+            // 기존 답변 추출 성공 → LLM 재작성 없이 직접 저장
+            if let existingContent = DocumentExporter.extractDocumentContent(from: rooms[idx]) {
+                rooms[idx].documentType = detectedDocType
+                rooms[idx].transitionTo(.inProgress)
+
+                let savingMsg = ChatMessage(
+                    role: .system,
+                    content: "문서를 파일로 저장합니다…",
+                    messageType: .phaseTransition
+                )
+                appendMessage(savingMsg, to: roomID)
+
+                let suggestedName = DocumentExporter.suggestedFilename(room: rooms[idx])
+                if let url = DocumentExporter.saveDocument(
+                    content: existingContent,
+                    suggestedName: suggestedName,
+                    defaultExtension: "md"
+                ) {
+                    let doneMsg = ChatMessage(
+                        role: .system,
+                        content: "문서가 저장되었습니다\n\(url.lastPathComponent)\n\(url.path)",
+                        messageType: .phaseTransition,
+                        documentURL: url.absoluteString
+                    )
+                    appendMessage(doneMsg, to: roomID)
+                }
+
+                rooms[idx].status = .completed
+                rooms[idx].completedAt = Date()
+                pluginEventDelegate?(.roomCompleted(roomID: roomID, title: rooms[idx].title))
+                syncAgentStatuses()
+                scheduleSave()
+                return
+            }
+
+            // 추출 실패 → 문서 에이전트 배정 후 LLM 문서 작성 폴백
             let allSubAgents = agentStore?.subAgents ?? []
             let docNameKWs: Set<String> = ["문서", "리서치", "작성"]
             let nonDocKWs: Set<String> = ["개발", "jira", "프론트", "백엔드"]
