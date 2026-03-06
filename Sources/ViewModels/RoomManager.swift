@@ -690,10 +690,17 @@ class RoomManager: ObservableObject {
         [중요 — 문서 작성 지침]
         - 모르는 주제나 최신 정보가 필요하면 반드시 web_search 도구로 검색한 후 작성하세요.
         - 사용자에게 추가 질문을 하지 마세요. 가용 정보와 도구로 최선을 다해 작성하세요.
-        - 완전한 문서를 처음부터 끝까지 빠짐없이 작성하세요.
-        - "이미 완성되었습니다", "추가 작업이 필요하신가요?" 등의 응답은 금지합니다.
-        - 반드시 전체 문서 본문을 텍스트로 출력하세요. 파일 저장은 시스템이 자동으로 처리합니다.
-        - Write 도구로 파일을 직접 저장하지 마세요. 문서 내용만 출력하면 됩니다.
+        - "이미 완성되었습니다", "파일이 이미 존재합니다", "추가 작업이 필요하신가요?" 등의 응답은 절대 금지입니다.
+        - 기존 파일을 확인하거나 언급하지 마세요. 항상 새로 작성하세요.
+        - 파일 저장은 시스템이 자동으로 처리합니다. 문서 내용만 텍스트로 출력하세요.
+        - 반드시 완전한 문서를 처음부터 끝까지 빠짐없이 출력하세요.
+
+        [문서 포맷]
+        - 제목은 # (H1)으로 시작
+        - 주요 섹션은 ## (H2), 하위 섹션은 ### (H3) 사용
+        - 핵심 정보는 표(테이블)로 요약
+        - 출처가 있으면 문서 마지막에 "## 참고 자료" 섹션으로 정리
+        - Markdown 문법을 일관되게 사용하세요
         """
 
         let context = makeToolContext(roomID: roomID, currentAgentID: id)
@@ -716,7 +723,8 @@ class RoomManager: ObservableObject {
                             self.rooms[i].messages[mi].content += chunk
                         }
                     }
-                }
+                },
+                allowedToolIDs: ["web_search"]
             )
             updateMessageContent(msgID, newContent: response, in: roomID)
         } catch {
@@ -2475,9 +2483,14 @@ class RoomManager: ObservableObject {
 
         // 0) 파일만 업로드된 경우: 사용자에게 작업 의도 확인
         if task.isEmpty {
+            // 첨부 파일 이름을 포함한 구체적 질문
+            let attachedFiles = rooms.first(where: { $0.id == roomID })?.messages
+                .compactMap { $0.attachments }.flatMap { $0 } ?? []
+            let fileDesc = attachedFiles.isEmpty ? "파일" :
+                attachedFiles.map { $0.isImage ? "이미지(\($0.originalFilename ?? $0.displayName))" : $0.displayName }.joined(separator: ", ")
             let questionMsg = ChatMessage(
                 role: .assistant,
-                content: "어떤 작업을 진행할까요?\n(예: 이미지 분석, 텍스트 추출, 디자인 피드백, 코드 리뷰 등)",
+                content: "\(fileDesc)을 첨부해주셨네요. 어떤 작업을 진행할까요?\n(예: 번역, 분석, 텍스트 추출, 요약 등)",
                 agentName: masterAgentName,
                 messageType: .userQuestion
             )
@@ -2570,11 +2583,21 @@ class RoomManager: ObservableObject {
             }
         }
         let hasExplicitIntent = IntentClassifier.hasExplicitUserIntent(actualTask)
+
+        // 이미지 첨부가 있으면 TaskBrief에 힌트 전달 (이미지 데이터는 못 보내지만 존재 사실 알림)
+        let roomAttachments = rooms[idx].messages.compactMap { $0.attachments }.flatMap { $0 }
+        let hasImageAttachment = roomAttachments.contains { $0.isImage }
+        var taskWithAttachmentHint = actualTask
+        if hasImageAttachment {
+            let imageNames = roomAttachments.filter { $0.isImage }.map { $0.originalFilename ?? $0.displayName }
+            taskWithAttachmentHint += "\n\n[첨부 이미지: \(imageNames.joined(separator: ", "))] 사용자가 이미지를 첨부했습니다. 이미지 내용(텍스트, 메뉴, 디자인 등)이 작업 대상일 수 있으므로 needsClarification: false로 설정하세요."
+        }
+
         let brief = await IntentClassifier.generateTaskBrief(
-            task: actualTask,
+            task: taskWithAttachmentHint,
             intakeContext: intakeContext,
             clarifySummary: rooms[idx].clarifySummary,
-            userHasExplicitIntent: hasExplicitIntent,
+            userHasExplicitIntent: hasExplicitIntent || hasImageAttachment,
             provider: provider,
             model: lightModel
         )
