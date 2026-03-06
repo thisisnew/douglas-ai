@@ -634,9 +634,26 @@ class RoomManager: ObservableObject {
     private func executeDocumentWritingStep(roomID: UUID, docType: DocumentType, task: String) async -> UUID? {
         guard let room = rooms.first(where: { $0.id == roomID }) else { return nil }
 
-        // 에이전트 선택: docType preferredKeywords 기반 최적 선택 → 폴백: 첫 번째 전문가 → 마스터
+        // 에이전트 선택: 전용 문서 에이전트 우선 → docType keywords 폴백 → 첫 번째 전문가
         let specialistIDs = executingAgentIDs(in: roomID)
         let agentID: UUID? = {
+            // 1. 전역 풀에서 전용 문서 에이전트 탐색
+            let allSubAgents = agentStore?.subAgents ?? []
+            let docNameKWs: Set<String> = ["문서", "리서치", "작성"]
+            let nonDocKWs: Set<String> = ["개발", "jira", "프론트", "백엔드"]
+            if let docAgent = allSubAgents.first(where: { sub in
+                let nameL = sub.name.lowercased()
+                return docNameKWs.contains(where: { nameL.contains($0) })
+                    && !nonDocKWs.contains(where: { nameL.contains($0) })
+            }) {
+                if let i = rooms.firstIndex(where: { $0.id == roomID }),
+                   !rooms[i].assignedAgentIDs.contains(docAgent.id) {
+                    rooms[i].assignedAgentIDs.append(docAgent.id)
+                }
+                return docAgent.id
+            }
+
+            // 2. docType preferredKeywords 기반 폴백
             let preferredKWs = docType.preferredKeywords
             if !preferredKWs.isEmpty {
                 let candidates = specialistIDs.isEmpty ? Array(room.assignedAgentIDs) : specialistIDs
@@ -675,7 +692,8 @@ class RoomManager: ObservableObject {
         - 사용자에게 추가 질문을 하지 마세요. 가용 정보와 도구로 최선을 다해 작성하세요.
         - 완전한 문서를 처음부터 끝까지 빠짐없이 작성하세요.
         - "이미 완성되었습니다", "추가 작업이 필요하신가요?" 등의 응답은 금지합니다.
-        - 반드시 전체 문서 본문을 출력하세요.
+        - 반드시 전체 문서 본문을 텍스트로 출력하세요. 파일 저장은 시스템이 자동으로 처리합니다.
+        - Write 도구로 파일을 직접 저장하지 마세요. 문서 내용만 출력하면 됩니다.
         """
 
         let context = makeToolContext(roomID: roomID, currentAgentID: id)
@@ -849,6 +867,21 @@ class RoomManager: ObservableObject {
         // 순수 포맷 변환 감지: 기존 대화 내용을 문서로 변환하는 요청 (새 작업 없음)
         // "md파일로 만들어줘", "문서로 정리해줘" 등 — understand/design 불필요, 바로 문서 출력
         if detectedDocType != nil && DocumentRequestDetector.isFormatConversionOnly(task) {
+            // 전용 문서 에이전트 배정 (assemble 건너뛰므로 여기서 직접 탐색)
+            let allSubAgents = agentStore?.subAgents ?? []
+            let docNameKWs: Set<String> = ["문서", "리서치", "작성"]
+            let nonDocKWs: Set<String> = ["개발", "jira", "프론트", "백엔드"]
+            if let docAgent = allSubAgents.first(where: { sub in
+                let nameL = sub.name.lowercased()
+                return docNameKWs.contains(where: { nameL.contains($0) })
+                    && !nonDocKWs.contains(where: { nameL.contains($0) })
+            }) {
+                if let i = rooms.firstIndex(where: { $0.id == roomID }),
+                   !rooms[i].assignedAgentIDs.contains(docAgent.id) {
+                    addAgent(docAgent.id, to: roomID, silent: true)
+                }
+            }
+
             let specialists = executingAgentIDs(in: roomID)
             if !specialists.isEmpty {
                 previousCycleAgentCount[roomID] = specialists.count
