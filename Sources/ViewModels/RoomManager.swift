@@ -671,30 +671,36 @@ class RoomManager: ObservableObject {
         \(task)
 
         [중요 — 문서 작성 지침]
-        이전 대화의 분석·요약은 참고 자료일 뿐입니다.
-        완전한 문서를 처음부터 끝까지 빠짐없이 작성하세요.
-        "이미 완성되었습니다", "추가 작업이 필요하신가요?" 등의 응답은 금지합니다.
-        반드시 전체 문서 본문을 출력하세요.
+        - 모르는 주제나 최신 정보가 필요하면 반드시 web_search 도구로 검색한 후 작성하세요.
+        - 사용자에게 추가 질문을 하지 마세요. 가용 정보와 도구로 최선을 다해 작성하세요.
+        - 완전한 문서를 처음부터 끝까지 빠짐없이 작성하세요.
+        - "이미 완성되었습니다", "추가 작업이 필요하신가요?" 등의 응답은 금지합니다.
+        - 반드시 전체 문서 본문을 출력하세요.
         """
 
+        let context = makeToolContext(roomID: roomID, currentAgentID: id)
         let msgID = UUID()
         do {
             let placeholder = ChatMessage(id: msgID, role: .assistant, content: "", agentName: agent.name)
             appendMessage(placeholder, to: roomID)
 
-            _ = try await provider.sendMessageStreaming(
-                model: agent.modelName,
+            let response = try await ToolExecutor.smartSend(
+                provider: provider,
+                agent: agent,
                 systemPrompt: docPrompt,
-                messages: history.map { (role: $0.role, content: $0.content ?? "") }
-            ) { [weak self] chunk in
-                Task { @MainActor in
+                conversationMessages: history,
+                context: context,
+                onStreamChunk: { [weak self] chunk in
                     guard let self else { return }
-                    if let i = self.rooms.firstIndex(where: { $0.id == roomID }),
-                       let mi = self.rooms[i].messages.lastIndex(where: { $0.id == msgID }) {
-                        self.rooms[i].messages[mi].content += chunk
+                    Task { @MainActor in
+                        if let i = self.rooms.firstIndex(where: { $0.id == roomID }),
+                           let mi = self.rooms[i].messages.lastIndex(where: { $0.id == msgID }) {
+                            self.rooms[i].messages[mi].content += chunk
+                        }
                     }
                 }
-            }
+            )
+            updateMessageContent(msgID, newContent: response, in: roomID)
         } catch {
             let errMsg = ChatMessage(role: .system, content: "문서 작성 중 오류: \(error.localizedDescription)", messageType: .error)
             appendMessage(errMsg, to: roomID)
@@ -1230,7 +1236,7 @@ class RoomManager: ObservableObject {
         if !finalDescs.isEmpty {
             let msg = ChatMessage(
                 role: .system,
-                content: "\(finalDescs.joined(separator: ", "))이(가) 참여합니다.",
+                content: "\(finalDescs.joined(separator: ", "))님이 참여합니다.",
                 agentName: masterName
             )
             appendMessage(msg, to: roomID)
@@ -3120,11 +3126,12 @@ class RoomManager: ObservableObject {
         guard agentInfos.count >= 2 else { return }
 
         let discussionTone = """
-        토론 참여 규칙:
-        - 3-5문장으로 핵심 의견만 말하세요.
-        - 마크다운 헤더(##, ###), 테이블, 번호 목록 최소화. 자연스러운 문장으로 쓰세요.
-        - 전문가답게 구체적이되, 대화하듯 자연스럽게 말하세요.
-        - 이름 헤더(**[이름]** 등)를 붙이지 마세요. UI가 화자를 표시합니다.
+        [절대 규칙 — 반드시 지키세요]
+        1. 분량: 최대 5문장. 5문장을 초과하면 안 됩니다.
+        2. 서식: **볼드**, ##헤더, 번호 목록, 테이블 사용 금지. 순수 텍스트만 쓰세요.
+        3. 톤: 동료와 대화하듯 자연스럽게. 보고서나 에세이 형식 금지.
+        4. 이름 헤더(**[이름]** 등) 금지. UI가 화자를 이미 표시합니다.
+        5. 한 가지 핵심 포인트에 집중하세요. 여러 주제를 나열하지 마세요.
         """
 
         // --- Turn 1: 각 전문가가 자기 관점에서 의견 제시 (병렬) ---
@@ -3216,7 +3223,8 @@ class RoomManager: ObservableObject {
             다른 전문가의 의견을 읽고, 당신의 관점에서 반응하세요.
 
             \(discussionTone)
-            - 동의하는 부분과 다른 시각이 있는 부분을 구분하세요.
+            추가 규칙:
+            - 동의하거나 보완할 점을 2-3문장으로만 말하세요. 절대 3문장을 초과하지 마세요.
             - 이미 나온 의견을 반복하지 마세요.
             """
 
@@ -3312,12 +3320,6 @@ class RoomManager: ObservableObject {
             speakingAgentIDByRoom.removeValue(forKey: roomID)
         }
 
-        let completeMsg = ChatMessage(
-            role: .system,
-            content: "토론이 완료되었습니다.",
-            messageType: .phaseTransition
-        )
-        appendMessage(completeMsg, to: roomID)
         scheduleSave()
     }
 
@@ -4095,8 +4097,12 @@ class RoomManager: ObservableObject {
                 await generateBriefing(roomID: roomID, topic: task)
                 guard !Task.isCancelled else { return }
             } else if specialistCount == 1 {
-                await executeSoloAnalysis(roomID: roomID, task: task)
-                guard !Task.isCancelled else { return }
+                // autoDocOutput은 소로 분석 스킵 → handleDocumentOutput에서 도구 포함 문서 작성
+                let isDoc = rooms.first(where: { $0.id == roomID })?.autoDocOutput == true
+                if !isDoc {
+                    await executeSoloAnalysis(roomID: roomID, task: task)
+                    guard !Task.isCancelled else { return }
+                }
             }
 
             // autoDocOutput 플래그가 설정된 경우 자동 문서화
