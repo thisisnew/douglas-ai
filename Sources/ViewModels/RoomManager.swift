@@ -1982,6 +1982,59 @@ class RoomManager: ObservableObject {
             }
         }
 
+        // 문서 생성 작업 → LLM 매칭 바이패스: 문서 담당 에이전트 직접 배정
+        if rooms[idx].autoDocOutput {
+            let allSubAgents = agentStore?.subAgents ?? []
+            let docKeywords: Set<String> = ["문서", "리서치", "질의응답", "분석", "작성", "조사", "연구", "번역"]
+
+            // 문서 역량 판별 함수 (outputStyles > skillTags > name 순)
+            let isDocCapable: (Agent) -> Bool = { sub in
+                if sub.outputStyles.contains(.document) { return true }
+                if sub.skillTags.contains(where: { tag in docKeywords.contains(where: { tag.contains($0) }) }) { return true }
+                return docKeywords.contains(where: { sub.name.contains($0) })
+            }
+
+            // 1) 방에 이미 있는 전문가 중 문서 역량 에이전트 확인
+            let existingSpecialists = executingAgentIDs(in: roomID)
+            let existingDocAgent = existingSpecialists.contains { id in
+                guard let sub = agentStore?.agents.first(where: { $0.id == id }) else { return false }
+                return isDocCapable(sub)
+            }
+
+            if !existingDocAgent {
+                // 2) 서브 에이전트 풀에서 문서 역량 에이전트 찾아서 초대
+                let docCandidate = allSubAgents.first(where: { isDocCapable($0) }) ?? allSubAgents.first
+
+                if let target = docCandidate {
+                    if !rooms[idx].assignedAgentIDs.contains(target.id) {
+                        addAgent(target.id, to: roomID, silent: true)
+                    }
+                } else {
+                    // 3) 서브 에이전트 없음 → 생성 제안
+                    let suggestion = RoomAgentSuggestion(
+                        name: "리서치 & 문서 전문가",
+                        persona: "조사, 분석, 문서 작성을 전문으로 하는 에이전트입니다.",
+                        reason: "문서 생성 작업에 적합한 전문가가 필요합니다.",
+                        suggestedBy: agent.name
+                    )
+                    addAgentSuggestion(suggestion, to: roomID)
+                    await waitForSuggestionResponse(roomID: roomID)
+                }
+            }
+
+            // RuntimeRole 배정
+            let specialists = executingAgentIDs(in: roomID)
+            if let solo = specialists.first,
+               let soloName = agentStore?.agents.first(where: { $0.id == solo })?.name,
+               let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].agentRoles[soloName] = .creator
+            }
+
+            scheduleSave()
+            await showTeamConfirmation(roomID: roomID)
+            return
+        }
+
         // 1) 마스터에게 역할 요구사항 산출 요청
         var contextParts: [String] = []
         if let intakeData = rooms[idx].intakeData {

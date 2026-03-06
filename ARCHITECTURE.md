@@ -988,13 +988,13 @@ executeWithTools() 루프 (최대 10회):
   → ① Intake: 입력 파싱 (Jira fetch, URL 감지)
   → ② Intent: 작업 유형 표시 (문서 요청 감지 시 autoDocOutput 설정)
   → ③ Clarify: 복명복창 (task만, quickAnswer·문서 요청은 스킵)
-  → ④ Assemble: 전문가 초대 (역할 매칭 + 생성 제안)
+  → ④ Assemble: 전문가 초대 (문서 작업 → 직접 배정 | 그 외 → 역할 매칭 + 생성 제안)
   → ⑤ [needsPlan?] Plan: 동적 판단 후 토론→계획→승인 (assemble 완료 후 LLM 판별)
   → ⑥ Execute: quickAnswer(즉답) / task+needsPlan(계획 기반 실행) / task+!needsPlan(토론/분석+문서)
 ```
 
 - **Intent 분류** (`IntentClassifier`): 2종 intent (quickAnswer / task). 규칙 기반 즉시 분류 (`quickClassify`) → 실패 시 LLM 분류 (`classifyWithLLM`). `quickClassify`가 nil(판단 불가)이면 `executeIntentPhase`에서 LLM 추천 intent와 함께 **IntentSelectionCard** UI를 표시하여 사용자가 2종 intent 중 선택. `pendingIntentSelection` + `intentContinuations`으로 비동기 게이트 구현. 분류 실패 시 `.quickAnswer` 폴백 (가장 가벼운 워크플로우). 레거시 research/implementation 문자열은 `.task`로 자동 마이그레이션.
-- **문서화 요청 감지** (`DocumentRequestDetector`): 2단계 감지 — ① intent 확정 후 초기 task에서 패턴 감지, ② clarify 후 사용자 피드백에서 재감지 (`detectDocumentSignalFromMessages`). 감지 시 `room.autoDocOutput = true` + `room.documentType` 설정 (suggestedDocType nil → .freeform 폴백). **문서 요청이 감지되면 clarify 단계 자동 스킵** (사용자 의도가 명확하므로 복명복창 불필요). autoDocOutput이면 assemble 시 1명 제한 해제 (리서치+문서 에이전트 복합 구성), task 완료 후 자동 문서화 (preferredKeywords 기반 최적 에이전트 선택) + NSSavePanel 저장 (클릭 가능 file:// 링크 제공). 후속 사이클에서도 "문서로 정리해줘" 등 감지 가능 (1차 키워드 + 2차 LLM 폴백).
+- **문서화 요청 감지** (`DocumentRequestDetector`): 2단계 감지 — ① intent 확정 후 초기 task에서 패턴 감지, ② clarify 후 사용자 피드백에서 재감지 (`detectDocumentSignalFromMessages`). 감지 규칙: 문서 확장자/유형 키워드(md, pdf, 워드, 문서, 보고서 등) + 동작 어간(만들, 생성, 작성, 정리 등) 조합 → 문서 요청 판정. 동사 활용 대응을 위해 prefix 매칭 사용 (만들어줘→만들, 생성해줘→생성). 감지 시 `room.autoDocOutput = true` + `room.documentType` 설정 (suggestedDocType nil → .freeform 폴백). **문서 요청이 감지되면 clarify 단계 자동 스킵** (사용자 의도가 명확하므로 복명복창 불필요). **autoDocOutput이면 assemble에서 LLM 역할 분석 바이패스** → 문서 역량 에이전트(outputStyles.contains(.document) > skillTags > name 키워드 순) 직접 배정. task 완료 후 자동 문서화 (preferredKeywords 기반 최적 에이전트 선택) + NSSavePanel 저장 (클릭 가능 file:// 링크 제공). 후속 사이클에서도 "문서로 정리해줘" 등 감지 가능 (1차 키워드 + 2차 LLM 폴백).
 - **복명복창 Clarify** (`executeClarifyPhase`): DOUGLAS가 요청을 요약 → 사용자 승인/거부 → 거부 시 피드백 반영 재요약 → 승인까지 무한 반복. 승인 시 `room.clarifySummary`에 저장 + `[delegation]` 블록 파싱 → `room.delegationInfo`(`DelegationInfo`)에 저장. explicit 타입이면 assemble에서 LLM 역할 분석 스킵 → 지정 에이전트만 배정. open이면 기존 흐름.
 - **동적 Plan 판단** (`classifyNeedsPlan`): assemble 완료 후 2단계 판별. ① 키워드 기반 즉시 판별(`classifyNeedsPlanByKeywords`): clarifySummary+task에서 구현 키워드(수정/구현/fix/쿼리 등)와 분석 키워드(리서치/요약/번역 등)를 가중치 합산 — planScore≥5이면 즉시 true, noPlanScore≥5 && planScore<3이면 즉시 false. ② 키워드 애매 시 LLM 폴백: light model이 YES/NO 판별. 실패 시 false (안전한 기본값). 결과를 `room.needsPlan`에 저장.
 - **Plan 실행** (`executePlanPhase`): needsPlan=true일 때만 호출. 전문가 2명+ → 토론 + 브리핑 + 계획 수립 + 승인 루프. 전문가 1명 → 계획 수립 + 승인 루프 (soloAnalysis 스킵, requestPlan이 직접 분석).

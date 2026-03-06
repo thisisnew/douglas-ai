@@ -109,23 +109,23 @@ enum DocumentRequestDetector {
     private static let strongTriggers: [Trigger] = {
         let patterns: [(String, DocumentType?)] = [
             // 구체적 유형 먼저 매칭 (순서 중요)
-            ("보고서로\\s?(정리|만들|뽑|작성)", .report),
-            ("기획서로\\s?(정리|만들|뽑|작성)", .prd),
-            ("prd로\\s?(정리|만들|뽑|작성)", .prd),
-            ("테스트\\s?계획서로\\s?(정리|만들|뽑|작성)", .testPlan),
-            ("설계\\s?문서로\\s?(정리|만들|뽑|작성)", .technicalDesign),
-            ("api\\s?문서로\\s?(정리|만들|뽑|작성)", .apiDoc),
+            ("보고서로?\\s?(정리|만들|뽑|작성|생성)", .report),
+            ("기획서로?\\s?(정리|만들|뽑|작성|생성)", .prd),
+            ("prd로?\\s?(정리|만들|뽑|작성|생성)", .prd),
+            ("테스트\\s?계획서로?\\s?(정리|만들|뽑|작성|생성)", .testPlan),
+            ("설계\\s?문서로?\\s?(정리|만들|뽑|작성|생성)", .technicalDesign),
+            ("api\\s?문서로?\\s?(정리|만들|뽑|작성|생성)", .apiDoc),
             // 일반 문서/파일 요청 → .freeform (nil이면 hasDocRequest 판정 실패)
-            ("문서로\\s?(정리|만들|작성|뽑)", .freeform),
-            ("문서\\s?(정리|만들어|작성|뽑아)", .freeform),
-            ("파일로\\s?(저장|내보내|뽑|만들)", .freeform),
-            ("pdf로?\\s?(정리|만들|뽑|저장|변환)", .freeform),
-            ("pdf\\s?만들", .freeform),
-            ("마크다운으로?\\s?(정리|만들|뽑|저장)", .freeform),
-            ("md로?\\s?(정리|만들|뽑|저장)", .freeform),
-            ("md파일로?\\s?(정리|만들|뽑|저장)", .freeform),
-            ("워드로?\\s?(정리|만들|뽑|저장)", .freeform),
-            ("문서\\s?작성", .freeform),
+            ("문서로\\s?(정리|만들|작성|뽑|생성)", .freeform),
+            ("문서\\s?(정리|만들어|작성|뽑아|생성)", .freeform),
+            ("파일로\\s?(저장|내보내|뽑|만들|생성)", .freeform),
+            ("pdf로?\\s?(정리|만들|뽑|저장|변환|생성)", .freeform),
+            ("pdf\\s?(만들|생성)", .freeform),
+            ("마크다운으로?\\s?(정리|만들|뽑|저장|생성)", .freeform),
+            ("md로?\\s?(정리|만들|뽑|저장|생성)", .freeform),
+            ("md\\s?파일로?\\s?(정리|만들|뽑|저장|생성)", .freeform),
+            ("워드로?\\s?(정리|만들|뽑|저장|생성)", .freeform),
+            ("문서\\s?(작성|생성)", .freeform),
             ("문서화\\s?해", .freeform),
         ]
         return patterns.compactMap { (pattern, docType) in
@@ -148,10 +148,13 @@ enum DocumentRequestDetector {
 
     /// 토큰 조합으로 문서 요청 감지
     private static func detectFromTokens(_ tokens: [String]) -> DocumentType? {
-        let tokenSet = Set(tokens)
+        // 출력 동사 어간 (prefix 매칭 — 한국어 활용 대응: 만들어줘, 생성해줘, 작성할 등)
+        let actionStems: Set<String> = ["만들", "생성", "작성", "정리", "뽑", "저장", "내보내", "변환"]
+        let hasOutputVerb = tokens.contains { token in
+            actionStems.contains(where: { token.hasPrefix($0) })
+        }
 
-        // 출력 동사 존재 여부
-        let hasOutputVerb = !tokenSet.isDisjoint(with: ["정리", "작성", "뽑아", "저장", "만들어", "만들어줘", "내보내", "변환"])
+        let tokenSet = Set(tokens)
 
         // 문서 유형 키워드
         if hasOutputVerb {
