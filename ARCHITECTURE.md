@@ -1117,6 +1117,7 @@ executeWithTools() 루프 (최대 10회):
               confidence 0.7↑ 자동, 0.5~0.7 사용자확인, 0.5↓ 제외 + RuntimeRole 사전배정 + 팀 확정 메시지(Role 표시)
 ③ Design ──── **outputType 분기**: analysis/answer → 토론 모드 / 나머지 → 계획 모드
               토론 모드: 병렬 의견 제시 → 상호 피드백 → 1-step 종합 plan (승인 불요)
+              taskBrief 없을 때 키워드 fallback: "어떻게 생각", "의견", "트렌드" 등 → 토론 모드
               계획 모드: 2인 Propose→Critique→Revise / 3인+ Planner 프로토콜 / 1인 구조화 플랜
               승인 거부→재수정 최대 2회 / assignDesignRoles: creator ≠ reviewer 강제
 ④ Build ───── step 루프: low/medium=자동실행, high=DeferredAction (auto-approval 없음)

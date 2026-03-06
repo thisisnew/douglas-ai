@@ -2357,28 +2357,32 @@ class RoomManager: ObservableObject {
 
         let intakeContext = rooms[idx].intakeData?.asClarifyContextString()
         let hasExplicitIntent = IntentClassifier.hasExplicitUserIntent(actualTask)
-        guard let brief = await IntentClassifier.generateTaskBrief(
+        let brief = await IntentClassifier.generateTaskBrief(
             task: actualTask,
             intakeContext: intakeContext,
             clarifySummary: rooms[idx].clarifySummary,
             userHasExplicitIntent: hasExplicitIntent,
             provider: provider,
             model: lightModel
-        ) else { return }
+        )
 
-        rooms[idx].taskBrief = brief
+        if let brief {
+            rooms[idx].taskBrief = brief
+        } else {
+            print("[DOUGLAS] ⚠️ TaskBrief 생성 실패 — 키워드 기반 fallback으로 진행")
+        }
         scheduleSave()
 
         // 4) needsClarification이면 질문 최대 2회 → 자동 진행 (Plan C)
-        var currentBrief = brief
+        var currentBrief: TaskBrief? = brief
         var enrichedTask = actualTask
         let maxQuestions = 2
 
         for questionRound in 1...maxQuestions {
-            guard currentBrief.needsClarification, !currentBrief.questions.isEmpty else { break }
+            guard let cb = currentBrief, cb.needsClarification, !cb.questions.isEmpty else { break }
             guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
-            let questionText = currentBrief.questions.joined(separator: "\n")
+            let questionText = (currentBrief?.questions ?? []).joined(separator: "\n")
             let questionMsg = ChatMessage(
                 role: .assistant,
                 content: "추가 확인이 필요합니다 (\(questionRound)/\(maxQuestions)):\n\n\(questionText)",
@@ -2479,11 +2483,23 @@ class RoomManager: ObservableObject {
 
         // outputType에 따라 토론 모드 / 계획 모드 분기
         let isDiscussionMode: Bool = {
-            guard let outputType = room.taskBrief?.outputType else { return false }
-            switch outputType {
-            case .analysis, .answer: return true
-            case .code, .document, .message, .data, .design: return false
+            // 1순위: taskBrief의 outputType
+            if let outputType = room.taskBrief?.outputType {
+                switch outputType {
+                case .analysis, .answer: return true
+                case .code, .document, .message, .data, .design: return false
+                }
             }
+            // 2순위: taskBrief 없을 때 키워드 기반 fallback
+            let lower = task.lowercased()
+            let discussionSignals = ["어떻게 생각", "의견", "토론", "브레인스토밍", "brainstorm",
+                                     "트렌드", "전망", "관점", "견해", "좋을까", "어떨까",
+                                     "장단점", "비교", "분석해", "어떤 것이"]
+            let hasDiscussionSignal = discussionSignals.contains { lower.contains($0) }
+            let hasExecutionSignal = ["만들어", "구현", "작성해", "코딩", "빌드", "배포",
+                                      "수정해", "커밋", "fix", "implement", "deploy"]
+                .contains { lower.contains($0) }
+            return hasDiscussionSignal && !hasExecutionSignal
         }()
 
         if isDiscussionMode {
