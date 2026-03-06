@@ -252,20 +252,22 @@ class ClaudeCodeProvider: AIProvider {
         )
     }
 
-    /// 프로젝트 경로를 작업 디렉토리로 사용하는 sendMessage (도구 활동 추적 지원)
+    /// 프로젝트 경로를 작업 디렉토리로 사용하는 sendMessage (도구 활동 추적 + 텍스트 스트리밍 지원)
     func sendMessage(
         model: String,
         systemPrompt: String,
         messages: [(role: String, content: String)],
         workingDirectory: String?,
-        onToolActivity: ((String, ToolActivityDetail?) -> Void)? = nil
+        onToolActivity: ((String, ToolActivityDetail?) -> Void)? = nil,
+        onTextChunk: (@Sendable (String) -> Void)? = nil
     ) async throws -> String {
         let userPrompt = buildUserPrompt(from: messages)
         return try await runClaude(
             path: config.baseURL, prompt: userPrompt, model: model,
             systemPrompt: systemPrompt, disallowedTools: ["WebFetch"],
             workingDirectory: workingDirectory,
-            onToolActivity: onToolActivity
+            onToolActivity: onToolActivity,
+            onTextChunk: onTextChunk
         )
     }
 
@@ -287,12 +289,13 @@ class ClaudeCodeProvider: AIProvider {
         )
     }
 
-    /// 도구 제한이 가능한 스트리밍 모드 (allowedTools로 CLI 도구 필터링)
+    /// 도구 제한이 가능한 스트리밍 모드 (allowedTools로 CLI 도구 필터링 + 도구 활동 추적)
     func sendMessageStreamingWithTools(
         model: String,
         systemPrompt: String,
         messages: [(role: String, content: String)],
         allowedTools: [String],
+        onToolActivity: ((String, ToolActivityDetail?) -> Void)? = nil,
         onChunk: @escaping @Sendable (String) -> Void
     ) async throws -> String {
         let userPrompt = buildUserPrompt(from: messages)
@@ -300,7 +303,7 @@ class ClaudeCodeProvider: AIProvider {
             path: config.baseURL, prompt: userPrompt, model: model,
             systemPrompt: systemPrompt,
             allowedTools: allowedTools,
-            onToolActivity: { _, _ in },
+            onToolActivity: onToolActivity ?? { _, _ in },
             onTextChunk: onChunk
         )
     }

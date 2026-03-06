@@ -681,21 +681,27 @@ class RoomManager: ObservableObject {
         let docPrompt = """
         \(agent.resolvedSystemPrompt)
 
+        ⚠️ 당신은 지금 "문서 작성 모드"입니다. 할 일은 딱 하나: Markdown 본문을 텍스트로 출력하는 것.
+        파일 생성, 스크립트 실행, 도구 호출은 불가능하며 시도하지 마세요.
+        PDF/DOCX 등 파일 변환은 시스템이 자동으로 처리합니다 — 당신이 신경 쓸 부분이 아닙니다.
+
         이전 대화와 분석 내용을 바탕으로 문서를 작성합니다.
         \(templateBlock)
 
         [작업]
         \(task)
+        ※ 위 작업에서 "PDF로 만들어줘", "파일로 저장", "문서 파일 생성" 등 파일 형식 요청은 무시하세요.
+        파일 변환은 시스템이 자동 처리됩니다. 당신은 Markdown 본문만 출력하면 됩니다.
 
         [절대 규칙 — 위반 시 실패로 간주]
-        - 반드시 한국어로 작성하세요. 영어로 응답하지 마세요.
-        - 서론, 인사말, 설명 없이 바로 문서 본문(Markdown)을 출력하세요.
-        - Write, Bash, 파일 저장 도구를 절대 호출하지 마세요. 시스템이 자동으로 PDF 변환합니다.
-        - "파일을 저장했습니다", "권한이 필요합니다", "승인해주세요" 등 메타 발언 금지.
-        - 모르는 주제나 최신 정보가 필요하면 web_search로 검색한 후 작성하세요.
-        - 사용자에게 추가 질문을 하지 마세요.
-        - 완전한 문서를 처음부터 끝까지 빠짐없이 출력하세요.
-        - 당신이 할 일은 오직 Markdown 본문을 텍스트로 출력하는 것뿐입니다.
+        1. 반드시 한국어로 작성하세요. 영어로 응답하지 마세요.
+        2. 서론, 인사말, 설명 없이 바로 문서 본문(Markdown)을 출력하세요.
+        3. Write, Bash, 파일 저장 도구를 절대 호출하지 마세요.
+        4. "파일을 저장했습니다", "권한이 필요합니다", "승인해주세요", "pip install" 등 메타 발언 금지.
+        5. Python 스크립트, 설치 명령, 파일 경로를 언급하지 마세요.
+        6. 모르는 주제나 최신 정보가 필요하면 web_search로 검색한 후 작성하세요.
+        7. 사용자에게 추가 질문을 하지 마세요.
+        8. 완전한 문서를 처음부터 끝까지 빠짐없이 출력하세요.
 
         [문서 포맷]
         - 제목은 # (H1)으로 시작
@@ -707,23 +713,45 @@ class RoomManager: ObservableObject {
 
         let context = makeToolContext(roomID: roomID, currentAgentID: id)
         let msgID = UUID()
+
+        // 도구 활동 추적용 progress 메시지
+        let progressMsg = ChatMessage(
+            role: .system,
+            content: "문서 작성 중…",
+            messageType: .progress
+        )
+        appendMessage(progressMsg, to: roomID)
+
         do {
             let placeholder = ChatMessage(id: msgID, role: .assistant, content: "", agentName: agent.name)
             appendMessage(placeholder, to: roomID)
 
+            let buffer = StreamBuffer()
             let response = try await ToolExecutor.smartSend(
                 provider: provider,
                 agent: agent,
                 systemPrompt: docPrompt,
                 conversationMessages: history,
                 context: context,
-                onStreamChunk: { [weak self] chunk in
+                onToolActivity: { [weak self] activity, detail in
                     guard let self else { return }
                     Task { @MainActor in
-                        if let i = self.rooms.firstIndex(where: { $0.id == roomID }),
-                           let mi = self.rooms[i].messages.lastIndex(where: { $0.id == msgID }) {
-                            self.rooms[i].messages[mi].content += chunk
-                        }
+                        let toolMsg = ChatMessage(
+                            role: .assistant,
+                            content: activity,
+                            agentName: agent.name,
+                            messageType: .toolActivity,
+                            activityGroupID: progressMsg.id,
+                            toolDetail: detail
+                        )
+                        self.appendMessage(toolMsg, to: roomID)
+                    }
+                },
+                onStreamChunk: { [weak self] chunk in
+                    guard let self else { return }
+                    let current = buffer.append(chunk)
+                    Task { @MainActor in
+                        self.updateMessageContent(msgID, newContent: current, in: roomID)
                     }
                 },
                 allowedToolIDs: ["web_search"]
@@ -5366,8 +5394,14 @@ class RoomManager: ObservableObject {
                 appendMessage(startMsg, to: roomID)
             }
 
+            // 스트리밍용 placeholder 메시지 (실시간 텍스트 업데이트)
+            let streamPlaceholderID = UUID()
+            let streamPlaceholder = ChatMessage(id: streamPlaceholderID, role: .assistant, content: "", agentName: agent.name)
+            appendMessage(streamPlaceholder, to: roomID)
+
             let context = makeToolContext(roomID: roomID, currentAgentID: agentID, fileWriteTracker: fileWriteTracker, deferHighRiskTools: deferHighRiskTools, collectDeferred: collectDeferred)
             let messagesWithStep = history + [ConversationMessage.user(stepPrompt)]
+            let buffer = StreamBuffer()
             let response = try await ToolExecutor.smartSend(
                 provider: provider,
                 agent: agent,
@@ -5386,6 +5420,13 @@ class RoomManager: ObservableObject {
                             toolDetail: detail
                         )
                         self.appendMessage(toolMsg, to: roomID)
+                    }
+                },
+                onStreamChunk: { [weak self] chunk in
+                    guard let self else { return }
+                    let current = buffer.append(chunk)
+                    Task { @MainActor in
+                        self.updateMessageContent(streamPlaceholderID, newContent: current, in: roomID)
                     }
                 }
             )
@@ -5424,14 +5465,14 @@ class RoomManager: ObservableObject {
                 speakingAgentIDByRoom.removeValue(forKey: roomID)
             }
 
-            // 중간 단계는 toolActivity(접힘), 마지막 단계만 일반 메시지로 표시
+            // 최종 정리된 응답으로 placeholder 업데이트 + 중간 단계는 접힘 처리
             let cleanedResponse = expandTildePaths(stripHallucinatedAuthLines(stripTrailingOptions(response)))
-            if isLastStep || totalSteps == 1 {
-                let reply = ChatMessage(role: .assistant, content: cleanedResponse, agentName: agent.name)
-                appendMessage(reply, to: roomID)
-            } else {
-                let reply = ChatMessage(role: .assistant, content: cleanedResponse, agentName: agent.name, messageType: .toolActivity)
-                appendMessage(reply, to: roomID)
+            updateMessageContent(streamPlaceholderID, newContent: cleanedResponse, in: roomID)
+            if !(isLastStep || totalSteps == 1) {
+                if let i = rooms.firstIndex(where: { $0.id == roomID }),
+                   let mi = rooms[i].messages.firstIndex(where: { $0.id == streamPlaceholderID }) {
+                    rooms[i].messages[mi].messageType = .toolActivity
+                }
             }
             return true
         } catch {
