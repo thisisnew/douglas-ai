@@ -1985,32 +1985,40 @@ class RoomManager: ObservableObject {
         // 문서 생성 작업 → LLM 매칭 바이패스: 문서 담당 에이전트 직접 배정
         if rooms[idx].autoDocOutput {
             let allSubAgents = agentStore?.subAgents ?? []
-            let docKeywords: Set<String> = ["문서", "리서치", "질의응답", "분석", "작성", "조사", "연구", "번역"]
 
-            // 문서 역량 판별 함수 (outputStyles > skillTags > name 순)
-            let isDocCapable: (Agent) -> Bool = { sub in
-                if sub.outputStyles.contains(.document) { return true }
-                if sub.skillTags.contains(where: { tag in docKeywords.contains(where: { tag.contains($0) }) }) { return true }
-                return docKeywords.contains(where: { sub.name.contains($0) })
+            // 문서/리서치 적합도 점수 (skillTags·이름 기반 — 개발자 에이전트 패널티)
+            let researchKWs: Set<String> = ["조사", "분석", "리서치", "작성", "문서", "데이터", "연구", "번역", "질의응답"]
+            let devKWs: Set<String> = ["개발", "backend", "frontend", "server", "spring", "react", "vue", "java", "코딩"]
+
+            let docScore: (Agent) -> Int = { sub in
+                var score = 0
+                for tag in sub.skillTags {
+                    let t = tag.lowercased()
+                    if researchKWs.contains(where: { t.contains($0) }) { score += 2 }
+                    if devKWs.contains(where: { t.contains($0) }) { score -= 2 }
+                }
+                if researchKWs.contains(where: { sub.name.contains($0) }) { score += 3 }
+                if devKWs.contains(where: { sub.name.contains($0) }) { score -= 3 }
+                return score
             }
 
-            // 1) 방에 이미 있는 전문가 중 문서 역량 에이전트 확인
+            // 1) 방에 이미 있는 전문가 중 문서 적합 에이전트 확인
             let existingSpecialists = executingAgentIDs(in: roomID)
             let existingDocAgent = existingSpecialists.contains { id in
                 guard let sub = agentStore?.agents.first(where: { $0.id == id }) else { return false }
-                return isDocCapable(sub)
+                return docScore(sub) > 0
             }
 
             if !existingDocAgent {
-                // 2) 서브 에이전트 풀에서 문서 역량 에이전트 찾아서 초대
-                let docCandidate = allSubAgents.first(where: { isDocCapable($0) }) ?? allSubAgents.first
+                // 2) 서브 에이전트 풀에서 가장 적합한 문서 에이전트 선택 (점수 최고)
+                let best = allSubAgents.max(by: { docScore($0) < docScore($1) })
 
-                if let target = docCandidate {
+                if let target = best, docScore(target) > 0 {
                     if !rooms[idx].assignedAgentIDs.contains(target.id) {
                         addAgent(target.id, to: roomID, silent: true)
                     }
                 } else {
-                    // 3) 서브 에이전트 없음 → 생성 제안
+                    // 3) 적합한 에이전트 없음 → 생성 제안
                     let suggestion = RoomAgentSuggestion(
                         name: "리서치 & 문서 전문가",
                         persona: "조사, 분석, 문서 작성을 전문으로 하는 에이전트입니다.",
