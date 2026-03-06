@@ -35,9 +35,7 @@ struct AgentManifestTests {
             avatarBase64: nil,
             skillTags: nil,
             workModes: nil,
-            outputStyles: nil,
-            restrictions: nil,
-            actionPermissions: nil
+            outputStyles: nil
         )
         let manifest = AgentManifest(
             formatVersion: 1,
@@ -76,9 +74,7 @@ struct AgentManifestTests {
             avatarBase64: base64,
             skillTags: nil,
             workModes: nil,
-            outputStyles: nil,
-            restrictions: nil,
-            actionPermissions: nil
+            outputStyles: nil
         )
         let manifest = makeManifest(agents: [entry])
         let data = try encode(manifest)
@@ -121,9 +117,7 @@ struct AgentManifestTests {
             avatarBase64: nil,
             skillTags: nil,
             workModes: nil,
-            outputStyles: nil,
-            restrictions: nil,
-            actionPermissions: nil
+            outputStyles: nil
         )
         let agent = entry.toAgent()
 
@@ -147,9 +141,7 @@ struct AgentManifestTests {
             avatarBase64: nil,
             skillTags: nil,
             workModes: nil,
-            outputStyles: nil,
-            restrictions: nil,
-            actionPermissions: nil
+            outputStyles: nil
         )
         let agent = entry.toAgent()
         #expect(agent.isMaster == false)
@@ -169,9 +161,7 @@ struct AgentManifestTests {
             avatarBase64: nil,
             skillTags: nil,
             workModes: nil,
-            outputStyles: nil,
-            restrictions: nil,
-            actionPermissions: nil
+            outputStyles: nil
         )
         let agent = entry.toAgent()
         #expect(agent.workingRules == nil)
@@ -189,9 +179,7 @@ struct AgentManifestTests {
             avatarBase64: nil,
             skillTags: nil,
             workModes: nil,
-            outputStyles: nil,
-            restrictions: nil,
-            actionPermissions: nil
+            outputStyles: nil
         )
         let agent = entry.toAgent()
         #expect(agent.workingRules == nil)
@@ -275,22 +263,19 @@ struct AgentManifestTests {
                 name: "백엔드", persona: "백엔드 전문가", isMaster: false,
                 providerType: "OpenAI", preferredModel: "gpt-4o",
                 workingRules: nil, avatarBase64: nil,
-                skillTags: nil, workModes: nil, outputStyles: nil,
-                restrictions: nil, actionPermissions: nil
+                skillTags: nil, workModes: nil, outputStyles: nil
             ),
             AgentManifest.AgentEntry(
                 name: "프론트엔드", persona: "프론트엔드 전문가", isMaster: false,
                 providerType: "Anthropic", preferredModel: "claude-sonnet-4-6",
                 workingRules: "- React 사용", avatarBase64: nil,
-                skillTags: nil, workModes: nil, outputStyles: nil,
-                restrictions: nil, actionPermissions: nil
+                skillTags: nil, workModes: nil, outputStyles: nil
             ),
             AgentManifest.AgentEntry(
                 name: "DOUGLAS", persona: "AI 집사", isMaster: true,
                 providerType: "Claude Code", preferredModel: "claude-sonnet-4-6",
                 workingRules: nil, avatarBase64: nil,
-                skillTags: nil, workModes: nil, outputStyles: nil,
-                restrictions: nil, actionPermissions: nil
+                skillTags: nil, workModes: nil, outputStyles: nil
             ),
         ]
         let manifest = makeManifest(agents: entries)

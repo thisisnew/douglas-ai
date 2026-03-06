@@ -70,9 +70,9 @@ struct IntentClassifierTests {
         #expect(IntentClassifier.quickClassify("PRD 작성해줘") == WorkflowIntent.task)
     }
 
-    @Test("브레인스토밍 → task")
+    @Test("브레인스토밍 → discussion")
     func brainstorm() {
-        #expect(IntentClassifier.quickClassify("브레인스토밍 해보자") == WorkflowIntent.task)
+        #expect(IntentClassifier.quickClassify("브레인스토밍 해보자") == WorkflowIntent.discussion)
     }
 
     @Test("변환 → task")

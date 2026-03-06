@@ -54,18 +54,20 @@ struct WorkflowIntentTests {
 
     // MARK: - WorkflowIntent
 
-    @Test("WorkflowIntent — 전체 케이스 존재 (2종)")
+    @Test("WorkflowIntent — 전체 케이스 존재 (3종)")
     func workflowIntentAllCases() {
         let all = WorkflowIntent.allCases
-        #expect(all.count == 2)
+        #expect(all.count == 3)
         #expect(all.contains(.quickAnswer))
-        #expect(all.contains(WorkflowIntent.task))
+        #expect(all.contains(.task))
+        #expect(all.contains(.discussion))
     }
 
     @Test("WorkflowIntent rawValue")
     func workflowIntentRawValues() {
         #expect(WorkflowIntent.quickAnswer.rawValue == "quickAnswer")
-        #expect((WorkflowIntent.task).rawValue == "task")
+        #expect(WorkflowIntent.task.rawValue == "task")
+        #expect(WorkflowIntent.discussion.rawValue == "discussion")
     }
 
     @Test("WorkflowIntent displayName 비어있지 않음")
@@ -97,7 +99,7 @@ struct WorkflowIntentTests {
 
     @Test("task — Plan C: understand → assemble → design → build → review → deliver")
     func taskPhases() {
-        let phases = (WorkflowIntent.task).requiredPhases
+        let phases = WorkflowIntent.task.requiredPhases
         #expect(phases.count == 6)
         #expect(phases.contains(.understand))
         #expect(phases.contains(.assemble))
@@ -107,12 +109,23 @@ struct WorkflowIntentTests {
         #expect(phases.contains(.deliver))
     }
 
+    @Test("discussion — Plan C: understand → assemble → design → deliver")
+    func discussionPhases() {
+        let phases = WorkflowIntent.discussion.requiredPhases
+        #expect(phases.count == 4)
+        #expect(phases.contains(.understand))
+        #expect(phases.contains(.assemble))
+        #expect(phases.contains(.design))
+        #expect(phases.contains(.deliver))
+    }
+
     // MARK: - requiresDiscussion
 
     @Test("토론 필요: quickAnswer만 제외")
     func requiresDiscussion() {
         #expect(WorkflowIntent.quickAnswer.requiresDiscussion == false)
-        #expect((WorkflowIntent.task).requiresDiscussion == true)
+        #expect(WorkflowIntent.task.requiresDiscussion == true)
+        #expect(WorkflowIntent.discussion.requiresDiscussion == true)
     }
 
     // MARK: - includesExecution / includesAssembly
@@ -129,22 +142,30 @@ struct WorkflowIntentTests {
         // Plan C: requiredPhases에 .execute가 없음 (build/deliver로 대체)
         #expect(WorkflowIntent.quickAnswer.includesExecution == false)
         #expect(WorkflowIntent.task.includesExecution == false)
+        #expect(WorkflowIntent.discussion.includesExecution == false)
     }
 
     // MARK: - 레거시 호환 (Codable)
 
     @Test("레거시 intent 문자열 → task로 디코딩")
     func legacyIntentDecoding() throws {
-        let legacyValues = [
+        let taskLegacyValues = [
             "research", "implementation",
-            "brainstorm", "requirementsAnalysis", "testPlanning",
+            "requirementsAnalysis", "testPlanning",
             "taskDecomposition", "documentation",
         ]
-        for legacy in legacyValues {
+        for legacy in taskLegacyValues {
             let json = "\"\(legacy)\"".data(using: .utf8)!
             let decoded = try JSONDecoder().decode(WorkflowIntent.self, from: json)
-            #expect(decoded == WorkflowIntent.task, "레거시 \(legacy) → .task 디코딩 실패")
+            #expect(decoded == .task, "레거시 \(legacy) → .task 디코딩 실패")
         }
+    }
+
+    @Test("레거시 brainstorm → discussion 디코딩")
+    func legacyBrainstormDecoding() throws {
+        let json = "\"brainstorm\"".data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(WorkflowIntent.self, from: json)
+        #expect(decoded == .discussion)
     }
 
     @Test("알 수 없는 intent 문자열 → 디코딩 에러")

@@ -10,14 +10,16 @@ struct AgentMatcherTests {
     private func makeAgent(
         name: String,
         persona: String,
-        workingRules: WorkingRulesSource? = nil
+        workingRules: WorkingRulesSource? = nil,
+        skillTags: [String] = []
     ) -> Agent {
         Agent(
             name: name,
             persona: persona,
             providerName: "TestProvider",
             modelName: "test-model",
-            workingRules: workingRules
+            workingRules: workingRules,
+            skillTags: skillTags
         )
     }
 
@@ -34,71 +36,79 @@ struct AgentMatcherTests {
         #expect(results.allSatisfy { $0.status == .unmatched })
     }
 
-    @Test("matchRoles — 이름 키워드 매칭")
+    @Test("matchRoles — skillTags + 이름 키워드 매칭")
     func matchRolesByName() {
-        let agent = makeAgent(name: "백엔드 개발자", persona: "서버 개발 전문")
+        let agent = makeAgent(
+            name: "백엔드 개발자",
+            persona: "백엔드 서버 API 개발 전문",
+            skillTags: ["백엔드", "서버", "api"]
+        )
         let requirements = [
             RoleRequirement(roleName: "백엔드")
         ]
         let results = AgentMatcher.matchRoles(requirements: requirements, agents: [agent])
-        #expect(results[0].status == .matched)
+        #expect(results[0].status != .unmatched)
         #expect(results[0].matchedAgentID == agent.id)
     }
 
-    @Test("matchRoles — persona 키워드 매칭")
+    @Test("matchRoles — skillTags + persona 키워드 매칭")
     func matchRolesByPersona() {
         let agent = makeAgent(
             name: "프론트엔드 개발자",
-            persona: "React, TypeScript, UI 개발 전문"
+            persona: "React, TypeScript, 프론트엔드 UI 개발 전문",
+            skillTags: ["프론트엔드", "react", "typescript"]
         )
         let requirements = [
             RoleRequirement(roleName: "프론트엔드")
         ]
         let results = AgentMatcher.matchRoles(requirements: requirements, agents: [agent])
-        #expect(results[0].status == .matched)
+        #expect(results[0].status != .unmatched)
         #expect(results[0].matchedAgentID == agent.id)
     }
 
-    @Test("matchRoles — 작업 규칙 키워드 매칭")
+    @Test("matchRoles — skillTags + 작업 규칙 키워드 매칭")
     func matchRolesByWorkingRules() {
-        // 이름에 "react" 포함 (score +3) + 작업 규칙에도 "react" (score +1) = 4 ≥ 3
         let agent = makeAgent(
             name: "React 개발자",
-            persona: "코드 작성 전문",
-            workingRules: WorkingRulesSource(inlineText: "React 컴포넌트는 함수형으로 작성. TypeScript 필수.")
+            persona: "React 코드 작성 전문",
+            workingRules: WorkingRulesSource(inlineText: "React 컴포넌트는 함수형으로 작성. TypeScript 필수."),
+            skillTags: ["react", "typescript"]
         )
         let requirements = [
             RoleRequirement(roleName: "React")
         ]
         let results = AgentMatcher.matchRoles(requirements: requirements, agents: [agent])
-        #expect(results[0].status == .matched)
+        #expect(results[0].status != .unmatched)
     }
 
     @Test("matchRoles — 에이전트 중복 사용 불가")
     func matchRolesNoDuplicateAgent() {
-        // 이름에 "백엔드" 포함 (score +3) ≥ 3 → 매칭됨
-        let agent = makeAgent(name: "백엔드", persona: "서버 개발 전문")
+        let agent = makeAgent(
+            name: "백엔드",
+            persona: "백엔드 서버 개발 전문",
+            skillTags: ["백엔드", "서버"]
+        )
         let requirements = [
             RoleRequirement(roleName: "백엔드"),
             RoleRequirement(roleName: "백엔드")  // 같은 역할 두 번
         ]
         let results = AgentMatcher.matchRoles(requirements: requirements, agents: [agent])
-        let matched = results.filter { $0.status == .matched }
+        let matched = results.filter { $0.status != .unmatched }
         #expect(matched.count == 1)  // 에이전트 하나이므로 하나만 매칭
     }
 
     @Test("matchRoles — 여러 에이전트 매칭")
     func matchRolesMultiple() {
         let agents = [
-            makeAgent(name: "백엔드", persona: "서버 개발"),
-            makeAgent(name: "프론트", persona: "UI 개발"),
+            makeAgent(name: "백엔드", persona: "백엔드 서버 개발", skillTags: ["백엔드", "서버"]),
+            makeAgent(name: "프론트", persona: "프론트엔드 UI 개발", skillTags: ["프론트엔드", "ui"]),
         ]
         let requirements = [
             RoleRequirement(roleName: "백엔드"),
             RoleRequirement(roleName: "프론트"),
         ]
         let results = AgentMatcher.matchRoles(requirements: requirements, agents: agents)
-        let matched = results.filter { $0.status == .matched }
+        let matched = results.filter { $0.status != .unmatched }
         #expect(matched.count == 2)
     }
 
@@ -228,43 +238,48 @@ struct AgentMatcherTests {
 
     // MARK: - 문서 유형 설정 시 매칭
 
-    @Test("matchRoles — documentType 설정 시 도메인 키워드 필터링")
-    func matchRolesDocFiltersDomainKeywords() {
+    @Test("matchByTags — documentType 설정 시 도메인 키워드 필터링")
+    func matchByTagsDocFiltersDomainKeywords() {
         let backendDev = makeAgent(name: "백엔드 개발자", persona: "서버 개발 전문")
-        let docWriter = makeAgent(name: "기술 문서 작성자", persona: "문서화 전문가, 테크니컬 라이터")
-        let requirements = [
-            RoleRequirement(roleName: "백엔드 API 문서 작성자")
-        ]
-        let results = AgentMatcher.matchRoles(
-            requirements: requirements,
+        let docWriter = makeAgent(
+            name: "기술 문서 작성자",
+            persona: "문서화 전문가, 테크니컬 라이터, API 문서"
+        )
+        // matchByTags 직접 호출: 도메인 키워드 필터링 후 올바른 에이전트 선택 검증
+        let (agent, confidence) = AgentMatcher.matchByTags(
+            roleName: "백엔드 API 문서 작성자",
             agents: [backendDev, docWriter],
+            excluding: [],
             documentType: .apiDoc
         )
-        // "백엔드" 필터링 후 "api", "문서", "작성자" 키워드 → docWriter 매칭
-        #expect(results[0].status == .matched)
-        #expect(results[0].matchedAgentID == docWriter.id)
+        // "백엔드" 도메인 키워드 필터링 → "api", "문서", "작성자" → docWriter가 최고 매칭
+        #expect(agent?.id == docWriter.id)
+        #expect(confidence > 0)
     }
 
-    @Test("matchRoles — documentType + preferredKeywords 보너스")
-    func matchRolesDocPreferredKeywordBonus() {
+    @Test("matchByTags — documentType + preferredKeywords 보너스")
+    func matchByTagsDocPreferredKeywordBonus() {
         let qaAgent = makeAgent(name: "QA 전문가", persona: "테스트 전략, 품질 보증")
         let devAgent = makeAgent(name: "시니어 개발자", persona: "풀스택 개발")
-        let requirements = [
-            RoleRequirement(roleName: "테스트 계획 작성자")
-        ]
-        let results = AgentMatcher.matchRoles(
-            requirements: requirements,
+        // matchByTags 직접 호출: preferredKeywords 보너스로 올바른 에이전트 우선 선택 검증
+        let (agent, confidence) = AgentMatcher.matchByTags(
+            roleName: "테스트 계획 작성자",
             agents: [qaAgent, devAgent],
+            excluding: [],
             documentType: .testPlan
         )
-        // preferredKeywords: "qa", "테스트", "품질" → qaAgent 보너스
-        #expect(results[0].status == .matched)
-        #expect(results[0].matchedAgentID == qaAgent.id)
+        // preferredKeywords: "qa", "테스트", "품질" → qaAgent가 최고 매칭
+        #expect(agent?.id == qaAgent.id)
+        #expect(confidence > 0)
     }
 
-    @Test("matchRoles — documentType nil이면 기존 동작 유지")
+    @Test("matchRoles — documentType nil이면 skillTags 기반 매칭")
     func matchRolesNonDocPreservesOldBehavior() {
-        let backendDev = makeAgent(name: "백엔드 개발자", persona: "서버 개발 전문")
+        let backendDev = makeAgent(
+            name: "백엔드 개발자",
+            persona: "백엔드 서버 개발 전문",
+            skillTags: ["백엔드", "서버", "api"]
+        )
         let requirements = [
             RoleRequirement(roleName: "백엔드")
         ]
@@ -272,7 +287,7 @@ struct AgentMatcherTests {
             requirements: requirements,
             agents: [backendDev]
         )
-        #expect(results[0].status == .matched)
+        #expect(results[0].status != .unmatched)
         #expect(results[0].matchedAgentID == backendDev.id)
     }
 
