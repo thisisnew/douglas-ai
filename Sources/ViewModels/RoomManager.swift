@@ -2035,7 +2035,7 @@ class RoomManager: ObservableObject {
             }
 
             scheduleSave()
-            await showTeamConfirmation(roomID: roomID)
+            // 문서 전용 에이전트는 확인 없이 바로 진행 (이미 생성/배정 메시지 표시됨)
             return
         }
 
