@@ -283,6 +283,8 @@ struct RoomAgentSuggestion: Identifiable, Codable, Equatable {
     let suggestedBy: String       // 제안한 에이전트 이름
     let createdAt: Date
     var status: SuggestionStatus
+    let skillTags: [String]?
+    let outputStyles: Set<OutputStyle>?
 
     enum SuggestionStatus: String, Codable {
         case pending
@@ -300,7 +302,9 @@ struct RoomAgentSuggestion: Identifiable, Codable, Equatable {
         reason: String = "",
         suggestedBy: String = "",
         createdAt: Date = Date(),
-        status: SuggestionStatus = .pending
+        status: SuggestionStatus = .pending,
+        skillTags: [String]? = nil,
+        outputStyles: Set<OutputStyle>? = nil
     ) {
         self.id = id
         self.name = name
@@ -312,6 +316,8 @@ struct RoomAgentSuggestion: Identifiable, Codable, Equatable {
         self.suggestedBy = suggestedBy
         self.createdAt = createdAt
         self.status = status
+        self.skillTags = skillTags
+        self.outputStyles = outputStyles
     }
 }
 

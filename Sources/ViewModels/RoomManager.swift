@@ -539,7 +539,7 @@ class RoomManager: ObservableObject {
     /// 취소 — 팀 구성 없이 완료
     func skipTeamConfirmation(roomID: UUID) {
         pendingTeamConfirmation.removeValue(forKey: roomID)
-        let msg = ChatMessage(role: .system, content: "팀 구성이 취소되었습니다.")
+        let msg = ChatMessage(role: .system, content: "전문가 배정이 취소되었습니다.")
         appendMessage(msg, to: roomID)
         if let cont = teamConfirmationContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: nil)
@@ -1105,7 +1105,9 @@ class RoomManager: ObservableObject {
             name: suggestion.name,
             persona: suggestion.persona,
             providerName: providerName,
-            modelName: modelName
+            modelName: modelName,
+            skillTags: suggestion.skillTags ?? [],
+            outputStyles: suggestion.outputStyles ?? []
         )
         agentStore?.addAgent(newAgent)
         addAgent(newAgent.id, to: roomID, silent: true)
@@ -1982,48 +1984,42 @@ class RoomManager: ObservableObject {
             }
         }
 
-        // 문서 생성 작업 → LLM 매칭 바이패스: 문서 담당 에이전트 직접 배정
+        // 문서 생성 작업 → LLM 매칭 바이패스: 문서 전용 에이전트 직접 배정
         if rooms[idx].autoDocOutput {
             let allSubAgents = agentStore?.subAgents ?? []
+            let docNameKWs: Set<String> = ["문서", "리서치", "작성"]
+            let nonDocKWs: Set<String> = ["개발", "jira", "프론트", "백엔드"]
 
-            // 문서/리서치 적합도 점수 (skillTags·이름 기반 — 개발자 에이전트 패널티)
-            let researchKWs: Set<String> = ["조사", "분석", "리서치", "작성", "문서", "데이터", "연구", "번역", "질의응답"]
-            let devKWs: Set<String> = ["개발", "backend", "frontend", "server", "spring", "react", "vue", "java", "코딩"]
-
-            let docScore: (Agent) -> Int = { sub in
-                var score = 0
-                for tag in sub.skillTags {
-                    let t = tag.lowercased()
-                    if researchKWs.contains(where: { t.contains($0) }) { score += 2 }
-                    if devKWs.contains(where: { t.contains($0) }) { score -= 2 }
-                }
-                if researchKWs.contains(where: { sub.name.contains($0) }) { score += 3 }
-                if devKWs.contains(where: { sub.name.contains($0) }) { score -= 3 }
-                return score
+            // 문서 전용 에이전트 판별: 이름에 문서/리서치/작성 포함 + 개발/jira 등 제외
+            let isDocSpecialist: (Agent) -> Bool = { sub in
+                let nameL = sub.name.lowercased()
+                let hasDocName = docNameKWs.contains(where: { nameL.contains($0) })
+                let hasNonDoc = nonDocKWs.contains(where: { nameL.contains($0) })
+                return hasDocName && !hasNonDoc
             }
 
-            // 1) 방에 이미 있는 전문가 중 문서 적합 에이전트 확인
+            // 1) 방에 이미 문서 전용 에이전트가 있는지 확인
             let existingSpecialists = executingAgentIDs(in: roomID)
-            let existingDocAgent = existingSpecialists.contains { id in
+            let alreadyHasDocAgent = existingSpecialists.contains { id in
                 guard let sub = agentStore?.agents.first(where: { $0.id == id }) else { return false }
-                return docScore(sub) > 0
+                return isDocSpecialist(sub)
             }
 
-            if !existingDocAgent {
-                // 2) 서브 에이전트 풀에서 가장 적합한 문서 에이전트 선택 (점수 최고)
-                let best = allSubAgents.max(by: { docScore($0) < docScore($1) })
-
-                if let target = best, docScore(target) > 0 {
-                    if !rooms[idx].assignedAgentIDs.contains(target.id) {
-                        addAgent(target.id, to: roomID, silent: true)
+            if !alreadyHasDocAgent {
+                // 2) 에이전트 풀에서 문서 전용 에이전트 찾기
+                if let docAgent = allSubAgents.first(where: { isDocSpecialist($0) }) {
+                    if !rooms[idx].assignedAgentIDs.contains(docAgent.id) {
+                        addAgent(docAgent.id, to: roomID, silent: true)
                     }
                 } else {
-                    // 3) 적합한 에이전트 없음 → 생성 제안
+                    // 3) 문서 전용 에이전트 없음 → 생성 제안
                     let suggestion = RoomAgentSuggestion(
                         name: "리서치 & 문서 전문가",
-                        persona: "조사, 분석, 문서 작성을 전문으로 하는 에이전트입니다.",
-                        reason: "문서 생성 작업에 적합한 전문가가 필요합니다.",
-                        suggestedBy: agent.name
+                        persona: "조사·분석·문서 작성을 전문으로 하는 에이전트입니다. 주어진 주제를 체계적으로 정리하여 문서를 생성합니다.",
+                        reason: "문서 생성 작업에 적합한 전용 에이전트가 필요합니다.",
+                        suggestedBy: agent.name,
+                        skillTags: ["조사", "분석", "리서치", "문서", "작성", "정리", "번역"],
+                        outputStyles: [.document, .data]
                     )
                     addAgentSuggestion(suggestion, to: roomID)
                     await waitForSuggestionResponse(roomID: roomID)
