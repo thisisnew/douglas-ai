@@ -28,6 +28,21 @@ private final class PDFWebViewLoader: NSObject, WKNavigationDelegate {
     }
 }
 
+/// NSPrintOperation 완료 콜백 (비동기 delegate)
+private final class PDFPrintDelegate: NSObject {
+    private var continuation: CheckedContinuation<Bool, Never>?
+
+    init(continuation: CheckedContinuation<Bool, Never>) {
+        self.continuation = continuation
+        super.init()
+    }
+
+    @objc func printOperationDidRun(_ op: NSPrintOperation, success: Bool, contextInfo: UnsafeMutableRawPointer?) {
+        continuation?.resume(returning: success)
+        continuation = nil
+    }
+}
+
 /// 문서 산출물을 파일로 내보내기
 @MainActor
 enum DocumentExporter {
@@ -271,7 +286,19 @@ enum DocumentExporter {
         printOp.showsPrintPanel = false
         printOp.showsProgressPanel = false
 
-        let success = printOp.run()
+        // 비동기 실행: delegate 콜백으로 완료 통보 (메인 스레드 블로킹 방지)
+        let window = NSWindow(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: true)
+        let success = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            let delegate = PDFPrintDelegate(continuation: cont)
+            objc_setAssociatedObject(printOp, "printDelegate", delegate, .OBJC_ASSOCIATION_RETAIN)
+            printOp.runModal(
+                for: window,
+                delegate: delegate,
+                didRun: #selector(PDFPrintDelegate.printOperationDidRun(_:success:contextInfo:)),
+                contextInfo: nil
+            )
+        }
+
         guard success, FileManager.default.fileExists(atPath: targetURL.path) else { return nil }
         return targetURL
     }
