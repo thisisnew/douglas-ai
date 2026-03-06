@@ -986,7 +986,7 @@ class RoomManager: ObservableObject {
                     return true
                 }
             },
-            projectPaths: room?.projectPaths ?? [],
+            projectPaths: room?.effectiveProjectPaths ?? [],
             currentAgentID: currentAgentID,
             currentAgentName: currentAgentName,
             agentPermissions: currentAgent?.actionPermissions ?? [],
@@ -1252,6 +1252,9 @@ class RoomManager: ObservableObject {
 
     /// 워크플로우 진입점: 항상 Intent 기반 Phase 워크플로우
     func startRoomWorkflow(roomID: UUID, task: String) async {
+        // worktree 격리 (동일 projectPath 동시 사용 시)
+        await createWorktreeIfNeeded(roomID: roomID)
+
         // intent 미설정 → quickClassify 시도 (nil이면 executeIntentPhase에서 사용자 선택)
         if let idx = rooms.firstIndex(where: { $0.id == roomID }), rooms[idx].intent == nil {
             rooms[idx].intent = IntentClassifier.quickClassify(task)
@@ -6277,6 +6280,7 @@ class RoomManager: ObservableObject {
         // 진행 중인 워크플로우 취소
         roomTasks[roomID]?.cancel()
         roomTasks.removeValue(forKey: roomID)
+        cleanupWorktree(roomID: roomID)
         speakingAgentIDByRoom.removeValue(forKey: roomID)
         // 대기 중인 continuation 해제
         if let cont = approvalContinuations.removeValue(forKey: roomID) {
@@ -6318,6 +6322,7 @@ class RoomManager: ObservableObject {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
         roomTasks[roomID]?.cancel()
         roomTasks.removeValue(forKey: roomID)
+        cleanupWorktree(roomID: roomID)
         speakingAgentIDByRoom.removeValue(forKey: roomID)
         if let cont = approvalContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: false)
@@ -6364,6 +6369,7 @@ class RoomManager: ObservableObject {
         // 진행 중인 워크플로우 취소
         roomTasks[roomID]?.cancel()
         roomTasks.removeValue(forKey: roomID)
+        cleanupWorktree(roomID: roomID)
         speakingAgentIDByRoom.removeValue(forKey: roomID)
         // 대기 중인 모든 continuation 해제 (누수 방지)
         if let cont = approvalContinuations.removeValue(forKey: roomID) {
@@ -6554,6 +6560,8 @@ class RoomManager: ObservableObject {
             try? FileManager.default.removeItem(at: file)
         }
         rooms = loaded.sorted { $0.createdAt > $1.createdAt }
+        // 비활성 방의 잔여 worktree 정리
+        cleanupStaleWorktrees()
         // 완료된 방 프루닝 — 최근 30개만 유지
         pruneCompletedRooms(maxKeep: 30)
         syncAgentStatuses()
@@ -6588,5 +6596,93 @@ class RoomManager: ObservableObject {
         let v = last.unicodeScalars.first!.value
         guard (0xAC00...0xD7A3).contains(v) else { return "가" }   // 비한글(영문 등)
         return (v - 0xAC00) % 28 == 0 ? "가" : "이"               // 받침 없으면 "가"
+    }
+
+    // MARK: - Git Worktree 격리
+
+    /// 같은 projectPath에 다른 활성 방이 있는지 확인
+    private func hasActiveRoomOnPath(_ projectPath: String, excluding roomID: UUID) -> Bool {
+        rooms.contains { room in
+            room.id != roomID && room.isActive && room.primaryProjectPath == projectPath
+        }
+    }
+
+    /// projectPath가 git 저장소인지 확인
+    private func isGitRepository(_ path: String) -> Bool {
+        FileManager.default.fileExists(atPath: path + "/.git")
+    }
+
+    /// 동일 projectPath 충돌 시 worktree 생성 (lazy)
+    private func createWorktreeIfNeeded(roomID: UUID) async {
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }),
+              let projectPath = rooms[idx].primaryProjectPath,
+              rooms[idx].worktreePath == nil,
+              isGitRepository(projectPath),
+              hasActiveRoomOnPath(projectPath, excluding: roomID) else { return }
+
+        let shortID = rooms[idx].shortID
+        let worktreeDir = projectPath + "/.douglas/worktrees/" + shortID
+        let branchName = "douglas/room-" + shortID
+
+        try? FileManager.default.createDirectory(
+            atPath: projectPath + "/.douglas/worktrees",
+            withIntermediateDirectories: true, attributes: nil
+        )
+
+        let result = await ProcessRunner.run(
+            executable: "/usr/bin/git",
+            args: ["worktree", "add", worktreeDir, "-b", branchName],
+            workDir: projectPath
+        )
+
+        if result.exitCode == 0 {
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].worktreePath = worktreeDir
+                scheduleSave()
+            }
+        }
+        // 실패 시 원본 디렉토리 사용 (graceful degradation)
+    }
+
+    /// worktree 정리 (fire-and-forget)
+    private func cleanupWorktree(roomID: UUID) {
+        guard let room = rooms.first(where: { $0.id == roomID }),
+              let worktreePath = room.worktreePath,
+              let projectPath = room.primaryProjectPath else { return }
+
+        let shortID = room.shortID
+        if let idx = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[idx].worktreePath = nil
+        }
+
+        Task.detached {
+            let _ = await ProcessRunner.run(
+                executable: "/usr/bin/git",
+                args: ["worktree", "remove", worktreePath, "--force"],
+                workDir: projectPath
+            )
+            let _ = await ProcessRunner.run(
+                executable: "/usr/bin/git",
+                args: ["branch", "-D", "douglas/room-" + shortID],
+                workDir: projectPath
+            )
+        }
+    }
+
+    /// 앱 재시작 시 비활성 방의 잔여 worktree 정리
+    private func cleanupStaleWorktrees() {
+        for (idx, room) in rooms.enumerated() {
+            guard let wt = room.worktreePath,
+                  let pp = room.primaryProjectPath,
+                  !room.isActive else { continue }
+            rooms[idx].worktreePath = nil
+            Task.detached {
+                let _ = await ProcessRunner.run(
+                    executable: "/usr/bin/git",
+                    args: ["worktree", "remove", wt, "--force"],
+                    workDir: pp
+                )
+            }
+        }
     }
 }

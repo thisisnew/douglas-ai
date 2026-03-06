@@ -421,6 +421,8 @@ struct Room: Identifiable, Codable {
     var briefing: RoomBriefing?
     // 프로젝트 연동
     var projectPaths: [String]
+    /// git worktree 경로 (동일 projectPath 동시 사용 시 lazy 생성)
+    var worktreePath: String?
     var buildCommand: String?
     // 빌드 루프
     var buildLoopStatus: BuildLoopStatus?
@@ -481,6 +483,15 @@ struct Room: Identifiable, Codable {
 
     /// 첫 번째 프로젝트 경로 (빌드/테스트/shell 기본 workDir)
     var primaryProjectPath: String? { projectPaths.first }
+
+    /// 실제 작업 디렉토리 (worktree 있으면 worktree, 없으면 원본)
+    var effectiveProjectPath: String? { worktreePath ?? primaryProjectPath }
+
+    /// 도구 실행 컨텍스트용 경로 배열 (effectiveProjectPath + 나머지 참조 경로)
+    var effectiveProjectPaths: [String] {
+        guard let effective = effectiveProjectPath else { return projectPaths }
+        return [effective] + projectPaths.dropFirst()
+    }
 
     /// 활성 방 여부 (planning, inProgress, awaitingApproval, awaitingUserInput)
     var isActive: Bool {
@@ -594,6 +605,7 @@ struct Room: Identifiable, Codable {
         self.artifacts = []
         self.briefing = nil
         self.projectPaths = projectPaths
+        self.worktreePath = nil
         self.buildCommand = buildCommand
         self.buildLoopStatus = nil
         self.buildRetryCount = 0
@@ -659,6 +671,7 @@ struct Room: Identifiable, Codable {
                 projectPaths = []
             }
         }
+        worktreePath = try container.decodeIfPresent(String.self, forKey: .worktreePath)
         buildCommand = try container.decodeIfPresent(String.self, forKey: .buildCommand)
         buildLoopStatus = try container.decodeIfPresent(BuildLoopStatus.self, forKey: .buildLoopStatus)
         buildRetryCount = try container.decodeIfPresent(Int.self, forKey: .buildRetryCount) ?? 0

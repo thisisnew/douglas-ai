@@ -1059,7 +1059,7 @@ executeWithTools() 루프 (최대 10회):
 
 | 항목 | 내용 | 상태 |
 |------|------|------|
-| B-1 | **프로젝트 디렉토리 연동**: 방 생성 시 `projectPaths` 지정 (복수 디렉토리 지원) → 상대 경로 해석(첫 번째 기준), `isPathAllowed` 전체 경로 허용, `shell_exec` 기본 workDir(첫 번째). `Room.projectPaths: [String]`, `Room.buildCommand` 추가. CreateRoomSheet에 복수 디렉토리 선택 + 빌드 명령 자동 감지 UI. | ✅ |
+| B-1 | **프로젝트 디렉토리 연동**: 방 생성 시 `projectPaths` 지정 (복수 디렉토리 지원) → 상대 경로 해석(첫 번째 기준), `isPathAllowed` 전체 경로 허용, `shell_exec` 기본 workDir(첫 번째). `Room.projectPaths: [String]`, `Room.buildCommand` 추가. CreateRoomSheet에 복수 디렉토리 선택 + 빌드 명령 자동 감지 UI. **Lazy Worktree 격리**: 동일 `projectPath`에 활성 방 2개 이상 시 후발 방에 `git worktree add`로 물리적 디렉토리 분리. `Room.worktreePath`, `effectiveProjectPath`, `effectiveProjectPaths` computed. 방 완료/삭제 시 `git worktree remove` 자동 정리. 앱 재시작 시 잔여 worktree 정리. worktree 경로: `{projectPath}/.douglas/worktrees/{roomShortID}/`. | ✅ |
 | B-2 | **빌드→에러→수정 자율 루프**: `BuildLoopRunner.runBuild()` → 실패 시 에이전트에게 수정 프롬프트 → 재빌드 (최대 `maxBuildRetries`회). `BuildResult`, `BuildLoopStatus` 모델. `RoomManager.runBuildLoop()` 통합. BuildStatusCard UI. | ✅ |
 | B-3 | **병렬 실행 파일 충돌 감지**: `FileWriteTracker` actor — 에이전트별 파일 쓰기 기록, 동일 파일 다중 에이전트 수정 시 충돌 경고. `ToolExecutionContext`에 `currentAgentID`, `fileWriteTracker` 추가. 단계별 충돌 초기화. | ✅ |
 
