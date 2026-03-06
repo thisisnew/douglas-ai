@@ -133,9 +133,8 @@ enum DocumentExporter {
         }
     }
 
-    /// 방에서 문서 내용 추출 (artifact 우선, fallback: assistant 메시지)
-    /// - beforeLastUserMessage: true면 마지막 user 메시지 이전의 assistant 답변만 탐색 (포맷 변환용)
-    static func extractDocumentContent(from room: Room, beforeLastUserMessage: Bool = false) -> String? {
+    /// 방에서 문서 내용 추출 (artifact 우선, fallback: 마지막 assistant 메시지)
+    static func extractDocumentContent(from room: Room) -> String? {
         // 1차: artifact type == .document (최신 버전 우선)
         if let docArtifact = room.artifacts
             .filter({ $0.type == .document })
@@ -144,17 +143,8 @@ enum DocumentExporter {
             return ArtifactParser.stripArtifactBlocks(from: docArtifact.content)
         }
 
-        // 탐색 대상 메시지 범위 결정
-        let targetMessages: [ChatMessage]
-        if beforeLastUserMessage,
-           let lastUserIdx = room.messages.lastIndex(where: { $0.role == .user }) {
-            targetMessages = Array(room.messages[..<lastUserIdx])
-        } else {
-            targetMessages = room.messages
-        }
-
-        // 2차: assistant .text 메시지 (최소 200자 이상이어야 문서로 간주)
-        if let lastMsg = targetMessages
+        // 2차: 마지막 assistant .text 메시지 (최소 200자 이상이어야 문서로 간주)
+        if let lastMsg = room.messages
             .reversed()
             .first(where: { $0.role == .assistant && $0.messageType == .text }) {
             let content = ArtifactParser.stripArtifactBlocks(from: lastMsg.content)
@@ -202,22 +192,38 @@ enum DocumentExporter {
         return nil
     }
 
+    /// 바이너리 포맷 (LLM이 file_write로 직접 생성해야 하는 형식)
+    static let binaryFormats: Set<String> = ["xlsx", "pptx", "docx"]
+
+    /// 사용자 요청에서 파일 포맷 감지
+    static func detectRequestedFormat(_ task: String) -> String {
+        let lower = task.lowercased()
+        if lower.contains("xlsx") || lower.contains("엑셀") || lower.contains("excel") { return "xlsx" }
+        if lower.contains("pptx") || lower.contains("파워포인트") || lower.contains("ppt") { return "pptx" }
+        if lower.contains("docx") || lower.contains("워드") || lower.contains("word") { return "docx" }
+        if lower.contains("csv") { return "csv" }
+        if lower.contains("json") { return "json" }
+        if lower.contains("txt") { return "txt" }
+        if lower.contains("pdf") { return "pdf" }
+        return "md"
+    }
+
+    /// 저장 디렉토리 경로 문자열 반환 (설정 경로 우선, 폴백: ~/Documents/DOUGLAS)
+    static func resolvedSaveDirectoryPath() -> String {
+        if let dirURL = resolveDocumentSaveDirectory() {
+            return dirURL.path
+        }
+        let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let douglasDir = docsDir.appendingPathComponent("DOUGLAS", isDirectory: true)
+        try? FileManager.default.createDirectory(at: douglasDir, withIntermediateDirectories: true)
+        return douglasDir.path
+    }
+
     /// 날짜 기반 파일명 생성 (yyyyMMdd)
     static func suggestedFilename(room: Room, content: String? = nil) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd"
         return formatter.string(from: Date())
-    }
-
-    /// Markdown content에서 H1 제목 추출
-    static func extractH1Title(from content: String) -> String? {
-        for line in content.components(separatedBy: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("# ") && !trimmed.hasPrefix("## ") {
-                return String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
-            }
-        }
-        return nil
     }
 
     // MARK: - PDF 변환

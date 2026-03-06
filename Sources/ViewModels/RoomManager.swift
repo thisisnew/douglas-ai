@@ -571,12 +571,12 @@ class RoomManager: ObservableObject {
     /// documentType이 설정된 방에서 자동 파일 저장 (NSSavePanel)
     /// - 1차: 에이전트가 실제 생성한 문서 파일이 있으면 해당 경로 링크
     /// - 2차: 메시지 콘텐츠 추출 후 MD 파일 저장
-    private func offerDocumentSave(roomID: UUID) async {
+    private func offerDocumentSave(roomID: UUID, task: String? = nil) async {
         guard let room = rooms.first(where: { $0.id == roomID }),
               room.documentType != nil,
               room.status != .failed else { return }
 
-        // 1차: 에이전트가 실제 생성한 문서 파일 확인
+        // 1차: 에이전트가 실제 생성한 문서 파일 확인 (바이너리 포맷: xlsx, pptx 등)
         if let docURL = DocumentExporter.findActualDocumentFile(from: room) {
             let doneMsg = ChatMessage(
                 role: .system,
@@ -593,9 +593,9 @@ class RoomManager: ObservableObject {
 
         let suggestedName = DocumentExporter.suggestedFilename(room: room, content: content)
 
-        // PDF 요청 감지
-        let userTask = room.messages.first(where: { $0.role == .user })?.content.lowercased() ?? ""
-        let wantsPDF = userTask.contains("pdf")
+        // 요청 포맷 감지 (task 우선, 없으면 마지막 user 메시지)
+        let userTask = (task ?? room.messages.last(where: { $0.role == .user })?.content ?? "").lowercased()
+        let format = DocumentExporter.detectRequestedFormat(userTask)
 
         // 설정 경로 접근 불가 경고
         if let warning = DocumentExporter.checkSaveDirectoryWarning() {
@@ -607,10 +607,10 @@ class RoomManager: ObservableObject {
         appendMessage(savingMsg, to: roomID)
 
         let url: URL?
-        if wantsPDF {
+        if format == "pdf" {
             url = await DocumentExporter.exportToPDF(markdownContent: content, suggestedName: suggestedName)
         } else {
-            url = DocumentExporter.saveDocument(content: content, suggestedName: suggestedName, defaultExtension: "md")
+            url = DocumentExporter.saveDocument(content: content, suggestedName: suggestedName, defaultExtension: format)
         }
 
         if let url {
@@ -647,7 +647,7 @@ class RoomManager: ObservableObject {
         let docMsgID = await executeDocumentWritingStep(roomID: roomID, docType: docType, task: task, isFormatConversion: isFormatConversion)
 
         // 자동 저장
-        await offerDocumentSave(roomID: roomID)
+        await offerDocumentSave(roomID: roomID, task: task)
 
         // 저장 성공 후 본문 메시지 숨김 (채팅에 문서 전문이 표시되는 것 방지)
         if let docMsgID,
@@ -714,6 +714,9 @@ class RoomManager: ObservableObject {
         let templateBlock = docType != .freeform ? "\n" + docType.templatePromptBlock() : ""
         let history = buildRoomHistory(roomID: roomID)
 
+        let requestedFormat = DocumentExporter.detectRequestedFormat(task.lowercased())
+        let isBinaryFormat = DocumentExporter.binaryFormats.contains(requestedFormat)
+
         let formatConversionBlock = isFormatConversion ? """
 
         ⚠️ 이것은 "포맷 변환" 요청입니다.
@@ -722,37 +725,67 @@ class RoomManager: ObservableObject {
         새로운 내용을 추가하거나 기존 내용을 임의로 생략하지 마세요.
         """ : ""
 
-        let docPrompt = """
-        \(agent.resolvedSystemPrompt)
+        let docPrompt: String
+        if isBinaryFormat {
+            // 바이너리 포맷 (xlsx, pptx, docx): LLM이 file_write로 직접 생성
+            let saveDir = DocumentExporter.resolvedSaveDirectoryPath()
+            let suggestedName = DocumentExporter.suggestedFilename(room: room)
+            let targetPath = "\(saveDir)/\(DocumentExporter.sanitizeFilename(suggestedName, ext: requestedFormat))"
+            docPrompt = """
+            \(agent.resolvedSystemPrompt)
 
-        ⚠️ 당신은 지금 "문서 작성 모드"입니다.
-        할 일은 딱 하나: Markdown 본문을 텍스트로 출력하는 것.
-        파일 저장, PDF/DOCX 변환은 시스템이 자동으로 처리합니다. 당신은 Markdown 텍스트만 출력하면 됩니다.
+            ⚠️ 당신은 지금 "파일 생성 모드"입니다.
+            이전 대화와 분석 내용을 바탕으로 \(requestedFormat) 파일을 생성합니다.
+            \(formatConversionBlock)
 
-        이전 대화와 분석 내용을 바탕으로 문서를 작성합니다.
-        \(templateBlock)\(formatConversionBlock)
+            [작업]
+            \(task)
 
-        [작업]
-        \(task)
-        ※ 위 작업에서 파일 형식(PDF, MD, 워드 등)이 언급되어도 신경 쓰지 마세요.
-        시스템이 알아서 처리합니다. 당신은 Markdown 본문만 출력하면 됩니다.
+            [파일 저장]
+            file_write 도구를 사용하여 다음 경로에 파일을 저장하세요:
+            \(targetPath)
 
-        [절대 규칙 — 위반 시 실패로 간주]
-        1. 반드시 한국어로 작성하세요. 영어로 응답하지 마세요.
-        2. 서론, 인사말, 설명 없이 바로 문서 본문(Markdown)을 출력하세요.
-        3. 도구 호출 없이 텍스트만 출력하세요. 시스템이 파일 저장을 대신합니다.
-        4. 파일 저장, 권한, 도구, 스크립트, 설치 명령에 대해 일절 언급하지 마세요.
-        5. 모르는 주제나 최신 정보가 필요하면 web_search로 검색한 후 작성하세요.
-        6. 사용자에게 추가 질문을 하지 마세요.
-        7. 완전한 문서를 처음부터 끝까지 빠짐없이 출력하세요.
+            [절대 규칙 — 위반 시 실패로 간주]
+            1. 반드시 한국어로 작성하세요.
+            2. file_write 도구로 파일을 반드시 생성하세요.
+            3. 모르는 주제나 최신 정보가 필요하면 web_search로 검색한 후 작성하세요.
+            4. 사용자에게 추가 질문을 하지 마세요.
+            5. 파일 생성 완료 후 간단히 결과만 알려주세요.
+            """
+        } else {
+            // 텍스트 포맷 (md, csv, json, txt, pdf): Markdown/텍스트 출력 → 시스템 저장
+            docPrompt = """
+            \(agent.resolvedSystemPrompt)
 
-        [문서 포맷]
-        - 제목은 # (H1)으로 시작
-        - 주요 섹션은 ## (H2), 하위 섹션은 ### (H3) 사용
-        - 핵심 정보는 표(테이블)로 요약
-        - 출처가 있으면 문서 마지막에 "## 참고 자료" 섹션으로 정리
-        - Markdown 문법을 일관되게 사용하세요
-        """
+            ⚠️ 당신은 지금 "문서 작성 모드"입니다.
+            할 일은 딱 하나: 본문을 텍스트로 출력하는 것.
+            파일 저장은 시스템이 자동으로 처리합니다. 당신은 텍스트만 출력하면 됩니다.
+
+            이전 대화와 분석 내용을 바탕으로 문서를 작성합니다.
+            \(templateBlock)\(formatConversionBlock)
+
+            [작업]
+            \(task)
+            ※ 위 작업에서 파일 형식(PDF, MD 등)이 언급되어도 신경 쓰지 마세요.
+            시스템이 알아서 처리합니다. 당신은 텍스트만 출력하면 됩니다.
+
+            [절대 규칙 — 위반 시 실패로 간주]
+            1. 반드시 한국어로 작성하세요. 영어로 응답하지 마세요.
+            2. 서론, 인사말, 설명 없이 바로 문서 본문을 출력하세요.
+            3. 도구 호출 없이 텍스트만 출력하세요. 시스템이 파일 저장을 대신합니다.
+            4. 파일 저장, 권한, 도구, 스크립트, 설치 명령에 대해 일절 언급하지 마세요.
+            5. 모르는 주제나 최신 정보가 필요하면 web_search로 검색한 후 작성하세요.
+            6. 사용자에게 추가 질문을 하지 마세요.
+            7. 완전한 문서를 처음부터 끝까지 빠짐없이 출력하세요.
+
+            [문서 포맷]
+            - 제목은 # (H1)으로 시작
+            - 주요 섹션은 ## (H2), 하위 섹션은 ### (H3) 사용
+            - 핵심 정보는 표(테이블)로 요약
+            - 출처가 있으면 문서 마지막에 "## 참고 자료" 섹션으로 정리
+            - Markdown 문법을 일관되게 사용하세요
+            """
+        }
 
         let context = makeToolContext(roomID: roomID, currentAgentID: id)
         let msgID = UUID()
@@ -797,7 +830,7 @@ class RoomManager: ObservableObject {
                         self.updateMessageContent(msgID, newContent: current, in: roomID)
                     }
                 },
-                allowedToolIDs: ["web_search"]
+                allowedToolIDs: isBinaryFormat ? ["web_search", "file_write", "shell_exec"] : ["web_search"]
             )
             updateMessageContent(msgID, newContent: response, in: roomID)
         } catch {
