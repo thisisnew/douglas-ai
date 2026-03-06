@@ -201,6 +201,31 @@ func sectionLabel(_ text: String, required: Bool) -> some View {
 
 // MARK: - 설정 행
 
+/// DisclosureGroup 기본 스타일 (화살표만, 배경 없음)
+struct PlainDisclosureStyle: DisclosureGroupStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.dgStandard) { configuration.isExpanded.toggle() }
+            } label: {
+                HStack {
+                    configuration.label
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundColor(.secondary)
+                        .rotationEffect(.degrees(configuration.isExpanded ? 90 : 0))
+                }
+            }
+            .buttonStyle(.plain)
+
+            if configuration.isExpanded {
+                configuration.content
+            }
+        }
+    }
+}
+
 /// 시트 내 레이블 + 컨텐츠 행
 struct SettingsRow<Content: View>: View {
     let label: String

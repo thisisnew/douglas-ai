@@ -139,10 +139,10 @@ enum AgentMatcher {
 
         guard hasKeywords || useSemanticScoring else { return (nil, 0) }
 
-        // 가중치 상수 (Plan C: 5/3/2)
+        // 가중치 상수 (Plan C: 5/2/3)
         let tier1Weight: Double = 5.0  // skillTags 직접 매칭
-        let tier2Weight: Double = 3.0  // workModes + outputStyles
-        let tier3Weight: Double = 2.0  // 키워드 + 시맨틱 폴백
+        let tier2Weight: Double = 2.0  // workModes
+        let tier3Weight: Double = 3.0  // 키워드 + 시맨틱 폴백
 
         var bestMatch: (agent: Agent, confidence: Double)?
 
@@ -166,49 +166,20 @@ enum AgentMatcher {
                 tier1Score = Double(tagHits) / Double(maxPossible)  // 0~1
             }
 
-            // --- Tier 2: workModes + outputStyles 매칭 (가중치 3) ---
+            // --- Tier 2: workModes 매칭 (가중치 2) ---
             var tier2Score: Double = 0
-            var tier2Hits = 0
-            let tier2MaxPossible = 2  // workMode 매칭 + outputStyle 매칭
-
-            // workModes 매칭
-            if !agent.workModes.isEmpty {
-                if let intent = intent {
-                    switch intent {
-                    case .task:
-                        if agent.workModes.contains(.create) || agent.workModes.contains(.execute) {
-                            tier2Hits += 1
-                        }
-                    case .quickAnswer:
-                        if agent.workModes.contains(.research) || agent.workModes.contains(.review) {
-                            tier2Hits += 1
-                        }
-                    case .discussion:
-                        if agent.workModes.contains(.research) || agent.workModes.contains(.review) {
-                            tier2Hits += 1
-                        }
+            if !agent.workModes.isEmpty, let intent = intent {
+                switch intent {
+                case .task:
+                    if agent.workModes.contains(.create) || agent.workModes.contains(.execute) {
+                        tier2Score = 1.0
+                    }
+                case .quickAnswer, .discussion:
+                    if agent.workModes.contains(.research) || agent.workModes.contains(.review) {
+                        tier2Score = 1.0
                     }
                 }
             }
-
-            // outputStyles 매칭 (TaskBrief.outputType 기반)
-            if let outputType = taskBrief?.outputType, !agent.outputStyles.isEmpty {
-                let matchingStyle: OutputStyle? = {
-                    switch outputType {
-                    case .code: return .code
-                    case .document: return .document
-                    case .message: return .communication
-                    case .analysis: return .data
-                    case .data: return .data
-                    case .design: return nil  // OutputStyle에 .design이 있으면 매칭
-                    case .answer: return nil
-                    }
-                }()
-                if let style = matchingStyle, agent.outputStyles.contains(style) {
-                    tier2Hits += 1
-                }
-            }
-            tier2Score = Double(tier2Hits) / Double(tier2MaxPossible)  // 0~1
 
             // --- Tier 3: 키워드 + 시맨틱 폴백 (가중치 2) ---
             var tier3Score: Double = 0

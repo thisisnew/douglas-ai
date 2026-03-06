@@ -40,7 +40,7 @@ DOUGLAS/
 │   │   ├── BundleExtension.swift    # Bundle.appModule — .app 배포 시 안전한 리소스 번들 접근
 │   │   └── UtilityWindowManager.swift # 유틸리티 윈도우 관리
 │   ├── Models/
-│   │   ├── Agent.swift              # 에이전트 모델 (+ Plan C: skillTags, workModes, outputStyles, actionPermissions는 workModes에서 자동 추론)
+│   │   ├── Agent.swift              # 에이전트 모델 (+ Plan C: skillTags, workModes, actionPermissions는 workModes에서 자동 추론, outputStyles 레거시)
 │   │   ├── AgentManifest.swift     # 에이전트 매니페스트 (.douglas 포맷, Plan C 카드 필드 포함)
 │   │   ├── AgentPreset.swift       # 12종 빌트인 에이전트 프리셋 (메타데이터 포함)
 │   │   ├── WorkingRules.swift       # 작업 규칙 (WorkingRulesSource — 인라인+파일 동시 지원)
@@ -82,7 +82,7 @@ DOUGLAS/
 │   │   ├── ProviderManager.swift    # 프로바이더 설정 관리
 │   │   ├── BuildLoopRunner.swift     # 빌드/테스트 실행 + 수정 프롬프트 생성 엔진
 │   │   ├── RoomManager.swift        # 프로젝트 방 생명주기, 6단계 워크플로우, 승인/입력 게이트
-│   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (Plan C: 3-tier 가중치 — skillTags×5, workModes+outputStyles×3, keyword+semantic×2, 0-1 정규화 confidence, 임계값 0.7/0.5)
+│   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (Plan C: 3-tier 가중치 — skillTags×5, workModes×2, keyword+semantic×3, 0-1 정규화 confidence, 임계값 0.7/0.5)
 │   │   ├── DocumentExporter.swift   # 문서 산출물 파일 저장 (에이전트 생성 파일 탐지 → 고정 경로 자동저장 / NSSavePanel 폴백)
 │   │   ├── ThemeManager.swift       # 테마 관리 (기본값: .cozyGame, UserDefaults 저장, 커스텀 팔레트)
 │   │   └── ToolExecutor.swift       # 도구 호출 루프 + smartSend + 경로 해석/충돌 추적
@@ -1113,7 +1113,7 @@ executeWithTools() 루프 (최대 10회):
 ① Understand ─ intake+intent+TaskBrief 통합 (clarify 루프 제거, needsClarification → 최대 2회 질문 + 30초 타임아웃)
               파일만 업로드(빈 task) 시 작업 의도 질문 후 대기 (2분 타임아웃)
               bare URL(명시적 의도 없음) 시 needsClarification 강제 true → 작업 목적 질문
-② Assemble ── 3-tier 가중치 에이전트 매칭 (Tier1: skillTags×5, Tier2: workModes+outputStyles×3, Tier3: keyword+semantic×2)
+② Assemble ── 3-tier 가중치 에이전트 매칭 (Tier1: skillTags×5, Tier2: workModes×2, Tier3: keyword+semantic×3)
               confidence 0.7↑ 자동, 0.5~0.7 사용자확인, 0.5↓ 제외 + RuntimeRole 사전배정 + 팀 확정 메시지(Role 표시)
 ③ Design ──── **outputType 분기**: analysis/answer → 토론 모드 / 나머지 → 계획 모드
               토론 모드: 병렬 의견 제시 → 상호 피드백 → 1-step 종합 plan (승인 불요)
@@ -1141,8 +1141,8 @@ executeWithTools() 루프 (최대 10회):
 
 **에이전트 카드 (Plan C)**:
 - `skillTags: [String]` — 매칭 시 가장 강한 신호 (Tier 1: weight 5)
-- `workModes: Set<WorkMode>` — plan/create/execute/review/research
-- `outputStyles: Set<OutputStyle>` — code/document/data/communication/review/translation/plan
+- `workModes: Set<WorkMode>` — plan/create/execute/review/research (역할 배정 + 도구 권한 + 매칭 Tier 2)
+- `outputStyles: Set<OutputStyle>` — 레거시 (매칭에서 제거됨, UI 비노출, 모델 필드만 유지)
 - `actionPermissions: Set<ActionScope>` — workModes에서 자동 추론되는 computed property (비어있으면 모두 허용)
   - plan/research/review → readFiles, readWeb
   - create → + writeFiles

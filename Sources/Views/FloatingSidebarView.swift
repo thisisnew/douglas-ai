@@ -1378,23 +1378,6 @@ struct AgentInfoSheet: View {
                         }
                     }
 
-                    // 산출물 유형
-                    if !agent.outputStyles.isEmpty {
-                        infoSection(title: "산출물 유형", icon: "doc.on.doc") {
-                            FlowLayout(spacing: 6) {
-                                ForEach(Array(agent.outputStyles).sorted(by: { $0.rawValue < $1.rawValue }), id: \.self) { style in
-                                    Text(style.displayName)
-                                        .font(.system(size: 11, weight: .medium, design: .rounded))
-                                        .foregroundColor(.primary.opacity(0.7))
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 4)
-                                        .background(palette.inputBackground)
-                                        .continuousRadius(6)
-                                }
-                            }
-                        }
-                    }
-
                     // 도구 권한
                     if !agent.actionPermissions.isEmpty {
                         infoSection(title: "도구 권한", icon: "lock.shield") {

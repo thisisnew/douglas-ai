@@ -26,6 +26,7 @@ struct EditAgentSheet: View {
     @State private var skillTagsText: String
     @State private var selectedWorkModes: Set<WorkMode>
     @State private var selectedOutputStyles: Set<OutputStyle>
+    @State private var showAdvancedCard: Bool
 
     init(agent: Agent) {
         self.agent = agent
@@ -44,6 +45,7 @@ struct EditAgentSheet: View {
         _skillTagsText = State(initialValue: agent.skillTags.joined(separator: ", "))
         _selectedWorkModes = State(initialValue: agent.workModes)
         _selectedOutputStyles = State(initialValue: agent.outputStyles)
+        _showAdvancedCard = State(initialValue: !agent.workModes.isEmpty)
     }
 
     var body: some View {
@@ -212,26 +214,28 @@ struct EditAgentSheet: View {
                 .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
                     .strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1))
 
-            sectionLabel("작업 모드", required: false)
-            FlowLayout(spacing: 6) {
-                ForEach(WorkMode.allCases, id: \.self) { mode in
-                    ToggleChip(label: mode.displayName, isSelected: selectedWorkModes.contains(mode)) {
-                        if selectedWorkModes.contains(mode) { selectedWorkModes.remove(mode) }
-                        else { selectedWorkModes.insert(mode) }
+            // 고급 설정: 작업 모드
+            DisclosureGroup(isExpanded: $showAdvancedCard) {
+                VStack(alignment: .leading, spacing: 8) {
+                    FlowLayout(spacing: 6) {
+                        ForEach(WorkMode.allCases, id: \.self) { mode in
+                            ToggleChip(label: mode.displayName, isSelected: selectedWorkModes.contains(mode)) {
+                                if selectedWorkModes.contains(mode) { selectedWorkModes.remove(mode) }
+                                else { selectedWorkModes.insert(mode) }
+                            }
+                        }
                     }
+                    Text("역할 배정과 도구 접근 권한에 영향을 줍니다.")
+                        .font(.caption)
+                        .foregroundColor(palette.textSecondary)
                 }
+                .padding(.top, 4)
+            } label: {
+                Label("작업 모드", systemImage: "gearshape.2")
+                    .font(.system(size: DesignTokens.FontSize.sm, weight: .medium, design: .rounded))
+                    .foregroundColor(palette.textSecondary)
             }
-
-            sectionLabel("산출물 유형", required: false)
-            FlowLayout(spacing: 6) {
-                ForEach(OutputStyle.allCases, id: \.self) { style in
-                    ToggleChip(label: style.displayName, isSelected: selectedOutputStyles.contains(style)) {
-                        if selectedOutputStyles.contains(style) { selectedOutputStyles.remove(style) }
-                        else { selectedOutputStyles.insert(style) }
-                    }
-                }
-            }
-
+            .disclosureGroupStyle(PlainDisclosureStyle())
         }
     }
 
@@ -266,9 +270,10 @@ struct EditAgentSheet: View {
                             [필수] 테스트 없이 커밋 금지
                             [필수] 한국어로 작성
                             [중요] feature/ 브랜치 사용
-                            산출물: 마크다운 체크리스트, 초안 수준
+                            [산출물] 마크다운 체크리스트, 초안 수준
 
                             [필수] = 절대 규칙, [중요] = 우선 규칙
+                            [산출물] = 결과물 형식 지정
                             마커 없이 쓰면 일반 규칙으로 적용됩니다
                             """)
                                 .font(.body)
