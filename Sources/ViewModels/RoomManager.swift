@@ -935,6 +935,13 @@ class RoomManager: ObservableObject {
         }
         rooms[idx].intent = resolvedIntent ?? .quickAnswer
 
+        // quickAnswer로 확정된 경우 문서 오탐 리셋 (단순 질문은 문서 요청이 아님)
+        if rooms[idx].intent == .quickAnswer && detectedDocType != nil {
+            detectedDocType = nil
+            rooms[idx].autoDocOutput = false
+            rooms[idx].documentType = nil
+        }
+
         syncAgentStatuses()
 
         // 후속 사이클 스킵 범위 결정:

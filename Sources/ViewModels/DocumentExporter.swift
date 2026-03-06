@@ -56,7 +56,8 @@ enum DocumentExporter {
                 bookmarkDataIsStale: &isStale
             ) {
                 var isDir: ObjCBool = false
-                if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+                if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue,
+                   FileManager.default.isWritableFile(atPath: url.path) {
                     // Stale bookmark → 갱신
                     if isStale, let newData = try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) {
                         UserDefaults.standard.set(newData, forKey: "documentSaveDirectoryBookmark")
@@ -70,7 +71,8 @@ enum DocumentExporter {
         if let fixedDir = UserDefaults.standard.string(forKey: "documentSaveDirectory"),
            !fixedDir.isEmpty {
             var isDir: ObjCBool = false
-            if FileManager.default.fileExists(atPath: fixedDir, isDirectory: &isDir), isDir.boolValue {
+            if FileManager.default.fileExists(atPath: fixedDir, isDirectory: &isDir), isDir.boolValue,
+               FileManager.default.isWritableFile(atPath: fixedDir) {
                 return URL(fileURLWithPath: fixedDir)
             }
         }
