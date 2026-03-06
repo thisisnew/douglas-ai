@@ -160,6 +160,78 @@ struct WorkingRulesTests {
         #expect(decoded.filePaths == ["/a", "/b"])
     }
 
+    // MARK: - prioritize
+
+    @Test("prioritize — 마커 분류: [필수], [중요], 일반")
+    func prioritizeMarkers() {
+        let rules = WorkingRulesSource(inlineText: """
+        [필수] 테스트 없이 커밋 금지
+        [필수] 한국어로 작성
+        [중요] feature/ 브랜치 사용
+        주석은 함수 위에 작성
+        """)
+        let p = rules.prioritize()
+        #expect(p.critical == ["테스트 없이 커밋 금지", "한국어로 작성"])
+        #expect(p.important == ["feature/ 브랜치 사용"])
+        #expect(p.normal == ["주석은 함수 위에 작성"])
+    }
+
+    @Test("prioritize — 대시 접두사 호환: - [필수] ...")
+    func prioritizeDashPrefix() {
+        let rules = WorkingRulesSource(inlineText: """
+        - [필수] 커밋 메시지 한글
+        - [중요] 코드 리뷰 필수
+        - 일반 규칙
+        """)
+        let p = rules.prioritize()
+        #expect(p.critical == ["커밋 메시지 한글"])
+        #expect(p.important == ["코드 리뷰 필수"])
+        #expect(p.normal == ["일반 규칙"])
+    }
+
+    @Test("prioritize — 마커 없으면 전부 normal")
+    func prioritizeNoMarkers() {
+        let rules = WorkingRulesSource(inlineText: """
+        규칙 A
+        규칙 B
+        """)
+        let p = rules.prioritize()
+        #expect(p.critical.isEmpty)
+        #expect(p.important.isEmpty)
+        #expect(p.normal == ["규칙 A", "규칙 B"])
+    }
+
+    @Test("prioritize — 빈 텍스트")
+    func prioritizeEmpty() {
+        let p = WorkingRulesSource.empty.prioritize()
+        #expect(p.critical.isEmpty)
+        #expect(p.important.isEmpty)
+        #expect(p.normal.isEmpty)
+    }
+
+    // MARK: - resolveWithPriority
+
+    @Test("resolveWithPriority — 마커 있으면 섹션별 분류")
+    func resolveWithPrioritySections() {
+        let rules = WorkingRulesSource(inlineText: """
+        [필수] 테스트 필수
+        [중요] 브랜치 전략
+        일반 규칙
+        """)
+        let result = rules.resolveWithPriority()
+        #expect(result.contains("절대 규칙"))
+        #expect(result.contains("테스트 필수"))
+        #expect(result.contains("중요 규칙"))
+        #expect(result.contains("브랜치 전략"))
+        #expect(result.contains("일반 규칙"))
+    }
+
+    @Test("resolveWithPriority — 마커 없으면 평면 출력 (기존 동작)")
+    func resolveWithPriorityNoMarkers() {
+        let rules = WorkingRulesSource(inlineText: "규칙 A\n규칙 B")
+        #expect(rules.resolveWithPriority() == rules.resolve())
+    }
+
     // MARK: - Equatable
 
     @Test("Equatable — 같은 값")

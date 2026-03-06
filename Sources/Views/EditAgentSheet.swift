@@ -263,11 +263,13 @@ struct EditAgentSheet: View {
                     Group {
                         if inlineRules.isEmpty {
                             Text("""
-                            예) \
-                            - 산출물: 마크다운 체크리스트, 초안 수준
-                            - 코드 작성 시 feature/ 브랜치 사용
-                            - 한국어로 작성, 존댓말 금지
-                            - 변경 사항마다 테스트 포함 필수
+                            [필수] 테스트 없이 커밋 금지
+                            [필수] 한국어로 작성
+                            [중요] feature/ 브랜치 사용
+                            산출물: 마크다운 체크리스트, 초안 수준
+
+                            [필수] = 절대 규칙, [중요] = 우선 규칙
+                            마커 없이 쓰면 일반 규칙으로 적용됩니다
                             """)
                                 .font(.body)
                                 .foregroundColor(.secondary.opacity(0.5))

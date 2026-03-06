@@ -146,7 +146,7 @@ struct Agent: Identifiable, Codable, Hashable {
         guard let rules = workingRules, !rules.isEmpty else {
             return persona
         }
-        let resolvedRules = rules.resolve()
+        let resolvedRules = rules.resolveWithPriority()
         let hasKoreanRule = resolvedRules.contains("한국어")
         let langSuffix = hasKoreanRule ? "\n\n[필수] 반드시 한국어로 응답하세요. 영어 사용 금지." : ""
         return """
