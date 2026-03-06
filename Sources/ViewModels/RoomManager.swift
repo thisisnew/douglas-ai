@@ -184,6 +184,13 @@ class RoomManager: ObservableObject {
     /// 플러그인 도구 인터셉트 (PluginManager가 설정)
     var pluginInterceptToolDelegate: ((String, [String: String]) async -> ToolInterceptResult)?
 
+    deinit {
+        timerTask?.cancel()
+        saveTask?.cancel()
+        for task in roomTasks.values { task.cancel() }
+        for task in reviewAutoApprovalTasks.values { task.cancel() }
+    }
+
     // MARK: - 계산 프로퍼티
 
     var activeRooms: [Room] {
@@ -258,9 +265,9 @@ class RoomManager: ObservableObject {
     /// 워크플로우를 추적 가능한 Task로 시작
     func launchWorkflow(roomID: UUID, task: String) {
         roomTasks[roomID]?.cancel()
-        roomTasks[roomID] = Task {
-            await startRoomWorkflow(roomID: roomID, task: task)
-            roomTasks.removeValue(forKey: roomID)
+        roomTasks[roomID] = Task { [weak self] in
+            await self?.startRoomWorkflow(roomID: roomID, task: task)
+            self?.roomTasks.removeValue(forKey: roomID)
         }
     }
 
@@ -887,9 +894,9 @@ class RoomManager: ObservableObject {
         // 완료/실패 → 새 후속 사이클 시작
         let task = cleanText.isEmpty ? text : cleanText
         roomTasks[roomID]?.cancel()
-        roomTasks[roomID] = Task {
-            await launchFollowUpCycle(roomID: roomID, task: task)
-            roomTasks.removeValue(forKey: roomID)
+        roomTasks[roomID] = Task { [weak self] in
+            await self?.launchFollowUpCycle(roomID: roomID, task: task)
+            self?.roomTasks.removeValue(forKey: roomID)
         }
     }
 
