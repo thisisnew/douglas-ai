@@ -1427,8 +1427,9 @@ class RoomManager: ObservableObject {
         }
 
         // 워크플로우 완료
+        // Task.isCancelled (completeRoom 등 외부 완료) 시 이미 completed 상태이므로 중복 처리 방지
         if let i = rooms.firstIndex(where: { $0.id == roomID }),
-           rooms[i].status != .failed {
+           rooms[i].status != .failed && rooms[i].status != .completed {
             rooms[i].currentPhase = nil
             rooms[i].status = .completed
             rooms[i].completedAt = Date()
@@ -1438,7 +1439,8 @@ class RoomManager: ObservableObject {
         scheduleSave()
 
         // 작업일지 + 플레이북 감지 (완료 후 비동기)
-        // 전문가 없이 취소된 경우 스킵 (실질적 작업 없음)
+        // Task.isCancelled 시 workLog 생성 스킵 (completeRoom이 이미 처리)
+        guard !Task.isCancelled else { return }
         let hasSpecialists2 = !executingAgentIDs(in: roomID).isEmpty
         if hasSpecialists2, let room = rooms.first(where: { $0.id == roomID }), room.workLog == nil {
             // 완료 상태 확정 후 fire-and-forget (UI 지연 방지)
@@ -2045,7 +2047,10 @@ class RoomManager: ObservableObject {
         사용자의 요청을 정확히 읽고, 요청된 관점의 전문가만 초대하세요.
         예: "프론트엔드 관점에서" → 프론트엔드 전문가만. 백엔드 전문가는 불필요.
 
-        **[선택] 역할 제한:**
+        **역할 배정 금지 규칙:**
+        - 리서치/조사/분석/문서작성 작업에 소프트웨어 개발자(백엔드/프론트엔드/앱 개발자)를 배정하지 마세요.
+          → 대신 리서치 전문가, 문서 작성 전문가, 질의응답 전문가 등 적합한 역할을 선택하세요.
+        - 개발자는 코드 생성/수정/버그 수정/구현 작업에만 배정하세요.
         - [선택]은 사용자가 명시적으로 요청한 경우에만 추가하세요.
         - 코드 수정/구현 작업에는 해당 도메인 개발자 1명이면 충분합니다.
         - "혹시 필요할 수도 있다"는 이유로 QA, 리서치, 디자인 등 보조 역할을 추가하지 마세요.
@@ -2469,7 +2474,7 @@ class RoomManager: ObservableObject {
             let questionText = (currentBrief?.questions ?? []).joined(separator: "\n")
             let questionMsg = ChatMessage(
                 role: .assistant,
-                content: "추가 확인이 필요합니다 (\(questionRound)/\(maxQuestions)):\n\n\(questionText)",
+                content: "추가 확인이 필요합니다:\n\n\(questionText)",
                 agentName: masterAgentName,
                 messageType: .userQuestion
             )
