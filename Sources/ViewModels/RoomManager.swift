@@ -620,7 +620,7 @@ class RoomManager: ObservableObject {
     // MARK: - 문서화 요청 처리
 
     /// 사용자의 명시적 문서화 요청 처리 (토론 히스토리 기반 문서 작성 + 자동 저장)
-    private func handleDocumentOutput(roomID: UUID, task: String, suggestedType: DocumentType?) async {
+    private func handleDocumentOutput(roomID: UUID, task: String, suggestedType: DocumentType?, isFormatConversion: Bool = false) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
         let docType = suggestedType ?? .freeform
@@ -637,7 +637,7 @@ class RoomManager: ObservableObject {
         scheduleSave()
 
         // 기존 에이전트로 토론 히스토리 기반 문서 작성
-        let docMsgID = await executeDocumentWritingStep(roomID: roomID, docType: docType, task: task)
+        let docMsgID = await executeDocumentWritingStep(roomID: roomID, docType: docType, task: task, isFormatConversion: isFormatConversion)
 
         // 자동 저장
         await offerDocumentSave(roomID: roomID)
@@ -660,7 +660,7 @@ class RoomManager: ObservableObject {
 
     /// 토론 히스토리 기반 문서 작성 실행. 반환값: 스트리밍 메시지 ID (저장 후 숨김 용도)
     @discardableResult
-    private func executeDocumentWritingStep(roomID: UUID, docType: DocumentType, task: String) async -> UUID? {
+    private func executeDocumentWritingStep(roomID: UUID, docType: DocumentType, task: String, isFormatConversion: Bool = false) async -> UUID? {
         guard let room = rooms.first(where: { $0.id == roomID }) else { return nil }
 
         // 에이전트 선택: 전용 문서 에이전트 우선 → docType keywords 폴백 → 첫 번째 전문가
@@ -707,6 +707,14 @@ class RoomManager: ObservableObject {
         let templateBlock = docType != .freeform ? "\n" + docType.templatePromptBlock() : ""
         let history = buildRoomHistory(roomID: roomID)
 
+        let formatConversionBlock = isFormatConversion ? """
+
+        ⚠️ 이것은 "포맷 변환" 요청입니다.
+        이전 대화에서 이미 작성된 답변 내용을 문서 형태로 정리하는 것이 목적입니다.
+        기존 내용을 충실히 보존하면서 문서 구조(제목, 섹션, 표 등)를 적용하세요.
+        새로운 내용을 추가하거나 기존 내용을 임의로 생략하지 마세요.
+        """ : ""
+
         let docPrompt = """
         \(agent.resolvedSystemPrompt)
 
@@ -715,7 +723,7 @@ class RoomManager: ObservableObject {
         파일 저장, PDF/DOCX 변환은 시스템이 자동으로 처리합니다. 당신은 Markdown 텍스트만 출력하면 됩니다.
 
         이전 대화와 분석 내용을 바탕으로 문서를 작성합니다.
-        \(templateBlock)
+        \(templateBlock)\(formatConversionBlock)
 
         [작업]
         \(task)
@@ -931,50 +939,10 @@ class RoomManager: ObservableObject {
         rooms[idx].completedAt = nil
 
         // 순수 포맷 변환 감지: 기존 대화 내용을 문서로 변환하는 요청 (새 작업 없음)
-        // "md파일로 만들어줘", "문서로 정리해줘" 등 — understand/design 불필요, 바로 문서 출력
-        if detectedDocType != nil && DocumentRequestDetector.isFormatConversionOnly(task) {
-            // 기존 답변 추출 성공 → LLM 재작성 없이 직접 저장
-            if let existingContent = DocumentExporter.extractDocumentContent(from: rooms[idx], beforeLastUserMessage: true) {
-                rooms[idx].documentType = detectedDocType
-                rooms[idx].transitionTo(.inProgress)
-
-                // 설정 경로 접근 불가 경고
-                if let warning = DocumentExporter.checkSaveDirectoryWarning() {
-                    let warnMsg = ChatMessage(role: .system, content: warning, messageType: .phaseTransition)
-                    appendMessage(warnMsg, to: roomID)
-                }
-
-                let savingMsg = ChatMessage(
-                    role: .system,
-                    content: "문서를 파일로 저장합니다…",
-                    messageType: .phaseTransition
-                )
-                appendMessage(savingMsg, to: roomID)
-
-                let suggestedName = DocumentExporter.suggestedFilename(room: rooms[idx])
-                if let url = DocumentExporter.saveDocument(
-                    content: existingContent,
-                    suggestedName: suggestedName,
-                    defaultExtension: "md"
-                ) {
-                    let doneMsg = ChatMessage(
-                        role: .system,
-                        content: "문서가 저장되었습니다\n\(url.lastPathComponent)\n\(url.path)",
-                        messageType: .phaseTransition,
-                        documentURL: url.absoluteString
-                    )
-                    appendMessage(doneMsg, to: roomID)
-                }
-
-                rooms[idx].status = .completed
-                rooms[idx].completedAt = Date()
-                pluginEventDelegate?(.roomCompleted(roomID: roomID, title: rooms[idx].title))
-                syncAgentStatuses()
-                scheduleSave()
-                return
-            }
-
-            // 추출 실패 → 문서 에이전트 배정 후 LLM 문서 작성 폴백
+        // "md파일로 만들어줘", "문서로 정리해줘" 등 — LLM이 기존 내용을 정리하여 문서 출력
+        let isFormatConversion = detectedDocType != nil && DocumentRequestDetector.isFormatConversionOnly(task)
+        if isFormatConversion {
+            // 문서 에이전트 배정 후 LLM 문서 작성
             let allSubAgents = agentStore?.subAgents ?? []
             let docNameKWs: Set<String> = ["문서", "리서치", "작성"]
             let nonDocKWs: Set<String> = ["개발", "jira", "프론트", "백엔드"]
@@ -992,7 +960,7 @@ class RoomManager: ObservableObject {
             let specialists = executingAgentIDs(in: roomID)
             if !specialists.isEmpty {
                 previousCycleAgentCount[roomID] = specialists.count
-                await handleDocumentOutput(roomID: roomID, task: task, suggestedType: detectedDocType)
+                await handleDocumentOutput(roomID: roomID, task: task, suggestedType: detectedDocType, isFormatConversion: isFormatConversion)
 
                 // handleDocumentOutput이 .completed를 설정하지 못한 경우 보완
                 if let i = rooms.firstIndex(where: { $0.id == roomID }),
