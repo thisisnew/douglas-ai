@@ -90,7 +90,7 @@ enum IntentClassifier {
         let threshold: Int
     }
 
-    /// intent별 키워드 사전 (quickAnswer / task 2-카테고리)
+    /// intent별 키워드 사전 (quickAnswer / discussion / task 3-카테고리)
     private static let intentKeywords: [(intent: WorkflowIntent, keywords: ScoredKeywords)] = [
         // quickAnswer: 단순 질문 / 번역 / 정보 확인 (짧은 텍스트에서만 유효)
         (.quickAnswer, ScoredKeywords(stems: [
@@ -105,6 +105,19 @@ enum IntentClassifier {
             ("뜻", 3), ("의미", 3), ("차이", 2),
         ], threshold: 3)),
 
+        // discussion: 의견 교환, 브레인스토밍, 관점 탐색
+        (.discussion, ScoredKeywords(stems: [
+            // 의견/생각 요청
+            ("어떻게 생각", 5), ("생각해", 4), ("의견", 3), ("관점", 3), ("견해", 3),
+            // 토론/브레인스토밍
+            ("토론", 4), ("브레인스토밍", 4), ("brainstorm", 4), ("아이디어", 3),
+            ("회의", 3),
+            // 비교/판단
+            ("장단점", 3), ("좋을까", 3), ("어떨까", 3), ("어떤 게 나을", 4),
+            // 전망/트렌드 — 의견 프레임
+            ("트렌드", 2), ("전망", 3), ("미래", 2),
+        ], threshold: 4)),
+
         // task: 조사, 분석, 코딩, 문서작성, 요약, 변환 등 모든 복합 작업
         (.task, ScoredKeywords(stems: [
             // 조사/리서치
@@ -112,9 +125,6 @@ enum IntentClassifier {
             ("서베이", 3), ("survey", 3),
             // 분석/비교
             ("분석", 4), ("비교", 3), ("찾아", 2),
-            // 토론/브레인스토밍
-            ("브레인스토밍", 4), ("brainstorm", 4), ("아이디어", 3),
-            ("토론", 3), ("회의", 3), ("의견", 2),
             // 자문/상담
             ("자문", 3), ("상담", 3), ("조언", 3), ("컨설팅", 3), ("consulting", 3),
             ("궁금", 2),
@@ -195,10 +205,11 @@ enum IntentClassifier {
         return maxScore?.intent
     }
 
-    /// intent 우선순위 (동점 해소용): task > quickAnswer
+    /// intent 우선순위 (동점 해소용): task > discussion > quickAnswer
     private static func intentPriority(_ intent: WorkflowIntent) -> Int {
         switch intent {
-        case .task: return 2
+        case .task: return 3
+        case .discussion: return 2
         case .quickAnswer: return 1
         }
     }
@@ -231,7 +242,8 @@ enum IntentClassifier {
 
         카테고리:
         - quickAnswer: 단순 질문, 번역, 정보 확인 (짧은 답변으로 끝나는 것)
-        - task: 조사, 리서치, 분석, 비교, 브레인스토밍, 자문, 상담, 요건 분석, 테스트 계획, 작업 분해, 기획서/문서 작성, PRD, 보고서, 요약, 문서 변환(PDF/Word 등), 코딩, 개발, 버그 수정, 구현, 배포
+        - discussion: 의견 요청, 브레인스토밍, 관점 탐색, 장단점 비교, 트렌드/전망에 대한 의견 교환 (구현/작성/수정 같은 실행 행동이 없는 것)
+        - task: 조사, 리서치, 분석, 자문, 상담, 요건 분석, 테스트 계획, 작업 분해, 기획서/문서 작성, PRD, 보고서, 요약, 문서 변환(PDF/Word 등), 코딩, 개발, 버그 수정, 구현, 배포
 
         카테고리 이름만 한 단어로 출력하세요. 다른 내용은 절대 출력하지 마세요.
         """
@@ -256,10 +268,11 @@ enum IntentClassifier {
         switch text {
         case "quickanswer", "quick_answer":     return .quickAnswer
         case "task":                            return .task
+        case "discussion":                      return .discussion
+        case "brainstorm":                      return .discussion
         // 레거시 매핑: LLM이 옛 이름을 반환할 경우 task로 통합
         case "research", "documentation":       return .task
         case "implementation":                  return .task
-        case "brainstorm":                      return .task
         case "requirementsanalysis",
              "requirements_analysis":           return .task
         case "testplanning", "test_planning":   return .task

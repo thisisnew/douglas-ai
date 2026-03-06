@@ -183,6 +183,10 @@ enum AgentMatcher {
                         if agent.workModes.contains(.research) || agent.workModes.contains(.review) {
                             tier2Hits += 1
                         }
+                    case .discussion:
+                        if agent.workModes.contains(.research) || agent.workModes.contains(.review) {
+                            tier2Hits += 1
+                        }
                     }
                 }
             }

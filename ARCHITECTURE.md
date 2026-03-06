@@ -52,7 +52,7 @@ DOUGLAS/
 │   │   ├── BuildResult.swift         # 빌드 결과 모델 + BuildLoopStatus + QAResult + QALoopStatus
 │   │   ├── FileWriteTracker.swift   # 병렬 실행 파일 쓰기 충돌 감지 (actor)
 │   │   ├── ToolExecutionContext.swift # 도구 실행 컨텍스트 (+ Plan C: agentPermissions)
-│   │   ├── WorkflowIntent.swift    # 워크플로우 의도 (WorkflowPhase, WorkflowIntent 2종: quickAnswer/task)
+│   │   ├── WorkflowIntent.swift    # 워크플로우 의도 (WorkflowPhase, WorkflowIntent 3종: quickAnswer/task/discussion)
 │   │   ├── DocumentType.swift     # 문서 유형 (6종 + 섹션 템플릿, 문서화 요청 시 사용)
 │   │   ├── DocumentRequestDetector.swift # 문서화 요청 감지 (NLTokenizer + LLM 폴백) + 포맷 변환 판별
 │   │   ├── IntentClassifier.swift # Intent 분류기 (PreIntentRoute + 규칙 기반 + LLM 폴백)
@@ -979,7 +979,7 @@ executeWithTools() 루프 (최대 10회):
 - `.empty`: 텍스트+파일 없음 → 무시
 - `.fileOnly`: 파일만 업로드 → intent=nil로 방 생성, 빈 task로 워크플로우 시작 → Understand 단계에서 사용자에게 작업 의도 질문 (2분 타임아웃)
 - `.command(.summonAgent)`: "에이전트 불러와" 등 시스템 명령 → 안내 메시지 표시
-- `.classified(intent)`: quickAnswer 또는 task 확정 → 정상 워크플로우
+- `.classified(intent)`: quickAnswer, task, discussion 확정 → 정상 워크플로우
 - `.ambiguous`: 분류 불가 → intent=nil로 방 생성 (사용자 선택 UI)
 
 **범용 워크플로우 (Intent 기반 적응형)**:
@@ -1100,7 +1100,7 @@ executeWithTools() 루프 (최대 10회):
 
 | 항목 | 내용 | 상태 |
 |------|------|------|
-| E-1 | **WorkflowIntent 2종**: quickAnswer, task. `PlanMode` 삭제 — plan 필요 여부는 clarify 후 `classifyNeedsPlan()`으로 동적 판별. 레거시(research, implementation, brainstorm 등) → `.task` 자동 마이그레이션. | ✅ |
+| E-1 | **WorkflowIntent 3종**: quickAnswer, task, discussion. discussion = 의견 교환/브레인스토밍 (Build/Review 스킵, Design 내 DOUGLAS 종합). 레거시 brainstorm → `.discussion` 마이그레이션. | ✅ |
 | E-2 | **IntentClassifier + PreIntentRoute**: 규칙 기반 키워드 즉시 분류 → LLM 폴백. `ChatViewModel.handleMasterMessage`에서 `preRoute()`로 Pre-Intent 라우팅 (empty/fileOnly/command/classified/ambiguous). | ✅ |
 | E-3 | **복명복창 Clarify**: DOUGLAS가 이해한 내용 요약 → 사용자 승인까지 무한 루프. 거부 시 피드백 반영 재요약. | ✅ |
 | E-4 | **DecisionLog**: 토론 중 `[합의: 내용]` 파싱 → `DecisionEntry` 기록. `Room.decisionLog` 저장. | ✅ |
@@ -1131,9 +1131,12 @@ executeWithTools() 루프 (최대 10회):
 |--------|------|
 | quickAnswer | Understand → Assemble → Deliver |
 | task | Understand → Assemble → Design → Build → Review → Deliver |
+| discussion | Understand → Assemble → Design(토론+종합) → Deliver |
+
+**discussion 워크플로우**: Design 단계 내에서 전문가 의견 수렴(병렬) → 상호 피드백(순차) → DOUGLAS 진행자 종합까지 완결. Build/Review 불필요.
 
 **레거시 호환**: 기존 6단계(intake→intent→clarify→assemble→plan→execute)도 그대로 동작.
-`room.intent == nil` → `.quickAnswer` 폴백. 레거시 intent → `.task` 자동 마이그레이션.
+`room.intent == nil` → `.quickAnswer` 폴백. 레거시 brainstorm → `.discussion`, 그 외 레거시 intent → `.task` 자동 마이그레이션.
 모든 새 필드(`taskBrief`, `agentRoles`, `deferredActions`, Agent 5종 메타데이터)는 `decodeIfPresent` + 빈 기본값.
 
 **에이전트 카드 (Plan C)**:

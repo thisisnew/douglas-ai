@@ -1228,7 +1228,7 @@ class RoomManager: ObservableObject {
         if !finalDescs.isEmpty {
             let msg = ChatMessage(
                 role: .system,
-                content: "팀 구성 확정: \(finalDescs.joined(separator: ", "))",
+                content: "\(finalDescs.joined(separator: ", "))이(가) 참여합니다.",
                 agentName: masterName
             )
             appendMessage(msg, to: roomID)
@@ -2070,6 +2070,8 @@ class RoomManager: ObservableObject {
             maxAgentHint = rooms[idx].autoDocOutput
                 ? "이 작업은 조사/분석 + 문서 작성이므로 **2명**을 요청하세요."
                 : "불확실하면 적게 요청하세요 (1~2명이면 충분한 경우가 많습니다)."
+        case .discussion:
+            maxAgentHint = "이 작업은 토론/의견 교환이므로 **2명 이상** 요청하세요. 다양한 관점이 필요합니다."
         default:
             maxAgentHint = "불확실하면 적게 요청하세요 (1~2명이면 충분한 경우가 많습니다)."
         }
@@ -2478,6 +2480,15 @@ class RoomManager: ObservableObject {
             scheduleSave()
         }
 
+        // 0b) 사용자에게 분석 시작 알림
+        let analyzeMsg = ChatMessage(
+            role: .system,
+            content: "요청을 분석합니다...",
+            agentName: masterAgentName,
+            messageType: .progress
+        )
+        appendMessage(analyzeMsg, to: roomID)
+
         // 1) Intake: URL/Jira fetch
         await executeIntakePhase(roomID: roomID, task: actualTask)
         guard !Task.isCancelled,
@@ -2524,12 +2535,15 @@ class RoomManager: ObservableObject {
         scheduleSave()
 
         // 4) needsClarification이면 질문 최대 2회 → 자동 진행 (Plan C)
+        //    ※ 문서 생성(autoDocOutput)은 추가 질문 없이 바로 진행
         var currentBrief: TaskBrief? = brief
         var enrichedTask = actualTask
         let maxQuestions = 2
+        let isDocTask = rooms.first(where: { $0.id == roomID })?.autoDocOutput == true
 
         for questionRound in 1...maxQuestions {
-            guard let cb = currentBrief, cb.needsClarification, !cb.questions.isEmpty else { break }
+            guard !isDocTask,
+                  let cb = currentBrief, cb.needsClarification, !cb.questions.isEmpty else { break }
             guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
             let questionText = (currentBrief?.questions ?? []).joined(separator: "\n")
@@ -2633,6 +2647,8 @@ class RoomManager: ObservableObject {
 
         // outputType에 따라 토론 모드 / 계획 모드 분기
         let isDiscussionMode: Bool = {
+            // 0순위: intent가 명시적으로 .discussion인 경우
+            if room.intent == .discussion { return true }
             // 1순위: taskBrief의 outputType
             if let outputType = room.taskBrief?.outputType {
                 switch outputType {
@@ -3089,8 +3105,8 @@ class RoomManager: ObservableObject {
 
     // MARK: - 토론 모드 Design (analysis/answer)
 
-    /// 토론 모드: 전문가 각자 의견 제시 → 상호 피드백 → 종합
-    /// plan을 생성하지 않고, 토론 결과를 Build에서 종합 문서로 정리
+    /// 토론 모드: 전문가 각자 의견 제시 → 상호 피드백(순차) → DOUGLAS 종합
+    /// Build/Review 단계 없이 Design 내에서 토론 완결
     private func executeDiscussionDesign(roomID: UUID, task: String, briefContext: String, specialists: [UUID]) async {
         let startMsg = ChatMessage(
             role: .system,
@@ -3107,6 +3123,14 @@ class RoomManager: ObservableObject {
         }
         guard agentInfos.count >= 2 else { return }
 
+        let discussionTone = """
+        토론 참여 규칙:
+        - 3-5문장으로 핵심 의견만 말하세요.
+        - 마크다운 헤더(##, ###), 테이블, 번호 목록 최소화. 자연스러운 문장으로 쓰세요.
+        - 전문가답게 구체적이되, 대화하듯 자연스럽게 말하세요.
+        - 이름 헤더(**[이름]** 등)를 붙이지 마세요. UI가 화자를 표시합니다.
+        """
+
         // --- Turn 1: 각 전문가가 자기 관점에서 의견 제시 (병렬) ---
         var opinions: [(name: String, content: String)] = []
 
@@ -3122,10 +3146,7 @@ class RoomManager: ObservableObject {
                     당신은 **\(info.agent.name)** 관점의 전문가입니다.
                     아래 주제에 대해 당신의 전문 영역에서 의견을 제시하세요.
 
-                    규칙:
-                    - 당신의 전문 분야 관점에서만 답변하세요.
-                    - 구체적인 근거와 사례를 포함하세요.
-                    - 핵심을 간결하게 정리하세요.
+                    \(discussionTone)
 
                     \(briefContext)
                     """
@@ -3147,7 +3168,7 @@ class RoomManager: ObservableObject {
                         let result = try await info.provider.sendMessageStreaming(
                             model: info.agent.modelName,
                             systemPrompt: prompt,
-                            messages: [("user", "다음 주제에 대해 당신의 전문적 의견을 제시해주세요:\n\n\(task)")],
+                            messages: [("user", "다음 주제에 대해 당신의 의견을 말해주세요:\n\n\(task)")],
                             onChunk: { [weak self] chunk in
                                 guard let self else { return }
                                 let current = buffer.append(chunk)
@@ -3176,102 +3197,128 @@ class RoomManager: ObservableObject {
         guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
         guard !opinions.isEmpty else { return }
 
-        // --- Turn 2: 상대방 의견에 대한 피드백 (병렬) ---
+        // --- Turn 2: 상호 피드백 (순차 — 이전 피드백도 볼 수 있도록) ---
         let turn2ProgressMsg = ChatMessage(role: .system, content: "상호 피드백 진행 중", messageType: .progress)
         appendMessage(turn2ProgressMsg, to: roomID)
 
         var feedbacks: [(name: String, content: String)] = []
 
-        await withTaskGroup(of: (String, String).self) { group in
-            for info in agentInfos {
-                let othersOpinions = opinions.filter { $0.name != info.agent.name }
-                guard !othersOpinions.isEmpty else { continue }
+        for info in agentInfos {
+            guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { break }
 
-                let othersText = othersOpinions.map { "[\($0.name)]\n\($0.content)" }.joined(separator: "\n\n---\n\n")
+            let othersOpinions = opinions.filter { $0.name != info.agent.name }
+            guard !othersOpinions.isEmpty else { continue }
 
-                group.addTask { [self] in
-                    let prompt = """
-                    \(info.agent.resolvedSystemPrompt)
+            // 이전 에이전트의 피드백도 컨텍스트에 포함
+            let othersText = othersOpinions.map { "[\($0.name)]\n\($0.content)" }.joined(separator: "\n\n")
+            let priorFeedbackText = feedbacks.isEmpty ? "" :
+                "\n\n--- 이미 나온 피드백 ---\n" + feedbacks.map { "[\($0.name)]\n\($0.content)" }.joined(separator: "\n\n")
 
-                    다른 전문가의 의견을 읽고, 당신의 관점에서 피드백을 제시하세요.
+            let prompt = """
+            \(info.agent.resolvedSystemPrompt)
 
-                    규칙:
-                    - 동의하는 부분과 다른 시각이 있는 부분을 구분하세요.
-                    - 보완할 점이나 놓친 관점을 지적하세요.
-                    - 간결하게 핵심만 말하세요.
-                    """
+            다른 전문가의 의견을 읽고, 당신의 관점에서 반응하세요.
 
-                    let placeholderID = UUID()
-                    await MainActor.run { [self] in
-                        self.speakingAgentIDByRoom[roomID] = info.id
-                        self.appendMessage(ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: info.agent.name), to: roomID)
-                        self.appendMessage(ChatMessage(
-                            role: .assistant, content: "\(info.agent.name) 피드백 작성 중",
-                            agentName: info.agent.name, messageType: .toolActivity,
-                            activityGroupID: turn2ProgressMsg.id,
-                            toolDetail: ToolActivityDetail(toolName: "llm_call", subject: "\(info.agent.providerName) · \(info.agent.modelName)", contentPreview: nil, isError: false)
-                        ), to: roomID)
+            \(discussionTone)
+            - 동의하는 부분과 다른 시각이 있는 부분을 구분하세요.
+            - 이미 나온 의견을 반복하지 마세요.
+            """
+
+            let placeholderID = UUID()
+            speakingAgentIDByRoom[roomID] = info.id
+            appendMessage(ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: info.agent.name), to: roomID)
+            appendMessage(ChatMessage(
+                role: .assistant, content: "\(info.agent.name) 피드백 작성 중",
+                agentName: info.agent.name, messageType: .toolActivity,
+                activityGroupID: turn2ProgressMsg.id,
+                toolDetail: ToolActivityDetail(toolName: "llm_call", subject: "\(info.agent.providerName) · \(info.agent.modelName)", contentPreview: nil, isError: false)
+            ), to: roomID)
+
+            do {
+                let buffer = StreamBuffer()
+                let result = try await info.provider.sendMessageStreaming(
+                    model: info.agent.modelName,
+                    systemPrompt: prompt,
+                    messages: [("user", "다른 전문가들의 의견입니다:\n\n\(othersText)\(priorFeedbackText)\n\n이에 대해 반응해주세요.")],
+                    onChunk: { [weak self] chunk in
+                        guard let self else { return }
+                        let current = buffer.append(chunk)
+                        Task { @MainActor in self.updateMessageContent(placeholderID, newContent: current, in: roomID) }
                     }
-
-                    do {
-                        let buffer = StreamBuffer()
-                        let result = try await info.provider.sendMessageStreaming(
-                            model: info.agent.modelName,
-                            systemPrompt: prompt,
-                            messages: [("user", "다른 전문가들의 의견입니다:\n\n\(othersText)\n\n이에 대한 피드백을 제시해주세요.")],
-                            onChunk: { [weak self] chunk in
-                                guard let self else { return }
-                                let current = buffer.append(chunk)
-                                Task { @MainActor in self.updateMessageContent(placeholderID, newContent: current, in: roomID) }
-                            }
-                        )
-                        await MainActor.run { [self] in
-                            self.updateMessageContent(placeholderID, newContent: result, in: roomID)
-                        }
-                        return (info.agent.name, result)
-                    } catch {
-                        return (info.agent.name, "")
-                    }
+                )
+                updateMessageContent(placeholderID, newContent: result, in: roomID)
+                if !result.isEmpty {
+                    feedbacks.append((info.agent.name, result))
                 }
-            }
-            for await (name, content) in group {
-                if !content.isEmpty {
-                    feedbacks.append((name, content))
-                }
+            } catch {
+                // 피드백 실패는 무시하고 계속 진행
             }
         }
 
         speakingAgentIDByRoom.removeValue(forKey: roomID)
         guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
-        // --- 토론 결과를 1-step plan으로 변환 (Build에서 종합 문서 생성용) ---
+        // --- DOUGLAS 진행자 종합 정리 ---
         let discussionSummary = opinions.map { "[\($0.name) 의견]\n\($0.content)" }.joined(separator: "\n\n")
             + "\n\n---\n\n"
             + feedbacks.map { "[\($0.name) 피드백]\n\($0.content)" }.joined(separator: "\n\n")
 
-        // 토론 결과를 room에 저장 (Build에서 참조)
+        // 토론 결과를 room에 저장 (workLog 등에서 참조)
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
             rooms[i].clarifySummary = (rooms[i].clarifySummary ?? "") + "\n\n[토론 결과]\n" + discussionSummary
         }
 
-        // 종합 정리 1-step plan 생성
-        let synthesisStep = RoomStep(
-            text: "전문가 토론 결과를 종합하여 최종 분석 보고서를 작성합니다.",
-            assignedAgentID: agentInfos.first?.id
-        )
-        let plan = RoomPlan(
-            summary: "전문가 토론 종합",
-            estimatedSeconds: 120,
-            steps: [synthesisStep]
-        )
-        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].plan = plan
+        let masterAgent = agentStore?.masterAgent
+        let masterProvider = masterAgent.flatMap { providerManager?.provider(named: $0.providerName) }
+
+        if let master = masterAgent, let provider = masterProvider {
+            let synthesisProgressMsg = ChatMessage(role: .system, content: "토론 결과를 종합합니다.", messageType: .progress)
+            appendMessage(synthesisProgressMsg, to: roomID)
+
+            let synthesisPrompt = """
+            당신은 DOUGLAS, 이 토론의 진행자입니다.
+            전문가들의 의견과 피드백을 종합하여 핵심 관점, 공통점, 차이점을 정리하세요.
+
+            규칙:
+            - 자연스러운 대화체로 마무리하세요.
+            - 마크다운 헤더(##, ###) 최소화. 읽기 좋은 문단 형식으로.
+            - 어떤 전문가 의견이 더 낫다고 판정하지 마세요. 중립적으로 종합하세요.
+            - 전체 길이는 원본 의견의 절반 이하로 압축하세요.
+            """
+
+            let placeholderID = UUID()
+            speakingAgentIDByRoom[roomID] = master.id
+            appendMessage(ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: master.name), to: roomID)
+            appendMessage(ChatMessage(
+                role: .assistant, content: "토론 결과 종합 중",
+                agentName: master.name, messageType: .toolActivity,
+                activityGroupID: synthesisProgressMsg.id,
+                toolDetail: ToolActivityDetail(toolName: "llm_call", subject: "\(master.providerName) · \(master.modelName)", contentPreview: nil, isError: false)
+            ), to: roomID)
+
+            do {
+                let buffer = StreamBuffer()
+                let result = try await provider.sendMessageStreaming(
+                    model: master.modelName,
+                    systemPrompt: synthesisPrompt,
+                    messages: [("user", "다음 토론 내용을 종합해주세요:\n\n\(discussionSummary)")],
+                    onChunk: { [weak self] chunk in
+                        guard let self else { return }
+                        let current = buffer.append(chunk)
+                        Task { @MainActor in self.updateMessageContent(placeholderID, newContent: current, in: roomID) }
+                    }
+                )
+                updateMessageContent(placeholderID, newContent: result, in: roomID)
+            } catch {
+                updateMessageContent(placeholderID, newContent: "종합 정리 중 오류가 발생했습니다.", in: roomID)
+            }
+
+            speakingAgentIDByRoom.removeValue(forKey: roomID)
         }
 
-        // 토론 모드에서는 승인 없이 바로 Build로 진행
         let completeMsg = ChatMessage(
             role: .system,
-            content: "토론 완료 — 종합 정리를 진행합니다.",
+            content: "토론이 완료되었습니다.",
             messageType: .phaseTransition
         )
         appendMessage(completeMsg, to: roomID)
@@ -3888,6 +3935,19 @@ class RoomManager: ObservableObject {
             await executeQuickAnswer(roomID: roomID, task: task)
             guard !Task.isCancelled,
                   rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
+        }
+
+        // discussion: 토론 완료 (종합은 Design에서 이미 완료)
+        if room.intent == .discussion {
+            let doneMsg = ChatMessage(
+                role: .system,
+                content: "토론이 마무리되었습니다.",
+                agentName: masterAgentName,
+                messageType: .phaseTransition
+            )
+            appendMessage(doneMsg, to: roomID)
+            scheduleSave()
+            return
         }
 
         // 최종 전달 메시지

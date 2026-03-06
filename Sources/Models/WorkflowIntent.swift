@@ -35,16 +35,18 @@ enum WorkflowPhase: String, Codable, CaseIterable {
 
 // MARK: - 워크플로우 의도
 
-/// 사용자의 작업 목적: quickAnswer(즉답) 또는 task(모든 복합 작업)
+/// 사용자의 작업 목적: quickAnswer(즉답), task(복합 작업), discussion(의견 교환)
 /// plan 필요 여부는 clarify 이후 동적으로 판단 (Room.needsPlan)
 enum WorkflowIntent: String, CaseIterable {
     case quickAnswer            // 단순 질문/번역 — 한 번의 응답으로 끝남
     case task                   // 분석·리서치·구현·문서 작성 등 모든 복합 작업
+    case discussion             // 의견 교환, 브레인스토밍, 관점 탐색
 
     var displayName: String {
         switch self {
         case .quickAnswer:  return "질의응답"
         case .task:         return "작업"
+        case .discussion:   return "토론"
         }
     }
 
@@ -53,6 +55,7 @@ enum WorkflowIntent: String, CaseIterable {
         switch self {
         case .quickAnswer:  return "bolt"
         case .task:         return "hammer"
+        case .discussion:   return "bubble.left.and.bubble.right"
         }
     }
 
@@ -61,6 +64,7 @@ enum WorkflowIntent: String, CaseIterable {
         switch self {
         case .quickAnswer:  return "단순 질문에 바로 답변"
         case .task:         return "분석·리서치·구현·문서 작성"
+        case .discussion:   return "전문가 의견 교환 및 관점 탐색"
         }
     }
 
@@ -69,6 +73,7 @@ enum WorkflowIntent: String, CaseIterable {
         switch self {
         case .quickAnswer:  return false
         case .task:         return true
+        case .discussion:   return true
         }
     }
 
@@ -81,6 +86,10 @@ enum WorkflowIntent: String, CaseIterable {
         case .task:
             // 복합 작업: Understand → Assemble → Design → Build → Review → Deliver
             return [.understand, .assemble, .design, .build, .review, .deliver]
+        case .discussion:
+            // 토론: Understand → Assemble → Design(토론+종합) → Deliver
+            // Build/Review 불필요 — 토론 자체가 산출물
+            return [.understand, .assemble, .design, .deliver]
         }
     }
 
@@ -112,9 +121,12 @@ extension WorkflowIntent: Codable {
         switch raw {
         // 레거시 intent → .task로 통합
         case "research", "implementation",
-             "brainstorm", "requirementsAnalysis", "testPlanning",
+             "requirementsAnalysis", "testPlanning",
              "taskDecomposition", "documentation":
             self = .task
+        // 레거시 brainstorm → .discussion
+        case "brainstorm":
+            self = .discussion
         default:
             guard let value = WorkflowIntent(rawValue: raw) else {
                 throw DecodingError.dataCorruptedError(
