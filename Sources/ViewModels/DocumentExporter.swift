@@ -206,6 +206,8 @@ enum DocumentExporter {
     /// Markdown → PDF 변환 후 파일 저장
     static func exportToPDF(markdownContent: String, suggestedName: String) async -> URL? {
         let html = markdownToStyledHTML(markdownContent)
+
+        // printOperation으로 A4 페이지 분할 PDF 생성
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 595, height: 842))
 
         let loaded = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
@@ -216,11 +218,41 @@ enum DocumentExporter {
         }
         guard loaded else { return nil }
 
-        let config = WKPDFConfiguration()
-        config.rect = CGRect(x: 0, y: 0, width: 595.28, height: 841.89)
-        guard let pdfData = try? await webView.pdf(configuration: config) else { return nil }
+        // 임시 파일 경로 준비
+        let filename = sanitizeFilename(suggestedName, ext: "pdf")
+        let targetURL: URL
+        if let dirURL = resolveDocumentSaveDirectory() {
+            targetURL = uniqueFileURL(directory: dirURL, filename: filename)
+        } else {
+            guard let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+            let douglasDir = docsDir.appendingPathComponent("DOUGLAS", isDirectory: true)
+            try? FileManager.default.createDirectory(at: douglasDir, withIntermediateDirectories: true)
+            targetURL = uniqueFileURL(directory: douglasDir, filename: filename)
+        }
 
-        return saveData(pdfData, suggestedName: suggestedName, ext: "pdf")
+        // NSPrintOperation으로 A4 페이지네이션 PDF 생성
+        let printInfo = NSPrintInfo()
+        printInfo.paperSize = NSSize(width: 595.28, height: 841.89)
+        printInfo.topMargin = 56
+        printInfo.bottomMargin = 56
+        printInfo.leftMargin = 56
+        printInfo.rightMargin = 56
+        printInfo.horizontalPagination = .fit
+        printInfo.verticalPagination = .automatic
+        printInfo.jobDisposition = .save
+        printInfo.dictionary()[NSPrintInfo.AttributeKey.jobSavingURL] = targetURL
+
+        let printOp = webView.printOperation(with: printInfo)
+        printOp.showsPrintPanel = false
+        printOp.showsProgressPanel = false
+
+        let success = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            printOp.runModal(for: NSWindow(), delegate: nil, didRun: nil, contextInfo: nil)
+            // runModal은 동기 실행 — 완료 후 파일 존재 확인
+            cont.resume(returning: FileManager.default.fileExists(atPath: targetURL.path))
+        }
+
+        return success ? targetURL : nil
     }
 
     /// Binary 데이터를 파일로 저장 (PDF 등)
