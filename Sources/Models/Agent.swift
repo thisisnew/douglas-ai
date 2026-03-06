@@ -147,6 +147,8 @@ struct Agent: Identifiable, Codable, Hashable {
             return persona
         }
         let resolvedRules = rules.resolve()
+        let hasKoreanRule = resolvedRules.contains("한국어")
+        let langSuffix = hasKoreanRule ? "\n\n[필수] 반드시 한국어로 응답하세요. 영어 사용 금지." : ""
         return """
         \(persona)
 
@@ -154,7 +156,7 @@ struct Agent: Identifiable, Codable, Hashable {
         아래 규칙을 반드시 준수하세요.
         규칙에 산출물 형식(타입, 완성도, 포맷)이 명시되어 있으면 해당 형식을 따르세요.
 
-        \(resolvedRules)
+        \(resolvedRules)\(langSuffix)
         """
     }
 
