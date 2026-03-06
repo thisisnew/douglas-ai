@@ -271,13 +271,9 @@ enum DocumentExporter {
         printOp.showsPrintPanel = false
         printOp.showsProgressPanel = false
 
-        let success = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-            printOp.runModal(for: NSWindow(), delegate: nil, didRun: nil, contextInfo: nil)
-            // runModal은 동기 실행 — 완료 후 파일 존재 확인
-            cont.resume(returning: FileManager.default.fileExists(atPath: targetURL.path))
-        }
-
-        return success ? targetURL : nil
+        let success = printOp.run()
+        guard success, FileManager.default.fileExists(atPath: targetURL.path) else { return nil }
+        return targetURL
     }
 
     /// Binary 데이터를 파일로 저장 (PDF 등)

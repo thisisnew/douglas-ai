@@ -603,13 +603,14 @@ class RoomManager: ObservableObject {
             appendMessage(warnMsg, to: roomID)
         }
 
-        let savingMsg = ChatMessage(role: .system, content: "문서를 파일로 저장합니다…", messageType: .phaseTransition)
-        appendMessage(savingMsg, to: roomID)
-
         let url: URL?
         if format == "pdf" {
+            let pdfMsg = ChatMessage(role: .system, content: "Markdown → PDF 변환 중…", messageType: .phaseTransition)
+            appendMessage(pdfMsg, to: roomID)
             url = await DocumentExporter.exportToPDF(markdownContent: content, suggestedName: suggestedName)
         } else {
+            let savingMsg = ChatMessage(role: .system, content: "문서를 파일로 저장합니다…", messageType: .phaseTransition)
+            appendMessage(savingMsg, to: roomID)
             url = DocumentExporter.saveDocument(content: content, suggestedName: suggestedName, defaultExtension: format)
         }
 
