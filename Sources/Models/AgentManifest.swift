@@ -38,8 +38,6 @@ extension AgentManifest {
         let skillTags: [String]?
         let workModes: [String]?          // WorkMode rawValue 배열
         let outputStyles: [String]?       // OutputStyle rawValue 배열
-        let restrictions: [String]?       // AgentRestriction rawValue 배열
-        let actionPermissions: [String]?  // ActionScope rawValue 배열
     }
 }
 
@@ -70,8 +68,6 @@ extension AgentManifest.AgentEntry {
         skillTags = agent.skillTags.isEmpty ? nil : agent.skillTags
         workModes = agent.workModes.isEmpty ? nil : agent.workModes.map(\.rawValue)
         outputStyles = agent.outputStyles.isEmpty ? nil : agent.outputStyles.map(\.rawValue)
-        restrictions = agent.restrictions.isEmpty ? nil : agent.restrictions.map(\.rawValue)
-        actionPermissions = agent.actionPermissions.isEmpty ? nil : agent.actionPermissions.map(\.rawValue)
     }
 
     /// AgentEntry → Agent 변환 (새 UUID 발급)
@@ -88,8 +84,6 @@ extension AgentManifest.AgentEntry {
         // Plan C: 에이전트 카드 확장 필드 복원
         let decodedModes: Set<WorkMode> = Set(workModes?.compactMap { WorkMode(rawValue: $0) } ?? [])
         let decodedOutputs: Set<OutputStyle> = Set(outputStyles?.compactMap { OutputStyle(rawValue: $0) } ?? [])
-        let decodedRestrictions: Set<AgentRestriction> = Set(restrictions?.compactMap { AgentRestriction(rawValue: $0) } ?? [])
-        let decodedPermissions: Set<ActionScope> = Set(actionPermissions?.compactMap { ActionScope(rawValue: $0) } ?? [])
 
         return Agent(
             name: name,
@@ -101,9 +95,7 @@ extension AgentManifest.AgentEntry {
             workingRules: rules,
             skillTags: skillTags ?? [],
             workModes: decodedModes,
-            outputStyles: decodedOutputs,
-            restrictions: decodedRestrictions,
-            actionPermissions: decodedPermissions
+            outputStyles: decodedOutputs
         )
     }
 }

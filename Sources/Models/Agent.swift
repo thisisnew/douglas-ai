@@ -90,42 +90,6 @@ enum ActionScope: String, Codable, CaseIterable {
     }
 }
 
-// MARK: - 제약 (에이전트가 하면 안 되는 것)
-
-enum AgentRestriction: String, Codable, CaseIterable {
-    case noExternalSend    // 이메일/슬랙/메시지 전송 금지
-    case noPublish         // SNS/블로그/외부 게시 금지
-    case noPayment         // 결제/구매/주문 금지
-    case noDataWrite       // DB/스프레드시트 쓰기 금지
-    case noCodeExec        // 셸/코드 실행 금지
-    case noMerge           // PR merge/배포 금지
-    case draftOnly         // 모든 산출물을 초안 상태로만
-
-    var displayName: String {
-        switch self {
-        case .noExternalSend: return "외부 전송 금지"
-        case .noPublish:      return "게시 금지"
-        case .noPayment:      return "결제 금지"
-        case .noDataWrite:    return "데이터 쓰기 금지"
-        case .noCodeExec:     return "코드 실행 금지"
-        case .noMerge:        return "머지/배포 금지"
-        case .draftOnly:      return "초안만 가능"
-        }
-    }
-
-    var description: String {
-        switch self {
-        case .noExternalSend: return "이메일/슬랙 등 외부 전송을 차단합니다"
-        case .noPublish:      return "배포나 게시 작업을 차단합니다"
-        case .noPayment:      return "결제 관련 작업을 차단합니다"
-        case .noDataWrite:    return "DB 쓰기 작업을 차단합니다"
-        case .noCodeExec:     return "셸 명령어 실행을 차단합니다"
-        case .noMerge:        return "코드 머지나 배포를 차단합니다"
-        case .draftOnly:      return "모든 외부 작업을 차단, 초안만 생성합니다"
-        }
-    }
-}
-
 // MARK: - 에이전트
 
 struct Agent: Identifiable, Codable, Hashable {
@@ -152,12 +116,30 @@ struct Agent: Identifiable, Codable, Hashable {
     // 참조 프로젝트 디렉토리 (여러 건)
     var referenceProjectPaths: [String]
 
-    // Plan C: 에이전트 카드 확장 (라우팅/매칭/안전장치)
+    // Plan C: 에이전트 카드 확장 (라우팅/매칭)
     var skillTags: [String]                        // 자유 태그: ["spring", "java"] 또는 ["문서", "번역", "메일"]
     var workModes: Set<WorkMode>                   // 업무형태: [.create, .execute, .review]
     var outputStyles: Set<OutputStyle>             // 산출물 유형: [.code, .document]
-    var restrictions: Set<AgentRestriction>        // 제약: [.noExternalSend, .draftOnly]
-    var actionPermissions: Set<ActionScope>        // 도구 권한: [.readFiles, .writeFiles]
+
+    /// workModes에서 자동 추론되는 도구 권한
+    var actionPermissions: Set<ActionScope> {
+        guard !workModes.isEmpty else { return [] }  // 비어있으면 전체 허용 (역호환)
+        var permissions: Set<ActionScope> = [.readFiles, .readWeb]  // 기본: 읽기
+        for mode in workModes {
+            switch mode {
+            case .plan, .research:
+                break  // 읽기만
+            case .create:
+                permissions.insert(.writeFiles)
+            case .execute:
+                permissions.insert(.writeFiles)
+                permissions.insert(.runCommands)
+            case .review:
+                break  // 읽기만
+            }
+        }
+        return permissions
+    }
 
     /// 실행 시점에 사용할 완전한 시스템 프롬프트 (페르소나 + 작업 규칙)
     var resolvedSystemPrompt: String {
@@ -192,7 +174,7 @@ struct Agent: Identifiable, Codable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case id, name, persona, providerName, modelName, status, isMaster, errorMessage, hasImage
         case referenceProjectPaths, workingRules
-        case skillTags, workModes, outputStyles, restrictions, actionPermissions
+        case skillTags, workModes, outputStyles
     }
 
     /// 레거시 JSON의 roleTemplateID 디코딩용
@@ -228,9 +210,7 @@ struct Agent: Identifiable, Codable, Hashable {
         workingRules: WorkingRulesSource? = nil,
         skillTags: [String] = [],
         workModes: Set<WorkMode> = [],
-        outputStyles: Set<OutputStyle> = [],
-        restrictions: Set<AgentRestriction> = [],
-        actionPermissions: Set<ActionScope> = []
+        outputStyles: Set<OutputStyle> = []
     ) {
         self.id = id
         self.name = name
@@ -245,8 +225,6 @@ struct Agent: Identifiable, Codable, Hashable {
         self.skillTags = skillTags
         self.workModes = workModes
         self.outputStyles = outputStyles
-        self.restrictions = restrictions
-        self.actionPermissions = actionPermissions
         self.hasImage = false
         if let imageData {
             Self.saveImage(imageData, for: id)
@@ -273,8 +251,7 @@ struct Agent: Identifiable, Codable, Hashable {
         skillTags = try container.decodeIfPresent([String].self, forKey: .skillTags) ?? []
         workModes = try container.decodeIfPresent(Set<WorkMode>.self, forKey: .workModes) ?? []
         outputStyles = try container.decodeIfPresent(Set<OutputStyle>.self, forKey: .outputStyles) ?? []
-        restrictions = try container.decodeIfPresent(Set<AgentRestriction>.self, forKey: .restrictions) ?? []
-        actionPermissions = try container.decodeIfPresent(Set<ActionScope>.self, forKey: .actionPermissions) ?? []
+        // restrictions, actionPermissions는 레거시 — JSON에 있어도 무시 (workModes에서 자동 추론)
 
         // 레거시 마이그레이션: UserDefaults에 imageData가 있으면 파일로 이동
         struct LegacyKey: CodingKey {

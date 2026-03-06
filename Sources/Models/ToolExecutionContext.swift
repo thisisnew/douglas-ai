@@ -11,7 +11,6 @@ struct ToolExecutionContext: Sendable {
     let currentAgentID: UUID?             // 현재 실행 중인 에이전트
     let currentAgentName: String?         // 현재 실행 중인 에이전트 이름
     let agentPermissions: Set<ActionScope>  // 에이전트 행동 권한 (비어있으면 모두 허용)
-    let agentRestrictions: Set<AgentRestriction>  // 에이전트 제한 사항
     let fileWriteTracker: FileWriteTracker?  // 파일 쓰기 충돌 추적
     // 워크플로우 (Phase E)
     let askUser: @Sendable (String, String?, [String]?) async -> String  // 사용자에게 질문
@@ -33,7 +32,6 @@ struct ToolExecutionContext: Sendable {
         currentAgentID: UUID? = nil,
         currentAgentName: String? = nil,
         agentPermissions: Set<ActionScope> = [],
-        agentRestrictions: Set<AgentRestriction> = [],
         fileWriteTracker: FileWriteTracker? = nil,
         askUser: @escaping @Sendable (String, String?, [String]?) async -> String = { _, _, _ in "" },
         currentPhase: WorkflowPhase? = nil,
@@ -51,7 +49,6 @@ struct ToolExecutionContext: Sendable {
         self.currentAgentID = currentAgentID
         self.currentAgentName = currentAgentName
         self.agentPermissions = agentPermissions
-        self.agentRestrictions = agentRestrictions
         self.fileWriteTracker = fileWriteTracker
         self.askUser = askUser
         self.currentPhase = currentPhase

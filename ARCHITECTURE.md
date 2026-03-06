@@ -40,7 +40,7 @@ DOUGLAS/
 │   │   ├── BundleExtension.swift    # Bundle.appModule — .app 배포 시 안전한 리소스 번들 접근
 │   │   └── UtilityWindowManager.swift # 유틸리티 윈도우 관리
 │   ├── Models/
-│   │   ├── Agent.swift              # 에이전트 모델 (+ Plan C: skillTags, workModes, outputStyles, restrictions, actionPermissions)
+│   │   ├── Agent.swift              # 에이전트 모델 (+ Plan C: skillTags, workModes, outputStyles, actionPermissions는 workModes에서 자동 추론)
 │   │   ├── AgentManifest.swift     # 에이전트 매니페스트 (.douglas 포맷, Plan C 카드 필드 포함)
 │   │   ├── AgentPreset.swift       # 12종 빌트인 에이전트 프리셋 (메타데이터 포함)
 │   │   ├── WorkingRules.swift       # 작업 규칙 (WorkingRulesSource — 인라인+파일 동시 지원)
@@ -51,7 +51,7 @@ DOUGLAS/
 │   │   ├── FileAttachment.swift     # 파일 첨부 모델 (이미지+문서, 디스크 저장, base64 로드, MIME 판별)
 │   │   ├── BuildResult.swift         # 빌드 결과 모델 + BuildLoopStatus + QAResult + QALoopStatus
 │   │   ├── FileWriteTracker.swift   # 병렬 실행 파일 쓰기 충돌 감지 (actor)
-│   │   ├── ToolExecutionContext.swift # 도구 실행 컨텍스트 (+ Plan C: agentPermissions, agentRestrictions)
+│   │   ├── ToolExecutionContext.swift # 도구 실행 컨텍스트 (+ Plan C: agentPermissions)
 │   │   ├── WorkflowIntent.swift    # 워크플로우 의도 (WorkflowPhase, WorkflowIntent 2종: quickAnswer/task)
 │   │   ├── DocumentType.swift     # 문서 유형 (6종 + 섹션 템플릿, 문서화 요청 시 사용)
 │   │   ├── DocumentRequestDetector.swift # 문서화 요청 감지 (NLTokenizer + LLM 폴백)
@@ -1139,13 +1139,14 @@ executeWithTools() 루프 (최대 10회):
 - `skillTags: [String]` — 매칭 시 가장 강한 신호 (Tier 1: weight 5)
 - `workModes: Set<WorkMode>` — plan/create/execute/review/research
 - `outputStyles: Set<OutputStyle>` — code/document/data/communication/review/translation/plan
-- `actionPermissions: Set<ActionScope>` — 7종 행동 권한 (비어있으면 모두 허용)
-- `restrictions: Set<AgentRestriction>` — 7종 제한 (draftOnly, noCodeExec 등)
+- `actionPermissions: Set<ActionScope>` — workModes에서 자동 추론되는 computed property (비어있으면 모두 허용)
+  - plan/research/review → readFiles, readWeb
+  - create → + writeFiles
+  - execute → + writeFiles, runCommands
 
-**3-layer 안전 시스템**:
-- Layer 1: 에이전트 `actionPermissions` — 도구별 `requiredActionScope` 대조
-- Layer 2: 에이전트 `restrictions` — draftOnly/noCodeExec/noExternalSend
-- Layer 3: `deferHighRiskTools` — Build 단계에서 external 도구 → DeferredAction으로 수집 (Deliver에서 실행)
+**2-layer 안전 시스템**:
+- Layer 1: 에이전트 `actionPermissions` (workModes 기반 자동 추론) — 도구별 `requiredActionScope` 대조
+- Layer 2: `deferHighRiskTools` — Build 단계에서 external 도구 → DeferredAction으로 수집 (Deliver에서 실행)
 
 **12종 빌트인 프리셋** (`AgentPreset.builtIn`): 백엔드/프론트엔드/QA/DevOps/기획자/리서처/문서작성자/마케터/디자이너/법무/데이터분석가/CS
 

@@ -990,7 +990,6 @@ class RoomManager: ObservableObject {
             currentAgentID: currentAgentID,
             currentAgentName: currentAgentName,
             agentPermissions: currentAgent?.actionPermissions ?? [],
-            agentRestrictions: currentAgent?.restrictions ?? [],
             fileWriteTracker: fileWriteTracker,
             askUser: { @Sendable [weak self] (question: String, context: String?, options: [String]?) -> String in
                 // 1) 질문 메시지 추가 + 상태 전이 (MainActor)

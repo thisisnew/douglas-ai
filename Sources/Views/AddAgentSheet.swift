@@ -25,8 +25,6 @@ struct AddAgentSheet: View {
     @State private var skillTagsText: String = ""
     @State private var selectedWorkModes: Set<WorkMode> = []
     @State private var selectedOutputStyles: Set<OutputStyle> = []
-    @State private var selectedRestrictions: Set<AgentRestriction> = []
-    @State private var selectedPermissions: Set<ActionScope> = []
     @State private var selectedPreset: AgentPreset?
     @State private var showPresetPicker = false
 
@@ -305,41 +303,6 @@ struct AddAgentSheet: View {
                 }
             }
 
-            // 행동 권한
-            sectionLabel("행동 권한", required: false)
-            FlowLayout(spacing: 6) {
-                ForEach(ActionScope.allCases, id: \.self) { scope in
-                    DescriptiveToggleChip(
-                        label: scope.displayName,
-                        description: scope.description,
-                        isSelected: selectedPermissions.contains(scope)
-                    ) {
-                        if selectedPermissions.contains(scope) {
-                            selectedPermissions.remove(scope)
-                        } else {
-                            selectedPermissions.insert(scope)
-                        }
-                    }
-                }
-            }
-
-            // 제한 사항
-            sectionLabel("제한 사항", required: false)
-            FlowLayout(spacing: 6) {
-                ForEach(AgentRestriction.allCases, id: \.self) { restriction in
-                    DescriptiveToggleChip(
-                        label: restriction.displayName,
-                        description: restriction.description,
-                        isSelected: selectedRestrictions.contains(restriction)
-                    ) {
-                        if selectedRestrictions.contains(restriction) {
-                            selectedRestrictions.remove(restriction)
-                        } else {
-                            selectedRestrictions.insert(restriction)
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -350,8 +313,6 @@ struct AddAgentSheet: View {
         skillTagsText = preset.tags.joined(separator: ", ")
         selectedWorkModes = preset.modes
         selectedOutputStyles = preset.outputs
-        selectedPermissions = preset.permissions
-        selectedRestrictions = preset.restrictions
     }
 
     // MARK: - 작업 규칙 섹션
@@ -675,9 +636,7 @@ struct AddAgentSheet: View {
             workingRules: rules,
             skillTags: parsedSkillTags,
             workModes: selectedWorkModes,
-            outputStyles: selectedOutputStyles,
-            restrictions: selectedRestrictions,
-            actionPermissions: selectedPermissions
+            outputStyles: selectedOutputStyles
         )
         agentStore.addAgent(agent)
 

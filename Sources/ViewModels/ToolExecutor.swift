@@ -305,33 +305,7 @@ enum ToolExecutor {
             )
         }
 
-        // Layer 2: 에이전트 제한 검사
-        if let tool = ToolRegistry.allTools.first(where: { $0.id == call.toolName }) {
-            // draftOnly 제한: external 도구 차단
-            if context.agentRestrictions.contains(.draftOnly) && tool.risk == .external {
-                return ToolResult(
-                    callID: call.id,
-                    content: "제한됨: \(context.currentAgentName ?? "에이전트")는 draftOnly 모드로, 외부 도구를 실행할 수 없습니다.",
-                    isError: true
-                )
-            }
-            // noCodeExec 제한: shell_exec 차단
-            if context.agentRestrictions.contains(.noCodeExec) && call.toolName == "shell_exec" {
-                return ToolResult(
-                    callID: call.id,
-                    content: "제한됨: \(context.currentAgentName ?? "에이전트")는 코드 실행이 제한되어 있습니다.",
-                    isError: true
-                )
-            }
-            // noExternalSend 제한: sendMessages 권한 필요 도구 차단
-            if context.agentRestrictions.contains(.noExternalSend) && tool.requiredActionScope == .sendMessages {
-                return ToolResult(
-                    callID: call.id,
-                    content: "제한됨: \(context.currentAgentName ?? "에이전트")는 외부 전송이 제한되어 있습니다.",
-                    isError: true
-                )
-            }
-        }
+        // Layer 2 (제거됨): restrictions는 actionPermissions로 통합 — workModes에서 자동 추론
 
         // Layer 3: Plan C — high-risk 도구 지연 실행 (Build 단계에서 external 도구 defer)
         if context.deferHighRiskTools,

@@ -26,8 +26,6 @@ struct EditAgentSheet: View {
     @State private var skillTagsText: String
     @State private var selectedWorkModes: Set<WorkMode>
     @State private var selectedOutputStyles: Set<OutputStyle>
-    @State private var selectedRestrictions: Set<AgentRestriction>
-    @State private var selectedPermissions: Set<ActionScope>
 
     init(agent: Agent) {
         self.agent = agent
@@ -46,8 +44,6 @@ struct EditAgentSheet: View {
         _skillTagsText = State(initialValue: agent.skillTags.joined(separator: ", "))
         _selectedWorkModes = State(initialValue: agent.workModes)
         _selectedOutputStyles = State(initialValue: agent.outputStyles)
-        _selectedRestrictions = State(initialValue: agent.restrictions)
-        _selectedPermissions = State(initialValue: agent.actionPermissions)
     }
 
     var body: some View {
@@ -236,33 +232,6 @@ struct EditAgentSheet: View {
                 }
             }
 
-            sectionLabel("행동 권한", required: false)
-            FlowLayout(spacing: 6) {
-                ForEach(ActionScope.allCases, id: \.self) { scope in
-                    DescriptiveToggleChip(
-                        label: scope.displayName,
-                        description: scope.description,
-                        isSelected: selectedPermissions.contains(scope)
-                    ) {
-                        if selectedPermissions.contains(scope) { selectedPermissions.remove(scope) }
-                        else { selectedPermissions.insert(scope) }
-                    }
-                }
-            }
-
-            sectionLabel("제한 사항", required: false)
-            FlowLayout(spacing: 6) {
-                ForEach(AgentRestriction.allCases, id: \.self) { restriction in
-                    DescriptiveToggleChip(
-                        label: restriction.displayName,
-                        description: restriction.description,
-                        isSelected: selectedRestrictions.contains(restriction)
-                    ) {
-                        if selectedRestrictions.contains(restriction) { selectedRestrictions.remove(restriction) }
-                        else { selectedRestrictions.insert(restriction) }
-                    }
-                }
-            }
         }
     }
 
@@ -556,8 +525,6 @@ struct EditAgentSheet: View {
             updated.skillTags = parsedSkillTags
             updated.workModes = selectedWorkModes
             updated.outputStyles = selectedOutputStyles
-            updated.restrictions = selectedRestrictions
-            updated.actionPermissions = selectedPermissions
         }
         agentStore.updateAgent(updated)
         dismiss()
