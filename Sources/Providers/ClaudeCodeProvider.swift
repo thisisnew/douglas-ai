@@ -98,6 +98,9 @@ private final class StreamJsonHandler: @unchecked Sendable {
     /// tool_use JSON 객체에서 활동 이벤트 방출
     private func emitToolUse(_ tool: [String: Any]) {
         let toolName = tool["name"] as? String ?? "unknown"
+        // Claude Code 내부 도구 필터링 (UI에 표시하지 않음)
+        let internalTools: Set<String> = ["ToolSearch", "Agent", "TodoRead", "TodoWrite", "EnterPlanMode", "ExitPlanMode", "NotebookEdit"]
+        guard !internalTools.contains(toolName) else { return }
         let input = tool["input"] as? [String: Any]
         let subject = Self.extractSubject(toolName: toolName, input: input)
         let preview = Self.extractContentPreview(toolName: toolName, input: input)

@@ -273,6 +273,18 @@ class RoomManager: ObservableObject {
         pluginEventDelegate?(.messageAdded(roomID: roomID, message: message))
     }
 
+    /// 특정 메시지 앞에 삽입 (도구 활동을 스트리밍 placeholder 앞에 배치할 때 사용)
+    func insertMessage(_ message: ChatMessage, to roomID: UUID, beforeMessageID: UUID) {
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
+        if let insertIdx = rooms[idx].messages.firstIndex(where: { $0.id == beforeMessageID }) {
+            rooms[idx].messages.insert(message, at: insertIdx)
+        } else {
+            rooms[idx].messages.append(message)
+        }
+        scheduleSave()
+        pluginEventDelegate?(.messageAdded(roomID: roomID, message: message))
+    }
+
     /// 스트리밍: 기존 메시지 content를 in-place로 업데이트
     func updateMessageContent(_ messageID: UUID, newContent: String, in roomID: UUID) {
         guard let roomIdx = rooms.firstIndex(where: { $0.id == roomID }),
@@ -569,15 +581,26 @@ class RoomManager: ObservableObject {
             return
         }
 
-        // 2차: 메시지에서 콘텐츠 추출 후 MD 파일 저장
+        // 2차: 메시지에서 콘텐츠 추출 후 파일 저장
         guard let content = DocumentExporter.extractDocumentContent(from: room) else { return }
 
-        let suggestedName = DocumentExporter.suggestedFilename(room: room)
+        let suggestedName = DocumentExporter.suggestedFilename(room: room, content: content)
+
+        // PDF 요청 감지
+        let userTask = room.messages.first(where: { $0.role == .user })?.content.lowercased() ?? ""
+        let wantsPDF = userTask.contains("pdf")
 
         let savingMsg = ChatMessage(role: .system, content: "문서를 파일로 저장합니다…", messageType: .phaseTransition)
         appendMessage(savingMsg, to: roomID)
 
-        if let url = DocumentExporter.saveDocument(content: content, suggestedName: suggestedName, defaultExtension: "md") {
+        let url: URL?
+        if wantsPDF {
+            url = await DocumentExporter.exportToPDF(markdownContent: content, suggestedName: suggestedName)
+        } else {
+            url = DocumentExporter.saveDocument(content: content, suggestedName: suggestedName, defaultExtension: "md")
+        }
+
+        if let url {
             let doneMsg = ChatMessage(
                 role: .system,
                 content: "문서가 저장되었습니다\n\(url.lastPathComponent)\n\(url.path)",
@@ -743,7 +766,7 @@ class RoomManager: ObservableObject {
                             activityGroupID: progressMsg.id,
                             toolDetail: detail
                         )
-                        self.appendMessage(toolMsg, to: roomID)
+                        self.insertMessage(toolMsg, to: roomID, beforeMessageID: msgID)
                     }
                 },
                 onStreamChunk: { [weak self] chunk in

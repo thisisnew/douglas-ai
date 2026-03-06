@@ -1,6 +1,32 @@
 import Foundation
 import AppKit
 import UniformTypeIdentifiers
+import WebKit
+
+/// WKWebView HTML 로드 완료 대기
+private final class PDFWebViewLoader: NSObject, WKNavigationDelegate {
+    private var continuation: CheckedContinuation<Bool, Never>?
+
+    init(continuation: CheckedContinuation<Bool, Never>) {
+        self.continuation = continuation
+        super.init()
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        continuation?.resume(returning: true)
+        continuation = nil
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        continuation?.resume(returning: false)
+        continuation = nil
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        continuation?.resume(returning: false)
+        continuation = nil
+    }
+}
 
 /// 문서 산출물을 파일로 내보내기
 @MainActor
@@ -153,12 +179,206 @@ enum DocumentExporter {
         return nil
     }
 
-    /// 방 정보로 제안 파일명 생성
-    static func suggestedFilename(room: Room) -> String {
+    /// 방 정보 + 문서 내용으로 제안 파일명 생성 (H1 제목 우선)
+    static func suggestedFilename(room: Room, content: String? = nil) -> String {
+        if let content, let h1 = extractH1Title(from: content) {
+            return h1
+        }
         if let docType = room.documentType, docType != .freeform {
             return "\(docType.displayName) - \(room.title)"
         }
         return room.title
+    }
+
+    /// Markdown content에서 H1 제목 추출
+    static func extractH1Title(from content: String) -> String? {
+        for line in content.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("# ") && !trimmed.hasPrefix("## ") {
+                return String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return nil
+    }
+
+    // MARK: - PDF 변환
+
+    /// Markdown → PDF 변환 후 파일 저장
+    static func exportToPDF(markdownContent: String, suggestedName: String) async -> URL? {
+        let html = markdownToStyledHTML(markdownContent)
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 595, height: 842))
+
+        let loaded = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            let loader = PDFWebViewLoader(continuation: cont)
+            webView.navigationDelegate = loader
+            objc_setAssociatedObject(webView, "pdfLoader", loader, .OBJC_ASSOCIATION_RETAIN)
+            webView.loadHTMLString(html, baseURL: nil)
+        }
+        guard loaded else { return nil }
+
+        let config = WKPDFConfiguration()
+        config.rect = CGRect(x: 0, y: 0, width: 595.28, height: 841.89)
+        guard let pdfData = try? await webView.pdf(configuration: config) else { return nil }
+
+        return saveData(pdfData, suggestedName: suggestedName, ext: "pdf")
+    }
+
+    /// Binary 데이터를 파일로 저장 (PDF 등)
+    @discardableResult
+    static func saveData(_ data: Data, suggestedName: String, ext: String) -> URL? {
+        let filename = sanitizeFilename(suggestedName, ext: ext)
+
+        if let dirURL = resolveDocumentSaveDirectory() {
+            let fileURL = uniqueFileURL(directory: dirURL, filename: filename)
+            if (try? data.write(to: fileURL)) != nil { return fileURL }
+        }
+
+        guard let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+        let douglasDir = docsDir.appendingPathComponent("DOUGLAS", isDirectory: true)
+        try? FileManager.default.createDirectory(at: douglasDir, withIntermediateDirectories: true)
+        let fileURL = uniqueFileURL(directory: douglasDir, filename: filename)
+        return (try? data.write(to: fileURL)) != nil ? fileURL : nil
+    }
+
+    // MARK: - Markdown → HTML 변환
+
+    /// Markdown을 스타일 적용된 HTML 문서로 변환
+    private static func markdownToStyledHTML(_ md: String) -> String {
+        let lines = md.components(separatedBy: "\n")
+        var html = ""
+        var i = 0
+
+        while i < lines.count {
+            let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
+
+            // 코드 블록
+            if trimmed.hasPrefix("```") {
+                i += 1
+                var code = ""
+                while i < lines.count && !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                    code += escapeHTML(lines[i]) + "\n"
+                    i += 1
+                }
+                html += "<pre><code>\(code)</code></pre>\n"
+                i += 1
+                continue
+            }
+
+            // 헤더
+            if trimmed.hasPrefix("### ") {
+                html += "<h3>\(inlineFormat(String(trimmed.dropFirst(4))))</h3>\n"
+            } else if trimmed.hasPrefix("## ") {
+                html += "<h2>\(inlineFormat(String(trimmed.dropFirst(3))))</h2>\n"
+            } else if trimmed.hasPrefix("# ") {
+                html += "<h1>\(inlineFormat(String(trimmed.dropFirst(2))))</h1>\n"
+            }
+            // 수평선
+            else if trimmed == "---" || trimmed == "***" || trimmed == "___" {
+                html += "<hr>\n"
+            }
+            // 인용
+            else if trimmed.hasPrefix("> ") {
+                html += "<blockquote><p>\(inlineFormat(String(trimmed.dropFirst(2))))</p></blockquote>\n"
+            }
+            // 테이블
+            else if trimmed.hasPrefix("|") {
+                html += "<table>\n"
+                var isHeader = true
+                while i < lines.count {
+                    let tLine = lines[i].trimmingCharacters(in: .whitespaces)
+                    guard tLine.hasPrefix("|") else { break }
+                    if tLine.contains("---") {
+                        isHeader = false
+                        i += 1
+                        continue
+                    }
+                    let cells = tLine.split(separator: "|").map { String($0).trimmingCharacters(in: .whitespaces) }
+                    let tag = isHeader ? "th" : "td"
+                    html += "<tr>" + cells.map { "<\(tag)>\(inlineFormat($0))</\(tag)>" }.joined() + "</tr>\n"
+                    if isHeader { isHeader = false }
+                    i += 1
+                }
+                html += "</table>\n"
+                continue
+            }
+            // 비순서 목록
+            else if trimmed.hasPrefix("- ") {
+                html += "<ul>\n"
+                while i < lines.count {
+                    let lLine = lines[i].trimmingCharacters(in: .whitespaces)
+                    guard lLine.hasPrefix("- ") else { break }
+                    html += "<li>\(inlineFormat(String(lLine.dropFirst(2))))</li>\n"
+                    i += 1
+                }
+                html += "</ul>\n"
+                continue
+            }
+            // 순서 목록
+            else if trimmed.first?.isNumber == true && trimmed.contains(". ") {
+                html += "<ol>\n"
+                while i < lines.count {
+                    let lLine = lines[i].trimmingCharacters(in: .whitespaces)
+                    guard lLine.first?.isNumber == true,
+                          let dotIdx = lLine.firstIndex(of: ".") else { break }
+                    let afterDot = String(lLine[lLine.index(after: dotIdx)...]).trimmingCharacters(in: .whitespaces)
+                    html += "<li>\(inlineFormat(afterDot))</li>\n"
+                    i += 1
+                }
+                html += "</ol>\n"
+                continue
+            }
+            // 빈 줄
+            else if trimmed.isEmpty {
+                // skip
+            }
+            // 일반 단락
+            else {
+                html += "<p>\(inlineFormat(trimmed))</p>\n"
+            }
+
+            i += 1
+        }
+
+        return """
+        <!DOCTYPE html>
+        <html><head><meta charset="utf-8">
+        <style>
+        body { font-family: -apple-system, 'Apple SD Gothic Neo', sans-serif; font-size: 13px; line-height: 1.7; padding: 40px; max-width: 720px; margin: 0 auto; color: #222; }
+        h1 { font-size: 22px; border-bottom: 2px solid #eee; padding-bottom: 8px; }
+        h2 { font-size: 18px; border-bottom: 1px solid #eee; padding-bottom: 6px; margin-top: 28px; }
+        h3 { font-size: 15px; margin-top: 22px; }
+        table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+        th, td { border: 1px solid #d0d0d0; padding: 8px 12px; text-align: left; font-size: 12px; }
+        th { background: #f5f5f5; font-weight: 600; }
+        blockquote { border-left: 3px solid #ccc; margin: 12px 0; padding: 8px 16px; color: #555; background: #fafafa; }
+        pre { background: #f5f5f5; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
+        code { font-family: 'SF Mono', Menlo, monospace; font-size: 12px; }
+        hr { border: none; border-top: 1px solid #ddd; margin: 24px 0; }
+        a { color: #0066cc; text-decoration: none; }
+        ul, ol { padding-left: 24px; }
+        li { margin-bottom: 4px; }
+        @page { size: A4; margin: 2cm; }
+        </style>
+        </head><body>
+        \(html)
+        </body></html>
+        """
+    }
+
+    /// 인라인 Markdown 서식 → HTML 변환
+    private static func inlineFormat(_ text: String) -> String {
+        var result = escapeHTML(text)
+        result = result.replacingOccurrences(of: "\\*\\*(.+?)\\*\\*", with: "<strong>$1</strong>", options: .regularExpression)
+        result = result.replacingOccurrences(of: "\\*(.+?)\\*", with: "<em>$1</em>", options: .regularExpression)
+        result = result.replacingOccurrences(of: "`(.+?)`", with: "<code>$1</code>", options: .regularExpression)
+        result = result.replacingOccurrences(of: "\\[(.+?)\\]\\((.+?)\\)", with: "<a href=\"$2\">$1</a>", options: .regularExpression)
+        return result
+    }
+
+    private static func escapeHTML(_ text: String) -> String {
+        text.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
     }
 
     /// 파일명에서 특수문자 제거
