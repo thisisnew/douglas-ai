@@ -101,6 +101,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // ChatViewModel에 RoomManager 포함하여 설정
         chatVM.configure(agentStore: agentStore, providerManager: providerManager, roomManager: roomManager)
         chatVM.loadMessages()
+        chatVM.addWelcomeMessageIfNeeded()
 
         // 플러그인 시스템 초기화
         pluginManager.configure(roomManager: roomManager, agentStore: agentStore)

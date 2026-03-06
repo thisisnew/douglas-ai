@@ -376,6 +376,21 @@ class ChatViewModel: ObservableObject {
         }
     }
 
+    /// 마스터 에이전트 채팅이 비어있으면 환영 메시지 추가
+    func addWelcomeMessageIfNeeded() {
+        guard let masterID = agentStore?.masterAgent?.id else { return }
+        let msgs = messagesByAgent[masterID] ?? []
+        guard msgs.isEmpty else { return }
+
+        let masterName = agentStore?.masterAgent?.name ?? "DOUGLAS"
+        let welcome = ChatMessage(
+            role: .assistant,
+            content: "안녕하세요! DOUGLAS입니다. 뭐든 요청해주세요!",
+            agentName: masterName
+        )
+        appendMessage(welcome, for: masterID)
+    }
+
     /// 존재하지 않는 에이전트의 채팅 기록 정리
     func pruneOrphanedChats(validAgentIDs: Set<UUID>) {
         let orphanIDs = Set(messagesByAgent.keys).subtracting(validAgentIDs)

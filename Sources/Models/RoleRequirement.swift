@@ -10,6 +10,7 @@ struct RoleRequirement: Identifiable, Codable {
     let priority: Priority
     var matchedAgentID: UUID?       // 매칭된 에이전트 ID
     var status: MatchStatus
+    var confidence: Double          // 매칭 신뢰도 (0.0~1.0) — Plan C
 
     enum Priority: String, Codable {
         case required    // 필수
@@ -18,9 +19,9 @@ struct RoleRequirement: Identifiable, Codable {
 
     enum MatchStatus: String, Codable {
         case pending     // 매칭 전
-        case matched     // 기존 에이전트 매칭됨
-        case suggested   // 새 에이전트 생성 제안됨
-        case unmatched   // 매칭 실패
+        case matched     // 기존 에이전트 매칭됨 (confidence >= 0.7)
+        case suggested   // 사용자 확인 필요 (0.5 <= confidence < 0.7)
+        case unmatched   // 매칭 실패 (confidence < 0.5)
     }
 
     init(
@@ -29,7 +30,8 @@ struct RoleRequirement: Identifiable, Codable {
         reason: String = "",
         priority: Priority = .required,
         matchedAgentID: UUID? = nil,
-        status: MatchStatus = .pending
+        status: MatchStatus = .pending,
+        confidence: Double = 0
     ) {
         self.id = id
         self.roleName = roleName
@@ -37,5 +39,6 @@ struct RoleRequirement: Identifiable, Codable {
         self.priority = priority
         self.matchedAgentID = matchedAgentID
         self.status = status
+        self.confidence = confidence
     }
 }

@@ -82,7 +82,7 @@ DOUGLAS/
 │   │   ├── ProviderManager.swift    # 프로바이더 설정 관리
 │   │   ├── BuildLoopRunner.swift     # 빌드/테스트 실행 + 수정 프롬프트 생성 엔진
 │   │   ├── RoomManager.swift        # 프로젝트 방 생명주기, 6단계 워크플로우, 승인/입력 게이트
-│   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (키워드 + NLEmbedding 시맨틱 하이브리드, documentType-aware, [필수]만 자동초대)
+│   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (Plan C: 3-tier 가중치 — skillTags×5, workModes+outputStyles×3, keyword+semantic×2, 0-1 정규화 confidence, 임계값 0.7/0.5)
 │   │   ├── DocumentExporter.swift   # 문서 산출물 파일 저장 (에이전트 생성 파일 탐지 → 고정 경로 자동저장 / NSSavePanel 폴백)
 │   │   ├── ThemeManager.swift       # 테마 관리 (기본값: .cozyGame, UserDefaults 저장, 커스텀 팔레트)
 │   │   └── ToolExecutor.swift       # 도구 호출 루프 + smartSend + 경로 해석/충돌 추적
@@ -232,6 +232,9 @@ DOUGLAS/
 - `sendMessage(attachments:)`: 이미지 첨부 메시지 전송
 - `buildConversationHistory()`: 이미지 포함 `[ConversationMessage]` 빌드
 - 이미지가 있으면 `smartSend(conversationMessages:)` 오버로드 사용
+
+**환영 메시지**:
+- `addWelcomeMessageIfNeeded()`: 마스터 에이전트 채팅이 비어있으면 "안녕하세요! DOUGLAS입니다. 뭐든 요청해주세요!" 메시지 자동 추가
 
 **메시지 영속화**:
 - `~/Library/Application Support/DOUGLAS/chats/` 디렉토리에 에이전트별 JSON 저장
@@ -968,6 +971,8 @@ executeWithTools() 루프 (최대 10회):
 | `ChatViewModel.swift` | `handleAgentMessage` → `ToolExecutor.smartSend()` (이미지 포함 시 conversationMessages 오버로드) |
 | `RoomManager.swift` | `sendUserMessage`, `executeStep` → `ToolExecutor.smartSend()` + `ToolExecutionContext` 전달 (invite_agent/list_agents 지원) |
 
+**진행자 아이덴티티**: 방 내 오케스트레이터 메시지(질문, 팀 확정 등)는 `agentName: masterAgentName`으로 마스터 에이전트(DOUGLAS) 아바타·이름과 함께 표시. `masterAgentName` computed property가 마스터 이름 제공.
+
 **방 워크플로우** (`startRoomWorkflow`): 항상 Intent 기반 `executePhaseWorkflow` 실행. `room.intent == nil`이면 `.quickAnswer`를 phase 계산 기본값으로 사용하되, `executeIntentPhase`에서 사용자 선택으로 교체됨.
 
 **Pre-Intent 라우팅** (`IntentClassifier.preRoute`): 방 생성 전 입력을 5가지로 분류:
@@ -1106,7 +1111,8 @@ executeWithTools() 루프 (최대 10회):
 **Plan C: 새 6단계 워크플로우** (런타임 구현 완료):
 ```
 ① Understand ─ intake+intent+TaskBrief 통합 (clarify 루프 제거, needsClarification → 최대 2회 질문 + 30초 타임아웃)
-② Assemble ── 에이전트 매칭 (skillTags 가중 매칭, workModes 보너스) + RuntimeRole 할당
+② Assemble ── 3-tier 가중치 에이전트 매칭 (Tier1: skillTags×5, Tier2: workModes+outputStyles×3, Tier3: keyword+semantic×2)
+              confidence 0.7↑ 자동, 0.5~0.7 사용자확인, 0.5↓ 제외 + RuntimeRole 사전배정 + 팀 확정 메시지(Role 표시)
 ③ Design ──── 2인: 3턴 Propose→Critique→Revise (승인 시 Turn 3 스킵) / 3인+: Planner 프로토콜 / 1인: 구조화 플랜
               승인 거부→재수정 최대 2회, 초과 시 최종 선택 / riskLevel 표시
 ④ Build ───── step 루프: low/medium=자동실행, high=DeferredAction (auto-approval 없음)
@@ -1126,7 +1132,7 @@ executeWithTools() 루프 (최대 10회):
 모든 새 필드(`taskBrief`, `agentRoles`, `deferredActions`, Agent 5종 메타데이터)는 `decodeIfPresent` + 빈 기본값.
 
 **에이전트 카드 (Plan C)**:
-- `skillTags: [String]` — 매칭 시 가장 강한 신호 (weight +4)
+- `skillTags: [String]` — 매칭 시 가장 강한 신호 (Tier 1: weight 5)
 - `workModes: Set<WorkMode>` — plan/create/execute/review/research
 - `outputStyles: Set<OutputStyle>` — code/document/data/communication/review/translation/plan
 - `actionPermissions: Set<ActionScope>` — 7종 행동 권한 (비어있으면 모두 허용)

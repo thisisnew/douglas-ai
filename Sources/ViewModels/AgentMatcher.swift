@@ -8,31 +8,45 @@ enum AgentMatcher {
     /// NLEmbedding 기반 시맨틱 매처 (캐시 포함)
     static let semanticMatcher = SemanticMatcher()
 
-    /// 역할 요구사항을 기존 에이전트와 매칭
+    /// 역할 요구사항을 기존 에이전트와 매칭 (Plan C: 3단 가중치 + 신뢰도 임계값)
     static func matchRoles(
         requirements: [RoleRequirement],
         agents: [Agent],
         intent: WorkflowIntent? = nil,
-        documentType: DocumentType? = nil
+        documentType: DocumentType? = nil,
+        taskBrief: TaskBrief? = nil
     ) -> [RoleRequirement] {
         var results = requirements
         var usedAgentIDs: Set<UUID> = []
 
         for i in results.indices {
-            if let matched = findByKeyword(
+            let (agent, confidence) = matchByTags(
                 roleName: results[i].roleName,
                 agents: agents,
                 excluding: usedAgentIDs,
                 intent: intent,
-                documentType: documentType
-            ) {
-                results[i].matchedAgentID = matched.id
-                results[i].status = .matched
-                usedAgentIDs.insert(matched.id)
-                continue
-            }
+                documentType: documentType,
+                taskBrief: taskBrief
+            )
 
-            results[i].status = .unmatched
+            results[i].confidence = confidence
+
+            if let agent {
+                results[i].matchedAgentID = agent.id
+                if confidence >= 0.7 {
+                    results[i].status = .matched       // 자동 선택
+                } else if confidence >= 0.5 {
+                    results[i].status = .suggested      // 사용자 확인 필요
+                } else {
+                    results[i].status = .unmatched      // 제외
+                    results[i].matchedAgentID = nil
+                }
+                if results[i].status == .matched || results[i].status == .suggested {
+                    usedAgentIDs.insert(agent.id)
+                }
+            } else {
+                results[i].status = .unmatched
+            }
         }
 
         return results
@@ -101,19 +115,20 @@ enum AgentMatcher {
         "서버", "클라이언트", "db", "database", "cloud", "클라우드"
     ]
 
-    /// 이름 + 페르소나 + 작업 규칙 키워드 + NLEmbedding 시맨틱 하이브리드 매칭
-    private static func findByKeyword(
+    /// Plan C: 3단 가중치 태그 매칭 + 0-1 정규화 신뢰도
+    /// 반환: (최고 매칭 에이전트, 신뢰도 0.0~1.0)
+    static func matchByTags(
         roleName: String,
         agents: [Agent],
         excluding used: Set<UUID>,
         intent: WorkflowIntent? = nil,
-        documentType: DocumentType? = nil
-    ) -> Agent? {
+        documentType: DocumentType? = nil,
+        taskBrief: TaskBrief? = nil
+    ) -> (Agent?, Double) {
         var keywords = roleName.lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { $0.count >= 2 && !genericSuffixes.contains($0) }
 
-        // documentType이 설정된 경우: 도메인 키워드 제거 (백엔드/프론트엔드 등)
         if documentType != nil {
             keywords = keywords.filter { !domainKeywords.contains($0) }
         }
@@ -122,80 +137,142 @@ enum AgentMatcher {
         let preferredKWs = documentType?.preferredKeywords ?? []
         let useSemanticScoring = semanticMatcher.isAvailable
 
-        // 키워드도 없고 시맨틱도 불가하면 매칭 불가
-        guard hasKeywords || useSemanticScoring else { return nil }
+        guard hasKeywords || useSemanticScoring else { return (nil, 0) }
 
-        var bestMatch: (agent: Agent, score: Double)?
+        // 가중치 상수 (Plan C: 5/3/2)
+        let tier1Weight: Double = 5.0  // skillTags 직접 매칭
+        let tier2Weight: Double = 3.0  // workModes + outputStyles
+        let tier3Weight: Double = 2.0  // 키워드 + 시맨틱 폴백
+
+        var bestMatch: (agent: Agent, confidence: Double)?
 
         for agent in agents where !used.contains(agent.id) {
-            // --- 키워드 점수 (기존 로직 + skillTags 매칭) ---
-            var keywordScore = 0
+            // --- Tier 1: skillTags 직접 매칭 (가중치 5) ---
+            var tier1Score: Double = 0
+            if hasKeywords, !agent.skillTags.isEmpty {
+                let lowerTags = agent.skillTags.map { $0.lowercased() }
+                var tagHits = 0
+                for keyword in keywords {
+                    if lowerTags.contains(where: { $0.contains(keyword) || keyword.contains($0) }) {
+                        tagHits += 1
+                    }
+                }
+                for pkw in preferredKWs {
+                    if lowerTags.contains(where: { $0.contains(pkw.lowercased()) }) {
+                        tagHits += 1
+                    }
+                }
+                let maxPossible = max(keywords.count + preferredKWs.count, 1)
+                tier1Score = Double(tagHits) / Double(maxPossible)  // 0~1
+            }
+
+            // --- Tier 2: workModes + outputStyles 매칭 (가중치 3) ---
+            var tier2Score: Double = 0
+            var tier2Hits = 0
+            let tier2MaxPossible = 2  // workMode 매칭 + outputStyle 매칭
+
+            // workModes 매칭
+            if !agent.workModes.isEmpty {
+                if let intent = intent {
+                    switch intent {
+                    case .task:
+                        if agent.workModes.contains(.create) || agent.workModes.contains(.execute) {
+                            tier2Hits += 1
+                        }
+                    case .quickAnswer:
+                        if agent.workModes.contains(.research) || agent.workModes.contains(.review) {
+                            tier2Hits += 1
+                        }
+                    }
+                }
+            }
+
+            // outputStyles 매칭 (TaskBrief.outputType 기반)
+            if let outputType = taskBrief?.outputType, !agent.outputStyles.isEmpty {
+                let matchingStyle: OutputStyle? = {
+                    switch outputType {
+                    case .code: return .code
+                    case .document: return .document
+                    case .message: return .communication
+                    case .analysis: return .data
+                    case .data: return .data
+                    case .design: return nil  // OutputStyle에 .design이 있으면 매칭
+                    case .answer: return nil
+                    }
+                }()
+                if let style = matchingStyle, agent.outputStyles.contains(style) {
+                    tier2Hits += 1
+                }
+            }
+            tier2Score = Double(tier2Hits) / Double(tier2MaxPossible)  // 0~1
+
+            // --- Tier 3: 키워드 + 시맨틱 폴백 (가중치 2) ---
+            var tier3Score: Double = 0
             if hasKeywords {
                 let lowerPersona = agent.persona.lowercased()
                 let lowerName = agent.name.lowercased()
                 let lowerRules = (agent.workingRules.flatMap { $0.isEmpty ? nil : $0 }?.resolve() ?? "").lowercased()
-                let lowerTags = agent.skillTags.map { $0.lowercased() }
 
+                var kwHits = 0
                 for keyword in keywords {
-                    if lowerName.contains(keyword) { keywordScore += 3 }
-                    if lowerPersona.contains(keyword) { keywordScore += 2 }
-                    if lowerRules.contains(keyword) { keywordScore += 1 }
-                    // skillTags 매칭 (Plan C: 에이전트 카드 메타데이터)
-                    if lowerTags.contains(where: { $0.contains(keyword) || keyword.contains($0) }) {
-                        keywordScore += 4  // 태그 매칭은 가장 강한 신호
-                    }
+                    if lowerName.contains(keyword) { kwHits += 2 }
+                    if lowerPersona.contains(keyword) { kwHits += 1 }
+                    if lowerRules.contains(keyword) { kwHits += 1 }
                 }
-
                 for pkw in preferredKWs {
                     let lower = pkw.lowercased()
-                    if lowerName.contains(lower) { keywordScore += 2 }
-                    if lowerPersona.contains(lower) { keywordScore += 2 }
-                    if lowerTags.contains(where: { $0.contains(lower) }) { keywordScore += 3 }
+                    if lowerName.contains(lower) { kwHits += 1 }
+                    if lowerPersona.contains(lower) { kwHits += 1 }
                 }
-            }
+                let maxKw = max((keywords.count + preferredKWs.count) * 4, 1)
+                let kwScore = min(Double(kwHits) / Double(maxKw), 1.0)
 
-            // --- workModes 보너스 (Plan C: intent 기반 에이전트 적합도) ---
-            if let intent = intent, !agent.workModes.isEmpty {
-                switch intent {
-                case .task:
-                    if agent.workModes.contains(.create) || agent.workModes.contains(.execute) {
-                        keywordScore += 2
-                    }
-                case .quickAnswer:
-                    if agent.workModes.contains(.research) || agent.workModes.contains(.review) {
-                        keywordScore += 1
-                    }
+                if useSemanticScoring {
+                    let rawSim = semanticMatcher.similarity(roleName: roleName, agent: agent)
+                    let semScore = max(0, rawSim)  // 0~1
+                    tier3Score = kwScore * 0.5 + semScore * 0.5
+                } else {
+                    tier3Score = kwScore
                 }
+            } else if useSemanticScoring {
+                let rawSim = semanticMatcher.similarity(roleName: roleName, agent: agent)
+                tier3Score = max(0, rawSim)
             }
 
-            // --- 시맨틱 점수 ---
-            let semanticScore: Double
-            if useSemanticScoring {
-                // cosine similarity 범위: -1~1 → 0~10 스케일로 정규화
-                let rawSimilarity = semanticMatcher.similarity(roleName: roleName, agent: agent)
-                semanticScore = max(0, rawSimilarity) * 10.0
+            // --- 가중 합산 → 0~1 정규화 ---
+            let totalWeight = tier1Weight + tier2Weight + tier3Weight
+            let confidence = (tier1Score * tier1Weight + tier2Score * tier2Weight + tier3Score * tier3Weight) / totalWeight
+
+            // skillTags가 비어있으면 Tier 1 무효 → Tier 2+3만으로 재계산
+            let adjustedConfidence: Double
+            if agent.skillTags.isEmpty {
+                let fallbackWeight = tier2Weight + tier3Weight
+                adjustedConfidence = (tier2Score * tier2Weight + tier3Score * tier3Weight) / fallbackWeight
             } else {
-                semanticScore = 0
+                adjustedConfidence = confidence
             }
 
-            // --- 하이브리드 점수 ---
-            let combinedScore: Double
-            if hasKeywords && useSemanticScoring {
-                combinedScore = Double(keywordScore) * 0.5 + semanticScore * 0.5
-            } else if hasKeywords {
-                combinedScore = Double(keywordScore)
-            } else {
-                combinedScore = semanticScore
-            }
-
-            // 최소 임계값: 키워드 2점 이상 OR 시맨틱 3.0 이상 (cos sim 0.3+)
-            let meetsThreshold = keywordScore >= 2 || semanticScore >= 3.0
-            if meetsThreshold, combinedScore > (bestMatch?.score ?? 0) {
-                bestMatch = (agent, combinedScore)
+            if adjustedConfidence > (bestMatch?.confidence ?? 0) {
+                bestMatch = (agent, adjustedConfidence)
             }
         }
 
-        return bestMatch?.agent
+        return (bestMatch?.agent, bestMatch?.confidence ?? 0)
+    }
+
+    /// 레거시 호환: 기존 findByKeyword → matchByTags 위임
+    private static func findByKeyword(
+        roleName: String,
+        agents: [Agent],
+        excluding used: Set<UUID>,
+        intent: WorkflowIntent? = nil,
+        documentType: DocumentType? = nil
+    ) -> Agent? {
+        let (agent, confidence) = matchByTags(
+            roleName: roleName, agents: agents, excluding: used,
+            intent: intent, documentType: documentType
+        )
+        return confidence >= 0.3 ? agent : nil
     }
 
     // MARK: - 유사 에이전트 탐지

@@ -199,6 +199,11 @@ class RoomManager: ObservableObject {
         return rooms.first { $0.id == id }
     }
 
+    /// 마스터 에이전트(진행자) 이름 — 시스템 메시지에 사용
+    private var masterAgentName: String {
+        agentStore?.masterAgent?.name ?? "DOUGLAS"
+    }
+
     // MARK: - 초기화
 
     func configure(agentStore: AgentStore, providerManager: ProviderManager) {
@@ -1184,14 +1189,21 @@ class RoomManager: ObservableObject {
             addAgent(agentID, to: roomID, silent: true)
         }
 
-        // 최종 팀 확정 메시지
-        let finalNames = executingAgentIDs(in: roomID).compactMap { id in
-            agentStore?.agents.first(where: { $0.id == id })?.name
+        // 최종 팀 확정 메시지 (RuntimeRole 포함)
+        let masterName = agentStore?.masterAgent?.name ?? "DOUGLAS"
+        let room = rooms.first(where: { $0.id == roomID })
+        let finalDescs = executingAgentIDs(in: roomID).compactMap { id -> String? in
+            guard let name = agentStore?.agents.first(where: { $0.id == id })?.name else { return nil }
+            if let role = room?.agentRoles[name] {
+                return "\(name)(\(role.displayName))"
+            }
+            return name
         }
-        if !finalNames.isEmpty {
+        if !finalDescs.isEmpty {
             let msg = ChatMessage(
                 role: .system,
-                content: "팀 구성 확정: \(finalNames.joined(separator: ", "))"
+                content: "팀 구성 확정: \(finalDescs.joined(separator: ", "))",
+                agentName: masterName
             )
             appendMessage(msg, to: roomID)
         }
@@ -2150,21 +2162,58 @@ class RoomManager: ObservableObject {
                 return
             }
 
-            // 2) 시스템 매칭
+            // 2) 시스템 매칭 (Plan C: 3단 가중치 + 신뢰도 임계값)
             let subAgents = agentStore?.subAgents ?? []
+            let taskBrief = rooms.first(where: { $0.id == roomID })?.taskBrief
             let matched = AgentMatcher.matchRoles(
                 requirements: requirements,
                 agents: subAgents,
                 intent: intent,
-                documentType: rooms.first(where: { $0.id == roomID })?.documentType
+                documentType: rooms.first(where: { $0.id == roomID })?.documentType,
+                taskBrief: taskBrief
             )
 
-            // 3) [필수] 매칭 에이전트만 자동 초대 ([선택]은 팀 확인에서 수동 추가)
+            // 3) [필수] matched(0.7+) 에이전트 자동 초대
             for req in matched where req.status == .matched && req.priority == .required {
                 if let agentID = req.matchedAgentID,
                    let room = rooms.first(where: { $0.id == roomID }),
                    !room.assignedAgentIDs.contains(agentID) {
                     addAgent(agentID, to: roomID, silent: true)
+                }
+            }
+
+            // 3.5) suggested(0.5~0.7) 에이전트: 사용자에게 추가 여부 질문
+            let suggestedReqs = matched.filter { $0.status == .suggested && $0.matchedAgentID != nil }
+            for req in suggestedReqs {
+                guard let agentID = req.matchedAgentID,
+                      let sugAgent = agentStore?.agents.first(where: { $0.id == agentID }) else { continue }
+                let confidenceStr = String(format: "%.0f%%", req.confidence * 100)
+                let suggestMsg = ChatMessage(
+                    role: .system,
+                    content: "\(sugAgent.name)도 추가할까요? (매칭도: \(confidenceStr)) [추가] [이대로]",
+                    messageType: .approvalRequest
+                )
+                appendMessage(suggestMsg, to: roomID)
+
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.awaitingApproval)
+                }
+                syncAgentStatuses()
+                scheduleSave()
+
+                let approved = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+                    approvalContinuations[roomID] = cont
+                }
+                approvalContinuations.removeValue(forKey: roomID)
+
+                if approved {
+                    if let room = rooms.first(where: { $0.id == roomID }),
+                       !room.assignedAgentIDs.contains(agentID) {
+                        addAgent(agentID, to: roomID, silent: true)
+                    }
+                }
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.planning)
                 }
             }
 
@@ -2180,12 +2229,31 @@ class RoomManager: ObservableObject {
             }
 
             // 4.5) 미매칭 제안이 있으면 사용자가 추가/건너뛰기할 때까지 대기
-            let hadUnmatched = matched.contains(where: { $0.status == .unmatched })
+            let hadUnmatched = matched.contains(where: { $0.status == .unmatched && $0.priority == .required })
             if hadUnmatched {
                 await waitForSuggestionResponse(roomID: roomID)
             }
 
-            // 5) 팀 구성 확인 게이트
+            // 5) RuntimeRole 사전 배정 (Plan C: Assemble에서 배정)
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                let specialists = executingAgentIDs(in: roomID)
+                if specialists.count >= 2 {
+                    let (creatorID, reviewerID, plannerID) = assignDesignRoles(specialists: specialists)
+                    if let creatorName = agentStore?.agents.first(where: { $0.id == creatorID })?.name {
+                        rooms[i].agentRoles[creatorName] = .creator
+                    }
+                    if let reviewerName = agentStore?.agents.first(where: { $0.id == reviewerID })?.name {
+                        rooms[i].agentRoles[reviewerName] = .reviewer
+                    }
+                    if let plannerID, let plannerName = agentStore?.agents.first(where: { $0.id == plannerID })?.name {
+                        rooms[i].agentRoles[plannerName] = .planner
+                    }
+                } else if let solo = specialists.first, let name = agentStore?.agents.first(where: { $0.id == solo })?.name {
+                    rooms[i].agentRoles[name] = .creator
+                }
+            }
+
+            // 6) 팀 구성 확인 게이트
             await showTeamConfirmation(roomID: roomID)
 
         } catch {
@@ -2248,6 +2316,7 @@ class RoomManager: ObservableObject {
             let questionMsg = ChatMessage(
                 role: .assistant,
                 content: "추가 확인이 필요합니다 (\(questionRound)/\(maxQuestions)):\n\n\(questionText)",
+                agentName: masterAgentName,
                 messageType: .userQuestion
             )
             appendMessage(questionMsg, to: roomID)
