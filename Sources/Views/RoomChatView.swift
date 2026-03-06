@@ -1792,7 +1792,7 @@ struct TeamConfirmationCard: View {
                     Image(systemName: "person.2")
                         .font(.caption)
                         .foregroundColor(palette.accent.opacity(0.7))
-                    Text(state.isEditing ? "팀 구성 변경" : "팀 구성")
+                    Text(state.isEditing ? "참여 전문가 변경" : "참여 전문가")
                         .font(.caption2.bold())
                         .foregroundColor(palette.accent.opacity(0.7))
                 }
@@ -1823,7 +1823,7 @@ struct TeamConfirmationCard: View {
             HStack(spacing: 8) {
                 Spacer()
                 if !candidateAgents.isEmpty || selectedAgents.isEmpty {
-                    cardButton("구성 변경") {
+                    cardButton("변경") {
                         roomManager.startEditingTeam(roomID: roomID)
                     }
                 }

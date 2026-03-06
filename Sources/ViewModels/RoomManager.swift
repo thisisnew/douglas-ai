@@ -1797,11 +1797,12 @@ class RoomManager: ObservableObject {
             guard !Task.isCancelled,
                   rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
-            // 1) DOUGLAS가 이해한 내용 요약 생성 (첨부파일은 이름만 텍스트로 전달, 데이터 미전송)
+            // 1) DOUGLAS가 이해한 내용 요약 생성 (첨부파일 이미지 데이터 포함)
             let clarifyMessages: [ConversationMessage]
+            let hasImageAttachments = !fileAttachments.filter({ $0.isImage }).isEmpty
             if currentSummary.isEmpty {
                 let userContent = "\(contextString)\(attachmentSummary)\n\n위 요청을 분석하고, 이해한 내용을 정리해주세요. 작업: \(task)"
-                clarifyMessages = [ConversationMessage.user(userContent)]
+                clarifyMessages = [ConversationMessage.user(userContent, attachments: hasImageAttachments ? fileAttachments : nil)]
             } else {
                 // 사용자 피드백 반영 재요약
                 let history = buildRoomHistory(roomID: roomID)
@@ -1822,7 +1823,7 @@ class RoomManager: ObservableObject {
                 appendMessage(placeholder, to: roomID)
 
                 let response: String
-                if provider.supportsStreaming {
+                if provider.supportsStreaming && !hasImageAttachments {
                     // 첨부 없음 → 스트리밍 경로
                     let simpleMessages = clarifyMessages.compactMap { msg -> (role: String, content: String)? in
                         guard let content = msg.content else { return nil }
@@ -1842,7 +1843,7 @@ class RoomManager: ObservableObject {
                         }
                     )
                 } else {
-                    // 이미지 있음 또는 스트리밍 미지원 → sendMessageWithTools로 이미지 보존
+                    // 이미지 첨부 있음 또는 스트리밍 미지원 → sendMessageWithTools로 이미지 데이터 전달
                     let responseContent = try await provider.sendMessageWithTools(
                         model: agent.modelName,
                         systemPrompt: clarifySystemPrompt,
@@ -4198,7 +4199,7 @@ class RoomManager: ObservableObject {
                                 self.updateMessageContent(placeholderID, newContent: current, in: roomID)
                             }
                         },
-                        allowedToolIDs: ["web_search", "web_fetch"]
+                        allowedToolIDs: hasAttachments ? ["web_search", "web_fetch", "Read"] : ["web_search", "web_fetch"]
                     )
                 }
             }

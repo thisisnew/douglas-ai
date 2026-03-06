@@ -22,7 +22,7 @@ enum WorkflowPhase: String, Codable, CaseIterable {
         case .intent:     return "목적 확인"
         case .clarify:    return "요건 확인"
         case .understand: return "요청 분석"
-        case .assemble:   return "팀 구성"
+        case .assemble:   return "전문가 배정"
         case .design:     return "설계"
         case .build:      return "구현"
         case .review:     return "검토"
