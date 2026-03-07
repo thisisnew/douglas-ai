@@ -27,7 +27,7 @@ struct TypingIndicator: View {
 
     /// 마스터가 주도하는 단계: intake~assemble + plan
     private var isMasterPhase: Bool {
-        guard let phase = room?.currentPhase else { return true }
+        guard let phase = room?.workflowState.currentPhase else { return true }
         switch phase {
         case .intake, .intent, .clarify, .assemble, .plan:
             return true
@@ -67,8 +67,8 @@ struct TypingIndicator: View {
     /// 토론 vs 작업 구분: discussion intent이거나 design 단계면 "발언 중", build/execute면 "작업 중"
     private var isDiscussionPhase: Bool {
         guard let room else { return false }
-        if room.intent == .discussion { return true }
-        switch room.currentPhase {
+        if room.workflowState.intent == .discussion { return true }
+        switch room.workflowState.currentPhase {
         case .build, .execute, .review:
             return false
         default:
@@ -83,7 +83,7 @@ struct TypingIndicator: View {
             return agent.isMaster ? "DOUGLAS 분석 중" : "\(agent.name) \(verb)"
         }
         // 2순위: 토론 요약 중 (plan 단계 + 브리핑 미생성 + 토론 이력 있음)
-        if let room, room.currentPhase == .plan && room.briefing == nil
+        if let room, room.workflowState.currentPhase == .plan && room.discussion.briefing == nil
             && room.messages.contains(where: { $0.messageType == .discussionRound }) {
             return "토론을 요약하는 중"
         }

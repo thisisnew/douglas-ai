@@ -244,7 +244,7 @@ class RoomManager: ObservableObject, WorkflowHost {
             buildCommand: buildCommand,
             testCommand: testCommand
         )
-        room.intent = intent
+        room.workflowState.intent = intent
         rooms.append(room)
         selectedRoomID = room.id
         syncAgentStatuses()
@@ -524,7 +524,7 @@ class RoomManager: ObservableObject, WorkflowHost {
         } else {
             // 워크플로우 없음 (앱 재시작 등) → intent 설정 후 워크플로우 재시작
             guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
-            rooms[idx].intent = intent
+            rooms[idx].workflowState.intent = intent
             rooms[idx].transitionTo(.planning)
             launchWorkflow(roomID: roomID, task: rooms[idx].title)
         }
@@ -545,7 +545,7 @@ class RoomManager: ObservableObject, WorkflowHost {
             cont.resume(returning: docType)
         } else {
             guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
-            rooms[idx].documentType = docType
+            rooms[idx].workflowState.documentType = docType
             rooms[idx].transitionTo(.planning)
             launchWorkflow(roomID: roomID, task: rooms[idx].title)
         }
@@ -609,7 +609,7 @@ class RoomManager: ObservableObject, WorkflowHost {
     /// - 2차: 메시지 콘텐츠 추출 후 MD 파일 저장
     private func offerDocumentSave(roomID: UUID, task: String? = nil) async {
         guard let room = rooms.first(where: { $0.id == roomID }),
-              room.documentType != nil,
+              room.workflowState.documentType != nil,
               room.status != .failed else { return }
 
         // 1차: 에이전트가 실제 생성한 문서 파일 확인 (바이너리 포맷: xlsx, pptx 등)
@@ -668,7 +668,7 @@ class RoomManager: ObservableObject, WorkflowHost {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
         let docType = suggestedType ?? .freeform
-        rooms[idx].documentType = docType
+        rooms[idx].workflowState.documentType = docType
         rooms[idx].transitionTo(.inProgress)
         rooms[idx].completedAt = nil
 
@@ -884,7 +884,7 @@ class RoomManager: ObservableObject, WorkflowHost {
     /// 사용자 피드백 메시지에서 문서 출력 신호 감지 (clarify 이후 실행)
     func detectDocumentSignalFromMessages(roomID: UUID) {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }),
-              !rooms[idx].autoDocOutput else { return }
+              !rooms[idx].workflowState.autoDocOutput else { return }
 
         let recentUserMessages = rooms[idx].messages
             .filter { $0.role == .user }
@@ -894,8 +894,8 @@ class RoomManager: ObservableObject, WorkflowHost {
 
         if let docResult = DocumentRequestDetector.quickDetect(recentUserMessages),
            docResult.isDocumentRequest {
-            rooms[idx].autoDocOutput = true
-            rooms[idx].documentType = docResult.suggestedDocType ?? .freeform
+            rooms[idx].workflowState.autoDocOutput = true
+            rooms[idx].workflowState.documentType = docResult.suggestedDocType ?? .freeform
         }
     }
 
@@ -909,8 +909,8 @@ class RoomManager: ObservableObject, WorkflowHost {
         // userAnswers에 저장 (질문은 메시지에서 역추적)
         if let idx = rooms.firstIndex(where: { $0.id == roomID }) {
             let userAnswer = UserAnswer(question: "", answer: answer)
-            if rooms[idx].userAnswers == nil { rooms[idx].userAnswers = [] }
-            rooms[idx].userAnswers?.append(userAnswer)
+            if rooms[idx].clarifyContext.userAnswers == nil { rooms[idx].clarifyContext.userAnswers = [] }
+            rooms[idx].clarifyContext.userAnswers?.append(userAnswer)
         }
 
         if let cont = userInputContinuations.removeValue(forKey: roomID) {
@@ -980,8 +980,8 @@ class RoomManager: ObservableObject, WorkflowHost {
         }
 
         // 이전 사이클 문서 플래그 리셋
-        rooms[idx].autoDocOutput = false
-        rooms[idx].documentType = nil
+        rooms[idx].workflowState.autoDocOutput = false
+        rooms[idx].workflowState.documentType = nil
 
         // 문서 요청 감지 → 플래그만 설정 (숏컷 제거 — assemble 경유로 적합 에이전트 판단)
         var detectedDocType: DocumentType? = nil
@@ -1001,8 +1001,8 @@ class RoomManager: ObservableObject, WorkflowHost {
         }
 
         if let docType = detectedDocType {
-            rooms[idx].documentType = docType
-            rooms[idx].autoDocOutput = true
+            rooms[idx].workflowState.documentType = docType
+            rooms[idx].workflowState.autoDocOutput = true
         }
 
         // 타이핑 인디케이터 해제 (이후 각 phase에서 개별 설정)
@@ -1042,7 +1042,7 @@ class RoomManager: ObservableObject, WorkflowHost {
                 // handleDocumentOutput이 .completed를 설정하지 못한 경우 보완
                 if let i = rooms.firstIndex(where: { $0.id == roomID }),
                    rooms[i].status != .failed && rooms[i].status != .completed {
-                    rooms[i].currentPhase = nil
+                    rooms[i].workflowState.currentPhase = nil
                     rooms[i].status = .completed
                     rooms[i].completedAt = Date()
                     pluginEventDelegate?(.roomCompleted(roomID: roomID, title: rooms[i].title))
@@ -1078,13 +1078,13 @@ class RoomManager: ObservableObject, WorkflowHost {
                 )
             }
         }
-        rooms[idx].intent = resolvedIntent ?? .quickAnswer
+        rooms[idx].workflowState.intent = resolvedIntent ?? .quickAnswer
 
         // quickAnswer로 확정된 경우 문서 오탐 리셋 (단순 질문은 문서 요청이 아님)
-        if rooms[idx].intent == .quickAnswer && detectedDocType != nil {
+        if rooms[idx].workflowState.intent == .quickAnswer && detectedDocType != nil {
             detectedDocType = nil
-            rooms[idx].autoDocOutput = false
-            rooms[idx].documentType = nil
+            rooms[idx].workflowState.autoDocOutput = false
+            rooms[idx].workflowState.documentType = nil
         }
 
         syncAgentStatuses()
@@ -1107,7 +1107,7 @@ class RoomManager: ObservableObject, WorkflowHost {
         }
         // Room에 동기화
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].completedPhases = completedPhases
+            rooms[i].workflowState.completedPhases = completedPhases
         }
         // 현재 에이전트 수 기록 (다음 후속 사이클 비교용)
         previousCycleAgentCount[roomID] = specialists.count
@@ -1116,13 +1116,13 @@ class RoomManager: ObservableObject, WorkflowHost {
             guard !Task.isCancelled,
                   let currentRoom = rooms.first(where: { $0.id == roomID }),
                   currentRoom.isActive,
-                  let currentIntent = currentRoom.intent else { break }
+                  let currentIntent = currentRoom.workflowState.intent else { break }
 
             let phases = currentIntent.requiredPhases
             guard let nextPhase = phases.first(where: { !completedPhases.contains($0) }) else { break }
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].currentPhase = nextPhase
+                rooms[i].workflowState.currentPhase = nextPhase
             }
             scheduleSave()
 
@@ -1138,12 +1138,12 @@ class RoomManager: ObservableObject, WorkflowHost {
             case .design:
                 await executeDesignPhase(roomID: roomID, task: task)
             case .plan:
-                let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .quickAnswer
+                let intent = rooms.first(where: { $0.id == roomID })?.workflowState.intent ?? .quickAnswer
                 await executePlanPhase(roomID: roomID, task: task, intent: intent)
             case .build:
                 await executeBuildPhase(roomID: roomID, task: task)
             case .execute:
-                let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .quickAnswer
+                let intent = rooms.first(where: { $0.id == roomID })?.workflowState.intent ?? .quickAnswer
                 await executeExecutePhase(roomID: roomID, task: task, intent: intent)
             case .review:
                 await executeReviewPhase(roomID: roomID, task: task)
@@ -1153,14 +1153,14 @@ class RoomManager: ObservableObject, WorkflowHost {
 
             completedPhases.insert(nextPhase)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].completedPhases = completedPhases
+                rooms[i].workflowState.completedPhases = completedPhases
             }
         }
 
         // 완료
         if let i = rooms.firstIndex(where: { $0.id == roomID }),
            rooms[i].status != .failed && rooms[i].status != .completed {
-            rooms[i].currentPhase = nil
+            rooms[i].workflowState.currentPhase = nil
             rooms[i].status = .completed
             rooms[i].completedAt = Date()
             pluginEventDelegate?(.roomCompleted(roomID: roomID, title: rooms[i].title))
@@ -1252,7 +1252,7 @@ class RoomManager: ObservableObject, WorkflowHost {
                 }
                 return answer
             },
-            currentPhase: room?.currentPhase,
+            currentPhase: room?.workflowState.currentPhase,
             deferHighRiskTools: deferHighRiskTools,
             collectDeferred: collectDeferred.map { callback in
                 { @Sendable deferred in callback(deferred) }
@@ -1391,7 +1391,7 @@ class RoomManager: ObservableObject, WorkflowHost {
         // 에이전트도 없고 후보도 없으면 → 워크플로우 완료
         if specialists.isEmpty && candidates.isEmpty {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].currentPhase = nil
+                rooms[i].workflowState.currentPhase = nil
                 rooms[i].status = .completed
                 rooms[i].completedAt = Date()
             }
@@ -1414,7 +1414,7 @@ class RoomManager: ObservableObject, WorkflowHost {
         guard let finalIDs = result else {
             if executingAgentIDs(in: roomID).isEmpty {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].currentPhase = nil
+                    rooms[i].workflowState.currentPhase = nil
                     rooms[i].status = .completed
                     rooms[i].completedAt = Date()
                 }
@@ -1460,7 +1460,7 @@ class RoomManager: ObservableObject, WorkflowHost {
         // 최종적으로 에이전트 없으면 완료
         if executingAgentIDs(in: roomID).isEmpty {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].currentPhase = nil
+                rooms[i].workflowState.currentPhase = nil
                 rooms[i].status = .completed
                 rooms[i].completedAt = Date()
             }
@@ -1479,8 +1479,8 @@ class RoomManager: ObservableObject, WorkflowHost {
         // 에이전트의 참조 프로젝트를 방에 병합
         if let agent = agentStore?.agents.first(where: { $0.id == agentID }) {
             for path in agent.referenceProjectPaths {
-                if !rooms[idx].projectPaths.contains(path) {
-                    rooms[idx].projectPaths.append(path)
+                if !rooms[idx].projectContext.projectPaths.contains(path) {
+                    rooms[idx].projectContext.projectPaths.append(path)
                 }
             }
         }
@@ -2020,7 +2020,7 @@ class RoomManager: ObservableObject, WorkflowHost {
     func createWorktreeIfNeeded(roomID: UUID) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }),
               let projectPath = rooms[idx].primaryProjectPath,
-              rooms[idx].worktreePath == nil,
+              rooms[idx].projectContext.worktreePath == nil,
               isGitRepository(projectPath),
               hasActiveRoomOnPath(projectPath, excluding: roomID) else { return }
 
@@ -2041,7 +2041,7 @@ class RoomManager: ObservableObject, WorkflowHost {
 
         if result.exitCode == 0 {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].worktreePath = worktreeDir
+                rooms[i].projectContext.worktreePath = worktreeDir
                 scheduleSave()
             }
         }
@@ -2051,12 +2051,12 @@ class RoomManager: ObservableObject, WorkflowHost {
     /// worktree 정리 (fire-and-forget)
     private func cleanupWorktree(roomID: UUID) {
         guard let room = rooms.first(where: { $0.id == roomID }),
-              let worktreePath = room.worktreePath,
+              let worktreePath = room.projectContext.worktreePath,
               let projectPath = room.primaryProjectPath else { return }
 
         let shortID = room.shortID
         if let idx = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[idx].worktreePath = nil
+            rooms[idx].projectContext.worktreePath = nil
         }
 
         Task.detached {
@@ -2076,10 +2076,10 @@ class RoomManager: ObservableObject, WorkflowHost {
     /// 앱 재시작 시 비활성 방의 잔여 worktree 정리
     private func cleanupStaleWorktrees() {
         for (idx, room) in rooms.enumerated() {
-            guard let wt = room.worktreePath,
+            guard let wt = room.projectContext.worktreePath,
                   let pp = room.primaryProjectPath,
                   !room.isActive else { continue }
-            rooms[idx].worktreePath = nil
+            rooms[idx].projectContext.worktreePath = nil
             Task.detached {
                 let _ = await ProcessRunner.run(
                     executable: "/usr/bin/git",

@@ -14,12 +14,12 @@ extension RoomManager {
         fileWriteTracker: FileWriteTracker?
     ) async -> Bool {
         guard let room = rooms.first(where: { $0.id == roomID }) else { return false }
-        let maxRetries = room.maxBuildRetries
+        let maxRetries = room.buildQA.maxBuildRetries
 
         // 빌드 루프 상태 초기화
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].buildLoopStatus = .building
-            rooms[i].buildRetryCount = 0
+            rooms[i].buildQA.buildLoopStatus = .building
+            rooms[i].buildQA.buildRetryCount = 0
         }
 
         let buildMsg = ChatMessage(
@@ -32,12 +32,12 @@ extension RoomManager {
         let result = await BuildLoopRunner.runBuild(command: buildCommand, workingDirectory: projectPath)
 
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].lastBuildResult = result
+            rooms[i].buildQA.lastBuildResult = result
         }
 
         if result.success {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].buildLoopStatus = .passed
+                rooms[i].buildQA.buildLoopStatus = .passed
             }
             let successMsg = ChatMessage(
                 role: .system,
@@ -55,8 +55,8 @@ extension RoomManager {
                   currentRoom.status == .inProgress else { return false }
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].buildLoopStatus = .fixing
-                rooms[i].buildRetryCount = retry
+                rooms[i].buildQA.buildLoopStatus = .fixing
+                rooms[i].buildQA.buildRetryCount = retry
             }
 
             let failMsg = ChatMessage(
@@ -67,7 +67,7 @@ extension RoomManager {
             appendMessage(failMsg, to: roomID)
 
             // 첫 번째 에이전트에게 수정 요청
-            let lastOutput = rooms.first(where: { $0.id == roomID })?.lastBuildResult?.output ?? ""
+            let lastOutput = rooms.first(where: { $0.id == roomID })?.buildQA.lastBuildResult?.output ?? ""
             let fixPrompt = BuildLoopRunner.buildFixPrompt(
                 buildCommand: buildCommand,
                 buildOutput: lastOutput,
@@ -89,7 +89,7 @@ extension RoomManager {
 
             // 재빌드
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].buildLoopStatus = .building
+                rooms[i].buildQA.buildLoopStatus = .building
             }
 
             let rebuildMsg = ChatMessage(
@@ -102,12 +102,12 @@ extension RoomManager {
             let retryResult = await BuildLoopRunner.runBuild(command: buildCommand, workingDirectory: projectPath)
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].lastBuildResult = retryResult
+                rooms[i].buildQA.lastBuildResult = retryResult
             }
 
             if retryResult.success {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].buildLoopStatus = .passed
+                    rooms[i].buildQA.buildLoopStatus = .passed
                 }
                 let successMsg = ChatMessage(
                     role: .system,
@@ -121,7 +121,7 @@ extension RoomManager {
 
         // 최대 재시도 초과
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].buildLoopStatus = .failed
+            rooms[i].buildQA.buildLoopStatus = .failed
         }
         return false
     }
@@ -136,11 +136,11 @@ extension RoomManager {
         fileWriteTracker: FileWriteTracker?
     ) async -> Bool {
         guard let room = rooms.first(where: { $0.id == roomID }) else { return false }
-        let maxRetries = room.maxQARetries
+        let maxRetries = room.buildQA.maxQARetries
 
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].qaLoopStatus = .testing
-            rooms[i].qaRetryCount = 0
+            rooms[i].buildQA.qaLoopStatus = .testing
+            rooms[i].buildQA.qaRetryCount = 0
         }
 
         let testMsg = ChatMessage(
@@ -153,12 +153,12 @@ extension RoomManager {
         let result = await BuildLoopRunner.runTests(command: testCommand, workingDirectory: projectPath)
 
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].lastQAResult = result
+            rooms[i].buildQA.lastQAResult = result
         }
 
         if result.success {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].qaLoopStatus = .passed
+                rooms[i].buildQA.qaLoopStatus = .passed
             }
             let successMsg = ChatMessage(
                 role: .system,
@@ -176,8 +176,8 @@ extension RoomManager {
                   currentRoom.status == .inProgress else { return false }
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].qaLoopStatus = .analyzing
-                rooms[i].qaRetryCount = retry
+                rooms[i].buildQA.qaLoopStatus = .analyzing
+                rooms[i].buildQA.qaRetryCount = retry
             }
 
             let failMsg = ChatMessage(
@@ -187,7 +187,7 @@ extension RoomManager {
             )
             appendMessage(failMsg, to: roomID)
 
-            let lastOutput = rooms.first(where: { $0.id == roomID })?.lastQAResult?.output ?? ""
+            let lastOutput = rooms.first(where: { $0.id == roomID })?.buildQA.lastQAResult?.output ?? ""
             let fixPrompt = BuildLoopRunner.qaFixPrompt(
                 testCommand: testCommand,
                 testOutput: lastOutput,
@@ -211,7 +211,7 @@ extension RoomManager {
 
             // 재테스트
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].qaLoopStatus = .testing
+                rooms[i].buildQA.qaLoopStatus = .testing
             }
 
             let retestMsg = ChatMessage(
@@ -224,12 +224,12 @@ extension RoomManager {
             let retryResult = await BuildLoopRunner.runTests(command: testCommand, workingDirectory: projectPath)
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].lastQAResult = retryResult
+                rooms[i].buildQA.lastQAResult = retryResult
             }
 
             if retryResult.success {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].qaLoopStatus = .passed
+                    rooms[i].buildQA.qaLoopStatus = .passed
                 }
                 let successMsg = ChatMessage(
                     role: .system,
@@ -243,7 +243,7 @@ extension RoomManager {
 
         // 최대 재시도 초과
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].qaLoopStatus = .failed
+            rooms[i].buildQA.qaLoopStatus = .failed
         }
         return false
     }
@@ -280,7 +280,7 @@ extension RoomManager {
             appendMessage(roundMsg, to: roomID)
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].currentRound = round
+                rooms[i].discussion.currentRound = round
             }
 
             // 마스터 제외한 전문가만 토론 참여
@@ -325,7 +325,7 @@ extension RoomManager {
                     if agreed, let agentName = msg.agentName,
                        let i = rooms.firstIndex(where: { $0.id == roomID }) {
                         let decision = Self.parseDecisionContent(from: msg.content) ?? "합의 도달"
-                        rooms[i].decisionLog.append(DecisionEntry(
+                        rooms[i].discussion.decisionLog.append(DecisionEntry(
                             round: round, decision: decision, supporters: [agentName]
                         ))
                     }
@@ -353,7 +353,7 @@ extension RoomManager {
             appendMessage(checkpointMsg, to: roomID)
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].isDiscussionCheckpoint = true
+                rooms[i].discussion.isCheckpoint = true
                 rooms[i].transitionTo(.awaitingUserInput)
             }
             scheduleSave()
@@ -365,7 +365,7 @@ extension RoomManager {
             guard !Task.isCancelled else { return }
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].isDiscussionCheckpoint = false
+                rooms[i].discussion.isCheckpoint = false
                 rooms[i].transitionTo(.inProgress)
             }
 
@@ -421,11 +421,11 @@ extension RoomManager {
         let otherNames = otherSpecialists.map { $0.name }.joined(separator: ", ")
 
         // intake 데이터
-        let intakeText = roomRef?.intakeData?.asClarifyContextString() ?? ""
+        let intakeText = roomRef?.clarifyContext.intakeData?.asClarifyContextString() ?? ""
         let intakeBlock = intakeText.isEmpty ? "" : "\n\(intakeText)"
 
         // clarify 요약 앵커링 (토론 범위 제한)
-        let clarifyText = roomRef?.clarifySummary ?? ""
+        let clarifyText = roomRef?.clarifyContext.clarifySummary ?? ""
         let anchorBlock = clarifyText.isEmpty ? "" : """
 
         [사용자 확인 요약 — 이 범위를 벗어나지 마세요]
@@ -548,7 +548,7 @@ extension RoomManager {
                     decision: decision,
                     supporters: [agent.name]
                 )
-                rooms[i].decisionLog.append(entry)
+                rooms[i].discussion.decisionLog.append(entry)
             }
             let cleanResponse = response
                 .replacingOccurrences(of: "\\[합의(?::[^\\]]*)?\\]", with: "", options: .regularExpression)
@@ -559,14 +559,14 @@ extension RoomManager {
             let newArtifacts = ArtifactParser.extractArtifacts(from: cleanResponse, producedBy: agent.name)
             if !newArtifacts.isEmpty, let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 for artifact in newArtifacts {
-                    if let existingIdx = rooms[i].artifacts.firstIndex(where: {
+                    if let existingIdx = rooms[i].discussion.artifacts.firstIndex(where: {
                         $0.type == artifact.type && $0.title == artifact.title
                     }) {
                         var updated = artifact
-                        updated.version = rooms[i].artifacts[existingIdx].version + 1
-                        rooms[i].artifacts[existingIdx] = updated
+                        updated.version = rooms[i].discussion.artifacts[existingIdx].version + 1
+                        rooms[i].discussion.artifacts[existingIdx] = updated
                     } else {
-                        rooms[i].artifacts.append(artifact)
+                        rooms[i].discussion.artifacts.append(artifact)
                     }
                 }
             }
@@ -628,7 +628,7 @@ extension RoomManager {
             .compactMap { id in agentStore?.agents.first(where: { $0.id == id }) }
         let otherNames = otherSpecialists.map { $0.name }.joined(separator: ", ")
 
-        let clarifyText = roomRef?.clarifySummary ?? ""
+        let clarifyText = roomRef?.clarifyContext.clarifySummary ?? ""
         let anchorBlock = clarifyText.isEmpty ? "" : """
 
         [사용자 확인 요약 — 이 범위를 벗어나지 마세요]
@@ -757,12 +757,12 @@ extension RoomManager {
         let history = buildDiscussionHistory(roomID: roomID, currentAgentName: nil)
 
         // 산출물 목록도 포함
-        let artifactList = room.artifacts.isEmpty ? "" :
-            "\n\n산출물 목록:\n" + room.artifacts.map { "- [\($0.type.displayName)] \($0.title)" }.joined(separator: "\n")
+        let artifactList = room.discussion.artifacts.isEmpty ? "" :
+            "\n\n산출물 목록:\n" + room.discussion.artifacts.map { "- [\($0.type.displayName)] \($0.title)" }.joined(separator: "\n")
 
         // 원래 사용자 요청 앵커링
         let originalContext: String
-        if let summary = room.clarifySummary {
+        if let summary = room.clarifyContext.clarifySummary {
             originalContext = "[원래 사용자 요청]\n\(summary)\n\n"
         } else {
             originalContext = ""
@@ -806,7 +806,7 @@ extension RoomManager {
             // JSON 파싱 → RoomBriefing
             if let briefing = parseBriefing(from: response) {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].briefing = briefing
+                    rooms[i].discussion.briefing = briefing
                 }
                 let reply = ChatMessage(
                     role: .assistant,
@@ -824,7 +824,7 @@ extension RoomManager {
                     openIssues: []
                 )
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].briefing = fallback
+                    rooms[i].discussion.briefing = fallback
                 }
                 let reply = ChatMessage(
                     role: .assistant,

@@ -151,7 +151,7 @@ enum DocumentExporter {
     /// 방에서 문서 내용 추출 (artifact 우선, fallback: 마지막 assistant 메시지)
     static func extractDocumentContent(from room: Room) -> String? {
         // 1차: artifact type == .document (최신 버전 우선)
-        if let docArtifact = room.artifacts
+        if let docArtifact = room.discussion.artifacts
             .filter({ $0.type == .document })
             .sorted(by: { $0.version > $1.version })
             .first {

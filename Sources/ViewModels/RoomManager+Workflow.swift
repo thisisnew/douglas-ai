@@ -12,8 +12,8 @@ extension RoomManager {
         await createWorktreeIfNeeded(roomID: roomID)
 
         // intent 미설정 → quickClassify 시도 (nil이면 executeIntentPhase에서 사용자 선택)
-        if let idx = rooms.firstIndex(where: { $0.id == roomID }), rooms[idx].intent == nil {
-            rooms[idx].intent = IntentClassifier.quickClassify(task)
+        if let idx = rooms.firstIndex(where: { $0.id == roomID }), rooms[idx].workflowState.intent == nil {
+            rooms[idx].workflowState.intent = IntentClassifier.quickClassify(task)
             // quickClassify 실패 시 nil 유지 → executeIntentPhase에서 처리
         }
         await executePhaseWorkflow(roomID: roomID, task: task)
@@ -70,14 +70,14 @@ extension RoomManager {
                 return
             }
 
-            let currentIntent = currentRoom.intent ?? .quickAnswer
+            let currentIntent = currentRoom.workflowState.intent ?? .quickAnswer
             // 현재 intent 기준으로 다음 미완료 phase 찾기
             let phases = currentIntent.requiredPhases
             guard let nextPhase = phases.first(where: { !completedPhases.contains($0) }) else { break }
 
             // 현재 단계 기록 (내부 상태만, UI 메시지 없음)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].currentPhase = nextPhase
+                rooms[i].workflowState.currentPhase = nextPhase
             }
             scheduleSave()
 
@@ -95,34 +95,34 @@ extension RoomManager {
 
                 // assemble 완료 후: task intent이면 needsPlan 동적 판단
                 if let currentRoom2 = rooms.first(where: { $0.id == roomID }),
-                   currentRoom2.intent == .task {
+                   currentRoom2.workflowState.intent == .task {
                     let planNeeded = await classifyNeedsPlan(roomID: roomID, task: resolvedTask)
                     if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                        rooms[i].needsPlan = planNeeded
+                        rooms[i].workflowState.needsPlan = planNeeded
                     }
                     scheduleSave()
 
                     if planNeeded {
                         // 동적으로 plan 단계 실행
                         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                            rooms[i].currentPhase = .plan
+                            rooms[i].workflowState.currentPhase = .plan
                         }
                         scheduleSave()
-                        let planIntent = rooms.first(where: { $0.id == roomID })?.intent ?? .task
+                        let planIntent = rooms.first(where: { $0.id == roomID })?.workflowState.intent ?? .task
                         await executePlanPhase(roomID: roomID, task: resolvedTask, intent: planIntent)
                         completedPhases.insert(.plan)
                         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                            rooms[i].completedPhases = completedPhases
+                            rooms[i].workflowState.completedPhases = completedPhases
                         }
                         workflowStart = Date()
                     }
                 }
             case .plan:
                 // requiredPhases에 .plan이 없으므로 여기에 오지 않음 (안전장치)
-                let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .quickAnswer
+                let intent = rooms.first(where: { $0.id == roomID })?.workflowState.intent ?? .quickAnswer
                 await executePlanPhase(roomID: roomID, task: resolvedTask, intent: intent)
             case .execute:
-                let intent = rooms.first(where: { $0.id == roomID })?.intent ?? .quickAnswer
+                let intent = rooms.first(where: { $0.id == roomID })?.workflowState.intent ?? .quickAnswer
                 await executeExecutePhase(roomID: roomID, task: resolvedTask, intent: intent)
             case .understand:
                 // Plan C: Understand 통합 단계 — intake+intent+clarify+TaskBrief
@@ -148,7 +148,7 @@ extension RoomManager {
 
             completedPhases.insert(nextPhase)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].completedPhases = completedPhases
+                rooms[i].workflowState.completedPhases = completedPhases
             }
             workflowStart = Date() // 단계 완료 후 타이머 리셋 (사용자 대기 시간으로 인한 타임아웃 방지)
         }
@@ -157,7 +157,7 @@ extension RoomManager {
         // Task.isCancelled (completeRoom 등 외부 완료) 시 이미 completed 상태이므로 중복 처리 방지
         if let i = rooms.firstIndex(where: { $0.id == roomID }),
            rooms[i].status != .failed && rooms[i].status != .completed {
-            rooms[i].currentPhase = nil
+            rooms[i].workflowState.currentPhase = nil
             rooms[i].status = .completed
             rooms[i].completedAt = Date()
             pluginEventDelegate?(.roomCompleted(roomID: roomID, title: rooms[i].title))
@@ -183,17 +183,17 @@ extension RoomManager {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
         // intent 미설정 → quickClassify 재시도 → LLM 폴백 (선택 UI 없이 자동 결정)
-        if rooms[idx].intent == nil {
+        if rooms[idx].workflowState.intent == nil {
             // 1) quickClassify 시도 (명확한 경우 즉시 결정)
             if let quick = IntentClassifier.quickClassify(task) {
-                rooms[idx].intent = quick
+                rooms[idx].workflowState.intent = quick
                 scheduleSave()
             } else {
                 // 2) LLM 분류 폴백 — 자동 적용, 사용자 선택 없음
                 guard let firstAgentID = rooms[idx].assignedAgentIDs.first,
                       let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
                       let provider = providerManager?.provider(named: agent.providerName) else {
-                    rooms[idx].intent = .task
+                    rooms[idx].workflowState.intent = .task
                     return
                 }
 
@@ -203,7 +203,7 @@ extension RoomManager {
                     provider: provider,
                     model: lightModel
                 )
-                rooms[idx].intent = classified
+                rooms[idx].workflowState.intent = classified
                 scheduleSave()
             }
         }
@@ -212,8 +212,8 @@ extension RoomManager {
         if let resolvedIdx = rooms.firstIndex(where: { $0.id == roomID }) {
             let currentTask = task
             if let docResult = DocumentRequestDetector.quickDetect(currentTask), docResult.isDocumentRequest {
-                rooms[resolvedIdx].autoDocOutput = true
-                rooms[resolvedIdx].documentType = docResult.suggestedDocType ?? .freeform
+                rooms[resolvedIdx].workflowState.autoDocOutput = true
+                rooms[resolvedIdx].workflowState.documentType = docResult.suggestedDocType ?? .freeform
             }
         }
     }
@@ -221,7 +221,7 @@ extension RoomManager {
     /// Intent 확정 후 사용자에게 워크플로우 설명 메시지 표시
     private func postIntentExplanation(roomID: UUID) {
         guard let room = rooms.first(where: { $0.id == roomID }),
-              let intent = room.intent else { return }
+              let intent = room.workflowState.intent else { return }
 
         let msg = ChatMessage(
             role: .system,
@@ -242,7 +242,7 @@ extension RoomManager {
             return false
         }
 
-        let clarifySummary = room.clarifySummary ?? task
+        let clarifySummary = room.clarifyContext.clarifySummary ?? task
 
         // 1단계: 키워드 기반 즉시 판별
         if let keywordResult = classifyNeedsPlanByKeywords(clarifySummary: clarifySummary, task: task) {
@@ -383,12 +383,12 @@ extension RoomManager {
             jiraDataList: jiraDataList,
             urls: urls
         )
-        rooms[idx].intakeData = intakeData
+        rooms[idx].clarifyContext.intakeData = intakeData
 
         // 4) 플레이북 로드 (내부 데이터만, UI 메시지 없음)
         if let projectPath = rooms[idx].primaryProjectPath {
             if let playbook = PlaybookManager.load(from: projectPath) {
-                rooms[idx].playbook = playbook
+                rooms[idx].clarifyContext.playbook = playbook
             }
         }
         scheduleSave()
@@ -405,11 +405,11 @@ extension RoomManager {
 
         // 컨텍스트 구성: IntakeData + 플레이북
         var contextParts: [String] = []
-        if let intakeData = rooms[idx].intakeData {
+        if let intakeData = rooms[idx].clarifyContext.intakeData {
             // Clarify 단계에서는 Jira/API 언급을 제거한 중립 컨텍스트 사용 (LLM 환각 방지)
             contextParts.append(intakeData.asClarifyContextString())
         }
-        if let playbook = rooms[idx].playbook {
+        if let playbook = rooms[idx].clarifyContext.playbook {
             contextParts.append(playbook.asContextString())
         }
         let contextString = contextParts.joined(separator: "\n\n")
@@ -432,7 +432,7 @@ extension RoomManager {
         }
 
         // 문서 유형 템플릿 주입
-        let docTypeContext = rooms[idx].documentType?.templatePromptBlock() ?? ""
+        let docTypeContext = rooms[idx].workflowState.documentType?.templatePromptBlock() ?? ""
 
         // 등록된 서브 에이전트 목록 (delegation 판단용)
         let agentListStr: String
@@ -614,8 +614,8 @@ extension RoomManager {
             if approved {
                 // 승인됨 → clarify 요약 저장 + delegation 분리 + planning 복귀
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].delegationInfo = parseDelegationBlock(currentSummary)
-                    rooms[i].clarifySummary = stripDelegationBlock(currentSummary)
+                    rooms[i].clarifyContext.delegationInfo = parseDelegationBlock(currentSummary)
+                    rooms[i].clarifyContext.clarifySummary = stripDelegationBlock(currentSummary)
                     rooms[i].transitionTo(.planning)
                 }
                 break
@@ -710,7 +710,7 @@ extension RoomManager {
         // (L2285에서 maxAgentHint = "반드시 1명만" 지시)
 
         // 문서 생성 작업 → LLM 매칭 바이패스: 문서 전용 에이전트 직접 배정
-        if rooms[idx].autoDocOutput {
+        if rooms[idx].workflowState.autoDocOutput {
             let allSubAgents = agentStore?.subAgents ?? []
             let docNameKWs: Set<String> = ["문서", "리서치", "작성"]
             let nonDocKWs: Set<String> = ["개발", "jira", "프론트", "백엔드"]
@@ -782,29 +782,29 @@ extension RoomManager {
 
         // 1) 마스터에게 역할 요구사항 산출 요청
         var contextParts: [String] = []
-        if let intakeData = rooms[idx].intakeData {
+        if let intakeData = rooms[idx].clarifyContext.intakeData {
             contextParts.append(intakeData.asClarifyContextString())
         }
-        if let assumptions = rooms[idx].assumptions, !assumptions.isEmpty {
+        if let assumptions = rooms[idx].clarifyContext.assumptions, !assumptions.isEmpty {
             contextParts.append("[가정]\n" + assumptions.map { "- \($0.text)" }.joined(separator: "\n"))
         }
         if let workLog = rooms[idx].workLog {
             contextParts.append(workLog.asContextString())
         }
 
-        let intentName = rooms[idx].intent?.displayName ?? "구현"
-        let docTypeName = rooms[idx].documentType?.displayName
+        let intentName = rooms[idx].workflowState.intent?.displayName ?? "구현"
+        let docTypeName = rooms[idx].workflowState.documentType?.displayName
         // 기존 에이전트 목록 구성
         let subAgents = agentStore?.subAgents ?? []
         let agentRoster = subAgents.isEmpty ? "(없음)" : subAgents.map { "- \($0.name)" }.joined(separator: "\n")
 
-        let intent = rooms[idx].intent
+        let intent = rooms[idx].workflowState.intent
         let maxAgentHint: String
         switch intent {
         case .quickAnswer:
             maxAgentHint = "이 작업은 즉답(quickAnswer)이므로 **반드시 1명만** 요청하세요. 가장 적합한 전문가 1명만 선택하세요."
         case .task:
-            maxAgentHint = rooms[idx].autoDocOutput
+            maxAgentHint = rooms[idx].workflowState.autoDocOutput
                 ? "이 작업은 조사/분석 + 문서 작성이므로 **2명**을 요청하세요."
                 : "불확실하면 적게 요청하세요 (1~2명이면 충분한 경우가 많습니다)."
         case .discussion:
@@ -815,14 +815,14 @@ extension RoomManager {
 
         // 문서 유형 컨텍스트
         let docTypeHint: String
-        if rooms[idx].autoDocOutput, let docType = rooms[idx].documentType {
+        if rooms[idx].workflowState.autoDocOutput, let docType = rooms[idx].workflowState.documentType {
             docTypeHint = """
 
             이 작업은 조사/분석 후 **\(docType.displayName)** 문서를 출력합니다.
             조사/분석을 수행할 전문가와 문서 작성에 적합한 전문가가 모두 필요합니다.
             예: 테스트 계획서 → 리서치 전문가 + QA/테스트 전문가, PRD → 리서치 전문가 + 기획/PM 전문가.
             """
-        } else if let docType = rooms[idx].documentType, docType != .freeform {
+        } else if let docType = rooms[idx].workflowState.documentType, docType != .freeform {
             docTypeHint = """
 
             이 작업은 **\(docType.displayName)** 문서를 작성하는 작업입니다.
@@ -872,7 +872,7 @@ extension RoomManager {
         """
 
         // --- 명시적 위임 감지 (clarify LLM 판단) ---
-        if let delegation = rooms[idx].delegationInfo,
+        if let delegation = rooms[idx].clarifyContext.delegationInfo,
            delegation.type == .explicit,
            !delegation.agentNames.isEmpty {
             let matchedAgents = delegation.agentNames.compactMap { name -> Agent? in
@@ -901,7 +901,7 @@ extension RoomManager {
         // 사전 매칭 (폴백): 사용자 요청에서 기존 에이전트 이름 키워드 직접 탐색
         // delegationInfo가 없는 과거 방이나 파싱 실패 시 사용
         var directMatchText: String
-        if let clarifySummary = rooms[idx].clarifySummary {
+        if let clarifySummary = rooms[idx].clarifyContext.clarifySummary {
             directMatchText = clarifySummary
         } else {
             directMatchText = task
@@ -960,7 +960,7 @@ extension RoomManager {
             // 산출물 추출
             let artifacts = ArtifactParser.extractArtifacts(from: response, producedBy: agent.name)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].artifacts.append(contentsOf: artifacts)
+                rooms[i].discussion.artifacts.append(contentsOf: artifacts)
             }
 
             // role_requirements 산출물에서 역할 파싱
@@ -971,7 +971,7 @@ extension RoomManager {
 
             // documentType이 설정되고 autoDocOutput이 아닌 경우: 최대 1명만 허용
             // autoDocOutput이면 리서치+문서 복합 → 다수 에이전트 허용
-            if rooms[idx].documentType != nil && !rooms[idx].autoDocOutput, requirements.count > 1 {
+            if rooms[idx].workflowState.documentType != nil && !rooms[idx].workflowState.autoDocOutput, requirements.count > 1 {
                 if let firstRequired = requirements.first(where: { $0.priority == .required }) {
                     requirements = [firstRequired]
                 } else {
@@ -1067,7 +1067,7 @@ extension RoomManager {
                 requirements: requirements,
                 agents: subAgents,
                 intent: intent,
-                documentType: rooms.first(where: { $0.id == roomID })?.documentType,
+                documentType: rooms.first(where: { $0.id == roomID })?.workflowState.documentType,
                 taskBrief: taskBrief
             )
 
@@ -1269,7 +1269,7 @@ extension RoomManager {
 
         let lightModel = providerManager?.lightModelName(for: agent.providerName) ?? agent.modelName
 
-        var intakeContext = rooms[idx].intakeData?.asClarifyContextString()
+        var intakeContext = rooms[idx].clarifyContext.intakeData?.asClarifyContextString()
         // 후속 사이클: 이전 대화 컨텍스트를 TaskBrief에 전달 (맥락 없는 엉뚱한 질문 방지)
         if let workLog = rooms[idx].workLog {
             let logContext = workLog.asContextString()
@@ -1286,7 +1286,7 @@ extension RoomManager {
         let hasImageAttachment = roomAttachments.contains { $0.isImage }
 
         // Fast-path: 짧고 명확한 이미지 작업은 LLM TaskBrief 생성 스킵
-        let isSimpleImageTask = rooms[idx].intent != nil
+        let isSimpleImageTask = rooms[idx].workflowState.intent != nil
             && hasExplicitIntent
             && actualTask.count < 30
             && hasImageAttachment
@@ -1318,7 +1318,7 @@ extension RoomManager {
         let brief = await IntentClassifier.generateTaskBrief(
             task: taskWithAttachmentHint,
             intakeContext: intakeContext,
-            clarifySummary: rooms[idx].clarifySummary,
+            clarifySummary: rooms[idx].clarifyContext.clarifySummary,
             userHasExplicitIntent: hasExplicitIntent || hasImageAttachment,
             provider: provider,
             model: lightModel
@@ -1342,7 +1342,7 @@ extension RoomManager {
         var currentBrief: TaskBrief? = brief
         var enrichedTask = actualTask
         let maxQuestions = 3
-        let isDocTask = rooms.first(where: { $0.id == roomID })?.autoDocOutput == true
+        let isDocTask = rooms.first(where: { $0.id == roomID })?.workflowState.autoDocOutput == true
 
         for questionRound in 1...maxQuestions {
             guard !isDocTask,
@@ -1376,7 +1376,7 @@ extension RoomManager {
                 if let updatedBrief = await IntentClassifier.generateTaskBrief(
                     task: enrichedTask,
                     intakeContext: intakeContext,
-                    clarifySummary: rooms[idx].clarifySummary,
+                    clarifySummary: rooms[idx].clarifyContext.clarifySummary,
                     userHasExplicitIntent: true,
                     provider: provider,
                     model: lightModel
@@ -1409,10 +1409,10 @@ extension RoomManager {
         // 전문가 1명: intent에 따라 분기
         if specialists.count < 2 {
             // 문서 작업은 Design(계획 수립) 스킵 → Build에서 handleDocumentOutput 직행
-            if room.autoDocOutput {
+            if room.workflowState.autoDocOutput {
                 return
             }
-            if room.intent == .discussion {
+            if room.workflowState.intent == .discussion {
                 await executeSoloDiscussion(roomID: roomID, task: task, room: room)
             } else {
                 await executeSoloDesign(roomID: roomID, task: task, room: room)
@@ -1433,7 +1433,7 @@ extension RoomManager {
             산출물 유형: \(brief.outputType.rawValue)
             """
         } else {
-            briefContext = room.clarifySummary ?? task
+            briefContext = room.clarifyContext.clarifySummary ?? task
         }
 
         // --- 멀티에이전트: 통합 토론 프로토콜 ---
@@ -1441,11 +1441,11 @@ extension RoomManager {
         await executeDiscussionDesign(roomID: roomID, task: task, briefContext: briefContext, specialists: specialists)
 
         // task intent: 토론 결과를 바탕으로 실행 계획 생성 + 승인
-        if room.intent != .discussion {
+        if room.workflowState.intent != .discussion {
             guard !Task.isCancelled,
                   rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
-            let discussionOutput = rooms.first(where: { $0.id == roomID })?.clarifySummary ?? ""
+            let discussionOutput = rooms.first(where: { $0.id == roomID })?.clarifyContext.clarifySummary ?? ""
 
             if rooms.first(where: { $0.id == roomID })?.plan == nil {
                 let plan = await requestPlan(roomID: roomID, task: task, designOutput: discussionOutput)
@@ -1604,7 +1604,7 @@ extension RoomManager {
         appendMessage(checkpoint1Msg, to: roomID)
 
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].isDiscussionCheckpoint = true
+            rooms[i].discussion.isCheckpoint = true
             rooms[i].transitionTo(.awaitingUserInput)
         }
         syncAgentStatuses()
@@ -1615,7 +1615,7 @@ extension RoomManager {
         }
 
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].isDiscussionCheckpoint = false
+            rooms[i].discussion.isCheckpoint = false
             rooms[i].transitionTo(.inProgress)
         }
 
@@ -1697,7 +1697,7 @@ extension RoomManager {
         appendMessage(checkpoint2Msg, to: roomID)
 
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].isDiscussionCheckpoint = true
+            rooms[i].discussion.isCheckpoint = true
             rooms[i].transitionTo(.awaitingUserInput)
         }
         syncAgentStatuses()
@@ -1708,7 +1708,7 @@ extension RoomManager {
         }
 
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].isDiscussionCheckpoint = false
+            rooms[i].discussion.isCheckpoint = false
             rooms[i].transitionTo(.inProgress)
         }
 
@@ -1726,7 +1726,7 @@ extension RoomManager {
 
         // 토론 결과를 room에 저장 (workLog 등에서 참조)
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].clarifySummary = (rooms[i].clarifySummary ?? "") + "\n\n[토론 결과]\n" + discussionSummary
+            rooms[i].clarifyContext.clarifySummary = (rooms[i].clarifyContext.clarifySummary ?? "") + "\n\n[토론 결과]\n" + discussionSummary
         }
 
         let masterAgent = agentStore?.masterAgent
@@ -1899,14 +1899,14 @@ extension RoomManager {
             위험도: \(brief.overallRisk.rawValue)
             """
         } else {
-            briefContext = room.clarifySummary ?? task
+            briefContext = room.clarifyContext.clarifySummary ?? task
         }
 
         let specialists = executingAgentIDs(in: roomID)
         guard let agentID = specialists.first,
               let agent = agentStore?.agents.first(where: { $0.id == agentID }),
               let provider = providerManager?.provider(named: agent.providerName) else {
-            let intent = room.intent ?? .task
+            let intent = room.workflowState.intent ?? .task
             await executePlanPhase(roomID: roomID, task: task, intent: intent)
             return
         }
@@ -2069,7 +2069,7 @@ extension RoomManager {
     /// Build 단계 (Plan C): Creator가 단계별 실행 — riskLevel별 정책 적용
     func executeBuildPhase(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
-        let intent = rooms[idx].intent ?? .task
+        let intent = rooms[idx].workflowState.intent ?? .task
 
         // 계획이 없으면 기존 execute 폴백
         guard let plan = rooms[idx].plan else {
@@ -2327,7 +2327,7 @@ extension RoomManager {
         if let brief = room.taskBrief {
             briefContext = "목표: \(brief.goal)\n성공기준: \(brief.successCriteria.joined(separator: ", "))"
         } else {
-            briefContext = room.clarifySummary ?? task
+            briefContext = room.clarifyContext.clarifySummary ?? task
         }
 
         let maxRetries = 2
@@ -2499,7 +2499,7 @@ extension RoomManager {
         if let brief = room.taskBrief {
             briefContext = "목표: \(brief.goal)\n성공기준: \(brief.successCriteria.joined(separator: ", "))"
         } else {
-            briefContext = room.clarifySummary ?? task
+            briefContext = room.clarifyContext.clarifySummary ?? task
         }
 
         let maxSelfRetries = 1
@@ -2710,14 +2710,14 @@ extension RoomManager {
         }
 
         // quickAnswer: deliver에서 실제 답변 실행 (requiredPhases에 execute 없음)
-        if room.intent == .quickAnswer {
+        if room.workflowState.intent == .quickAnswer {
             await executeQuickAnswer(roomID: roomID, task: task)
             guard !Task.isCancelled,
                   rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
         }
 
         // discussion: 토론 완료 (종합은 Design에서 이미 완료)
-        if room.intent == .discussion {
+        if room.workflowState.intent == .discussion {
             let doneMsg = ChatMessage(
                 role: .system,
                 content: "토론이 마무리되었습니다.",
@@ -2785,7 +2785,7 @@ extension RoomManager {
         if intent == .quickAnswer {
             // quickAnswer: 전문가 1명이 바로 답변
             await executeQuickAnswer(roomID: roomID, task: task)
-        } else if rooms[idx].needsPlan {
+        } else if rooms[idx].workflowState.needsPlan {
             // task + needsPlan: 계획 기반 단계별 실행
             if rooms[idx].plan == nil {
                 rooms[idx].plan = RoomPlan(summary: task, estimatedSeconds: 300, steps: [RoomStep(text: task)])
@@ -2816,7 +2816,7 @@ extension RoomManager {
                 guard !Task.isCancelled else { return }
             } else if specialistCount == 1 {
                 // autoDocOutput은 소로 분석 스킵 → handleDocumentOutput에서 도구 포함 문서 작성
-                let isDoc = rooms.first(where: { $0.id == roomID })?.autoDocOutput == true
+                let isDoc = rooms.first(where: { $0.id == roomID })?.workflowState.autoDocOutput == true
                 if !isDoc {
                     await executeSoloAnalysis(roomID: roomID, task: task)
                     guard !Task.isCancelled else { return }
@@ -2824,8 +2824,8 @@ extension RoomManager {
             }
 
             // autoDocOutput 플래그가 설정된 경우 자동 문서화
-            if let room = rooms.first(where: { $0.id == roomID }), room.autoDocOutput {
-                await handleDocumentOutput(roomID: roomID, task: task, suggestedType: room.documentType)
+            if let room = rooms.first(where: { $0.id == roomID }), room.workflowState.autoDocOutput {
+                await handleDocumentOutput(roomID: roomID, task: task, suggestedType: room.workflowState.documentType)
             }
             scheduleSave()
         }
@@ -2859,7 +2859,7 @@ extension RoomManager {
 
         let context = makeToolContext(roomID: roomID, currentAgentID: agentID)
         var history: [ConversationMessage] = []
-        if let intakeData = room?.intakeData, intakeData.sourceType != .text {
+        if let intakeData = room?.clarifyContext.intakeData, intakeData.sourceType != .text {
             history.append(ConversationMessage.user(intakeData.asClarifyContextString()))
         }
         if let workLog = rooms.first(where: { $0.id == roomID })?.workLog {
@@ -2989,7 +2989,7 @@ extension RoomManager {
 
         // intake 데이터 (Jira 트리거 제거된 중립 버전)
         let intakeBlock: String
-        if let intakeData = room?.intakeData, intakeData.sourceType != .text {
+        if let intakeData = room?.clarifyContext.intakeData, intakeData.sourceType != .text {
             intakeBlock = "\n" + intakeData.asClarifyContextString()
         } else {
             intakeBlock = ""
@@ -3054,7 +3054,7 @@ extension RoomManager {
     /// 플레이북 override 감지 (완료 후 호출)
     func detectPlaybookOverrides(roomID: UUID) {
         guard let room = rooms.first(where: { $0.id == roomID }),
-              let playbook = room.playbook,
+              let playbook = room.clarifyContext.playbook,
               room.primaryProjectPath != nil else { return }
 
         let workSummary = room.workLog?.outcome ?? ""
@@ -3195,7 +3195,7 @@ extension RoomManager {
 
         // intake 데이터 (Jira 트리거 제거된 중립 버전)
         let intakeContext: String
-        if let intakeData = room.intakeData {
+        if let intakeData = room.clarifyContext.intakeData {
             intakeContext = "\n" + intakeData.asClarifyContextString()
         } else {
             intakeContext = ""
@@ -3203,7 +3203,7 @@ extension RoomManager {
 
         // 브리핑 + 산출물 기반 컨텍스트 구성 (압축)
         let briefingContext: String
-        if let briefing = room.briefing {
+        if let briefing = room.discussion.briefing {
             briefingContext = briefing.asContextString()
         } else {
             // 폴백: 기존 토론 히스토리에서 요약 생성
@@ -3212,9 +3212,9 @@ extension RoomManager {
         }
 
         let artifactContext: String
-        if !room.artifacts.isEmpty {
+        if !room.discussion.artifacts.isEmpty {
             // 계획 수립용: 산출물 프리뷰만 전달 (토큰 절감, 전체 내용은 실행 단계에서 사용)
-            artifactContext = "\n\n[참고 산출물]\n" + room.artifacts.map {
+            artifactContext = "\n\n[참고 산출물]\n" + room.discussion.artifacts.map {
                 let preview = $0.content.prefix(200)
                 let suffix = $0.content.count > 200 ? "... (\($0.content.count)자)" : ""
                 return "[\($0.type.displayName)] \($0.title) (v\($0.version)):\n\(preview)\(suffix)"
@@ -3225,7 +3225,7 @@ extension RoomManager {
 
         // 플레이북 컨텍스트 주입
         let playbookContext: String
-        if let playbook = room.playbook {
+        if let playbook = room.clarifyContext.playbook {
             playbookContext = "\n\n[프로젝트 플레이북]\n" + playbook.asContextString()
         } else {
             playbookContext = ""
@@ -3242,14 +3242,14 @@ extension RoomManager {
 
         // 원래 사용자 요청 앵커링
         let clarifyContext: String
-        if let summary = room.clarifySummary {
+        if let summary = room.clarifyContext.clarifySummary {
             clarifyContext = "\n[원래 사용자 요청]\n\(summary)\n"
         } else {
             clarifyContext = ""
         }
 
         // 문서 유형 템플릿 주입
-        let docTemplateContext = room.documentType?.templatePromptBlock() ?? ""
+        let docTemplateContext = room.workflowState.documentType?.templatePromptBlock() ?? ""
 
         let planSystemPrompt = """
         \(agent.resolvedSystemPrompt)
@@ -3814,10 +3814,10 @@ extension RoomManager {
 
         // 브리핑 기반 컨텍스트 (압축) + 최근 메시지 + 첫 사용자 메시지(이미지 포함) 보장
         var history: [ConversationMessage] = []
-        if let intakeData = room?.intakeData, intakeData.sourceType != .text {
+        if let intakeData = room?.clarifyContext.intakeData, intakeData.sourceType != .text {
             history.append(ConversationMessage.user(intakeData.asClarifyContextString()))
         }
-        if let briefing = room?.briefing {
+        if let briefing = room?.discussion.briefing {
             history.append(ConversationMessage.user("작업 브리핑:\n\(briefing.asContextString())"))
         }
 
@@ -3837,8 +3837,8 @@ extension RoomManager {
 
         // 산출물 컨텍스트 구성
         let artifactContext: String
-        if let room = room, !room.artifacts.isEmpty {
-            artifactContext = "\n\n[참고 산출물]\n" + room.artifacts.map {
+        if let room = room, !room.discussion.artifacts.isEmpty {
+            artifactContext = "\n\n[참고 산출물]\n" + room.discussion.artifacts.map {
                 "[\($0.type.displayName)] \($0.title) (v\($0.version)):\n\($0.content)"
             }.joined(separator: "\n---\n")
         } else {
@@ -3847,12 +3847,12 @@ extension RoomManager {
 
         // 문서 유형 템플릿 (documentType 설정 시 섹션 가이드 주입)
         let docTemplateBlock: String
-        if let docType = room?.documentType, docType != .freeform {
+        if let docType = room?.workflowState.documentType, docType != .freeform {
             docTemplateBlock = "\n" + docType.templatePromptBlock()
         } else {
             docTemplateBlock = ""
         }
-        let isDocumentation = room?.documentType != nil
+        let isDocumentation = room?.workflowState.documentType != nil
 
         let isLastStep = stepIndex == totalSteps - 1
         let stepPrompt: String

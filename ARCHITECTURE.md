@@ -669,7 +669,7 @@ planning → awaitingApproval (토론 후 사용자 승인)
 
 ### 값 객체 (Phase 2~5)
 
-Room의 프로퍼티를 의미 단위로 그룹핑한 값 객체. 현재는 computed 접근자로 제공되며 기존 개별 프로퍼티는 유지.
+Room의 30개 개별 프로퍼티를 5개 값 객체로 그룹핑. **Phase 7에서 저장 모델 전환 완료** — 값 객체가 실제 stored property이며, 기존 프로퍼티명은 computed wrapper로 하위 호환 유지. Views/ViewModels의 주요 접근 사이트는 값 객체 경유(`room.workflowState.intent` 등)로 마이그레이션됨.
 
 | 값 객체 | 프로퍼티 수 | 내용 |
 |---------|-----------|------|

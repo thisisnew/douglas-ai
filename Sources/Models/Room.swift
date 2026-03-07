@@ -449,56 +449,12 @@ struct Room: Identifiable, Codable {
     var completedAt: Date?
     let createdBy: RoomCreator
     var currentStepIndex: Int
-    // 토론 관련
-    var currentRound: Int
-    // 토론 산출물
-    var artifacts: [DiscussionArtifact]
-    // 토론 브리핑 (컨텍스트 압축)
-    var briefing: RoomBriefing?
-    // 프로젝트 연동
-    var projectPaths: [String]
-    /// git worktree 경로 (동일 projectPath 동시 사용 시 lazy 생성)
-    var worktreePath: String?
-    var buildCommand: String?
-    // 빌드 루프
-    var buildLoopStatus: BuildLoopStatus?
-    var buildRetryCount: Int
-    var maxBuildRetries: Int
-    var lastBuildResult: BuildResult?
     // 승인 게이트
     var pendingApprovalStepIndex: Int?
-    // QA 루프
-    var testCommand: String?
-    var qaLoopStatus: QALoopStatus?
-    var qaRetryCount: Int
-    var maxQARetries: Int
-    var lastQAResult: QAResult?
     // 에이전트 생성 제안
     var pendingAgentSuggestions: [RoomAgentSuggestion]
     // 작업일지
     var workLog: WorkLog?
-    // 워크플로우 (Phase E)
-    var intent: WorkflowIntent?
-    var documentType: DocumentType?
-    /// 초기 메시지에서 문서 요청 감지 시 설정 (리서치 완료 후 자동 문서화)
-    var autoDocOutput: Bool
-    /// clarify 완료 후 동적으로 결정: 실행 계획이 필요한가?
-    var needsPlan: Bool
-    var currentPhase: WorkflowPhase?
-    var completedPhases: Set<WorkflowPhase>
-    var assumptions: [WorkflowAssumption]?
-    var userAnswers: [UserAnswer]?
-    var playbook: ProjectPlaybook?
-    var intakeData: IntakeData?
-    var clarifyQuestionCount: Int
-    /// 복명복창에서 사용자가 승인한 요약 (토론 의도 앵커링용)
-    var clarifySummary: String?
-    /// clarify LLM이 판단한 위임 정보 (explicit: 지정 에이전트만, open: 시스템 판단)
-    var delegationInfo: DelegationInfo?
-    /// 토론 사이클 후 사용자 체크포인트 대기 여부
-    var isDiscussionCheckpoint: Bool
-    // 토론 결정 로그
-    var decisionLog: [DecisionEntry]
     // Plan C: 새 워크플로우 필드
     var taskBrief: TaskBrief?
     var agentRoles: [String: RuntimeRole]       // agentID.uuidString → RuntimeRole
@@ -506,6 +462,15 @@ struct Room: Identifiable, Codable {
     // Phase 1: 승인 기록 + 대기 유형
     var approvalHistory: [ApprovalRecord]
     var awaitingType: AwaitingType?
+    // Phase 7: 값 객체 (30개 개별 프로퍼티 → 5개 그룹)
+    var workflowState: WorkflowState
+    var clarifyContext: ClarifyContext
+    var projectContext: ProjectContext
+    var discussion: DiscussionSession
+    var buildQA: BuildQAState
+    // Phase 7: 요청/후속 이력
+    var requests: [DouglasRequest]
+    var followUpActions: [FollowUpAction]
 
     /// 남은 시간 (초). 타이머 미시작 시 nil
     var remainingSeconds: Int? {
@@ -521,15 +486,15 @@ struct Room: Identifiable, Codable {
     }
 
     /// 첫 번째 프로젝트 경로 (빌드/테스트/shell 기본 workDir)
-    var primaryProjectPath: String? { projectPaths.first }
+    var primaryProjectPath: String? { projectContext.projectPaths.first }
 
     /// 실제 작업 디렉토리 (worktree 있으면 worktree, 없으면 원본)
-    var effectiveProjectPath: String? { worktreePath ?? primaryProjectPath }
+    var effectiveProjectPath: String? { projectContext.worktreePath ?? primaryProjectPath }
 
     /// 도구 실행 컨텍스트용 경로 배열 (effectiveProjectPath + 나머지 참조 경로)
     var effectiveProjectPaths: [String] {
-        guard let effective = effectiveProjectPath else { return projectPaths }
-        return [effective] + projectPaths.dropFirst()
+        guard let effective = effectiveProjectPath else { return projectContext.projectPaths }
+        return [effective] + projectContext.projectPaths.dropFirst()
     }
 
     /// 활성 방 여부 (planning, inProgress, awaitingApproval, awaitingUserInput)
@@ -554,7 +519,7 @@ struct Room: Identifiable, Codable {
             default:          return ""
             }
         }
-        switch currentPhase {
+        switch workflowState.currentPhase {
         case .intake, .intent, .assemble:
             return "준비 중"
         case .clarify, .understand:
@@ -568,9 +533,9 @@ struct Room: Identifiable, Codable {
         case .deliver:
             return "전달 중"
         case .plan:
-            if currentRound > 0 { return "토론 중 (\(currentRound)R)" }
+            if discussion.currentRound > 0 { return "토론 중 (\(discussion.currentRound)R)" }
             if plan != nil { return "계획 검토 중" }
-            if briefing != nil { return "계획 수립 중" }
+            if discussion.briefing != nil { return "계획 수립 중" }
             return "분석 중"
         case .execute:
             return "진행 중"
@@ -601,116 +566,136 @@ struct Room: Identifiable, Codable {
         }
     }
 
-    // MARK: - 값 객체 접근자 (Phase 2)
+    // MARK: - 호환 접근자 (Phase 7: 값 객체 도입 후 점진 제거 예정)
 
-    /// 워크플로우 진행 상태 그룹
-    var workflowState: WorkflowState {
-        get {
-            WorkflowState(
-                intent: intent,
-                documentType: documentType,
-                autoDocOutput: autoDocOutput,
-                needsPlan: needsPlan,
-                currentPhase: currentPhase,
-                completedPhases: completedPhases
-            )
-        }
-        set {
-            intent = newValue.intent
-            documentType = newValue.documentType
-            autoDocOutput = newValue.autoDocOutput
-            needsPlan = newValue.needsPlan
-            currentPhase = newValue.currentPhase
-            completedPhases = newValue.completedPhases
-        }
+    // WorkflowState
+    var intent: WorkflowIntent? {
+        get { workflowState.intent }
+        set { workflowState.intent = newValue }
+    }
+    var documentType: DocumentType? {
+        get { workflowState.documentType }
+        set { workflowState.documentType = newValue }
+    }
+    var autoDocOutput: Bool {
+        get { workflowState.autoDocOutput }
+        set { workflowState.autoDocOutput = newValue }
+    }
+    var needsPlan: Bool {
+        get { workflowState.needsPlan }
+        set { workflowState.needsPlan = newValue }
+    }
+    var currentPhase: WorkflowPhase? {
+        get { workflowState.currentPhase }
+        set { workflowState.currentPhase = newValue }
+    }
+    var completedPhases: Set<WorkflowPhase> {
+        get { workflowState.completedPhases }
+        set { workflowState.completedPhases = newValue }
     }
 
-    /// 복명복창 컨텍스트 그룹
-    var clarifyContext: ClarifyContext {
-        get {
-            ClarifyContext(
-                intakeData: intakeData,
-                clarifySummary: clarifySummary,
-                clarifyQuestionCount: clarifyQuestionCount,
-                assumptions: assumptions,
-                userAnswers: userAnswers,
-                delegationInfo: delegationInfo,
-                playbook: playbook
-            )
-        }
-        set {
-            intakeData = newValue.intakeData
-            clarifySummary = newValue.clarifySummary
-            clarifyQuestionCount = newValue.clarifyQuestionCount
-            assumptions = newValue.assumptions
-            userAnswers = newValue.userAnswers
-            delegationInfo = newValue.delegationInfo
-            playbook = newValue.playbook
-        }
+    // ClarifyContext
+    var intakeData: IntakeData? {
+        get { clarifyContext.intakeData }
+        set { clarifyContext.intakeData = newValue }
+    }
+    var clarifySummary: String? {
+        get { clarifyContext.clarifySummary }
+        set { clarifyContext.clarifySummary = newValue }
+    }
+    var clarifyQuestionCount: Int {
+        get { clarifyContext.clarifyQuestionCount }
+        set { clarifyContext.clarifyQuestionCount = newValue }
+    }
+    var assumptions: [WorkflowAssumption]? {
+        get { clarifyContext.assumptions }
+        set { clarifyContext.assumptions = newValue }
+    }
+    var userAnswers: [UserAnswer]? {
+        get { clarifyContext.userAnswers }
+        set { clarifyContext.userAnswers = newValue }
+    }
+    var delegationInfo: DelegationInfo? {
+        get { clarifyContext.delegationInfo }
+        set { clarifyContext.delegationInfo = newValue }
+    }
+    var playbook: ProjectPlaybook? {
+        get { clarifyContext.playbook }
+        set { clarifyContext.playbook = newValue }
     }
 
-    /// 빌드/QA 상태 그룹
-    var buildQA: BuildQAState {
-        get {
-            BuildQAState(
-                buildLoopStatus: buildLoopStatus,
-                buildRetryCount: buildRetryCount,
-                maxBuildRetries: maxBuildRetries,
-                lastBuildResult: lastBuildResult,
-                qaLoopStatus: qaLoopStatus,
-                qaRetryCount: qaRetryCount,
-                maxQARetries: maxQARetries,
-                lastQAResult: lastQAResult
-            )
-        }
-        set {
-            buildLoopStatus = newValue.buildLoopStatus
-            buildRetryCount = newValue.buildRetryCount
-            maxBuildRetries = newValue.maxBuildRetries
-            lastBuildResult = newValue.lastBuildResult
-            qaLoopStatus = newValue.qaLoopStatus
-            qaRetryCount = newValue.qaRetryCount
-            maxQARetries = newValue.maxQARetries
-            lastQAResult = newValue.lastQAResult
-        }
+    // ProjectContext
+    var projectPaths: [String] {
+        get { projectContext.projectPaths }
+        set { projectContext.projectPaths = newValue }
+    }
+    var worktreePath: String? {
+        get { projectContext.worktreePath }
+        set { projectContext.worktreePath = newValue }
+    }
+    var buildCommand: String? {
+        get { projectContext.buildCommand }
+        set { projectContext.buildCommand = newValue }
+    }
+    var testCommand: String? {
+        get { projectContext.testCommand }
+        set { projectContext.testCommand = newValue }
     }
 
-    /// 토론 세션 그룹
-    var discussion: DiscussionSession {
-        get {
-            DiscussionSession(
-                currentRound: currentRound,
-                isCheckpoint: isDiscussionCheckpoint,
-                decisionLog: decisionLog,
-                artifacts: artifacts,
-                briefing: briefing
-            )
-        }
-        set {
-            currentRound = newValue.currentRound
-            isDiscussionCheckpoint = newValue.isCheckpoint
-            decisionLog = newValue.decisionLog
-            artifacts = newValue.artifacts
-            briefing = newValue.briefing
-        }
+    // DiscussionSession
+    var currentRound: Int {
+        get { discussion.currentRound }
+        set { discussion.currentRound = newValue }
+    }
+    var isDiscussionCheckpoint: Bool {
+        get { discussion.isCheckpoint }
+        set { discussion.isCheckpoint = newValue }
+    }
+    var decisionLog: [DecisionEntry] {
+        get { discussion.decisionLog }
+        set { discussion.decisionLog = newValue }
+    }
+    var artifacts: [DiscussionArtifact] {
+        get { discussion.artifacts }
+        set { discussion.artifacts = newValue }
+    }
+    var briefing: RoomBriefing? {
+        get { discussion.briefing }
+        set { discussion.briefing = newValue }
     }
 
-    /// 프로젝트 연동 컨텍스트 그룹
-    var projectContext: ProjectContext {
-        get {
-            ProjectContext(
-                projectPaths: projectPaths,
-                worktreePath: worktreePath,
-                buildCommand: buildCommand,
-                testCommand: testCommand
-            )
-        }
-        set {
-            projectPaths = newValue.projectPaths
-            worktreePath = newValue.worktreePath
-            buildCommand = newValue.buildCommand
-            testCommand = newValue.testCommand
-        }
+    // BuildQAState
+    var buildLoopStatus: BuildLoopStatus? {
+        get { buildQA.buildLoopStatus }
+        set { buildQA.buildLoopStatus = newValue }
+    }
+    var buildRetryCount: Int {
+        get { buildQA.buildRetryCount }
+        set { buildQA.buildRetryCount = newValue }
+    }
+    var maxBuildRetries: Int {
+        get { buildQA.maxBuildRetries }
+        set { buildQA.maxBuildRetries = newValue }
+    }
+    var lastBuildResult: BuildResult? {
+        get { buildQA.lastBuildResult }
+        set { buildQA.lastBuildResult = newValue }
+    }
+    var qaLoopStatus: QALoopStatus? {
+        get { buildQA.qaLoopStatus }
+        set { buildQA.qaLoopStatus = newValue }
+    }
+    var qaRetryCount: Int {
+        get { buildQA.qaRetryCount }
+        set { buildQA.qaRetryCount = newValue }
+    }
+    var maxQARetries: Int {
+        get { buildQA.maxQARetries }
+        set { buildQA.maxQARetries = newValue }
+    }
+    var lastQAResult: QAResult? {
+        get { buildQA.lastQAResult }
+        set { buildQA.lastQAResult = newValue }
     }
 
     /// 검증된 상태 전이. 유효하지 않으면 false 반환
@@ -752,47 +737,46 @@ struct Room: Identifiable, Codable {
         self.completedAt = nil
         self.createdBy = createdBy
         self.currentStepIndex = 0
-        self.currentRound = 0
-        self.artifacts = []
-        self.briefing = nil
-        self.projectPaths = projectPaths
-        self.worktreePath = nil
-        self.buildCommand = buildCommand
-        self.buildLoopStatus = nil
-        self.buildRetryCount = 0
-        self.maxBuildRetries = 3
-        self.lastBuildResult = nil
         self.pendingApprovalStepIndex = nil
         self.pendingAgentSuggestions = []
-        self.testCommand = testCommand
-        self.qaLoopStatus = nil
-        self.qaRetryCount = 0
-        self.maxQARetries = 3
-        self.lastQAResult = nil
         self.workLog = nil
-        self.intent = nil
-        self.documentType = nil
-        self.autoDocOutput = false
-        self.needsPlan = false
-        self.currentPhase = nil
-        self.completedPhases = []
-        self.assumptions = nil
-        self.userAnswers = nil
-        self.playbook = nil
-        self.intakeData = nil
-        self.clarifyQuestionCount = 0
-        self.clarifySummary = nil
-        self.delegationInfo = nil
-        self.isDiscussionCheckpoint = false
-        self.decisionLog = []
         self.taskBrief = nil
         self.agentRoles = [:]
         self.deferredActions = []
         self.approvalHistory = []
         self.awaitingType = nil
+        self.workflowState = WorkflowState()
+        self.clarifyContext = ClarifyContext()
+        self.projectContext = ProjectContext(projectPaths: projectPaths, buildCommand: buildCommand, testCommand: testCommand)
+        self.discussion = DiscussionSession()
+        self.buildQA = BuildQAState()
+        self.requests = []
+        self.followUpActions = []
     }
 
-    // 기존 저장 데이터 호환
+    // MARK: - Codable
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, assignedAgentIDs, messages, status, mode, plan
+        case timerStartedAt, timerDurationSeconds, createdAt, completedAt, createdBy
+        case currentStepIndex, pendingApprovalStepIndex, pendingAgentSuggestions
+        case workLog, taskBrief, agentRoles, deferredActions
+        case approvalHistory, awaitingType
+        case requests, followUpActions
+        // WorkflowState (개별 키 유지 — JSON 호환)
+        case intent, documentType, autoDocOutput, needsPlan, currentPhase, completedPhases
+        // ClarifyContext
+        case intakeData, clarifySummary, clarifyQuestionCount
+        case assumptions, userAnswers, delegationInfo, playbook
+        // ProjectContext
+        case projectPaths, worktreePath, buildCommand, testCommand
+        // DiscussionSession
+        case currentRound, isDiscussionCheckpoint, decisionLog, artifacts, briefing
+        // BuildQAState
+        case buildLoopStatus, buildRetryCount, maxBuildRetries, lastBuildResult
+        case qaLoopStatus, qaRetryCount, maxQARetries, lastQAResult
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
@@ -808,55 +792,135 @@ struct Room: Identifiable, Codable {
         completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
         createdBy = try container.decode(RoomCreator.self, forKey: .createdBy)
         currentStepIndex = try container.decodeIfPresent(Int.self, forKey: .currentStepIndex) ?? 0
-        // maxDiscussionRounds 제거됨 — 레거시 JSON의 해당 키는 자동 무시
-        currentRound = try container.decodeIfPresent(Int.self, forKey: .currentRound) ?? 0
-        artifacts = try container.decodeIfPresent([DiscussionArtifact].self, forKey: .artifacts) ?? []
-        briefing = try container.decodeIfPresent(RoomBriefing.self, forKey: .briefing)
-        // 하위 호환: projectPaths 배열 우선, 없으면 기존 projectPath 단일 문자열 변환
-        if let paths = try container.decodeIfPresent([String].self, forKey: .projectPaths) {
-            projectPaths = paths
-        } else {
-            enum LegacyKeys: String, CodingKey { case projectPath }
-            let legacy = try decoder.container(keyedBy: LegacyKeys.self)
-            if let path = try legacy.decodeIfPresent(String.self, forKey: .projectPath) {
-                projectPaths = [path]
-            } else {
-                projectPaths = []
-            }
-        }
-        worktreePath = try container.decodeIfPresent(String.self, forKey: .worktreePath)
-        buildCommand = try container.decodeIfPresent(String.self, forKey: .buildCommand)
-        buildLoopStatus = try container.decodeIfPresent(BuildLoopStatus.self, forKey: .buildLoopStatus)
-        buildRetryCount = try container.decodeIfPresent(Int.self, forKey: .buildRetryCount) ?? 0
-        maxBuildRetries = try container.decodeIfPresent(Int.self, forKey: .maxBuildRetries) ?? 3
-        lastBuildResult = try container.decodeIfPresent(BuildResult.self, forKey: .lastBuildResult)
         pendingApprovalStepIndex = try container.decodeIfPresent(Int.self, forKey: .pendingApprovalStepIndex)
         pendingAgentSuggestions = try container.decodeIfPresent([RoomAgentSuggestion].self, forKey: .pendingAgentSuggestions) ?? []
-        testCommand = try container.decodeIfPresent(String.self, forKey: .testCommand)
-        qaLoopStatus = try container.decodeIfPresent(QALoopStatus.self, forKey: .qaLoopStatus)
-        qaRetryCount = try container.decodeIfPresent(Int.self, forKey: .qaRetryCount) ?? 0
-        maxQARetries = try container.decodeIfPresent(Int.self, forKey: .maxQARetries) ?? 3
-        lastQAResult = try container.decodeIfPresent(QAResult.self, forKey: .lastQAResult)
         workLog = try container.decodeIfPresent(WorkLog.self, forKey: .workLog)
-        intent = try container.decodeIfPresent(WorkflowIntent.self, forKey: .intent)
-        documentType = try container.decodeIfPresent(DocumentType.self, forKey: .documentType)
-        autoDocOutput = try container.decodeIfPresent(Bool.self, forKey: .autoDocOutput) ?? false
-        needsPlan = try container.decodeIfPresent(Bool.self, forKey: .needsPlan) ?? false
-        currentPhase = (try? container.decodeIfPresent(WorkflowPhase.self, forKey: .currentPhase)) ?? nil
-        completedPhases = try container.decodeIfPresent(Set<WorkflowPhase>.self, forKey: .completedPhases) ?? []
-        assumptions = try container.decodeIfPresent([WorkflowAssumption].self, forKey: .assumptions)
-        userAnswers = try container.decodeIfPresent([UserAnswer].self, forKey: .userAnswers)
-        playbook = try container.decodeIfPresent(ProjectPlaybook.self, forKey: .playbook)
-        intakeData = try container.decodeIfPresent(IntakeData.self, forKey: .intakeData)
-        clarifyQuestionCount = try container.decodeIfPresent(Int.self, forKey: .clarifyQuestionCount) ?? 0
-        clarifySummary = try container.decodeIfPresent(String.self, forKey: .clarifySummary)
-        delegationInfo = try container.decodeIfPresent(DelegationInfo.self, forKey: .delegationInfo)
-        isDiscussionCheckpoint = try container.decodeIfPresent(Bool.self, forKey: .isDiscussionCheckpoint) ?? false
-        decisionLog = try container.decodeIfPresent([DecisionEntry].self, forKey: .decisionLog) ?? []
         taskBrief = try container.decodeIfPresent(TaskBrief.self, forKey: .taskBrief)
         agentRoles = try container.decodeIfPresent([String: RuntimeRole].self, forKey: .agentRoles) ?? [:]
         deferredActions = try container.decodeIfPresent([DeferredAction].self, forKey: .deferredActions) ?? []
         approvalHistory = try container.decodeIfPresent([ApprovalRecord].self, forKey: .approvalHistory) ?? []
         awaitingType = try container.decodeIfPresent(AwaitingType.self, forKey: .awaitingType)
+        requests = try container.decodeIfPresent([DouglasRequest].self, forKey: .requests) ?? []
+        followUpActions = try container.decodeIfPresent([FollowUpAction].self, forKey: .followUpActions) ?? []
+
+        // WorkflowState
+        workflowState = WorkflowState(
+            intent: try container.decodeIfPresent(WorkflowIntent.self, forKey: .intent),
+            documentType: try container.decodeIfPresent(DocumentType.self, forKey: .documentType),
+            autoDocOutput: try container.decodeIfPresent(Bool.self, forKey: .autoDocOutput) ?? false,
+            needsPlan: try container.decodeIfPresent(Bool.self, forKey: .needsPlan) ?? false,
+            currentPhase: (try? container.decodeIfPresent(WorkflowPhase.self, forKey: .currentPhase)) ?? nil,
+            completedPhases: try container.decodeIfPresent(Set<WorkflowPhase>.self, forKey: .completedPhases) ?? []
+        )
+
+        // ClarifyContext
+        clarifyContext = ClarifyContext(
+            intakeData: try container.decodeIfPresent(IntakeData.self, forKey: .intakeData),
+            clarifySummary: try container.decodeIfPresent(String.self, forKey: .clarifySummary),
+            clarifyQuestionCount: try container.decodeIfPresent(Int.self, forKey: .clarifyQuestionCount) ?? 0,
+            assumptions: try container.decodeIfPresent([WorkflowAssumption].self, forKey: .assumptions),
+            userAnswers: try container.decodeIfPresent([UserAnswer].self, forKey: .userAnswers),
+            delegationInfo: try container.decodeIfPresent(DelegationInfo.self, forKey: .delegationInfo),
+            playbook: try container.decodeIfPresent(ProjectPlaybook.self, forKey: .playbook)
+        )
+
+        // ProjectContext (하위 호환: projectPaths 배열 우선, 없으면 기존 projectPath 단일 문자열)
+        let paths: [String]
+        if let p = try container.decodeIfPresent([String].self, forKey: .projectPaths) {
+            paths = p
+        } else {
+            enum LegacyKeys: String, CodingKey { case projectPath }
+            let legacy = try decoder.container(keyedBy: LegacyKeys.self)
+            paths = (try legacy.decodeIfPresent(String.self, forKey: .projectPath)).map { [$0] } ?? []
+        }
+        projectContext = ProjectContext(
+            projectPaths: paths,
+            worktreePath: try container.decodeIfPresent(String.self, forKey: .worktreePath),
+            buildCommand: try container.decodeIfPresent(String.self, forKey: .buildCommand),
+            testCommand: try container.decodeIfPresent(String.self, forKey: .testCommand)
+        )
+
+        // DiscussionSession
+        discussion = DiscussionSession(
+            currentRound: try container.decodeIfPresent(Int.self, forKey: .currentRound) ?? 0,
+            isCheckpoint: try container.decodeIfPresent(Bool.self, forKey: .isDiscussionCheckpoint) ?? false,
+            decisionLog: try container.decodeIfPresent([DecisionEntry].self, forKey: .decisionLog) ?? [],
+            artifacts: try container.decodeIfPresent([DiscussionArtifact].self, forKey: .artifacts) ?? [],
+            briefing: try container.decodeIfPresent(RoomBriefing.self, forKey: .briefing)
+        )
+
+        // BuildQAState
+        buildQA = BuildQAState(
+            buildLoopStatus: try container.decodeIfPresent(BuildLoopStatus.self, forKey: .buildLoopStatus),
+            buildRetryCount: try container.decodeIfPresent(Int.self, forKey: .buildRetryCount) ?? 0,
+            maxBuildRetries: try container.decodeIfPresent(Int.self, forKey: .maxBuildRetries) ?? 3,
+            lastBuildResult: try container.decodeIfPresent(BuildResult.self, forKey: .lastBuildResult),
+            qaLoopStatus: try container.decodeIfPresent(QALoopStatus.self, forKey: .qaLoopStatus),
+            qaRetryCount: try container.decodeIfPresent(Int.self, forKey: .qaRetryCount) ?? 0,
+            maxQARetries: try container.decodeIfPresent(Int.self, forKey: .maxQARetries) ?? 3,
+            lastQAResult: try container.decodeIfPresent(QAResult.self, forKey: .lastQAResult)
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encode(assignedAgentIDs, forKey: .assignedAgentIDs)
+        try container.encode(messages, forKey: .messages)
+        try container.encode(status, forKey: .status)
+        try container.encode(mode, forKey: .mode)
+        try container.encodeIfPresent(plan, forKey: .plan)
+        try container.encodeIfPresent(timerStartedAt, forKey: .timerStartedAt)
+        try container.encodeIfPresent(timerDurationSeconds, forKey: .timerDurationSeconds)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encodeIfPresent(completedAt, forKey: .completedAt)
+        try container.encode(createdBy, forKey: .createdBy)
+        try container.encode(currentStepIndex, forKey: .currentStepIndex)
+        try container.encodeIfPresent(pendingApprovalStepIndex, forKey: .pendingApprovalStepIndex)
+        try container.encode(pendingAgentSuggestions, forKey: .pendingAgentSuggestions)
+        try container.encodeIfPresent(workLog, forKey: .workLog)
+        try container.encodeIfPresent(taskBrief, forKey: .taskBrief)
+        if !agentRoles.isEmpty { try container.encode(agentRoles, forKey: .agentRoles) }
+        if !deferredActions.isEmpty { try container.encode(deferredActions, forKey: .deferredActions) }
+        if !approvalHistory.isEmpty { try container.encode(approvalHistory, forKey: .approvalHistory) }
+        try container.encodeIfPresent(awaitingType, forKey: .awaitingType)
+        if !requests.isEmpty { try container.encode(requests, forKey: .requests) }
+        if !followUpActions.isEmpty { try container.encode(followUpActions, forKey: .followUpActions) }
+        // WorkflowState (개별 키로 인코딩 — JSON 호환)
+        try container.encodeIfPresent(workflowState.intent, forKey: .intent)
+        try container.encodeIfPresent(workflowState.documentType, forKey: .documentType)
+        if workflowState.autoDocOutput { try container.encode(true, forKey: .autoDocOutput) }
+        if workflowState.needsPlan { try container.encode(true, forKey: .needsPlan) }
+        try container.encodeIfPresent(workflowState.currentPhase, forKey: .currentPhase)
+        if !workflowState.completedPhases.isEmpty { try container.encode(workflowState.completedPhases, forKey: .completedPhases) }
+        // ClarifyContext
+        try container.encodeIfPresent(clarifyContext.intakeData, forKey: .intakeData)
+        try container.encodeIfPresent(clarifyContext.clarifySummary, forKey: .clarifySummary)
+        if clarifyContext.clarifyQuestionCount > 0 { try container.encode(clarifyContext.clarifyQuestionCount, forKey: .clarifyQuestionCount) }
+        try container.encodeIfPresent(clarifyContext.assumptions, forKey: .assumptions)
+        try container.encodeIfPresent(clarifyContext.userAnswers, forKey: .userAnswers)
+        try container.encodeIfPresent(clarifyContext.delegationInfo, forKey: .delegationInfo)
+        try container.encodeIfPresent(clarifyContext.playbook, forKey: .playbook)
+        // ProjectContext
+        if !projectContext.projectPaths.isEmpty { try container.encode(projectContext.projectPaths, forKey: .projectPaths) }
+        try container.encodeIfPresent(projectContext.worktreePath, forKey: .worktreePath)
+        try container.encodeIfPresent(projectContext.buildCommand, forKey: .buildCommand)
+        try container.encodeIfPresent(projectContext.testCommand, forKey: .testCommand)
+        // DiscussionSession
+        if discussion.currentRound > 0 { try container.encode(discussion.currentRound, forKey: .currentRound) }
+        if discussion.isCheckpoint { try container.encode(true, forKey: .isDiscussionCheckpoint) }
+        if !discussion.decisionLog.isEmpty { try container.encode(discussion.decisionLog, forKey: .decisionLog) }
+        if !discussion.artifacts.isEmpty { try container.encode(discussion.artifacts, forKey: .artifacts) }
+        try container.encodeIfPresent(discussion.briefing, forKey: .briefing)
+        // BuildQAState
+        try container.encodeIfPresent(buildQA.buildLoopStatus, forKey: .buildLoopStatus)
+        if buildQA.buildRetryCount > 0 { try container.encode(buildQA.buildRetryCount, forKey: .buildRetryCount) }
+        if buildQA.maxBuildRetries != 3 { try container.encode(buildQA.maxBuildRetries, forKey: .maxBuildRetries) }
+        try container.encodeIfPresent(buildQA.lastBuildResult, forKey: .lastBuildResult)
+        try container.encodeIfPresent(buildQA.qaLoopStatus, forKey: .qaLoopStatus)
+        if buildQA.qaRetryCount > 0 { try container.encode(buildQA.qaRetryCount, forKey: .qaRetryCount) }
+        if buildQA.maxQARetries != 3 { try container.encode(buildQA.maxQARetries, forKey: .maxQARetries) }
+        try container.encodeIfPresent(buildQA.lastQAResult, forKey: .lastQAResult)
     }
 }

@@ -34,7 +34,7 @@ struct RoomChatView: View {
                     .frame(height: 1)
 
                 // 워크플로우 단계 체크리스트
-                if room.intent != nil && room.isActive {
+                if room.workflowState.intent != nil && room.isActive {
                     DiscussionProgressBar(room: room)
                 }
 
@@ -81,7 +81,7 @@ struct RoomChatView: View {
 
                 // 사용자 입력 카드
                 if room.status == .awaitingUserInput {
-                    if room.isDiscussionCheckpoint {
+                    if room.discussion.isCheckpoint {
                         DiscussionCheckpointCard(roomID: room.id)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     } else {
@@ -159,7 +159,7 @@ struct RoomChatView: View {
             .onChange(of: room.status) { _, _ in
                 scrollToBottom(proxy: proxy, room: room)
             }
-            .onChange(of: room.currentPhase) { _, _ in
+            .onChange(of: room.workflowState.currentPhase) { _, _ in
                 scrollToBottom(proxy: proxy, room: room)
             }
         }
@@ -313,7 +313,7 @@ struct RoomChatView: View {
                 }
 
                 // Intent 배지
-                if let intent = room.intent {
+                if let intent = room.workflowState.intent {
                     HStack(spacing: 2) {
                         Image(systemName: intent.iconName)
                             .font(.system(size: 8))
@@ -367,8 +367,8 @@ struct RoomChatView: View {
     private func copyRoomTranscript(_ room: Room) {
         var text = "[\(room.shortID)] \(room.title)\n"
         text += "상태: \(DesignTokens.RoomStatusColor.label(for: room.status))"
-        if let intent = room.intent { text += " · \(intent.displayName)" }
-        if let phase = room.currentPhase { text += " · \(phase.rawValue)" }
+        if let intent = room.workflowState.intent { text += " · \(intent.displayName)" }
+        if let phase = room.workflowState.currentPhase { text += " · \(phase.rawValue)" }
         text += "\n"
 
         let agentNames = room.assignedAgentIDs.compactMap { id in
@@ -856,7 +856,7 @@ struct DiscussionProgressBar: View {
 
     /// 표시할 단계 (intake/intent 제외, needsPlan이면 .plan 동적 삽입)
     private var visiblePhases: [WorkflowPhase] {
-        var phases = (room.intent?.requiredPhases ?? [])
+        var phases = (room.workflowState.intent?.requiredPhases ?? [])
             .filter { $0 != .intake && $0 != .intent }
         // 사용자 직접 선택 방: assemble(팀 구성) 단계 숨김
         if room.createdBy == .user {
@@ -868,7 +868,7 @@ struct DiscussionProgressBar: View {
             }
         }
         // needsPlan이 확정되면 .execute 앞에 .plan 삽입
-        if room.needsPlan, let idx = phases.firstIndex(of: .execute) {
+        if room.workflowState.needsPlan, let idx = phases.firstIndex(of: .execute) {
             phases.insert(.plan, at: idx)
         }
         return phases
@@ -916,8 +916,8 @@ struct DiscussionProgressBar: View {
                             .scaleEffect(0.4)
                             .frame(width: 12, height: 12)
                         let isDiscussion: Bool = {
-                            if room.intent == .discussion { return true }
-                            switch room.currentPhase {
+                            if room.workflowState.intent == .discussion { return true }
+                            switch room.workflowState.currentPhase {
                             case .build, .execute, .review: return false
                             default: return true
                             }
@@ -933,16 +933,16 @@ struct DiscussionProgressBar: View {
 
     private var completedCount: Int {
         if room.status == .completed { return visiblePhases.count }
-        return visiblePhases.filter { room.completedPhases.contains($0) }.count
+        return visiblePhases.filter { room.workflowState.completedPhases.contains($0) }.count
     }
 
     @ViewBuilder
     private func phaseIcon(_ phase: WorkflowPhase) -> some View {
-        if room.status == .completed || room.completedPhases.contains(phase) {
+        if room.status == .completed || room.workflowState.completedPhases.contains(phase) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 9))
                 .foregroundColor(.green.opacity(0.7))
-        } else if phase == room.currentPhase {
+        } else if phase == room.workflowState.currentPhase {
             Image(systemName: "play.circle.fill")
                 .font(.system(size: 9))
                 .foregroundColor(.orange.opacity(0.7))
@@ -954,13 +954,13 @@ struct DiscussionProgressBar: View {
     }
 
     private func phaseWeight(_ phase: WorkflowPhase) -> Font.Weight {
-        phase == room.currentPhase ? .bold : .regular
+        phase == room.workflowState.currentPhase ? .bold : .regular
     }
 
     private func phaseTextColor(_ phase: WorkflowPhase) -> Color {
-        if room.completedPhases.contains(phase) || room.status == .completed {
+        if room.workflowState.completedPhases.contains(phase) || room.status == .completed {
             return .secondary
-        } else if phase == room.currentPhase {
+        } else if phase == room.workflowState.currentPhase {
             return .primary
         }
         return .secondary.opacity(0.6)
@@ -986,15 +986,15 @@ struct BuildStatusCard: View {
                     Text(statusText)
                         .font(.caption2.bold())
                         .foregroundColor(statusColor)
-                    if let cmd = room.buildCommand {
+                    if let cmd = room.projectContext.buildCommand {
                         Text(cmd)
                             .font(DesignTokens.Typography.mono(DesignTokens.FontSize.badge))
                             .foregroundColor(.secondary)
                     }
                 }
                 Spacer()
-                if room.buildRetryCount > 0 {
-                    Text("\(room.buildRetryCount)/\(room.maxBuildRetries)")
+                if room.buildQA.buildRetryCount > 0 {
+                    Text("\(room.buildQA.buildRetryCount)/\(room.buildQA.maxBuildRetries)")
                         .font(DesignTokens.Typography.monoStatus)
                         .foregroundColor(.secondary)
                 }
@@ -1003,7 +1003,7 @@ struct BuildStatusCard: View {
     }
 
     private var statusText: String {
-        switch room.buildLoopStatus {
+        switch room.buildQA.buildLoopStatus {
         case .building: return "빌드 실행 중..."
         case .fixing:   return "오류 수정 중..."
         case .passed:   return "빌드 성공"
@@ -1013,7 +1013,7 @@ struct BuildStatusCard: View {
     }
 
     private var statusColor: Color {
-        switch room.buildLoopStatus {
+        switch room.buildQA.buildLoopStatus {
         case .building: return .orange.opacity(0.7)
         case .fixing:   return .yellow.opacity(0.7)
         case .passed:   return .green.opacity(0.7)
@@ -1024,7 +1024,7 @@ struct BuildStatusCard: View {
 
     @ViewBuilder
     private var statusIcon: some View {
-        switch room.buildLoopStatus {
+        switch room.buildQA.buildLoopStatus {
         case .building, .fixing:
             ProgressView()
                 .scaleEffect(0.5)
@@ -1955,15 +1955,15 @@ struct QAStatusCard: View {
                     Text(qaStatusText)
                         .font(.caption2.bold())
                         .foregroundColor(qaStatusColor)
-                    if let cmd = room.testCommand {
+                    if let cmd = room.projectContext.testCommand {
                         Text(cmd)
                             .font(DesignTokens.Typography.mono(DesignTokens.FontSize.badge))
                             .foregroundColor(.secondary)
                     }
                 }
                 Spacer()
-                if room.qaRetryCount > 0 {
-                    Text("\(room.qaRetryCount)/\(room.maxQARetries)")
+                if room.buildQA.qaRetryCount > 0 {
+                    Text("\(room.buildQA.qaRetryCount)/\(room.buildQA.maxQARetries)")
                         .font(DesignTokens.Typography.monoStatus)
                         .foregroundColor(.secondary)
                 }
@@ -1972,7 +1972,7 @@ struct QAStatusCard: View {
     }
 
     private var qaStatusText: String {
-        switch room.qaLoopStatus {
+        switch room.buildQA.qaLoopStatus {
         case .testing:   return "테스트 실행 중..."
         case .analyzing: return "실패 분석/수정 중..."
         case .passed:    return "테스트 통과"
@@ -1982,7 +1982,7 @@ struct QAStatusCard: View {
     }
 
     private var qaStatusColor: Color {
-        switch room.qaLoopStatus {
+        switch room.buildQA.qaLoopStatus {
         case .testing:   return .teal.opacity(0.7)
         case .analyzing: return .yellow.opacity(0.7)
         case .passed:    return .green.opacity(0.7)
@@ -1993,7 +1993,7 @@ struct QAStatusCard: View {
 
     @ViewBuilder
     private var qaStatusIcon: some View {
-        switch room.qaLoopStatus {
+        switch room.buildQA.qaLoopStatus {
         case .testing, .analyzing:
             ProgressView()
                 .scaleEffect(0.5)
