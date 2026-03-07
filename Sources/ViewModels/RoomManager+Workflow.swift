@@ -1348,7 +1348,7 @@ extension RoomManager {
 
         // 4) needsClarification이면 질문 최대 2회 → 자동 진행 (Plan C)
         //    ※ 문서 생성(autoDocOutput)은 추가 질문 없이 바로 진행
-        var currentBrief: TaskBrief? = brief
+        var currentBrief: TaskBrief? = rooms[idx].taskBrief ?? brief
         var enrichedTask = actualTask
         let maxQuestions = 3
         let isDocTask = rooms.first(where: { $0.id == roomID })?.workflowState.autoDocOutput == true
