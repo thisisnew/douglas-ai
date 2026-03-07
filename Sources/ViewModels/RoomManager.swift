@@ -1029,8 +1029,9 @@ class RoomManager: ObservableObject {
         let ruleBasedIntent = IntentClassifier.quickClassify(task)
         var resolvedIntent = ruleBasedIntent
         if resolvedIntent == nil {
-            if task.count < 60 {
+            if task.count < 60 && detectedDocType == nil {
                 // 후속 짧은 메시지: LLM 분류 없이 quickAnswer (pr해, 커밋해, 수정해줘 등)
+                // 단, 문서 요청이 감지됐으면 quickAnswer로 단락하지 않음
                 resolvedIntent = .quickAnswer
             } else if let firstAgentID = rooms[idx].assignedAgentIDs.first,
                let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
@@ -2643,16 +2644,32 @@ class RoomManager: ObservableObject {
     private func executeUnderstandPhase(roomID: UUID, task: String) async {
         var actualTask = task
 
-        // 0) 파일만 업로드된 경우: 사용자에게 작업 의도 확인
-        if task.isEmpty {
-            // 첨부 파일 이름을 포함한 구체적 질문
+        // 0) 명시적 의도 없는 경우: 사용자에게 작업 의도 확인
+        //    (파일만 업로드, URL만 입력, 이미지만 첨부 등)
+        let hasExplicitIntentForTask = !task.isEmpty && IntentClassifier.hasExplicitUserIntent(task)
+        if task.isEmpty || !hasExplicitIntentForTask {
+            // 상황에 맞는 질문 생성
             let attachedFiles = rooms.first(where: { $0.id == roomID })?.messages
                 .compactMap { $0.attachments }.flatMap { $0 } ?? []
-            let fileDesc = attachedFiles.isEmpty ? "파일" :
-                attachedFiles.map { $0.isImage ? "이미지(\($0.originalFilename ?? $0.displayName))" : $0.displayName }.joined(separator: ", ")
+            let hasURL = task.range(of: "https?://", options: .regularExpression) != nil
+            let questionContent: String
+            if !attachedFiles.isEmpty && hasURL {
+                // URL + 파일 첨부 동시
+                let fileDesc = attachedFiles.map { $0.isImage ? "이미지(\($0.originalFilename ?? $0.displayName))" : $0.displayName }.joined(separator: ", ")
+                questionContent = "\(fileDesc)과 링크를 공유해주셨네요. 어떤 작업을 진행할까요?\n(예: 개발, 분석, 요약, 기획서 작성, 코드 리뷰 등)"
+            } else if !attachedFiles.isEmpty {
+                // 파일 첨부만
+                let fileDesc = attachedFiles.map { $0.isImage ? "이미지(\($0.originalFilename ?? $0.displayName))" : $0.displayName }.joined(separator: ", ")
+                questionContent = "\(fileDesc)을 첨부해주셨네요. 어떤 작업을 진행할까요?\n(예: 번역, 분석, 텍스트 추출, 요약 등)"
+            } else if hasURL {
+                // URL만 입력
+                questionContent = "추가 확인이 필요합니다:\n\n이 이슈를 기반으로 어떤 작업을 진행할까요? (예: 개발, 기획서 작성, 분석, 요약, 코드 리뷰 등)\n이슈를 확인한 뒤 작업 방향을 알려주시면 바로 시작하겠습니다."
+            } else {
+                questionContent = "어떤 작업을 도와드릴까요?"
+            }
             let questionMsg = ChatMessage(
                 role: .assistant,
-                content: "\(fileDesc)을 첨부해주셨네요. 어떤 작업을 진행할까요?\n(예: 번역, 분석, 텍스트 추출, 요약 등)",
+                content: questionContent,
                 agentName: masterAgentName,
                 messageType: .userQuestion
             )
