@@ -489,7 +489,7 @@ struct RoomChatView: View {
         )
         .padding(.horizontal, 6)
         .padding(.bottom, 6)
-        .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             handleFileDrop(providers)
             return true
         }

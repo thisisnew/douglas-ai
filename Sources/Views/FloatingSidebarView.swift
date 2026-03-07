@@ -942,7 +942,7 @@ struct FloatingSidebarView: View {
                 .padding(.vertical, 8)
                 .disabled(pendingRoomToOpen != nil)
                 .opacity(pendingRoomToOpen != nil ? 0.5 : 1.0)
-                .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
+                .onDrop(of: [.fileURL], isTargeted: nil) { providers in
                     handleFileDrop(providers)
                     return true
                 }
