@@ -244,4 +244,46 @@ struct ValueObjectTests {
         #expect(session.currentRound == 3)
         #expect(session.isCheckpoint == true)
     }
+
+    // MARK: - BuildQAState
+
+    @Test("BuildQAState - 기본값")
+    func buildQAStateDefaults() {
+        let state = BuildQAState()
+        #expect(state.buildLoopStatus == nil)
+        #expect(state.buildRetryCount == 0)
+        #expect(state.maxBuildRetries == 3)
+        #expect(state.lastBuildResult == nil)
+        #expect(state.qaLoopStatus == nil)
+        #expect(state.qaRetryCount == 0)
+        #expect(state.maxQARetries == 3)
+        #expect(state.lastQAResult == nil)
+    }
+
+    @Test("BuildQAState - Codable 왕복")
+    func buildQAStateCodable() throws {
+        let state = BuildQAState(buildRetryCount: 2, maxBuildRetries: 5)
+        let data = try JSONEncoder().encode(state)
+        let decoded = try JSONDecoder().decode(BuildQAState.self, from: data)
+        #expect(decoded.buildRetryCount == 2)
+        #expect(decoded.maxBuildRetries == 5)
+    }
+
+    @Test("Room.buildQA - get/set 왕복")
+    func roomBuildQAAccessor() {
+        var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
+        room.buildQA = BuildQAState(buildRetryCount: 1, qaRetryCount: 2)
+        #expect(room.buildRetryCount == 1)
+        #expect(room.qaRetryCount == 2)
+    }
+
+    @Test("Room.buildQA - 개별 프로퍼티 동기화")
+    func roomBuildQASync() {
+        var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
+        room.buildRetryCount = 3
+        room.maxBuildRetries = 10
+        let state = room.buildQA
+        #expect(state.buildRetryCount == 3)
+        #expect(state.maxBuildRetries == 10)
+    }
 }

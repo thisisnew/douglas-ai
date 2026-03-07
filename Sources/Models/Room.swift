@@ -649,6 +649,32 @@ struct Room: Identifiable, Codable {
         }
     }
 
+    /// 빌드/QA 상태 그룹
+    var buildQA: BuildQAState {
+        get {
+            BuildQAState(
+                buildLoopStatus: buildLoopStatus,
+                buildRetryCount: buildRetryCount,
+                maxBuildRetries: maxBuildRetries,
+                lastBuildResult: lastBuildResult,
+                qaLoopStatus: qaLoopStatus,
+                qaRetryCount: qaRetryCount,
+                maxQARetries: maxQARetries,
+                lastQAResult: lastQAResult
+            )
+        }
+        set {
+            buildLoopStatus = newValue.buildLoopStatus
+            buildRetryCount = newValue.buildRetryCount
+            maxBuildRetries = newValue.maxBuildRetries
+            lastBuildResult = newValue.lastBuildResult
+            qaLoopStatus = newValue.qaLoopStatus
+            qaRetryCount = newValue.qaRetryCount
+            maxQARetries = newValue.maxQARetries
+            lastQAResult = newValue.lastQAResult
+        }
+    }
+
     /// 토론 세션 그룹
     var discussion: DiscussionSession {
         get {
