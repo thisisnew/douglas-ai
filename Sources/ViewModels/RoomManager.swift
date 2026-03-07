@@ -2905,7 +2905,10 @@ class RoomManager: ObservableObject {
                 return
             }
 
-            let _ = await awaitPlanApproval(roomID: roomID, task: task, designOutput: discussionOutput)
+            let approved = await awaitPlanApproval(roomID: roomID, task: task, designOutput: discussionOutput)
+            if !approved {
+                return
+            }
             scheduleSave()
         }
     }
@@ -3284,6 +3287,19 @@ class RoomManager: ObservableObject {
                 if let newPlan, let i = rooms.firstIndex(where: { $0.id == roomID }) {
                     rooms[i].plan = newPlan
                 } else {
+                    // 재생성 실패 → 워크플로우 중단 (.failed로 전환하여 phase loop 탈출)
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].transitionTo(.failed)
+                        rooms[i].completedAt = Date()
+                    }
+                    let failMsg = ChatMessage(
+                        role: .system,
+                        content: "계획 재수립에 실패했습니다. 새 요청으로 다시 시도해주세요.",
+                        messageType: .error
+                    )
+                    appendMessage(failMsg, to: roomID)
+                    syncAgentStatuses()
+                    scheduleSave()
                     return false
                 }
             }
@@ -3421,7 +3437,11 @@ class RoomManager: ObservableObject {
         }
 
         // 계획 승인 게이트: 사용자 승인/요건 추가 루프
-        let _ = await awaitPlanApproval(roomID: roomID, task: task)
+        let approved = await awaitPlanApproval(roomID: roomID, task: task)
+        if !approved {
+            // 승인 실패 (재생성 실패 등) → awaitPlanApproval 내부에서 .failed 전환 완료
+            return
+        }
         scheduleSave()
     }
 
@@ -4186,7 +4206,10 @@ class RoomManager: ObservableObject {
         }
 
         // 계획 승인 게이트: 사용자 승인/요건 추가 루프
-        let _ = await awaitPlanApproval(roomID: roomID, task: task)
+        let approved = await awaitPlanApproval(roomID: roomID, task: task)
+        if !approved {
+            return
+        }
         scheduleSave()
     }
 
