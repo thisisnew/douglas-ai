@@ -73,6 +73,7 @@ DOUGLAS/
 │   │   ├── ShellEnvironment.swift   # 셸 환경 캐싱 (NVM 경로 1회 스캔, PATH 병합, 실행 파일 탐색)
 │   │   ├── ProcessRunner.swift      # 테스트 가능한 프로세스 실행기 (DI seam)
 │   │   ├── Room.swift               # 프로젝트 방 모델 (+ Plan C: TaskBrief, agentRoles, deferredActions, RiskLevel, OutputType, RuntimeRole)
+│   │   ├── ApprovalRecord.swift     # 승인 기록 모델 (ApprovalType, AwaitingType, ApprovalRecord)
 │   │   └── KeychainHelper.swift     # 파일 기반 API 키 저장 (Keychain 레거시 마이그레이션)
 │   ├── ViewModels/
 │   │   ├── AgentStore.swift         # 에이전트 CRUD, 마스터 생명주기
@@ -643,6 +644,17 @@ planning → awaitingApproval (토론 후 사용자 승인)
 
 `isActive` = `planning` | `inProgress` | `awaitingApproval` | `awaitingUserInput` (에이전트 상태 계산에 사용)
 
+### ApprovalRecord (`Models/ApprovalRecord.swift`)
+
+승인/거부 이벤트의 영속적 기록. 워크플로우에서 발생하는 모든 승인 게이트를 추적한다.
+
+- **ApprovalType** (7종): `clarifyApproval`, `teamConfirmation`, `planApproval`, `stepApproval`, `lastStepConfirmation`, `deliverApproval`, `designApproval`
+- **AwaitingType** (10종): `clarification`, `agentConfirmation`, `planApproval`, `stepApproval`, `finalApproval`, `irreversibleStep`, `deliverApproval`, `designApproval`, `userFeedback`, `discussionCheckpoint`
+- **ApprovalRecord**: `id`, `type`, `timestamp`, `approved`, `feedback?`, `stepIndex?`, `planVersion?`
+- Room에 `approvalHistory: [ApprovalRecord]` + `awaitingType: AwaitingType?` 추가
+- `RoomPlan.version`: 계획 거부 시 +1 증가, 재계획 추적
+- `approveStep()`/`rejectStep()` 호출 시 자동 기록
+
 ---
 
 ## 뷰 레이어
@@ -1068,7 +1080,7 @@ executeWithTools() 루프 (최대 10회):
 | 항목 | 내용 | 상태 |
 |------|------|------|
 | C-1 | **Jira 깊은 연동**: `jira_create_subtask`(서브태스크 생성), `jira_update_status`(상태 전이), `jira_add_comment`(ADF 코멘트) 3개 쓰기 도구 추가. 모든 에이전트에 포함. `makeJiraRequest()` 공통 인증 헬퍼. | ✅ |
-| C-2 | **Human-in-the-loop 승인 게이트**: `RoomStep` 구조체 (plain String + object 혼합 Codable). `RoomStatus.awaitingApproval` 추가. `CheckedContinuation`으로 비동기 일시 정지. ApprovalCard UI. | ✅ |
+| C-2 | **Human-in-the-loop 승인 게이트**: `RoomStep` 구조체 (plain String + object 혼합 Codable). `RoomStatus.awaitingApproval` 추가. `CheckedContinuation`으로 비동기 일시 정지. ApprovalCard UI. `ApprovalRecord`로 승인/거부 이력 영속 기록. `AwaitingType`으로 대기 종류 구분. `RoomPlan.version`으로 계획 거부 시 버전 추적. | ✅ |
 | C-3 | **QA 자동 검증**: `QAResult`/`QALoopStatus` 모델. `BuildLoopRunner.runTests()` + `qaFixPrompt()`. `RoomManager.runQALoop()` — 빌드 성공 후 테스트 자동 실행, 실패 시 QA 에이전트가 수정 루프. 테스트 명령 자동 감지. | ✅ |
 
 ### Phase D — 분석가 중심 워크플로우 재구조화 → Phase G에서 대체됨

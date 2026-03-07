@@ -406,6 +406,18 @@ class RoomManager: ObservableObject {
         appendMessage(msg, to: roomID)
         pluginEventDelegate?(.approvalResolved(roomID: roomID, approved: true))
 
+        if let idx = rooms.firstIndex(where: { $0.id == roomID }) {
+            let approvalType = rooms[idx].awaitingType?.toApprovalType ?? .stepApproval
+            let record = ApprovalRecord(
+                type: approvalType,
+                approved: true,
+                stepIndex: rooms[idx].pendingApprovalStepIndex,
+                planVersion: rooms[idx].plan?.version
+            )
+            rooms[idx].approvalHistory.append(record)
+            rooms[idx].awaitingType = nil
+        }
+
         if let cont = approvalContinuations.removeValue(forKey: roomID) {
             cont.resume(returning: true)
         } else {
@@ -418,11 +430,24 @@ class RoomManager: ObservableObject {
     }
 
     /// 승인 대기 중인 단계를 거부 (수정 요청)
-    func rejectStep(roomID: UUID) {
+    func rejectStep(roomID: UUID, feedback: String? = nil) {
         cancelReviewAutoApproval(roomID: roomID)
         let msg = ChatMessage(role: .system, content: "수정 요청")
         appendMessage(msg, to: roomID)
         pluginEventDelegate?(.approvalResolved(roomID: roomID, approved: false))
+
+        if let idx = rooms.firstIndex(where: { $0.id == roomID }) {
+            let approvalType = rooms[idx].awaitingType?.toApprovalType ?? .stepApproval
+            let record = ApprovalRecord(
+                type: approvalType,
+                approved: false,
+                feedback: feedback,
+                stepIndex: rooms[idx].pendingApprovalStepIndex,
+                planVersion: rooms[idx].plan?.version
+            )
+            rooms[idx].approvalHistory.append(record)
+            rooms[idx].awaitingType = nil
+        }
 
         if let cont = approvalContinuations.removeValue(forKey: roomID) {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
@@ -2059,6 +2084,7 @@ class RoomManager: ObservableObject {
             // 2) 사용자에게 컨펌 요청 (복명복창 요약 자체가 확인 요청)
             speakingAgentIDByRoom.removeValue(forKey: roomID)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].awaitingType = .clarification
                 rooms[i].transitionTo(.awaitingApproval)
             }
             syncAgentStatuses()
@@ -2553,6 +2579,7 @@ class RoomManager: ObservableObject {
                 appendMessage(suggestMsg, to: roomID)
 
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].awaitingType = .agentConfirmation
                     rooms[i].transitionTo(.awaitingApproval)
                 }
                 syncAgentStatuses()
@@ -3259,6 +3286,7 @@ class RoomManager: ObservableObject {
             appendMessage(approvalMsg, to: roomID)
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].awaitingType = .planApproval
                 rooms[i].transitionTo(.awaitingApproval)
             }
             syncAgentStatuses()
@@ -3286,6 +3314,9 @@ class RoomManager: ObservableObject {
 
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                     rooms[i].transitionTo(.planning)
+                    if rooms[i].plan != nil {
+                        rooms[i].plan!.version += 1
+                    }
                 }
 
                 let retryMsg = ChatMessage(
@@ -3582,6 +3613,7 @@ class RoomManager: ObservableObject {
                 appendMessage(confirmMsg, to: roomID)
 
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].awaitingType = .finalApproval
                     rooms[i].transitionTo(.awaitingApproval)
                 }
                 syncAgentStatuses()
@@ -4085,6 +4117,7 @@ class RoomManager: ObservableObject {
                 appendMessage(approvalMsg, to: roomID)
 
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].awaitingType = .deliverApproval
                     rooms[i].transitionTo(.awaitingApproval)
                 }
                 syncAgentStatuses()
@@ -4912,6 +4945,7 @@ class RoomManager: ObservableObject {
                 appendMessage(confirmMsg, to: roomID)
 
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].awaitingType = .finalApproval
                     rooms[i].transitionTo(.awaitingApproval)
                 }
                 syncAgentStatuses()
@@ -4954,6 +4988,7 @@ class RoomManager: ObservableObject {
                 var approvalLoop = true
                 while approvalLoop {
                     if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].awaitingType = .stepApproval
                         rooms[i].transitionTo(.awaitingApproval)
                         rooms[i].pendingApprovalStepIndex = stepIndex
                     }

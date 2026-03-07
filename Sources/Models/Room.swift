@@ -327,6 +327,22 @@ struct RoomPlan: Codable {
     let summary: String           // 계획 요약
     let estimatedSeconds: Int     // 예상 소요 시간 (초)
     let steps: [RoomStep]         // 단계별 작업
+    var version: Int              // 계획 버전 (거부 시 +1)
+
+    init(summary: String, estimatedSeconds: Int, steps: [RoomStep], version: Int = 1) {
+        self.summary = summary
+        self.estimatedSeconds = estimatedSeconds
+        self.steps = steps
+        self.version = version
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        summary = try container.decode(String.self, forKey: .summary)
+        estimatedSeconds = try container.decode(Int.self, forKey: .estimatedSeconds)
+        steps = try container.decode([RoomStep].self, forKey: .steps)
+        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
+    }
 }
 
 // MARK: - 작업일지
@@ -473,6 +489,9 @@ struct Room: Identifiable, Codable {
     var taskBrief: TaskBrief?
     var agentRoles: [String: RuntimeRole]       // agentID.uuidString → RuntimeRole
     var deferredActions: [DeferredAction]
+    // Phase 1: 승인 기록 + 대기 유형
+    var approvalHistory: [ApprovalRecord]
+    var awaitingType: AwaitingType?
 
     /// 남은 시간 (초). 타이머 미시작 시 nil
     var remainingSeconds: Int? {
@@ -643,6 +662,8 @@ struct Room: Identifiable, Codable {
         self.taskBrief = nil
         self.agentRoles = [:]
         self.deferredActions = []
+        self.approvalHistory = []
+        self.awaitingType = nil
     }
 
     // 기존 저장 데이터 호환
@@ -709,5 +730,7 @@ struct Room: Identifiable, Codable {
         taskBrief = try container.decodeIfPresent(TaskBrief.self, forKey: .taskBrief)
         agentRoles = try container.decodeIfPresent([String: RuntimeRole].self, forKey: .agentRoles) ?? [:]
         deferredActions = try container.decodeIfPresent([DeferredAction].self, forKey: .deferredActions) ?? []
+        approvalHistory = try container.decodeIfPresent([ApprovalRecord].self, forKey: .approvalHistory) ?? []
+        awaitingType = try container.decodeIfPresent(AwaitingType.self, forKey: .awaitingType)
     }
 }
