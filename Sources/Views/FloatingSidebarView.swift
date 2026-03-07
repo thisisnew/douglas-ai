@@ -1236,10 +1236,31 @@ struct FloatingSidebarView: View {
     }
 
     private func openCreateRoomWindow() {
+        // roomManager 등 캡처 (CreateRoomSheet에서 @EnvironmentObject 제거하여 re-render 방지)
+        let rm = roomManager
+        let pm = providerManager
+        let as_ = agentStore
+        let cvm = chatVM
+        let tm = themeManager
         UtilityWindowManager.shared.open(title: "새 방 만들기",
             width: DesignTokens.WindowSize.createRoomSheet.width, height: DesignTokens.WindowSize.createRoomSheet.height,
             agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, roomManager: roomManager, themeManager: themeManager) {
-            CreateRoomSheet()
+            CreateRoomSheet(onCreateRoom: { title, agentIDs, task, attachments in
+                let roomID = rm.createManualRoom(
+                    title: title, agentIDs: agentIDs, task: task, attachments: attachments
+                )
+                UtilityWindowManager.shared.open(
+                    title: title, identifier: roomID.uuidString,
+                    width: DesignTokens.WindowSize.roomChat.width,
+                    height: DesignTokens.WindowSize.roomChat.height,
+                    agentStore: as_, providerManager: pm,
+                    chatVM: cvm, roomManager: rm,
+                    themeManager: tm
+                ) {
+                    RoomChatView(roomID: roomID)
+                }
+                return roomID
+            })
         }
     }
 }

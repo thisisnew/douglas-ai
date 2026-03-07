@@ -5,11 +5,10 @@ import UniformTypeIdentifiers
 struct CreateRoomSheet: View {
     @Environment(\.colorPalette) private var palette
     @EnvironmentObject var agentStore: AgentStore
-    @EnvironmentObject var roomManager: RoomManager
-    @EnvironmentObject var providerManager: ProviderManager
-    @EnvironmentObject var chatVM: ChatViewModel
-    @EnvironmentObject var themeManager: ThemeManager
     @Environment(\.dismiss) private var dismiss
+
+    // 액션 전용 (body에서 읽지 않아 re-render 유발하지 않음)
+    var onCreateRoom: ((String, [UUID], String, [FileAttachment]?) -> UUID)?
 
     @State private var title = ""
     @State private var task = ""
@@ -245,23 +244,10 @@ struct CreateRoomSheet: View {
         guard !trimmedTitle.isEmpty, !trimmedTask.isEmpty, !selectedAgentIDs.isEmpty else { return }
 
         let attachments = pendingAttachments.isEmpty ? nil : pendingAttachments
-        let roomID = roomManager.createManualRoom(
-            title: trimmedTitle,
-            agentIDs: Array(selectedAgentIDs),
-            task: trimmedTask,
-            attachments: attachments
-        )
-        // 생성 시트 닫고 방 채팅 창 바로 열기
-        UtilityWindowManager.shared.closeKeyWindow()
-        UtilityWindowManager.shared.open(
-            title: trimmedTitle, identifier: roomID.uuidString,
-            width: DesignTokens.WindowSize.roomChat.width,
-            height: DesignTokens.WindowSize.roomChat.height,
-            agentStore: agentStore, providerManager: providerManager,
-            chatVM: chatVM, roomManager: roomManager,
-            themeManager: themeManager
-        ) {
-            RoomChatView(roomID: roomID)
+        if let roomID = onCreateRoom?(trimmedTitle, Array(selectedAgentIDs), trimmedTask, attachments) {
+            UtilityWindowManager.shared.closeKeyWindow()
+            // 방 채팅 창 열기는 호출측에서 처리
+            _ = roomID
         }
     }
 
