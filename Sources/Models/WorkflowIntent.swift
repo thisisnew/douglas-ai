@@ -9,7 +9,7 @@ enum WorkflowPhase: String, Codable, CaseIterable {
     case clarify      // ③ 요구사항 컨펌 (사용자 확인까지 루프) — 레거시 호환
     case understand   // ①② Understand (intake+intent+clarify 통합, Plan C)
     case assemble     // ③ 역할 매칭 + 에이전트 초대
-    case design       // ④ 3턴 고정 프로토콜 (Propose→Critique→Revise) + 계획 승인
+    case design       // ④ 전문가 토론 (의견→상호피드백→종합) + task일 경우 계획 승인
     case build        // ⑤ Creator가 단계별 실행 (riskLevel별 정책)
     case review       // ⑥ Reviewer가 Build 결과물 검토
     case deliver      // ⑦ 최종 산출물 전달 (high = Draft 프리뷰 + 명시 승인)

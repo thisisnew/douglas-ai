@@ -1115,12 +1115,11 @@ executeWithTools() 루프 (최대 10회):
               bare URL(명시적 의도 없음) 시 needsClarification 강제 true → 작업 목적 질문
 ② Assemble ── 3-tier 가중치 에이전트 매칭 (Tier1: skillTags×5, Tier2: workModes×2, Tier3: keyword+semantic×3)
               confidence 0.7↑ 자동, 0.5~0.7 사용자확인, 0.5↓ 제외 + RuntimeRole 사전배정 + 팀 확정 메시지(Role 표시)
-③ Design ──── **outputType 분기**: analysis/answer → 토론 모드 / 나머지 → 계획 모드
-              토론 모드: 병렬 의견 제시 → 상호 피드백 → 1-step 종합 plan
+③ Design ──── **통합 토론 프로토콜**: discussion/task 모두 동일한 토론 수행
+              멀티에이전트: 병렬 의견 제시 → 사용자 체크포인트 → 상호 피드백 → 사용자 체크포인트 → DOUGLAS 종합
               1인+discussion → `executeSoloDiscussion` (JSON 계획 없이 자연어 분석)
-              taskBrief 없을 때 키워드 fallback: "어떻게 생각", "의견", "트렌드" 등 → 토론 모드
-              계획 모드: 2인 Propose→Critique→Revise / 3인+ Planner 프로토콜 / 1인 구조화 플랜
-              계획 표시 후 바로 Build 진입 (승인 게이트 제거 — 라이브 협업)
+              1인+task → `executeSoloDesign` (구조화 플랜)
+              task intent: 토론 결과 기반 계획 생성 → `awaitPlanApproval` (사용자 승인 루프)
               1인 플랜 세분화 규칙: 1산출물=1단계, 구현/테스트/PR 별개 분할
 ④ Build ───── step 루프: low/medium=자동실행, high=DeferredAction
               도구 레벨: deferHighRiskTools=true → external 도구도 DeferredAction으로 수집
