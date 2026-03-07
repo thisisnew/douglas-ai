@@ -80,6 +80,8 @@ DOUGLAS/
 │   │   ├── DiscussionSession.swift # 토론 세션 값 객체 (라운드, 산출물, 브리핑, 결정 로그)
 │   │   ├── BuildQAState.swift      # 빌드/QA 루프 상태 값 객체 (8개 프로퍼티 그룹핑)
 │   │   └── KeychainHelper.swift     # 파일 기반 API 키 저장 (Keychain 레거시 마이그레이션)
+│   │   ├── DouglasRequest.swift     # 사용자 요청 생명주기 모델 (IntentClassification, InputType, ConfidenceLevel)
+│   │   ├── FollowUpAction.swift    # 후속 입력 분류 모델 (FollowUpType 6종)
 │   │
 │   │   Protocol:
 │   │   └── WorkflowHost.swift       # 워크플로우 실행기 프로토콜 (RoomManager 추상화, 테스트 mock 가능)
