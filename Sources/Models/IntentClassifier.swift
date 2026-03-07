@@ -430,6 +430,6 @@ enum IntentClassifier {
             with: "",
             options: .regularExpression
         ).trimmingCharacters(in: .whitespacesAndNewlines)
-        return withoutURLs.count > 5
+        return withoutURLs.count > 2
     }
 }

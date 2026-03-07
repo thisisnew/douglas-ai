@@ -2765,7 +2765,13 @@ class RoomManager: ObservableObject {
             model: lightModel
         )
 
-        if let brief {
+        if var brief {
+            // 이미지 첨부 + 명시적 지시가 있으면 clarification 강제 스킵
+            // (LLM이 "파일 경로를 알려주세요" 등 불필요한 질문을 생성하는 것 방지)
+            if hasImageAttachment && hasExplicitIntent && brief.needsClarification {
+                brief.needsClarification = false
+                brief.questions = []
+            }
             rooms[idx].taskBrief = brief
         } else {
             print("[DOUGLAS] ⚠️ TaskBrief 생성 실패 — 키워드 기반 fallback으로 진행")
