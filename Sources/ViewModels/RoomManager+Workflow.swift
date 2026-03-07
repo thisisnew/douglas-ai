@@ -1325,9 +1325,10 @@ extension RoomManager {
         )
 
         if var brief {
-            // 이미지 첨부 + 명시적 지시가 있으면 clarification 강제 스킵
+            // 이미지/URL + 명시적 지시가 있으면 clarification 강제 스킵
             // (LLM이 "파일 경로를 알려주세요" 등 불필요한 질문을 생성하는 것 방지)
-            if hasImageAttachment && hasExplicitIntent && brief.needsClarification {
+            let hasURL = actualTask.range(of: "https?://", options: .regularExpression) != nil
+            if (hasImageAttachment || hasURL) && hasExplicitIntent && brief.needsClarification {
                 brief.needsClarification = false
                 brief.questions = []
             }
@@ -2298,6 +2299,12 @@ extension RoomManager {
     func executeReviewPhase(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
         let room = rooms[idx]
+
+        // 단순 작업(low risk, 에이전트 1명)은 리뷰 스킵 — 번역/요약 등에서 불필요한 이중 출력 방지
+        let specialists = executingAgentIDs(in: roomID)
+        if specialists.count <= 1, let brief = room.taskBrief, brief.overallRisk == .low {
+            return
+        }
 
         // reviewer 역할의 에이전트 찾기
         let reviewerName = room.agentRoles.first(where: { $0.value == .reviewer })?.key
