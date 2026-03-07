@@ -843,13 +843,14 @@ extension RoomManager {
         예: Jira 티켓이 백엔드 코드 관련이어도 사용자가 "PR 링크 취합해줘"라고 했으면 → Jira/분석 전문가. 개발자 아님.
         예: "프론트엔드 관점에서 분석해줘" → 프론트엔드 전문가만. 백엔드 전문가는 불필요.
 
-        **역할 배정 금지 규칙:**
-        - 리서치/조사/분석/취합/문서작성 작업에 소프트웨어 개발자(백엔드/프론트엔드/앱 개발자)를 배정하지 마세요.
-          → 대신 리서치 전문가, 분석 전문가, Jira 전문가 등 적합한 역할을 선택하세요.
+        **역할 배정 규칙:**
+        - 리서치/조사/분석/취합/문서작성/테스트계획/QA 작업에 소프트웨어 개발자(백엔드/프론트엔드/앱 개발자)를 배정하지 마세요.
+          → 대신 해당 작업에 맞는 전문가를 선택하세요: QA 작업→QA/테스트 전문가, 분석→분석 전문가, Jira→Jira 전문가.
         - 개발자는 코드 생성/수정/버그 수정/구현 작업에만 배정하세요.
+        - QA/테스트/TC 관련 작업(테스트 계획, TC 설계, QA 전략 등)에는 반드시 QA/테스트 전문가를 배정하세요.
         - [선택]은 사용자가 명시적으로 요청한 경우에만 추가하세요.
         - 코드 수정/구현 작업에는 해당 도메인 개발자 1명이면 충분합니다.
-        - "혹시 필요할 수도 있다"는 이유로 QA, 리서치, 디자인 등 보조 역할을 추가하지 마세요.
+        - 사용자가 요청하지 않은 보조 역할을 보험 차원으로 추가하지 마세요.
 
         현재 사용 가능한 에이전트:
         \(agentRoster)
@@ -2103,8 +2104,8 @@ extension RoomManager {
                 rooms[i].setCurrentStep(stepIndex)
             }
 
-            // 마지막 단계 직전 확인 (step이 2개 이상, high-risk는 Deliver에서 승인하므로 제외)
-            if stepIndex == plan.steps.count - 1 && plan.steps.count > 1 && step.riskLevel != .high {
+            // 마지막 단계 직전 확인 (step이 2개 이상이면 반드시 승인 요청)
+            if stepIndex == plan.steps.count - 1 && plan.steps.count > 1 {
                 let stepList = plan.steps.enumerated().map { i, s in
                     let mark = i < stepIndex ? "✓" : "▸"
                     return "\(mark) \(i + 1). \(s.text)"
@@ -2288,9 +2289,9 @@ extension RoomManager {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
         let room = rooms[idx]
 
-        // 단순 작업(low risk, 에이전트 1명)은 리뷰 스킵 — 번역/요약 등에서 불필요한 이중 출력 방지
+        // 1인 에이전트: 자기 검토 스킵 (도구 없는 self-review는 무의미, final step approval이 품질 게이트)
         let specialists = executingAgentIDs(in: roomID)
-        if specialists.count <= 1, let brief = room.taskBrief, brief.overallRisk == .low {
+        if specialists.count <= 1 {
             return
         }
 
@@ -3445,8 +3446,8 @@ extension RoomManager {
                 rooms[i].setCurrentStep(stepIndex)
             }
 
-            // 마지막 단계 직전 확인 (step이 2개 이상, high-risk는 Deliver에서 승인하므로 제외)
-            if stepIndex == plan.steps.count - 1 && plan.steps.count > 1 && step.riskLevel != .high {
+            // 마지막 단계 직전 확인 (step이 2개 이상이면 반드시 승인 요청)
+            if stepIndex == plan.steps.count - 1 && plan.steps.count > 1 {
                 let stepList = plan.steps.enumerated().map { i, s in
                     let mark = i < stepIndex ? "✓" : "▸"
                     return "\(mark) \(i + 1). \(s.text)"

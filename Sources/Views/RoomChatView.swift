@@ -1787,6 +1787,7 @@ struct TeamConfirmationCard: View {
     @EnvironmentObject var roomManager: RoomManager
     @EnvironmentObject var agentStore: AgentStore
     @Environment(\.colorPalette) private var palette
+    @State private var showAddAgentSheet = false
 
     var body: some View {
         CardContainer(accentColor: palette.accent, opacity: 0.06) {
@@ -1848,7 +1849,7 @@ struct TeamConfirmationCard: View {
 
     private var editingBody: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // 현재 선택된 + 후보를 합쳐서 표시
+            // 전체 서브에이전트 표시 (선택된 것 상단)
             let allAgents = allEditableAgents
             ForEach(allAgents) { agent in
                 let isSelected = state.selectedAgentIDs.contains(agent.id)
@@ -1858,6 +1859,26 @@ struct TeamConfirmationCard: View {
                     agentRow(agent: agent, isSelected: isSelected, interactive: true)
                 }
                 .buttonStyle(.plain)
+            }
+
+            // 새 에이전트 추가 버튼
+            Button {
+                showAddAgentSheet = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "plus.circle")
+                        .font(.caption)
+                        .foregroundColor(palette.accent.opacity(0.7))
+                    Text("새 에이전트 추가")
+                        .font(.caption2)
+                        .foregroundColor(palette.accent.opacity(0.7))
+                }
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .sheet(isPresented: $showAddAgentSheet) {
+                AddAgentSheet()
             }
 
             HStack(spacing: 8) {
@@ -1933,9 +1954,8 @@ struct TeamConfirmationCard: View {
     }
 
     private var allEditableAgents: [Agent] {
-        let allIDs = Array(state.selectedAgentIDs) + state.candidateAgentIDs
-        let unique = Array(Set(allIDs))
-        return unique.compactMap { id in agentStore.agents.first(where: { $0.id == id }) }
+        // 편집 모드: 전체 서브에이전트 표시 (선택된 에이전트 상단, 나머지 하단)
+        return agentStore.subAgents
             .sorted { a, b in
                 let aSelected = state.selectedAgentIDs.contains(a.id)
                 let bSelected = state.selectedAgentIDs.contains(b.id)
