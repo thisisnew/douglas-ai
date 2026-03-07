@@ -1992,9 +1992,9 @@ extension RoomManager {
             if let plan = parsePlan(from: response),
                let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].plan = plan
-                // JSON 원문 숨김 — awaitPlanApproval이 포맷된 계획을 표시
+                // JSON 원문 제거 — awaitPlanApproval이 포맷된 계획을 별도 표시
                 if let mi = rooms[i].messages.firstIndex(where: { $0.id == placeholderID }) {
-                    rooms[i].messages[mi].messageType = .discussion
+                    rooms[i].messages.remove(at: mi)
                 }
             }
         } catch {
