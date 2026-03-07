@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// 사용자가 수동으로 방을 만들어 에이전트를 초대하고 작업을 지시하는 시트
 struct CreateRoomSheet: View {
@@ -13,9 +14,7 @@ struct CreateRoomSheet: View {
     @State private var title = ""
     @State private var task = ""
     @State private var selectedAgentIDs: Set<UUID> = []
-    @State private var projectPaths: [String] = []
-    @State private var buildCommand = ""
-    @State private var testCommand = ""
+    @State private var pendingAttachments: [FileAttachment] = []
 
     /// 서브에이전트 (마스터 제외)
     private var availableAgents: [Agent] {
@@ -49,12 +48,16 @@ struct CreateRoomSheet: View {
                     titleSection
                     agentSection
                     taskSection
-                    projectSection
+                    attachmentSection
                 }
                 .padding(24)
             }
         }
         .frame(width: DesignTokens.WindowSize.createRoomSheet.width, height: DesignTokens.WindowSize.createRoomSheet.height)
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            handleFileDrop(providers)
+            return true
+        }
     }
 
     // MARK: - Sections
@@ -136,20 +139,27 @@ struct CreateRoomSheet: View {
     }
 
     @ViewBuilder
-    private var projectSection: some View {
+    private var attachmentSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            sectionLabel("프로젝트 디렉토리 (선택)")
+            sectionLabel("첨부파일 (선택)")
 
-            if !projectPaths.isEmpty {
-                projectPathList
+            if !pendingAttachments.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(pendingAttachments) { att in
+                            AttachmentThumbnail(attachment: att) {
+                                att.delete()
+                                pendingAttachments.removeAll { $0.id == att.id }
+                            }
+                        }
+                    }
+                }
             }
 
-            Button {
-                pickProjectDirectories()
-            } label: {
+            Button(action: pickFile) {
                 HStack {
-                    Image(systemName: "folder.badge.plus")
-                    Text(projectPaths.isEmpty ? "디렉토리 선택" : "디렉토리 추가")
+                    Image(systemName: "paperclip")
+                    Text(pendingAttachments.isEmpty ? "파일 첨부" : "파일 추가")
                 }
                 .font(.callout)
                 .frame(maxWidth: .infinity)
@@ -159,92 +169,7 @@ struct CreateRoomSheet: View {
             }
             .buttonStyle(.plain)
 
-            if !projectPaths.isEmpty {
-                buildTestFields
-            }
-        }
-    }
-
-    private var projectPathList: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(projectPaths.enumerated()), id: \.offset) { index, path in
-                projectPathRow(index: index, path: path)
-                if index < projectPaths.count - 1 {
-                    Rectangle()
-                        .fill(LinearGradient(colors: [.clear, palette.separator.opacity(0.3), .clear], startPoint: .leading, endPoint: .trailing))
-                        .frame(height: 1)
-                        .padding(.leading, 30)
-                }
-            }
-        }
-        .background(palette.inputBackground)
-        .continuousRadius(DesignTokens.Radius.lg)
-    }
-
-    private func projectPathRow(index: Int, path: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: index == 0 ? "folder.fill" : "folder")
-                .foregroundColor(index == 0 ? .accentColor : .secondary)
-                .font(.caption)
-            Text((path as NSString).lastPathComponent)
-                .font(.callout)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            if index == 0 {
-                Text("주")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundColor(.accentColor)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(Color.accentColor.opacity(0.1))
-                    .continuousRadius(DesignTokens.Radius.sm)
-            }
-            Spacer()
-            Button {
-                projectPaths.remove(at: index)
-                if projectPaths.isEmpty {
-                    buildCommand = ""
-                    testCommand = ""
-                } else if index == 0, let first = projectPaths.first {
-                    if buildCommand.isEmpty { buildCommand = detectBuildCommand(at: first) }
-                    if testCommand.isEmpty { testCommand = detectTestCommand(at: first) }
-                }
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundColor(.secondary)
-                    .font(.caption)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-    }
-
-    private var buildTestFields: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: "hammer")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                TextField("빌드 명령 (예: swift build)", text: $buildCommand)
-                    .textFieldStyle(.plain)
-                    .font(.callout)
-                    .padding(6)
-                    .background(palette.inputBackground)
-                    .continuousRadius(DesignTokens.Radius.md)
-            }
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark.shield")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                TextField("테스트 명령 (예: swift test)", text: $testCommand)
-                    .textFieldStyle(.plain)
-                    .font(.callout)
-                    .padding(6)
-                    .background(palette.inputBackground)
-                    .continuousRadius(DesignTokens.Radius.md)
-            }
-            Text("빌드/테스트 명령은 첫 번째(주) 디렉토리에서 실행됩니다.")
+            Text("이미지, PDF, 텍스트 파일 등을 첨부할 수 있습니다. 드래그 앤 드롭도 지원합니다.")
                 .font(.caption2)
                 .foregroundColor(.secondary.opacity(0.6))
         }
@@ -319,15 +244,12 @@ struct CreateRoomSheet: View {
         let trimmedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty, !trimmedTask.isEmpty, !selectedAgentIDs.isEmpty else { return }
 
-        let trimmedBuild = buildCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedTest = testCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        let attachments = pendingAttachments.isEmpty ? nil : pendingAttachments
         let roomID = roomManager.createManualRoom(
             title: trimmedTitle,
             agentIDs: Array(selectedAgentIDs),
             task: trimmedTask,
-            projectPaths: projectPaths,
-            buildCommand: trimmedBuild.isEmpty ? nil : trimmedBuild,
-            testCommand: trimmedTest.isEmpty ? nil : trimmedTest
+            attachments: attachments
         )
         // 생성 시트 닫고 방 채팅 창 바로 열기
         UtilityWindowManager.shared.closeKeyWindow()
@@ -343,66 +265,50 @@ struct CreateRoomSheet: View {
         }
     }
 
-    private func pickProjectDirectories() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = true
-        panel.message = "프로젝트 디렉토리를 선택하세요 (여러 개 가능)"
-        guard panel.runModal() == .OK else { return }
+    // MARK: - 파일 첨부
 
-        let newPaths = panel.urls.map(\.path).filter { !projectPaths.contains($0) }
-        projectPaths.append(contentsOf: newPaths)
-
-        // 첫 번째 경로 기준 빌드/테스트 명령 자동 감지
-        if let first = projectPaths.first {
-            if buildCommand.isEmpty {
-                buildCommand = detectBuildCommand(at: first)
-            }
-            if testCommand.isEmpty {
-                testCommand = detectTestCommand(at: first)
-            }
+    private func pickFile() {
+        let openPanel = NSOpenPanel()
+        var types: [UTType] = [.jpeg, .png, .gif, .webP, .pdf, .plainText, .commaSeparatedText, .json, .html, .xml, .sourceCode, .shellScript]
+        if let yaml = UTType(filenameExtension: "yaml") { types.append(yaml) }
+        if let md = UTType(filenameExtension: "md") { types.append(md) }
+        openPanel.allowedContentTypes = types
+        openPanel.allowsMultipleSelection = true
+        openPanel.canChooseDirectories = false
+        openPanel.message = "첨부할 파일을 선택하세요"
+        guard openPanel.runModal() == .OK else { return }
+        for url in openPanel.urls {
+            addFileFromURL(url)
         }
     }
 
-    /// 프로젝트 디렉토리에서 테스트 명령 자동 감지
-    private func detectTestCommand(at path: String) -> String {
-        let fm = FileManager.default
-        if fm.fileExists(atPath: (path as NSString).appendingPathComponent("Package.swift")) {
-            return "swift test"
-        }
-        if fm.fileExists(atPath: (path as NSString).appendingPathComponent("package.json")) {
-            return "npm test"
-        }
-        if fm.fileExists(atPath: (path as NSString).appendingPathComponent("Cargo.toml")) {
-            return "cargo test"
-        }
-        if fm.fileExists(atPath: (path as NSString).appendingPathComponent("build.gradle")) ||
-           fm.fileExists(atPath: (path as NSString).appendingPathComponent("build.gradle.kts")) {
-            return "./gradlew test"
-        }
-        return ""
+    private func addFileFromURL(_ url: URL) {
+        guard let data = try? Data(contentsOf: url) else { return }
+        guard let mime = FileAttachment.detectMimeType(for: url, data: data) else { return }
+        guard let attachment = try? FileAttachment.save(data: data, mimeType: mime, originalFilename: url.lastPathComponent) else { return }
+        pendingAttachments.append(attachment)
     }
 
-    /// 프로젝트 디렉토리에서 빌드 명령 자동 감지
-    private func detectBuildCommand(at path: String) -> String {
-        let fm = FileManager.default
-        if fm.fileExists(atPath: (path as NSString).appendingPathComponent("Package.swift")) {
-            return "swift build"
+    private func handleFileDrop(_ providers: [NSItemProvider]) {
+        for provider in providers {
+            if provider.hasItemConformingToTypeIdentifier("public.file-url") {
+                provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, _ in
+                    guard let data = item as? Data,
+                          let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
+                    DispatchQueue.main.async {
+                        addFileFromURL(url)
+                    }
+                }
+            } else if provider.hasItemConformingToTypeIdentifier("public.image") {
+                provider.loadDataRepresentation(forTypeIdentifier: "public.image") { data, _ in
+                    guard let data = data,
+                          let mime = FileAttachment.mimeType(for: data),
+                          let attachment = try? FileAttachment.save(data: data, mimeType: mime) else { return }
+                    DispatchQueue.main.async {
+                        pendingAttachments.append(attachment)
+                    }
+                }
+            }
         }
-        if fm.fileExists(atPath: (path as NSString).appendingPathComponent("package.json")) {
-            return "npm run build"
-        }
-        if fm.fileExists(atPath: (path as NSString).appendingPathComponent("Makefile")) {
-            return "make"
-        }
-        if fm.fileExists(atPath: (path as NSString).appendingPathComponent("Cargo.toml")) {
-            return "cargo build"
-        }
-        if fm.fileExists(atPath: (path as NSString).appendingPathComponent("build.gradle")) ||
-           fm.fileExists(atPath: (path as NSString).appendingPathComponent("build.gradle.kts")) {
-            return "./gradlew build"
-        }
-        return ""
     }
 }
