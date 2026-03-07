@@ -796,7 +796,15 @@ extension RoomManager {
         let docTypeName = rooms[idx].workflowState.documentType?.displayName
         // 기존 에이전트 목록 구성
         let subAgents = agentStore?.subAgents ?? []
-        let agentRoster = subAgents.isEmpty ? "(없음)" : subAgents.map { "- \($0.name)" }.joined(separator: "\n")
+        let agentRoster: String
+        if subAgents.isEmpty {
+            agentRoster = "(없음)"
+        } else {
+            agentRoster = subAgents.map { agent in
+                let tags = agent.skillTags.isEmpty ? "" : " (전문: \(agent.skillTags.joined(separator: ", ")))"
+                return "- \(agent.name)\(tags)"
+            }.joined(separator: "\n")
+        }
 
         let intent = rooms[idx].workflowState.intent
         let maxAgentHint: String
