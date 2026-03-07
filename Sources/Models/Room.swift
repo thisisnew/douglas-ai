@@ -635,6 +635,26 @@ struct Room: Identifiable, Codable {
         }
     }
 
+    /// 토론 세션 그룹
+    var discussion: DiscussionSession {
+        get {
+            DiscussionSession(
+                currentRound: currentRound,
+                isCheckpoint: isDiscussionCheckpoint,
+                decisionLog: decisionLog,
+                artifacts: artifacts,
+                briefing: briefing
+            )
+        }
+        set {
+            currentRound = newValue.currentRound
+            isDiscussionCheckpoint = newValue.isCheckpoint
+            decisionLog = newValue.decisionLog
+            artifacts = newValue.artifacts
+            briefing = newValue.briefing
+        }
+    }
+
     /// 프로젝트 연동 컨텍스트 그룹
     var projectContext: ProjectContext {
         get {

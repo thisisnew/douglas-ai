@@ -198,4 +198,50 @@ struct ValueObjectTests {
         #expect(ctx.projectPaths == ["/original"])
         #expect(ctx.worktreePath == "/tmp/wt")
     }
+
+    // MARK: - DiscussionSession
+
+    @Test("DiscussionSession - 기본값")
+    func discussionSessionDefaults() {
+        let session = DiscussionSession()
+        #expect(session.currentRound == 0)
+        #expect(session.isCheckpoint == false)
+        #expect(session.decisionLog.isEmpty)
+        #expect(session.artifacts.isEmpty)
+        #expect(session.briefing == nil)
+    }
+
+    @Test("DiscussionSession - 필드 설정")
+    func discussionSessionFields() {
+        let session = DiscussionSession(currentRound: 3, isCheckpoint: true)
+        #expect(session.currentRound == 3)
+        #expect(session.isCheckpoint == true)
+    }
+
+    @Test("DiscussionSession - Codable 왕복")
+    func discussionSessionCodable() throws {
+        let session = DiscussionSession(currentRound: 2, isCheckpoint: true)
+        let data = try JSONEncoder().encode(session)
+        let decoded = try JSONDecoder().decode(DiscussionSession.self, from: data)
+        #expect(decoded.currentRound == 2)
+        #expect(decoded.isCheckpoint == true)
+    }
+
+    @Test("Room.discussion - get/set 왕복")
+    func roomDiscussionAccessor() {
+        var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
+        room.discussion = DiscussionSession(currentRound: 5, isCheckpoint: true)
+        #expect(room.currentRound == 5)
+        #expect(room.isDiscussionCheckpoint == true)
+    }
+
+    @Test("Room.discussion - 개별 프로퍼티 수정 후 동기화")
+    func roomDiscussionSync() {
+        var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
+        room.currentRound = 3
+        room.isDiscussionCheckpoint = true
+        let session = room.discussion
+        #expect(session.currentRound == 3)
+        #expect(session.isCheckpoint == true)
+    }
 }
