@@ -2164,31 +2164,8 @@ class RoomManager: ObservableObject {
             }
         }
 
-        // quickAnswer → 질의응답 전문가 직접 배정 (LLM 매칭 바이패스)
-        if rooms[idx].intent == .quickAnswer {
-            let qaNameKWs: Set<String> = ["질의응답", "q&a", "qa"]
-            let allSubAgents = agentStore?.subAgents ?? []
-            if let qaAgent = allSubAgents.first(where: { sub in
-                let nameL = sub.name.lowercased()
-                return qaNameKWs.contains(where: { nameL.contains($0) })
-            }) {
-                if !rooms[idx].assignedAgentIDs.contains(qaAgent.id) {
-                    addAgent(qaAgent.id, to: roomID, silent: true)
-                }
-                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].agentRoles[qaAgent.name] = .creator
-                }
-                let masterName = agentStore?.masterAgent?.name ?? "DOUGLAS"
-                appendMessage(ChatMessage(
-                    role: .system,
-                    content: "\(qaAgent.name)(작성자)님이 참여합니다.",
-                    agentName: masterName
-                ), to: roomID)
-                scheduleSave()
-                return
-            }
-            // 질의응답 전문가가 없으면 LLM 매칭으로 폴스루
-        }
+        // quickAnswer도 LLM 매칭 → showTeamConfirmation 경로 사용
+        // (L2285에서 maxAgentHint = "반드시 1명만" 지시)
 
         // 문서 생성 작업 → LLM 매칭 바이패스: 문서 전용 에이전트 직접 배정
         if rooms[idx].autoDocOutput {
