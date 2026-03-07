@@ -412,7 +412,7 @@ class ClaudeCodeProvider: AIProvider {
                 args += ["--append-system-prompt", systemPrompt]
             }
             // 비대화형 모드(-p)에서 도구 승인 프롬프트 없이 실행
-            let tools = allowedTools ?? ["Edit", "Write", "Bash", "Read", "Glob", "Grep"]
+            let tools = allowedTools ?? ["Edit", "Write", "Bash", "Read", "Glob", "Grep", "WebSearch"]
             args += ["--allowedTools"] + tools
         }
 

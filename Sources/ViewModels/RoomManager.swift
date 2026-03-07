@@ -5424,9 +5424,11 @@ class RoomManager: ObservableObject {
             // 최종 정리된 응답으로 placeholder 업데이트 + 중간 단계는 접힘 처리
             let cleanedResponse = expandTildePaths(stripHallucinatedAuthLines(stripTrailingOptions(response)))
             updateMessageContent(streamPlaceholderID, newContent: cleanedResponse, in: roomID)
-            if !(isLastStep || totalSteps == 1) {
-                if let i = rooms.firstIndex(where: { $0.id == roomID }),
-                   let mi = rooms[i].messages.firstIndex(where: { $0.id == streamPlaceholderID }) {
+            // 타임스탬프를 실제 완료 시점으로 갱신 (도구 활동보다 앞에 정렬되는 문제 방지)
+            if let i = rooms.firstIndex(where: { $0.id == roomID }),
+               let mi = rooms[i].messages.firstIndex(where: { $0.id == streamPlaceholderID }) {
+                rooms[i].messages[mi].timestamp = Date()
+                if !(isLastStep || totalSteps == 1) {
                     rooms[i].messages[mi].messageType = .toolActivity
                 }
             }

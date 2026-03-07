@@ -62,7 +62,7 @@ struct ChatMessage: Identifiable, Codable {
     let role: MessageRole
     var content: String
     let agentName: String?
-    let timestamp: Date
+    var timestamp: Date
     var messageType: MessageType
     let attachments: [FileAttachment]?
     /// 부모 .progress 메시지 ID — non-nil이면 해당 progress 버블에 소속된 활동 메시지
