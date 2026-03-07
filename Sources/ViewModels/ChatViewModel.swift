@@ -386,7 +386,7 @@ class ChatViewModel: ObservableObject {
         let masterName = agentStore?.masterAgent?.name ?? "DOUGLAS"
         let welcome = ChatMessage(
             role: .assistant,
-            content: "안녕하세요! DOUGLAS입니다. 뭐든 요청해주세요!",
+            content: "무엇을 도와드릴까요?",
             agentName: masterName
         )
         appendMessage(welcome, for: masterID)

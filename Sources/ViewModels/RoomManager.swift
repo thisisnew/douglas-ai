@@ -2799,7 +2799,7 @@ class RoomManager: ObservableObject {
         //    ※ 문서 생성(autoDocOutput)은 추가 질문 없이 바로 진행
         var currentBrief: TaskBrief? = brief
         var enrichedTask = actualTask
-        let maxQuestions = 2
+        let maxQuestions = 3
         let isDocTask = rooms.first(where: { $0.id == roomID })?.autoDocOutput == true
 
         for questionRound in 1...maxQuestions {
@@ -3219,25 +3219,22 @@ class RoomManager: ObservableObject {
         }
         guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
-        // 최종 계획을 Plan으로 파싱
-        let plan = await requestPlan(roomID: roomID, task: task, designOutput: finalDesignText)
-        if let plan, let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].plan = plan
+        // 최종 계획을 Plan으로 파싱 (이미 plan이 존재하면 Design 결과만 저장)
+        if let existingPlan = rooms.first(where: { $0.id == roomID })?.plan {
+            // Plan phase에서 이미 생성됨 → Design 결과는 브리핑으로만 저장
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].clarifySummary = (rooms[i].clarifySummary ?? "") + "\n\n[설계 토론 결과]\n" + finalDesignText
+            }
+            _ = existingPlan  // suppress unused warning
+        } else {
+            let plan = await requestPlan(roomID: roomID, task: task, designOutput: finalDesignText)
+            if let plan, let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].plan = plan
+            }
         }
 
-        // 계획 표시 후 바로 Build 진입 (승인 게이트 제거 — 라이브 협업)
-        if let plan = rooms.first(where: { $0.id == roomID })?.plan {
-            let stepsDesc = plan.steps.enumerated().map { i, s in
-                let risk = s.riskLevel == .low ? "" : " [\(s.riskLevel.displayName)]"
-                return "\(i + 1). \(s.text)\(risk)"
-            }.joined(separator: "\n")
-            let planMsg = ChatMessage(
-                role: .system,
-                content: "설계 완료:\n\n\(stepsDesc)",
-                messageType: .progress
-            )
-            appendMessage(planMsg, to: roomID)
-        }
+        // 계획 승인 게이트: 사용자 승인/요건 추가 루프
+        let _ = await awaitPlanApproval(roomID: roomID, task: task, designOutput: finalDesignText)
         scheduleSave()
     }
 
@@ -3372,6 +3369,37 @@ class RoomManager: ObservableObject {
         guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
         guard !opinions.isEmpty else { return }
 
+        // 사용자 체크포인트: Turn 1 의견 확인 후 피드백 기회
+        let checkpoint1Msg = ChatMessage(
+            role: .system,
+            content: "전문가 의견이 나왔습니다. 의견이 있으시면 입력해주세요. 없으면 그대로 진행합니다.",
+            messageType: .userQuestion
+        )
+        appendMessage(checkpoint1Msg, to: roomID)
+
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].isDiscussionCheckpoint = true
+            rooms[i].transitionTo(.awaitingUserInput)
+        }
+        syncAgentStatuses()
+        scheduleSave()
+
+        let userFeedback1: String = await withCheckedContinuation { (cont: CheckedContinuation<String, Never>) in
+            userInputContinuations[roomID] = cont
+        }
+
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].isDiscussionCheckpoint = false
+            rooms[i].transitionTo(.inProgress)
+        }
+
+        // 사용자 피드백이 있으면 Turn 2 컨텍스트에 포함
+        if !userFeedback1.isEmpty {
+            opinions.append(("사용자", userFeedback1))
+        }
+
+        guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
+
         // --- Turn 2: 상호 피드백 (순차 — 이전 피드백도 볼 수 있도록) ---
         let turn2ProgressMsg = ChatMessage(role: .system, content: "상호 피드백 진행 중", messageType: .progress)
         appendMessage(turn2ProgressMsg, to: roomID)
@@ -3434,6 +3462,37 @@ class RoomManager: ObservableObject {
         speakingAgentIDByRoom.removeValue(forKey: roomID)
         guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
+        // 사용자 체크포인트: Turn 2 피드백 확인 후 종합 전 의견 반영 기회
+        let checkpoint2Msg = ChatMessage(
+            role: .system,
+            content: "피드백이 완료되었습니다. 추가 의견이 있으시면 입력해주세요. 없으면 종합 정리로 진행합니다.",
+            messageType: .userQuestion
+        )
+        appendMessage(checkpoint2Msg, to: roomID)
+
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].isDiscussionCheckpoint = true
+            rooms[i].transitionTo(.awaitingUserInput)
+        }
+        syncAgentStatuses()
+        scheduleSave()
+
+        let userFeedback2: String = await withCheckedContinuation { (cont: CheckedContinuation<String, Never>) in
+            userInputContinuations[roomID] = cont
+        }
+
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].isDiscussionCheckpoint = false
+            rooms[i].transitionTo(.inProgress)
+        }
+
+        // 사용자 피드백이 있으면 종합에 포함
+        if !userFeedback2.isEmpty {
+            feedbacks.append(("사용자", userFeedback2))
+        }
+
+        guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
+
         // --- DOUGLAS 진행자 종합 정리 ---
         let discussionSummary = opinions.map { "[\($0.name) 의견]\n\($0.content)" }.joined(separator: "\n\n")
             + "\n\n---\n\n"
@@ -3493,6 +3552,96 @@ class RoomManager: ObservableObject {
         }
 
         scheduleSave()
+    }
+
+    /// 계획 승인 루프: 사용자가 승인할 때까지 계획 재수립 반복
+    private func awaitPlanApproval(roomID: UUID, task: String, designOutput: String? = nil) async -> Bool {
+        while true {
+            guard !Task.isCancelled,
+                  let room = rooms.first(where: { $0.id == roomID }),
+                  room.isActive, room.plan != nil else { return false }
+
+            let plan = room.plan!
+            let stepsDesc = plan.steps.enumerated().map { i, s in
+                let risk = s.riskLevel == .low ? "" : " [\(s.riskLevel.displayName)]"
+                return "\(i + 1). \(s.text)\(risk)"
+            }.joined(separator: "\n")
+
+            let approvalMsg = ChatMessage(
+                role: .system,
+                content: "실행 계획:\n\n\(stepsDesc)\n\n승인하시면 실행을 시작합니다. 수정이 필요하면 요건을 말씀해주세요.",
+                messageType: .approvalRequest
+            )
+            appendMessage(approvalMsg, to: roomID)
+
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].transitionTo(.awaitingApproval)
+            }
+            syncAgentStatuses()
+            scheduleSave()
+
+            let approved = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+                approvalContinuations[roomID] = cont
+            }
+            approvalContinuations.removeValue(forKey: roomID)
+
+            if approved {
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.inProgress)
+                }
+                let resumeMsg = ChatMessage(
+                    role: .system,
+                    content: "계획이 승인되었습니다. 실행을 시작합니다.",
+                    messageType: .progress
+                )
+                appendMessage(resumeMsg, to: roomID)
+                return true
+            } else {
+                let feedback = rooms.first(where: { $0.id == roomID })?
+                    .messages.last(where: { $0.role == .user })?.content ?? ""
+
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.planning)
+                }
+
+                let retryMsg = ChatMessage(
+                    role: .system,
+                    content: "요건을 반영하여 계획을 재수립합니다.",
+                    messageType: .progress
+                )
+                appendMessage(retryMsg, to: roomID)
+
+                let newPlan = await requestPlan(
+                    roomID: roomID, task: task,
+                    previousPlan: rooms.first(where: { $0.id == roomID })?.plan,
+                    feedback: feedback,
+                    designOutput: designOutput
+                )
+                if let newPlan, let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].plan = newPlan
+                } else {
+                    return false
+                }
+            }
+        }
+    }
+
+    /// 사용자 피드백에서 롤백 대상 단계 번호 추출
+    private func parseRollbackStepIndex(from feedback: String, totalSteps: Int) -> Int {
+        let lower = feedback.lowercased()
+        // "3단계로 돌아가줘", "step 2부터 다시", "2번째" 등에서 숫자 추출
+        let patterns: [String] = ["(\\d+)\\s*단계", "(\\d+)\\s*번", "step\\s*(\\d+)"]
+        for pattern in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
+               let match = regex.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)) {
+                let range = match.range(at: 1)
+                if let swiftRange = Range(range, in: lower), let num = Int(lower[swiftRange]),
+                   num >= 1 && num <= totalSteps {
+                    return num - 1
+                }
+            }
+        }
+        return max(0, totalSteps - 2)
     }
 
     /// 1인 에이전트 구조화된 플랜 생성 (4b: executePlanPhase 대신)
@@ -3603,19 +3752,8 @@ class RoomManager: ObservableObject {
             return
         }
 
-        // 계획 표시 후 바로 Build 진입 (승인 게이트 제거 — 라이브 협업)
-        if let plan = rooms.first(where: { $0.id == roomID })?.plan {
-            let stepsDesc = plan.steps.enumerated().map { i, s in
-                let risk = s.riskLevel == .low ? "" : " [\(s.riskLevel.displayName)]"
-                return "\(i + 1). \(s.text)\(risk)"
-            }.joined(separator: "\n")
-            let planMsg = ChatMessage(
-                role: .system,
-                content: "실행 계획:\n\n\(stepsDesc)",
-                messageType: .progress
-            )
-            appendMessage(planMsg, to: roomID)
-        }
+        // 계획 승인 게이트: 사용자 승인/요건 추가 루프
+        let _ = await awaitPlanApproval(roomID: roomID, task: task)
         scheduleSave()
     }
 
@@ -3702,7 +3840,10 @@ class RoomManager: ObservableObject {
         rooms[idx].transitionTo(.inProgress)
         scheduleSave()
 
-        for (stepIndex, step) in plan.steps.enumerated() {
+        var stepIndex = 0
+        while stepIndex < plan.steps.count {
+            let step = plan.steps[stepIndex]
+
             guard !Task.isCancelled,
                   let currentRoom = rooms.first(where: { $0.id == roomID }),
                   currentRoom.status == .inProgress else { break }
@@ -3726,6 +3867,53 @@ class RoomManager: ObservableObject {
                 rooms[i].setCurrentStep(stepIndex)
             }
 
+            // 마지막 단계 직전 확인 (step이 2개 이상일 때만)
+            if stepIndex == plan.steps.count - 1 && plan.steps.count > 1 {
+                let confirmMsg = ChatMessage(
+                    role: .system,
+                    content: "마지막 단계입니다. 여기까지 진행된 내용이 괜찮으시면 승인해주세요. 수정이 필요하면 되돌아갈 단계와 요건을 말씀해주세요.",
+                    messageType: .approvalRequest
+                )
+                appendMessage(confirmMsg, to: roomID)
+
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.awaitingApproval)
+                }
+                syncAgentStatuses()
+                scheduleSave()
+
+                let approved = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+                    approvalContinuations[roomID] = cont
+                }
+                approvalContinuations.removeValue(forKey: roomID)
+
+                if approved {
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].transitionTo(.inProgress)
+                    }
+                } else {
+                    // 거부 → 롤백
+                    let feedback = rooms.first(where: { $0.id == roomID })?
+                        .messages.last(where: { $0.role == .user })?.content ?? ""
+                    let rollbackTarget = parseRollbackStepIndex(from: feedback, totalSteps: plan.steps.count)
+
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].transitionTo(.inProgress)
+                    }
+
+                    let rollbackMsg = ChatMessage(
+                        role: .system,
+                        content: "단계 \(rollbackTarget + 1)부터 다시 실행합니다.",
+                        messageType: .progress
+                    )
+                    appendMessage(rollbackMsg, to: roomID)
+                    pendingUserDirective = feedback
+
+                    stepIndex = rollbackTarget
+                    continue
+                }
+            }
+
             // high-risk step → DeferredAction 생성, 실행하지 않음
             if step.riskLevel == .high {
                 let deferred = DeferredAction(
@@ -3747,6 +3935,7 @@ class RoomManager: ObservableObject {
                 )
                 appendMessage(deferMsg, to: roomID)
                 scheduleSave()
+                stepIndex += 1
                 continue
             }
 
@@ -3847,6 +4036,8 @@ class RoomManager: ObservableObject {
                 scheduleSave()
                 return
             }
+
+            stepIndex += 1
         }
         scheduleSave()
     }
@@ -4326,16 +4517,8 @@ class RoomManager: ObservableObject {
             }
         }
 
-        // 계획 표시 후 바로 실행 진입 (승인 게이트 제거 — 라이브 협업)
-        if let plan = currentPlan {
-            let stepsDesc = plan.steps.enumerated().map { "\($0.offset + 1). \($0.element.text)" }.joined(separator: "\n")
-            let planMsg = ChatMessage(
-                role: .system,
-                content: "실행 계획:\n\n\(stepsDesc)",
-                messageType: .progress
-            )
-            appendMessage(planMsg, to: roomID)
-        }
+        // 계획 승인 게이트: 사용자 승인/요건 추가 루프
+        let _ = await awaitPlanApproval(roomID: roomID, task: task)
         scheduleSave()
     }
 
@@ -4997,7 +5180,10 @@ class RoomManager: ObservableObject {
         // 이전 단계 응답 추적 (반복 감지용)
         var previousStepResponse: String?
 
-        for (stepIndex, step) in plan.steps.enumerated() {
+        var stepIndex = 0
+        while stepIndex < plan.steps.count {
+            let step = plan.steps[stepIndex]
+
             // 취소 또는 방 삭제 감지
             guard !Task.isCancelled,
                   let currentRoom = rooms.first(where: { $0.id == roomID }),
@@ -5006,6 +5192,52 @@ class RoomManager: ObservableObject {
             // 현재 단계 업데이트 (승인 게이트 전에 호출 → 이전 단계들이 체크 표시됨)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].setCurrentStep(stepIndex)
+            }
+
+            // 마지막 단계 직전 확인 (step이 2개 이상일 때만)
+            if stepIndex == plan.steps.count - 1 && plan.steps.count > 1 {
+                let confirmMsg = ChatMessage(
+                    role: .system,
+                    content: "마지막 단계입니다. 여기까지 진행된 내용이 괜찮으시면 승인해주세요. 수정이 필요하면 되돌아갈 단계와 요건을 말씀해주세요.",
+                    messageType: .approvalRequest
+                )
+                appendMessage(confirmMsg, to: roomID)
+
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].transitionTo(.awaitingApproval)
+                }
+                syncAgentStatuses()
+                scheduleSave()
+
+                let approved = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+                    approvalContinuations[roomID] = cont
+                }
+                approvalContinuations.removeValue(forKey: roomID)
+
+                if approved {
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].transitionTo(.inProgress)
+                    }
+                } else {
+                    // 거부 → 롤백
+                    let feedback = rooms.first(where: { $0.id == roomID })?
+                        .messages.last(where: { $0.role == .user })?.content ?? ""
+                    let rollbackTarget = parseRollbackStepIndex(from: feedback, totalSteps: plan.steps.count)
+
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                        rooms[i].transitionTo(.inProgress)
+                    }
+
+                    let rollbackMsg = ChatMessage(
+                        role: .system,
+                        content: "단계 \(rollbackTarget + 1)부터 다시 실행합니다.",
+                        messageType: .progress
+                    )
+                    appendMessage(rollbackMsg, to: roomID)
+
+                    stepIndex = rollbackTarget
+                    continue
+                }
             }
 
             // 승인 게이트: requiresApproval인 단계에서 일시 정지 (거절 시 피드백 → 재수행 루프)
@@ -5237,7 +5469,7 @@ class RoomManager: ObservableObject {
                 previousStepResponse = latestResponse
             }
 
-            // 리뷰 게이트 제거 — step 간 사용자 메시지는 라이브 협업으로 반영
+            stepIndex += 1
         }
 
         // 완료: 먼저 상태 변경 후 작업일지 생성 (상태가 inProgress인 동안 추가 메시지가 묻히는 문제 방지)
