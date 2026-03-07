@@ -128,23 +128,6 @@ struct WorkflowIntentTests {
         #expect(WorkflowIntent.discussion.requiresDiscussion == true)
     }
 
-    // MARK: - includesExecution / includesAssembly
-
-    @Test("모든 Intent가 assembly 포함")
-    func allIncludeAssembly() {
-        for intent in WorkflowIntent.allCases {
-            #expect(intent.includesAssembly == true)
-        }
-    }
-
-    @Test("실행 포함 여부 — Plan C에서는 build/deliver로 대체")
-    func includesExecution() {
-        // Plan C: requiredPhases에 .execute가 없음 (build/deliver로 대체)
-        #expect(WorkflowIntent.quickAnswer.includesExecution == false)
-        #expect(WorkflowIntent.task.includesExecution == false)
-        #expect(WorkflowIntent.discussion.includesExecution == false)
-    }
-
     // MARK: - 레거시 호환 (Codable)
 
     @Test("레거시 intent 문자열 → task로 디코딩")

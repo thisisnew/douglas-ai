@@ -2468,24 +2468,51 @@ class RoomManager: ObservableObject {
                     return
                 }
 
-                // 전문가 없음 → 기존 에이전트 중 아무나 1명 초대 시도, 없으면 생성 제안
+                // 전문가 없음 → 적합한 에이전트가 있으면 초대, 없으면 생성 제안
                 let subAgentsForFallback = agentStore?.subAgents ?? []
+                let taskBriefForFallback = rooms[idx].taskBrief
+
+                // 비개발 작업인지 감지
+                let isNonDevTask: Bool = {
+                    if let ot = taskBriefForFallback?.outputType,
+                       [.answer, .analysis, .message, .document].contains(ot) {
+                        let lower = task.lowercased()
+                        let nonDevKeywords = ["번역", "요약", "분석", "리서치", "조사", "정리",
+                                              "translate", "summarize", "research", "analyze"]
+                        if nonDevKeywords.contains(where: { lower.contains($0) }) { return true }
+                    }
+                    return false
+                }()
+
+                var autoInvited = false
                 if let anyAgent = subAgentsForFallback.first {
-                    // 서브 에이전트가 존재하면 첫 번째를 자동 초대
-                    addAgent(anyAgent.id, to: roomID, silent: true)
-                } else {
-                    // 서브 에이전트가 아예 없음 → 생성 제안
+                    let nameLower = anyAgent.name.lowercased()
+                    let isDev = ["개발자", "엔지니어", "developer", "engineer"]
+                        .contains(where: { nameLower.contains($0) })
+                    if isDev && isNonDevTask {
+                        // 개발자 에이전트 + 비개발 작업 → 자동 초대 차단, 제안으로 전환
+                    } else {
+                        addAgent(anyAgent.id, to: roomID, silent: true)
+                        autoInvited = true
+                    }
+                }
+
+                if !autoInvited {
+                    // 적합한 에이전트 없음 → 생성 제안
                     let taskSnippet = String(task.prefix(60))
                     let suggestedName: String
                     let suggestedPersona: String
-                    if let brief = rooms[idx].taskBrief {
+                    if let brief = taskBriefForFallback {
                         let domain = brief.goal.prefix(30)
                         suggestedName = brief.outputType == .answer || brief.outputType == .analysis
                             ? "리서치 전문가" : "\(intentName) 전문가"
                         suggestedPersona = "\(domain) 관련 질문에 답변하고 분석하는 전문가입니다."
                     } else {
                         let lower = task.lowercased()
-                        if lower.contains("트렌드") || lower.contains("동향") {
+                        if lower.contains("번역") || lower.contains("translate") {
+                            suggestedName = "번역 전문가"
+                            suggestedPersona = "다국어 번역 및 현지화 전문가입니다."
+                        } else if lower.contains("트렌드") || lower.contains("동향") {
                             suggestedName = "트렌드 분석가"
                             suggestedPersona = "기술 트렌드와 산업 동향을 분석하는 전문가입니다."
                         } else if lower.contains("코드") || lower.contains("개발") || lower.contains("구현") {
@@ -2721,6 +2748,31 @@ class RoomManager: ObservableObject {
         // 이미지 첨부가 있으면 TaskBrief에 힌트 전달 (이미지 데이터는 못 보내지만 존재 사실 알림)
         let roomAttachments = rooms[idx].messages.compactMap { $0.attachments }.flatMap { $0 }
         let hasImageAttachment = roomAttachments.contains { $0.isImage }
+
+        // Fast-path: 짧고 명확한 이미지 작업은 LLM TaskBrief 생성 스킵
+        let isSimpleImageTask = rooms[idx].intent != nil
+            && hasExplicitIntent
+            && actualTask.count < 30
+            && hasImageAttachment
+
+        if isSimpleImageTask {
+            let inferredOutput: OutputType = {
+                let lower = actualTask.lowercased()
+                if lower.contains("번역") || lower.contains("translate") { return .document }
+                if lower.contains("분석") || lower.contains("analy") { return .analysis }
+                if lower.contains("요약") || lower.contains("summar") { return .analysis }
+                if lower.contains("추출") || lower.contains("extract") { return .document }
+                return .document
+            }()
+            rooms[idx].taskBrief = TaskBrief(
+                goal: actualTask,
+                outputType: inferredOutput,
+                needsClarification: false
+            )
+            scheduleSave()
+            return
+        }
+
         var taskWithAttachmentHint = actualTask
         if hasImageAttachment {
             let imageNames = roomAttachments.filter { $0.isImage }.map { $0.originalFilename ?? $0.displayName }
@@ -3467,10 +3519,10 @@ class RoomManager: ObservableObject {
             return
         }
 
-        let startMsg = ChatMessage(role: .system, content: "실행 계획을 수립합니다...", messageType: .phaseTransition)
-        appendMessage(startMsg, to: roomID)
-
         speakingAgentIDByRoom[roomID] = agentID
+        let history = buildRoomHistory(roomID: roomID)
+        let context = makeToolContext(roomID: roomID, currentAgentID: agentID)
+
         let soloPrompt = """
         \(agent.resolvedSystemPrompt)
 
@@ -3478,6 +3530,7 @@ class RoomManager: ObservableObject {
 
         \(briefContext)
 
+        대화 히스토리를 참고하여 작업 대상을 파악하세요.
         반드시 아래 JSON 형식으로만 출력하세요:
         ```json
         {
@@ -3500,21 +3553,34 @@ class RoomManager: ObservableObject {
         - estimated_minutes는 1~30분으로 현실적으로 추정하세요
         """
 
+        let placeholderID = UUID()
         do {
-            let placeholderID = UUID()
-            appendMessage(ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: agent.name), to: roomID)
-
             let buffer = StreamBuffer()
-            let response = try await provider.sendMessageStreaming(
-                model: agent.modelName,
-                systemPrompt: soloPrompt,
-                messages: [("user", task)],
-                onChunk: { [weak self] chunk in
-                    guard let self else { return }
-                    let current = buffer.append(chunk)
-                    Task { @MainActor in self.updateMessageContent(placeholderID, newContent: current, in: roomID) }
-                }
-            )
+            let (response, _) = try await trackPhaseActivity(
+                roomID: roomID,
+                label: "실행 계획을 수립하는 중…",
+                agentName: agent.name,
+                modelName: agent.modelName,
+                providerName: agent.providerName
+            ) { _ in
+                let placeholder = ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: agent.name)
+                self.appendMessage(placeholder, to: roomID)
+                return try await ToolExecutor.smartSend(
+                    provider: provider,
+                    agent: agent,
+                    systemPrompt: soloPrompt,
+                    conversationMessages: history,
+                    context: context,
+                    onStreamChunk: { [weak self] chunk in
+                        guard let self else { return }
+                        let current = buffer.append(chunk)
+                        Task { @MainActor in
+                            self.updateMessageContent(placeholderID, newContent: current, in: roomID)
+                        }
+                    },
+                    useTools: false
+                )
+            }
             updateMessageContent(placeholderID, newContent: response, in: roomID)
 
             if let plan = parsePlan(from: response),
@@ -3560,35 +3626,49 @@ class RoomManager: ObservableObject {
               let agent = agentStore?.agents.first(where: { $0.id == agentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return }
 
-        let startMsg = ChatMessage(role: .system, content: "분석을 시작합니다...", messageType: .phaseTransition)
-        appendMessage(startMsg, to: roomID)
-
         speakingAgentIDByRoom[roomID] = agentID
+        let history = buildRoomHistory(roomID: roomID)
+        let context = makeToolContext(roomID: roomID, currentAgentID: agentID)
+
         let discussionPrompt = """
         \(agent.resolvedSystemPrompt)
 
         아래 주제에 대해 전문가 관점에서 분석하고 의견을 제시하세요.
+        대화 히스토리를 참고하여 작업 대상을 파악하세요.
         자연어로 구조적이고 명확하게 응답하세요. JSON이나 실행 계획은 불필요합니다.
 
         핵심 포인트, 장단점, 권장 사항을 포함해주세요.
         """
 
+        let placeholderID = UUID()
         do {
-            let placeholderID = UUID()
-            appendMessage(ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: agent.name), to: roomID)
-
             let buffer = StreamBuffer()
-            let response = try await provider.sendMessageStreaming(
-                model: agent.modelName,
-                systemPrompt: discussionPrompt,
-                messages: [("user", task)],
-                onChunk: { [weak self] chunk in
-                    guard let self else { return }
-                    let current = buffer.append(chunk)
-                    Task { @MainActor in self.updateMessageContent(placeholderID, newContent: current, in: roomID) }
-                }
-            )
-            updateMessageContent(placeholderID, newContent: response, in: roomID)
+            let (response, _) = try await trackPhaseActivity(
+                roomID: roomID,
+                label: "분석을 시작합니다…",
+                agentName: agent.name,
+                modelName: agent.modelName,
+                providerName: agent.providerName
+            ) { _ in
+                let placeholder = ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: agent.name)
+                self.appendMessage(placeholder, to: roomID)
+                return try await ToolExecutor.smartSend(
+                    provider: provider,
+                    agent: agent,
+                    systemPrompt: discussionPrompt,
+                    conversationMessages: history,
+                    context: context,
+                    onStreamChunk: { [weak self] chunk in
+                        guard let self else { return }
+                        let current = buffer.append(chunk)
+                        Task { @MainActor in
+                            self.updateMessageContent(placeholderID, newContent: current, in: roomID)
+                        }
+                    },
+                    useTools: false
+                )
+            }
+            updateMessageContent(placeholderID, newContent: stripTrailingOptions(response), in: roomID)
         } catch {
             appendMessage(ChatMessage(role: .assistant, content: "분석 오류: \(error.userFacingMessage)", agentName: agent.name, messageType: .error), to: roomID)
         }
@@ -4348,14 +4428,7 @@ class RoomManager: ObservableObject {
         }
         history.append(contentsOf: buildRoomHistory(roomID: roomID))
 
-        // 스트리밍용 placeholder 메시지
         let placeholderID = UUID()
-        let placeholder = ChatMessage(
-            id: placeholderID, role: .assistant, content: "",
-            agentName: agent.name
-        )
-        appendMessage(placeholder, to: roomID)
-
         do {
             // 웹 검색 지침 추가: 모르는 내용은 반드시 검색 후 답변
             let searchPrompt = agent.resolvedSystemPrompt
@@ -4367,6 +4440,8 @@ class RoomManager: ObservableObject {
                 modelName: agent.modelName,
                 providerName: agent.providerName
             ) { onToolActivity in
+                let placeholder = ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: agent.name)
+                self.appendMessage(placeholder, to: roomID)
                 let hasAttachments = history.contains { $0.attachments != nil && !($0.attachments?.isEmpty ?? true) }
                 if let claudeProvider = provider as? ClaudeCodeProvider, !hasAttachments {
                     // ClaudeCodeProvider: CLI 자체 WebSearch 사용 (검색+읽기만 허용, 첨부 없을 때만)
@@ -4497,14 +4572,7 @@ class RoomManager: ObservableObject {
         let history = buildRoomHistory(roomID: roomID)
         let context = makeToolContext(roomID: roomID, currentAgentID: agentID)
 
-        // 스트리밍용 placeholder 메시지
         let placeholderID = UUID()
-        let placeholder = ChatMessage(
-            id: placeholderID, role: .assistant, content: "",
-            agentName: agent.name
-        )
-        appendMessage(placeholder, to: roomID)
-
         do {
             let buffer = StreamBuffer()
             let (response, _) = try await trackPhaseActivity(
@@ -4514,7 +4582,9 @@ class RoomManager: ObservableObject {
                 modelName: agent.modelName,
                 providerName: agent.providerName
             ) { _ in
-                try await ToolExecutor.smartSend(
+                let placeholder = ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: agent.name)
+                self.appendMessage(placeholder, to: roomID)
+                return try await ToolExecutor.smartSend(
                     provider: provider,
                     agent: agent,
                     systemPrompt: soloPrompt,
@@ -4527,7 +4597,7 @@ class RoomManager: ObservableObject {
                             self.updateMessageContent(placeholderID, newContent: current, in: roomID)
                         }
                     },
-                    useTools: false  // 소로 분석: 도구 없이 스트리밍 우선
+                    useTools: false
                 )
             }
             updateMessageContent(placeholderID, newContent: stripTrailingOptions(response), in: roomID)

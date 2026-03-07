@@ -12,9 +12,9 @@ struct IntentClassifierTests {
         #expect(IntentClassifier.quickClassify("이게 뭐야") == .quickAnswer)
     }
 
-    @Test("번역 → quickAnswer")
+    @Test("번역 → task")
     func translation() {
-        #expect(IntentClassifier.quickClassify("이거 영어로 번역해줘") == .quickAnswer)
+        #expect(IntentClassifier.quickClassify("이거 영어로 번역해줘") == .task)
     }
 
     @Test("설명 요청 → quickAnswer")

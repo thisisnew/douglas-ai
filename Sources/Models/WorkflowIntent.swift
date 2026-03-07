@@ -101,15 +101,6 @@ enum WorkflowIntent: String, CaseIterable {
             .joined(separator: " → ")
     }
 
-    /// 실행 단계를 포함하는지
-    var includesExecution: Bool {
-        requiredPhases.contains(.execute)
-    }
-
-    /// 팀 구성 단계를 포함하는지
-    var includesAssembly: Bool {
-        requiredPhases.contains(.assemble)
-    }
 }
 
 // MARK: - Codable (하위 호환: 레거시 intent 마이그레이션)
