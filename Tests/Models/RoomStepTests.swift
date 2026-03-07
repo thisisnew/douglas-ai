@@ -167,4 +167,69 @@ struct RoomStepTests {
         let b = RoomStep(text: "A", requiresApproval: true)
         #expect(a != b)
     }
+
+    // MARK: - StepStatus
+
+    @Test("StepStatus - 기본값 pending")
+    func stepStatusDefault() {
+        let step = RoomStep(text: "작업")
+        #expect(step.status == .pending)
+    }
+
+    @Test("StepStatus - 명시 설정")
+    func stepStatusExplicit() {
+        let step = RoomStep(text: "작업", status: .completed)
+        #expect(step.status == .completed)
+    }
+
+    @Test("StepStatus - 상태 변경")
+    func stepStatusMutation() {
+        var step = RoomStep(text: "작업")
+        step.status = .inProgress
+        #expect(step.status == .inProgress)
+        step.status = .completed
+        #expect(step.status == .completed)
+    }
+
+    @Test("StepStatus - Codable 왕복")
+    func stepStatusCodable() throws {
+        let step = RoomStep(text: "작업", status: .completed)
+        let data = try JSONEncoder().encode(step)
+        let decoded = try JSONDecoder().decode(RoomStep.self, from: data)
+        #expect(decoded.status == .completed)
+    }
+
+    @Test("StepStatus - 레거시 JSON (status 없음) → pending")
+    func stepStatusLegacyDecode() throws {
+        let json = """
+        {"text":"작업","requires_approval":false}
+        """
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(RoomStep.self, from: data)
+        #expect(decoded.status == .pending)
+    }
+
+    @Test("StepStatus - plain String 디코딩 → pending")
+    func stepStatusPlainStringDecode() throws {
+        let json = "\"작업\""
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(RoomStep.self, from: data)
+        #expect(decoded.status == .pending)
+    }
+
+    @Test("StepStatus - pending일 때 plain String 인코딩 유지")
+    func stepStatusPendingPlainEncode() throws {
+        let step = RoomStep(text: "작업")
+        let data = try JSONEncoder().encode(step)
+        let str = String(data: data, encoding: .utf8)!
+        // pending + 기본값이면 plain String 인코딩
+        #expect(str == "\"작업\"")
+    }
+
+    @Test("StepStatus - 모든 rawValue 왕복")
+    func stepStatusAllRawValues() {
+        for status in [StepStatus.pending, .inProgress, .completed, .skipped, .failed] {
+            #expect(StepStatus(rawValue: status.rawValue) == status)
+        }
+    }
 }
