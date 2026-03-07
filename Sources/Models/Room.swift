@@ -587,6 +587,72 @@ struct Room: Identifiable, Codable {
         }
     }
 
+    // MARK: - 값 객체 접근자 (Phase 2)
+
+    /// 워크플로우 진행 상태 그룹
+    var workflowState: WorkflowState {
+        get {
+            WorkflowState(
+                intent: intent,
+                documentType: documentType,
+                autoDocOutput: autoDocOutput,
+                needsPlan: needsPlan,
+                currentPhase: currentPhase,
+                completedPhases: completedPhases
+            )
+        }
+        set {
+            intent = newValue.intent
+            documentType = newValue.documentType
+            autoDocOutput = newValue.autoDocOutput
+            needsPlan = newValue.needsPlan
+            currentPhase = newValue.currentPhase
+            completedPhases = newValue.completedPhases
+        }
+    }
+
+    /// 복명복창 컨텍스트 그룹
+    var clarifyContext: ClarifyContext {
+        get {
+            ClarifyContext(
+                intakeData: intakeData,
+                clarifySummary: clarifySummary,
+                clarifyQuestionCount: clarifyQuestionCount,
+                assumptions: assumptions,
+                userAnswers: userAnswers,
+                delegationInfo: delegationInfo,
+                playbook: playbook
+            )
+        }
+        set {
+            intakeData = newValue.intakeData
+            clarifySummary = newValue.clarifySummary
+            clarifyQuestionCount = newValue.clarifyQuestionCount
+            assumptions = newValue.assumptions
+            userAnswers = newValue.userAnswers
+            delegationInfo = newValue.delegationInfo
+            playbook = newValue.playbook
+        }
+    }
+
+    /// 프로젝트 연동 컨텍스트 그룹
+    var projectContext: ProjectContext {
+        get {
+            ProjectContext(
+                projectPaths: projectPaths,
+                worktreePath: worktreePath,
+                buildCommand: buildCommand,
+                testCommand: testCommand
+            )
+        }
+        set {
+            projectPaths = newValue.projectPaths
+            worktreePath = newValue.worktreePath
+            buildCommand = newValue.buildCommand
+            testCommand = newValue.testCommand
+        }
+    }
+
     /// 검증된 상태 전이. 유효하지 않으면 false 반환
     @discardableResult
     mutating func transitionTo(_ newStatus: RoomStatus) -> Bool {

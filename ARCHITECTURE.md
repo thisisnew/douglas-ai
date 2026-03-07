@@ -74,6 +74,9 @@ DOUGLAS/
 │   │   ├── ProcessRunner.swift      # 테스트 가능한 프로세스 실행기 (DI seam)
 │   │   ├── Room.swift               # 프로젝트 방 모델 (+ Plan C: TaskBrief, agentRoles, deferredActions, RiskLevel, OutputType, RuntimeRole)
 │   │   ├── ApprovalRecord.swift     # 승인 기록 모델 (ApprovalType, AwaitingType, ApprovalRecord)
+│   │   ├── WorkflowState.swift     # 워크플로우 진행 상태 값 객체 (intent, phase 추적)
+│   │   ├── ClarifyContext.swift    # 복명복창 컨텍스트 값 객체 (intake, summary, delegation)
+│   │   ├── ProjectContext.swift    # 프로젝트 연동 컨텍스트 값 객체 (경로, 빌드/테스트 명령)
 │   │   └── KeychainHelper.swift     # 파일 기반 API 키 저장 (Keychain 레거시 마이그레이션)
 │   ├── ViewModels/
 │   │   ├── AgentStore.swift         # 에이전트 CRUD, 마스터 생명주기
