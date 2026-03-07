@@ -1,15 +1,6 @@
 import Foundation
 import UserNotifications
 
-/// 스트리밍 청크 누적용 스레드-안전 버퍼
-private final class StreamBuffer: @unchecked Sendable {
-    private var _value = ""
-    func append(_ chunk: String) -> String {
-        _value += chunk
-        return _value
-    }
-}
-
 // MARK: - ChatViewModel
 
 @MainActor
