@@ -838,10 +838,12 @@ extension RoomManager {
         작업과 무관한 역할은 절대 포함하지 마세요.
         \(maxAgentHint)\(docTypeHint)
 
-        **핵심 원칙: 사용자의 요청(작업)에 맞는 에이전트를 선택하세요.**
-        참조 데이터(Jira 티켓, URL 내용)의 도메인이 아닌, 사용자가 요청한 작업 유형에 집중하세요.
-        예: Jira 티켓이 백엔드 코드 관련이어도 사용자가 "PR 링크 취합해줘"라고 했으면 → Jira/분석 전문가. 개발자 아님.
-        예: "프론트엔드 관점에서 분석해줘" → 프론트엔드 전문가만. 백엔드 전문가는 불필요.
+        **핵심 원칙:**
+        1. 사용자가 특정 역할/직군을 직접 지정하면 그것을 최우선합니다. (예: "백엔드만 있으면 돼" → 백엔드 개발자)
+        2. 사용자 요청의 작업 유형(코드 수정, 분석, 문서 작성 등)에 맞는 에이전트를 선택하세요.
+        3. 참조 데이터의 출처(Jira, GitHub 등)가 아닌, 실제 수행할 작업에 집중하세요.
+        예: Jira URL이 있어도 코드 수정 작업이면 → 개발자. Jira 분석가가 아님.
+        예: "프론트엔드 관점에서 분석해줘" → 프론트엔드 전문가만.
 
         **역할 배정 규칙:**
         - 리서치/조사/분석/취합/문서작성/테스트계획/QA 작업에 소프트웨어 개발자(백엔드/프론트엔드/앱 개발자)를 배정하지 마세요.
@@ -895,13 +897,15 @@ extension RoomManager {
             // 매칭 실패 → 기존 directMatch + LLM 흐름으로 폴스루
         }
 
-        // 사전 매칭 (폴백): 사용자 요청에서 기존 에이전트 이름 키워드 직접 탐색
-        // delegationInfo가 없는 과거 방이나 파싱 실패 시 사용
-        var directMatchText: String
+        // 사전 매칭: 사용자의 모든 입력에서 에이전트 이름 키워드 직접 탐색
+        var directMatchText = task
         if let clarifySummary = rooms[idx].clarifyContext.clarifySummary {
-            directMatchText = clarifySummary
-        } else {
-            directMatchText = task
+            directMatchText += " " + clarifySummary
+        }
+        // clarify 응답에서 사용자가 직접 역할을 언급했을 수 있음 (예: "백엔드만 있으면 돼")
+        if let userAnswers = rooms[idx].clarifyContext.userAnswers {
+            let answerTexts = userAnswers.map { $0.answer }.joined(separator: " ")
+            directMatchText += " " + answerTexts
         }
         // Jira 키워드 자동 주입 제거: clarifySummary에 사용자 의도가 이미 반영됨
         // (sourceType만으로 Jira 전문가를 강제 매칭하면 false positive 발생)
@@ -1523,6 +1527,12 @@ extension RoomManager {
         }
         guard agentInfos.count >= 2 else { return }
 
+        // 첫 사용자 메시지의 이미지 첨부파일 (토론에서 이미지 참조용)
+        let firstUserMsg = rooms.first(where: { $0.id == roomID })?.messages
+            .first(where: { $0.role == .user && $0.messageType == .text })
+        let imageAttachments = firstUserMsg?.attachments?.filter { $0.isImage }
+        let hasImages = imageAttachments != nil && !(imageAttachments?.isEmpty ?? true)
+
         let discussionTone = """
         [절대 규칙 — 위반 시 응답 거부됩니다]
         1. 분량: 최대 4문장. 4문장을 초과하면 응답이 잘립니다. 절대 초과 금지.
@@ -1567,17 +1577,36 @@ extension RoomManager {
                     }
 
                     do {
-                        let buffer = StreamBuffer()
-                        let result = try await info.provider.sendMessageStreaming(
-                            model: info.agent.modelName,
-                            systemPrompt: prompt,
-                            messages: [("user", "다음 주제에 대해 당신의 의견을 말해주세요:\n\n\(task)")],
-                            onChunk: { [weak self] chunk in
-                                guard let self else { return }
-                                let current = buffer.append(chunk)
-                                Task { @MainActor in self.updateMessageContent(placeholderID, newContent: current, in: roomID) }
+                        let userContent = "다음 주제에 대해 당신의 의견을 말해주세요:\n\n\(task)"
+                        let result: String
+
+                        // 이미지가 있으면 sendMessageWithTools로 이미지 데이터 전달
+                        if hasImages {
+                            let messages = [ConversationMessage.user(userContent, attachments: imageAttachments)]
+                            let responseContent = try await info.provider.sendMessageWithTools(
+                                model: info.agent.modelName,
+                                systemPrompt: prompt,
+                                messages: messages,
+                                tools: []
+                            )
+                            switch responseContent {
+                            case .text(let t): result = t
+                            case .toolCalls: result = ""
+                            case .mixed(let t, _): result = t
                             }
-                        )
+                        } else {
+                            let buffer = StreamBuffer()
+                            result = try await info.provider.sendMessageStreaming(
+                                model: info.agent.modelName,
+                                systemPrompt: prompt,
+                                messages: [("user", userContent)],
+                                onChunk: { [weak self] chunk in
+                                    guard let self else { return }
+                                    let current = buffer.append(chunk)
+                                    Task { @MainActor in self.updateMessageContent(placeholderID, newContent: current, in: roomID) }
+                                }
+                            )
+                        }
                         await MainActor.run { [self] in
                             self.updateMessageContent(placeholderID, newContent: result, in: roomID)
                         }

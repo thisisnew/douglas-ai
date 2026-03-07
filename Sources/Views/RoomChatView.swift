@@ -1954,14 +1954,7 @@ struct TeamConfirmationCard: View {
     }
 
     private var allEditableAgents: [Agent] {
-        // 편집 모드: 전체 서브에이전트 표시 (선택된 에이전트 상단, 나머지 하단)
-        return agentStore.subAgents
-            .sorted { a, b in
-                let aSelected = state.selectedAgentIDs.contains(a.id)
-                let bSelected = state.selectedAgentIDs.contains(b.id)
-                if aSelected != bSelected { return aSelected }
-                return a.name < b.name
-            }
+        return agentStore.subAgents.sorted { $0.name < $1.name }
     }
 }
 

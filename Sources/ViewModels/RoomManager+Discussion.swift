@@ -298,7 +298,8 @@ extension RoomManager {
                 var historyBuilder: [ConversationMessage] = []
                 if let firstUserMsg = rooms.first(where: { $0.id == roomID })?.messages
                     .first(where: { $0.role == .user && $0.messageType == .text }) {
-                    historyBuilder.append(ConversationMessage.user(firstUserMsg.content))
+                    let imageAttachments = firstUserMsg.attachments?.filter { $0.isImage }
+                    historyBuilder.append(ConversationMessage.user(firstUserMsg.content, attachments: imageAttachments))
                 }
                 historyBuilder.append(contentsOf: frozenHistory)
                 let fullHistory = historyBuilder
@@ -399,15 +400,12 @@ extension RoomManager {
         guard let agent = agentStore?.agents.first(where: { $0.id == agentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return false }
 
-        // 토론 히스토리 (이미지는 존재 여부만 알림 — 실제 작업은 실행 단계에서)
+        // 토론 히스토리 (이미지 첨부파일은 실제 데이터로 전달)
         let roomRef = rooms.first(where: { $0.id == roomID })
         var history: [ConversationMessage] = []
         if let firstUserMsg = roomRef?.messages.first(where: { $0.role == .user && $0.messageType == .text }) {
-            var content = firstUserMsg.content
-            if let attachments = firstUserMsg.attachments, !attachments.isEmpty {
-                content += "\n\n[첨부 이미지 \(attachments.count)장 — 실행 단계에서 확인 가능]"
-            }
-            history.append(ConversationMessage.user(content))
+            let imageAttachments = firstUserMsg.attachments?.filter { $0.isImage }
+            history.append(ConversationMessage.user(firstUserMsg.content, attachments: imageAttachments))
         }
         let discussionMsgs = buildDiscussionHistory(roomID: roomID, currentAgentName: agent.name)
         history.append(contentsOf: discussionMsgs.map { msg in
@@ -483,14 +481,28 @@ extension RoomManager {
             )
             appendMessage(placeholder, to: roomID)
 
-            // 스트리밍 전송: 청크마다 placeholder 업데이트
-            let simpleHistory = history.compactMap { msg -> (role: String, content: String)? in
-                guard let content = msg.content else { return nil }
-                return (role: msg.role, content: content)
-            }
+            // 이미지 첨부가 있으면 sendMessageWithTools 사용 (이미지 데이터 전달 필요)
+            // 없으면 스트리밍으로 실시간 표시
+            let hasImageInHistory = history.contains { $0.attachments != nil && !($0.attachments?.isEmpty ?? true) }
             let buffer = StreamBuffer()
             let response: String
-            if provider.supportsStreaming {
+            if hasImageInHistory || !provider.supportsStreaming {
+                let responseContent = try await provider.sendMessageWithTools(
+                    model: agent.modelName,
+                    systemPrompt: discussionPrompt,
+                    messages: history,
+                    tools: []
+                )
+                switch responseContent {
+                case .text(let t): response = t
+                case .toolCalls: response = "[합의]"
+                case .mixed(let t, _): response = t
+                }
+            } else {
+                let simpleHistory = history.compactMap { msg -> (role: String, content: String)? in
+                    guard let content = msg.content else { return nil }
+                    return (role: msg.role, content: content)
+                }
                 response = try await provider.sendMessageStreaming(
                     model: agent.modelName,
                     systemPrompt: discussionPrompt,
@@ -503,18 +515,6 @@ extension RoomManager {
                         }
                     }
                 )
-            } else {
-                let responseContent = try await provider.sendMessageWithTools(
-                    model: agent.modelName,
-                    systemPrompt: discussionPrompt,
-                    messages: history,
-                    tools: []
-                )
-                switch responseContent {
-                case .text(let t): response = t
-                case .toolCalls: response = "[합의]"
-                case .mixed(let t, _): response = t
-                }
             }
 
             // 활동 추적: 응답 완료
