@@ -135,7 +135,7 @@ struct TeamConfirmationState: Equatable {
 }
 
 @MainActor
-class RoomManager: ObservableObject {
+class RoomManager: ObservableObject, WorkflowHost {
     @Published var rooms: [Room] = []
     @Published var selectedRoomID: UUID?
     /// 마스터 위임으로 자동 생성된 방 → UI에서 자동으로 창을 열기 위한 트리거
@@ -158,23 +158,23 @@ class RoomManager: ObservableObject {
     /// 방별 워크플로우 태스크 (취소 가능)
     private var roomTasks: [UUID: Task<Void, Never>] = [:]
     /// 승인 게이트 대기 중인 continuation (방 ID → continuation)
-    private var approvalContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
+    var approvalContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
     /// 리뷰 게이트 자동 승인 타이머 태스크 (취소용)
     private var reviewAutoApprovalTasks: [UUID: Task<Void, Never>] = [:]
     /// 사용자 입력 대기 중인 continuation (방 ID → continuation)
-    private var userInputContinuations: [UUID: CheckedContinuation<String, Never>] = [:]
+    var userInputContinuations: [UUID: CheckedContinuation<String, Never>] = [:]
     /// 에이전트 생성 제안 승인 대기 continuation (방 ID → continuation, Bool = 사용자 응답 여부)
     private var suggestionContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
     /// Intent 선택 대기 중인 continuation (방 ID → continuation)
-    private var intentContinuations: [UUID: CheckedContinuation<WorkflowIntent, Never>] = [:]
+    var intentContinuations: [UUID: CheckedContinuation<WorkflowIntent, Never>] = [:]
     /// 문서 유형 선택 대기 중인 continuation
-    private var docTypeContinuations: [UUID: CheckedContinuation<DocumentType, Never>] = [:]
+    var docTypeContinuations: [UUID: CheckedContinuation<DocumentType, Never>] = [:]
     /// 팀 구성 확인 대기 중인 continuation (방 ID → continuation, Set<UUID>? = 최종 선택 또는 nil)
-    private var teamConfirmationContinuations: [UUID: CheckedContinuation<Set<UUID>?, Never>] = [:]
+    var teamConfirmationContinuations: [UUID: CheckedContinuation<Set<UUID>?, Never>] = [:]
     /// 이전 사이클 완료 시점의 에이전트 수 (후속 사이클에서 에이전트 변동 감지용)
-    private var previousCycleAgentCount: [UUID: Int] = [:]
+    var previousCycleAgentCount: [UUID: Int] = [:]
     /// 멘션으로 지명된 에이전트 (라우팅 우선권 — executeQuickAnswer/executeSoloAnalysis에서 소비)
-    private var mentionedAgentIDsByRoom: [UUID: [UUID]] = [:]
+    var mentionedAgentIDsByRoom: [UUID: [UUID]] = [:]
     /// ask_user 도구의 선택지 (방 ID → 옵션 목록) — UserInputCard에서 버튼으로 표시
     @Published var pendingQuestionOptions: [UUID: [String]] = [:]
 
@@ -207,8 +207,19 @@ class RoomManager: ObservableObject {
     }
 
     /// 마스터 에이전트(진행자) 이름 — 시스템 메시지에 사용
-    private var masterAgentName: String {
+    var masterAgentName: String {
         agentStore?.masterAgent?.name ?? "DOUGLAS"
+    }
+
+    // MARK: - WorkflowHost
+
+    func room(for id: UUID) -> Room? {
+        rooms.first(where: { $0.id == id })
+    }
+
+    func updateRoom(id: UUID, _ mutate: (inout Room) -> Void) {
+        guard let idx = rooms.firstIndex(where: { $0.id == id }) else { return }
+        mutate(&rooms[idx])
     }
 
     // MARK: - 초기화
@@ -6856,7 +6867,7 @@ class RoomManager: ObservableObject {
         return dir
     }
 
-    private func scheduleSave() {
+    func scheduleSave() {
         saveTask?.cancel()
         saveTask = Task {
             try? await Task.sleep(for: .seconds(1))
