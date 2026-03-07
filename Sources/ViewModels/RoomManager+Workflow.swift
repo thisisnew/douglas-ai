@@ -93,7 +93,8 @@ extension RoomManager {
             case .assemble:
                 await executeAssemblePhase(roomID: roomID, task: resolvedTask)
 
-                // assemble 완료 후: task intent이면 needsPlan 동적 판단
+                // assemble 완료 후: task intent이면 needsPlan 플래그 설정
+                // (실제 계획 생성+승인은 design 단계에서 수행 — 중복 방지)
                 if let currentRoom2 = rooms.first(where: { $0.id == roomID }),
                    currentRoom2.workflowState.intent == .task {
                     let planNeeded = await classifyNeedsPlan(roomID: roomID, task: resolvedTask)
@@ -101,21 +102,6 @@ extension RoomManager {
                         rooms[i].workflowState.needsPlan = planNeeded
                     }
                     scheduleSave()
-
-                    if planNeeded {
-                        // 동적으로 plan 단계 실행
-                        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                            rooms[i].workflowState.currentPhase = .plan
-                        }
-                        scheduleSave()
-                        let planIntent = rooms.first(where: { $0.id == roomID })?.workflowState.intent ?? .task
-                        await executePlanPhase(roomID: roomID, task: resolvedTask, intent: planIntent)
-                        completedPhases.insert(.plan)
-                        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                            rooms[i].workflowState.completedPhases = completedPhases
-                        }
-                        workflowStart = Date()
-                    }
                 }
             case .plan:
                 // requiredPhases에 .plan이 없으므로 여기에 오지 않음 (안전장치)
@@ -1959,9 +1945,7 @@ extension RoomManager {
         - estimated_minutes는 1~30분으로 현실적으로 추정하세요
         """
 
-        let placeholderID = UUID()
         do {
-            let buffer = StreamBuffer()
             let (response, _) = try await trackPhaseActivity(
                 roomID: roomID,
                 label: "실행 계획을 수립하는 중…",
@@ -1969,33 +1953,20 @@ extension RoomManager {
                 modelName: agent.modelName,
                 providerName: agent.providerName
             ) { _ in
-                let placeholder = ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: agent.name)
-                self.appendMessage(placeholder, to: roomID)
+                // 계획 JSON은 내부 처리용 — 스트리밍 표시 불필요
                 return try await ToolExecutor.smartSend(
                     provider: provider,
                     agent: agent,
                     systemPrompt: soloPrompt,
                     conversationMessages: history,
                     context: context,
-                    onStreamChunk: { [weak self] chunk in
-                        guard let self else { return }
-                        let current = buffer.append(chunk)
-                        Task { @MainActor in
-                            self.updateMessageContent(placeholderID, newContent: current, in: roomID)
-                        }
-                    },
                     useTools: false
                 )
             }
-            updateMessageContent(placeholderID, newContent: response, in: roomID)
 
             if let plan = parsePlan(from: response),
                let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].plan = plan
-                // JSON 원문 제거 — awaitPlanApproval이 포맷된 계획을 별도 표시
-                if let mi = rooms[i].messages.firstIndex(where: { $0.id == placeholderID }) {
-                    rooms[i].messages.remove(at: mi)
-                }
             }
         } catch {
             appendMessage(ChatMessage(role: .assistant, content: "계획 수립 오류: \(error.userFacingMessage)", agentName: agent.name, messageType: .error), to: roomID)
@@ -2134,9 +2105,13 @@ extension RoomManager {
 
             // 마지막 단계 직전 확인 (step이 2개 이상, high-risk는 Deliver에서 승인하므로 제외)
             if stepIndex == plan.steps.count - 1 && plan.steps.count > 1 && step.riskLevel != .high {
+                let stepList = plan.steps.enumerated().map { i, s in
+                    let mark = i < stepIndex ? "✓" : "▸"
+                    return "\(mark) \(i + 1). \(s.text)"
+                }.joined(separator: "\n")
                 let confirmMsg = ChatMessage(
                     role: .system,
-                    content: "마지막 단계입니다. 여기까지 진행된 내용이 괜찮으시면 승인해주세요. 수정이 필요하면 되돌아갈 단계와 요건을 말씀해주세요.",
+                    content: "마지막 단계입니다. 승인하시면 완료합니다.\n\n\(stepList)\n\n수정이 필요하면 단계 번호와 요건을 말씀해주세요. (예: \"3단계부터 다시\")",
                     messageType: .approvalRequest
                 )
                 appendMessage(confirmMsg, to: roomID)
@@ -3472,9 +3447,13 @@ extension RoomManager {
 
             // 마지막 단계 직전 확인 (step이 2개 이상, high-risk는 Deliver에서 승인하므로 제외)
             if stepIndex == plan.steps.count - 1 && plan.steps.count > 1 && step.riskLevel != .high {
+                let stepList = plan.steps.enumerated().map { i, s in
+                    let mark = i < stepIndex ? "✓" : "▸"
+                    return "\(mark) \(i + 1). \(s.text)"
+                }.joined(separator: "\n")
                 let confirmMsg = ChatMessage(
                     role: .system,
-                    content: "마지막 단계입니다. 여기까지 진행된 내용이 괜찮으시면 승인해주세요. 수정이 필요하면 되돌아갈 단계와 요건을 말씀해주세요.",
+                    content: "마지막 단계입니다. 승인하시면 완료합니다.\n\n\(stepList)\n\n수정이 필요하면 단계 번호와 요건을 말씀해주세요. (예: \"3단계부터 다시\")",
                     messageType: .approvalRequest
                 )
                 appendMessage(confirmMsg, to: roomID)

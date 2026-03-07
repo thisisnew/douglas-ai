@@ -1086,6 +1086,9 @@ struct ApprovalCard: View {
         if content.hasPrefix("설계 완료:") {
             return ("설계 결과를 확인해주세요", String(content.dropFirst("설계 완료:".count)).trimmingCharacters(in: .whitespacesAndNewlines))
         }
+        if content.hasPrefix("마지막 단계입니다") {
+            return ("마지막 단계 확인", String(content.dropFirst("마지막 단계입니다. 승인하시면 완료합니다.".count)).trimmingCharacters(in: .whitespacesAndNewlines))
+        }
         if content.contains("추가할까요") {
             return ("에이전트 추가 제안", content)
         }

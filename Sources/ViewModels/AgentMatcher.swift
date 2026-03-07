@@ -173,6 +173,8 @@ enum AgentMatcher {
                 case .task:
                     if agent.workModes.contains(.create) || agent.workModes.contains(.execute) {
                         tier2Score = 1.0
+                    } else if agent.workModes.contains(.research) || agent.workModes.contains(.review) {
+                        tier2Score = 0.5
                     }
                 case .quickAnswer, .discussion:
                     if agent.workModes.contains(.research) || agent.workModes.contains(.review) {
