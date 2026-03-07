@@ -997,7 +997,7 @@ executeWithTools() 루프 (최대 10회):
 - **문서화 요청 감지** (`DocumentRequestDetector`): 2단계 감지 — ① intent 확정 후 초기 task에서 패턴 감지, ② clarify 후 사용자 피드백에서 재감지 (`detectDocumentSignalFromMessages`). 감지 규칙: 문서 확장자/유형 키워드(md, pdf, 워드, 문서, 보고서 등) + 동작 어간(만들, 생성, 작성, 정리 등) 조합 → 문서 요청 판정. 동사 활용 대응을 위해 prefix 매칭 사용 (만들어줘→만들, 생성해줘→생성). 감지 시 `room.autoDocOutput = true` + `room.documentType` 설정 (suggestedDocType nil → .freeform 폴백). **문서 요청이 감지되면 clarify 단계 자동 스킵** (사용자 의도가 명확하므로 복명복창 불필요). **autoDocOutput이면 assemble에서 LLM 역할 분석 바이패스** → 문서 역량 에이전트(outputStyles.contains(.document) > skillTags > name 키워드 순) 직접 배정. task 완료 후 자동 문서화 (preferredKeywords 기반 최적 에이전트 선택) + NSSavePanel 저장 (클릭 가능 file:// 링크 제공). 후속 사이클에서도 "문서로 정리해줘" 등 감지 가능 (1차 키워드 + 2차 LLM 폴백).
 - **복명복창 Clarify** (`executeClarifyPhase`): DOUGLAS가 요청을 요약 → 사용자 승인/거부 → 거부 시 피드백 반영 재요약 → 승인까지 무한 반복. 승인 시 `room.clarifySummary`에 저장 + `[delegation]` 블록 파싱 → `room.delegationInfo`(`DelegationInfo`)에 저장. explicit 타입이면 assemble에서 LLM 역할 분석 스킵 → 지정 에이전트만 배정. open이면 기존 흐름.
 - **동적 Plan 판단** (`classifyNeedsPlan`): assemble 완료 후 2단계 판별. ① 키워드 기반 즉시 판별(`classifyNeedsPlanByKeywords`): clarifySummary+task에서 구현 키워드(수정/구현/fix/쿼리 등)와 분석 키워드(리서치/요약/번역 등)를 가중치 합산 — planScore≥5이면 즉시 true, noPlanScore≥5 && planScore<3이면 즉시 false. ② 키워드 애매 시 LLM 폴백: light model이 YES/NO 판별. 실패 시 false (안전한 기본값). 결과를 `room.needsPlan`에 저장.
-- **Plan 실행** (`executePlanPhase`): needsPlan=true일 때만 호출. 전문가 2명+ → 토론 + 브리핑 + 계획 수립 + 승인 루프. 전문가 1명 → 계획 수립 + 승인 루프 (soloAnalysis 스킵, requestPlan이 직접 분석).
+- **Plan 실행** (`executePlanPhase`): needsPlan=true일 때만 호출. 전문가 2명+ → 토론 + 브리핑 + 계획 수립. 전문가 1명 → 계획 수립 (soloAnalysis 스킵, requestPlan이 직접 분석). 계획 표시 후 바로 실행 진입 (승인 게이트 제거).
 - **토론 알고리즘** (`executeDiscussion`): 라운드별 자유 토론 (마스터 제외, 전문가만 참여). 매 라운드 후 사용자 체크포인트 (DiscussionCheckpointCard). 사용자 피드백 시 새 라운드, "진행"(빈 입력) 시 브리핑으로. 라운드 무제한 (사용자 주도 종료). 첫 라운드는 병렬 실행 (`generateDiscussionResponse` + `withTaskGroup`, 히스토리 스냅샷 기준), 이후 라운드는 순차 실행 (이전 발언 참고). 모든 에이전트 프롬프트에 `clarifySummary` 앵커링 포함.
 - **Execute 분기** (`executeExecutePhase`): 2-way 분기:
   - quickAnswer → 전문가 1명 즉답 (도구 포함)
@@ -1116,13 +1116,18 @@ executeWithTools() 루프 (최대 10회):
 ② Assemble ── 3-tier 가중치 에이전트 매칭 (Tier1: skillTags×5, Tier2: workModes×2, Tier3: keyword+semantic×3)
               confidence 0.7↑ 자동, 0.5~0.7 사용자확인, 0.5↓ 제외 + RuntimeRole 사전배정 + 팀 확정 메시지(Role 표시)
 ③ Design ──── **outputType 분기**: analysis/answer → 토론 모드 / 나머지 → 계획 모드
-              토론 모드: 병렬 의견 제시 → 상호 피드백 → 1-step 종합 plan (승인 불요)
+              토론 모드: 병렬 의견 제시 → 상호 피드백 → 1-step 종합 plan
+              1인+discussion → `executeSoloDiscussion` (JSON 계획 없이 자연어 분석)
               taskBrief 없을 때 키워드 fallback: "어떻게 생각", "의견", "트렌드" 등 → 토론 모드
               계획 모드: 2인 Propose→Critique→Revise / 3인+ Planner 프로토콜 / 1인 구조화 플랜
-              승인 거부→재수정 최대 2회 / assignDesignRoles: creator ≠ reviewer 강제
-④ Build ───── step 루프: low/medium=자동실행, high=DeferredAction (auto-approval 없음)
+              계획 표시 후 바로 Build 진입 (승인 게이트 제거 — 라이브 협업)
+              1인 플랜 세분화 규칙: 1산출물=1단계, 구현/테스트/PR 별개 분할
+④ Build ───── step 루프: low/medium=자동실행, high=DeferredAction
               도구 레벨: deferHighRiskTools=true → external 도구도 DeferredAction으로 수집
-⑤ Review ──── verdict 파싱 (PASS/FAIL/통과/불합격) + fail 시 Creator 수정 → 재검토 (최대 2회, 초과 시 에스컬레이션)
+              **라이브 협업**: step 간 사용자 메시지 체크 → 다음 step fullTask에 주입
+              도구 라운드 간 `fetchPendingUserMessages` 콜백으로 실시간 반영
+⑤ Review ──── verdict 파싱 (PASS/FAIL/통과/불합격) + fail 시 Creator 수정 → 재검토 (최대 2회, 초과 시 자동 통과)
+              1인 → `executeSoloReview` (자기 검토: FAIL 시 자기 수정 1회 → 재검토 → 자동 PASS)
 ⑥ Deliver ─── DeferredAction 프리뷰 + 승인 → 실제 실행, 거부 → 취소, 무응답 → HOLD
 ```
 
@@ -1154,11 +1159,19 @@ executeWithTools() 루프 (최대 10회):
 
 **12종 빌트인 프리셋** (`AgentPreset.builtIn`): 백엔드/프론트엔드/QA/DevOps/기획자/리서처/문서작성자/마케터/디자이너/법무/데이터분석가/CS
 
-**Plan 승인 피드백 루프** (E-8~E-11):
-- `requestPlan(previousPlan:feedback:)`: 거부된 이전 계획과 사용자 피드백을 재계획 프롬프트에 주입.
-- `executePlanPhase` 승인 while 루프: 거부 → 피드백 추출 → 재계획 → 다시 승인 카드 (최대 2회 수정).
+**승인 게이트 정리** (라이브 협업 전환):
+- **제거**: Design 계획 승인, Plan 계획 승인, Review 에스컬레이션, executeRoomWork step별 결과 확인
+- **유지**: Deliver DeferredAction 승인 (비가역 작업), Clarify 복명복창 (방향 설정)
+- `requestPlan(previousPlan:feedback:)`: 재계획 프롬프트 주입 (승인 루프 제거, 계획은 표시만)
 - `executeSoloAnalysis`: 전문가 1명 Solo 분석 (토론 대신). task + !needsPlan에서 `specialistCount == 1`일 때 자동 호출.
+- `executeSoloDiscussion`: 1인+discussion intent → JSON 없이 자연어 분석/의견 제시
+- `executeSoloReview`: 1인 자기 검토 (Reviewer 페르소나로 Build 결과 검증, FAIL 시 자기 수정 1회)
 - `executeStep` 문서 템플릿 주입: `documentType != nil`일 때 `documentType.templatePromptBlock()` + "이미 완성" 응답 금지 지침. Assemble에서 `documentType != nil`이면 1명 제한.
+
+**Build 라이브 협업**:
+- `ToolExecutionContext.fetchPendingUserMessages`: 도구 라운드 사이에 사용자 메시지 주입 (Anthropic/OpenAI/Google)
+- `executeBuildPhase` step 간 체크: step 완료 → 다음 step의 `fullTask`에 "[사용자 추가 지시]" 추가 (ClaudeCode 포함 전 프로바이더)
+- `MessageCheckpoint`: Sendable 래퍼로 메시지 소비 기준점 추적
 - `launchFollowUpCycle`: 완료/실패 방 후속 질문 → 방 재활성화 → assemble부터 경량 워크플로우.
   - **순수 포맷 변환** (`isFormatConversionOnly`): "md로 만들어줘" 등 기존 대화 내용의 문서화 요청 → understand/design/build 전부 스킵, `handleDocumentOutput` 직접 호출.
   - **새 작업+문서**: "분석해서 md로 만들어" 등 실질적 새 작업 포함 → understand 실행하되 workLog 맥락 주입.

@@ -194,6 +194,14 @@ enum ToolExecutor {
         var messages = initialMessages
 
         for _ in 0..<maxIterations {
+            // 도구 라운드 사이에서 사용자 메시지 실시간 반영
+            if let fetch = context.fetchPendingUserMessages {
+                let newMsgs = await fetch()
+                if !newMsgs.isEmpty {
+                    messages.append(contentsOf: newMsgs)
+                }
+            }
+
             let response = try await provider.sendMessageWithTools(
                 model: model,
                 systemPrompt: systemPrompt,

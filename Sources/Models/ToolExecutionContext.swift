@@ -1,5 +1,11 @@
 import Foundation
 
+/// 도구 라운드 간 메시지 소비 기준점 추적 (Sendable 래퍼)
+final class MessageCheckpoint: @unchecked Sendable {
+    var value: Int
+    init(_ initial: Int) { self.value = initial }
+}
+
 /// 도구 실행 시 필요한 방/에이전트 컨텍스트 (Sendable)
 struct ToolExecutionContext: Sendable {
     let roomID: UUID?
@@ -17,6 +23,9 @@ struct ToolExecutionContext: Sendable {
     let currentPhase: WorkflowPhase?      // 현재 워크플로우 단계
     let deferHighRiskTools: Bool          // Plan C: external 도구를 DeferredAction으로 수집
     let collectDeferred: @Sendable (DeferredAction) -> Void  // deferred 수집 콜백
+
+    // Build 중 사용자 메시지 실시간 반영
+    let fetchPendingUserMessages: (@Sendable () async -> [ConversationMessage])?
 
     // 플러그인 훅
     let dispatchPluginEvent: @Sendable (PluginEvent) -> Void
@@ -37,6 +46,7 @@ struct ToolExecutionContext: Sendable {
         currentPhase: WorkflowPhase? = nil,
         deferHighRiskTools: Bool = false,
         collectDeferred: @escaping @Sendable (DeferredAction) -> Void = { _ in },
+        fetchPendingUserMessages: (@Sendable () async -> [ConversationMessage])? = nil,
         dispatchPluginEvent: @escaping @Sendable (PluginEvent) -> Void = { _ in },
         interceptTool: @escaping @Sendable (String, [String: String]) async -> ToolInterceptResult = { _, _ in .passthrough }
     ) {
@@ -54,6 +64,7 @@ struct ToolExecutionContext: Sendable {
         self.currentPhase = currentPhase
         self.deferHighRiskTools = deferHighRiskTools
         self.collectDeferred = collectDeferred
+        self.fetchPendingUserMessages = fetchPendingUserMessages
         self.dispatchPluginEvent = dispatchPluginEvent
         self.interceptTool = interceptTool
     }
