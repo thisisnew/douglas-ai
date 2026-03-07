@@ -2391,9 +2391,21 @@ extension RoomManager {
             간결하게 핵심만 작성하세요.
             """
 
+            // Review 진행 활동 추적
+            let reviewProgressMsg = ChatMessage(
+                role: .system,
+                content: "\(reviewer.name) 검토 중",
+                messageType: .progress
+            )
+            appendMessage(reviewProgressMsg, to: roomID)
+
+            let reviewStartTime = Date()
             speakingAgentIDByRoom[roomID] = reviewer.id
             var reviewResult = ""
             do {
+                let reviewStartDetail = ToolActivityDetail(toolName: "llm_call", subject: "\(reviewer.providerName) · \(reviewer.modelName)", contentPreview: nil, isError: false)
+                appendMessage(ChatMessage(role: .assistant, content: "검토 시작", agentName: reviewer.name, messageType: .toolActivity, activityGroupID: reviewProgressMsg.id, toolDetail: reviewStartDetail), to: roomID)
+
                 let placeholderID = UUID()
                 appendMessage(ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: reviewer.name), to: roomID)
 
@@ -2409,6 +2421,13 @@ extension RoomManager {
                     }
                 )
                 updateMessageContent(placeholderID, newContent: reviewResult, in: roomID)
+
+                let reviewDuration = Date().timeIntervalSince(reviewStartTime)
+                let durationStr = reviewDuration < 60
+                    ? String(format: "%.1f초", reviewDuration)
+                    : String(format: "%d분 %.0f초", Int(reviewDuration) / 60, reviewDuration.truncatingRemainder(dividingBy: 60))
+                let resultDetail = ToolActivityDetail(toolName: "llm_result", subject: durationStr, contentPreview: nil, isError: false)
+                appendMessage(ChatMessage(role: .assistant, content: "검토 완료 (\(durationStr))", agentName: reviewer.name, messageType: .toolActivity, activityGroupID: reviewProgressMsg.id, toolDetail: resultDetail), to: roomID)
             } catch {
                 appendMessage(ChatMessage(role: .assistant, content: "검토 오류: \(error.userFacingMessage)", agentName: reviewer.name, messageType: .error), to: roomID)
                 break
@@ -2444,7 +2463,11 @@ extension RoomManager {
             )
             appendMessage(fixMsg, to: roomID)
 
+            // Creator 수정 활동 추적
+            let fixProgressMsg = fixMsg  // fixMsg는 이미 .progress로 추가됨
+            let fixStartTime = Date()
             speakingAgentIDByRoom[roomID] = creator.id
+
             let fixPrompt = """
             \(creator.resolvedSystemPrompt)
 
@@ -2457,6 +2480,9 @@ extension RoomManager {
             """
 
             do {
+                let fixStartDetail = ToolActivityDetail(toolName: "llm_call", subject: "\(creator.providerName) · \(creator.modelName)", contentPreview: nil, isError: false)
+                appendMessage(ChatMessage(role: .assistant, content: "수정 시작", agentName: creator.name, messageType: .toolActivity, activityGroupID: fixProgressMsg.id, toolDetail: fixStartDetail), to: roomID)
+
                 let placeholderID = UUID()
                 appendMessage(ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: creator.name), to: roomID)
 
@@ -2472,6 +2498,13 @@ extension RoomManager {
                     }
                 )
                 updateMessageContent(placeholderID, newContent: fixedOutput, in: roomID)
+
+                let fixDuration = Date().timeIntervalSince(fixStartTime)
+                let durationStr = fixDuration < 60
+                    ? String(format: "%.1f초", fixDuration)
+                    : String(format: "%d분 %.0f초", Int(fixDuration) / 60, fixDuration.truncatingRemainder(dividingBy: 60))
+                let resultDetail = ToolActivityDetail(toolName: "llm_result", subject: durationStr, contentPreview: nil, isError: false)
+                appendMessage(ChatMessage(role: .assistant, content: "수정 완료 (\(durationStr))", agentName: creator.name, messageType: .toolActivity, activityGroupID: fixProgressMsg.id, toolDetail: resultDetail), to: roomID)
             } catch {
                 appendMessage(ChatMessage(role: .assistant, content: "수정 오류: \(error.userFacingMessage)", agentName: creator.name, messageType: .error), to: roomID)
                 break
