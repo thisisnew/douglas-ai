@@ -3012,6 +3012,36 @@ class RoomManager: ObservableObject {
         }
         guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
+        // 사용자 체크포인트: 설계 제안 확인 후 피드백 기회
+        let cp1Msg = ChatMessage(
+            role: .system,
+            content: "설계 제안이 나왔습니다. 의견이 있으시면 입력해주세요. 없으면 그대로 진행합니다.",
+            messageType: .userQuestion
+        )
+        appendMessage(cp1Msg, to: roomID)
+
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].isDiscussionCheckpoint = true
+            rooms[i].transitionTo(.awaitingUserInput)
+        }
+        syncAgentStatuses()
+        scheduleSave()
+
+        let designFeedback1: String = await withCheckedContinuation { (cont: CheckedContinuation<String, Never>) in
+            userInputContinuations[roomID] = cont
+        }
+
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].isDiscussionCheckpoint = false
+            rooms[i].transitionTo(.inProgress)
+        }
+
+        if !designFeedback1.isEmpty {
+            proposal += "\n\n[사용자 피드백]\n\(designFeedback1)"
+        }
+
+        guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
+
         // Turn 2: Critique
         // 3인+: 나머지 전원(Creator+Reviewer) 병렬 피드백
         // 2인: Reviewer만
@@ -3133,6 +3163,36 @@ class RoomManager: ObservableObject {
                 appendMessage(ChatMessage(role: .assistant, content: "검토 오류: \(error.userFacingMessage)", agentName: reviewerAgent.name, messageType: .error), to: roomID)
             }
         }
+        guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
+
+        // 사용자 체크포인트: 검토 피드백 확인 후 의견 반영 기회
+        let cp2Msg = ChatMessage(
+            role: .system,
+            content: "검토 피드백이 나왔습니다. 추가 의견이 있으시면 입력해주세요. 없으면 최종 설계로 진행합니다.",
+            messageType: .userQuestion
+        )
+        appendMessage(cp2Msg, to: roomID)
+
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].isDiscussionCheckpoint = true
+            rooms[i].transitionTo(.awaitingUserInput)
+        }
+        syncAgentStatuses()
+        scheduleSave()
+
+        let designFeedback2: String = await withCheckedContinuation { (cont: CheckedContinuation<String, Never>) in
+            userInputContinuations[roomID] = cont
+        }
+
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].isDiscussionCheckpoint = false
+            rooms[i].transitionTo(.inProgress)
+        }
+
+        if !designFeedback2.isEmpty {
+            critique += "\n\n[사용자 추가 의견]\n\(designFeedback2)"
+        }
+
         guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
         // Turn 3 스킵 판단: Critique에서 "승인"/"동의" 시 스킵
@@ -3718,6 +3778,10 @@ class RoomManager: ObservableObject {
             if let plan = parsePlan(from: response),
                let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].plan = plan
+                // JSON 원문 숨김 — awaitPlanApproval이 포맷된 계획을 표시
+                if let mi = rooms[i].messages.firstIndex(where: { $0.id == placeholderID }) {
+                    rooms[i].messages[mi].messageType = .discussion
+                }
             }
         } catch {
             appendMessage(ChatMessage(role: .assistant, content: "계획 수립 오류: \(error.userFacingMessage)", agentName: agent.name, messageType: .error), to: roomID)
@@ -3850,8 +3914,8 @@ class RoomManager: ObservableObject {
                 rooms[i].setCurrentStep(stepIndex)
             }
 
-            // 마지막 단계 직전 확인 (step이 2개 이상일 때만)
-            if stepIndex == plan.steps.count - 1 && plan.steps.count > 1 {
+            // 마지막 단계 직전 확인 (step이 2개 이상, high-risk는 Deliver에서 승인하므로 제외)
+            if stepIndex == plan.steps.count - 1 && plan.steps.count > 1 && step.riskLevel != .high {
                 let confirmMsg = ChatMessage(
                     role: .system,
                     content: "마지막 단계입니다. 여기까지 진행된 내용이 괜찮으시면 승인해주세요. 수정이 필요하면 되돌아갈 단계와 요건을 말씀해주세요.",
@@ -5177,8 +5241,8 @@ class RoomManager: ObservableObject {
                 rooms[i].setCurrentStep(stepIndex)
             }
 
-            // 마지막 단계 직전 확인 (step이 2개 이상일 때만)
-            if stepIndex == plan.steps.count - 1 && plan.steps.count > 1 {
+            // 마지막 단계 직전 확인 (step이 2개 이상, high-risk는 Deliver에서 승인하므로 제외)
+            if stepIndex == plan.steps.count - 1 && plan.steps.count > 1 && step.riskLevel != .high {
                 let confirmMsg = ChatMessage(
                     role: .system,
                     content: "마지막 단계입니다. 여기까지 진행된 내용이 괜찮으시면 승인해주세요. 수정이 필요하면 되돌아갈 단계와 요건을 말씀해주세요.",
