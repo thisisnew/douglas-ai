@@ -1333,10 +1333,11 @@ extension RoomManager {
         )
 
         if var brief {
-            // 이미지/URL + 명시적 지시가 있으면 clarification 강제 스킵
-            // (LLM이 "파일 경로를 알려주세요" 등 불필요한 질문을 생성하는 것 방지)
+            // 명시적 의도 + 외부 데이터(Jira 등) 또는 첨부파일이 있으면 clarification 강제 스킵
+            // LLM이 "파일 경로를 알려주세요" 등 불필요한 질문을 과도하게 생성하는 문제 방어
+            let hasIntakeData = rooms[idx].clarifyContext.intakeData != nil
             let hasURL = actualTask.range(of: "https?://", options: .regularExpression) != nil
-            if (hasImageAttachment || hasURL) && hasExplicitIntent && brief.needsClarification {
+            if hasExplicitIntent && brief.needsClarification && (hasImageAttachment || hasURL || hasIntakeData) {
                 brief.needsClarification = false
                 brief.questions = []
             }
