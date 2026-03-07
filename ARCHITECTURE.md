@@ -77,6 +77,8 @@ DOUGLAS/
 │   │   ├── WorkflowState.swift     # 워크플로우 진행 상태 값 객체 (intent, phase 추적)
 │   │   ├── ClarifyContext.swift    # 복명복창 컨텍스트 값 객체 (intake, summary, delegation)
 │   │   ├── ProjectContext.swift    # 프로젝트 연동 컨텍스트 값 객체 (경로, 빌드/테스트 명령)
+│   │   ├── DiscussionSession.swift # 토론 세션 값 객체 (라운드, 산출물, 브리핑, 결정 로그)
+│   │   ├── BuildQAState.swift      # 빌드/QA 루프 상태 값 객체 (8개 프로퍼티 그룹핑)
 │   │   └── KeychainHelper.swift     # 파일 기반 API 키 저장 (Keychain 레거시 마이그레이션)
 │   ├── ViewModels/
 │   │   ├── AgentStore.swift         # 에이전트 CRUD, 마스터 생명주기
@@ -657,6 +659,20 @@ planning → awaitingApproval (토론 후 사용자 승인)
 - Room에 `approvalHistory: [ApprovalRecord]` + `awaitingType: AwaitingType?` 추가
 - `RoomPlan.version`: 계획 거부 시 +1 증가, 재계획 추적
 - `approveStep()`/`rejectStep()` 호출 시 자동 기록
+
+### 값 객체 (Phase 2~5)
+
+Room의 프로퍼티를 의미 단위로 그룹핑한 값 객체. 현재는 computed 접근자로 제공되며 기존 개별 프로퍼티는 유지.
+
+| 값 객체 | 프로퍼티 수 | 내용 |
+|---------|-----------|------|
+| `WorkflowState` | 6 | intent, documentType, autoDocOutput, needsPlan, currentPhase, completedPhases |
+| `ClarifyContext` | 7 | intakeData, clarifySummary, clarifyQuestionCount, assumptions, userAnswers, delegationInfo, playbook |
+| `ProjectContext` | 4 | projectPaths, worktreePath, buildCommand, testCommand |
+| `DiscussionSession` | 5 | currentRound, isCheckpoint, decisionLog, artifacts, briefing |
+| `BuildQAState` | 8 | buildLoopStatus, buildRetryCount, maxBuildRetries, lastBuildResult, qaLoopStatus, qaRetryCount, maxQARetries, lastQAResult |
+
+- `RoomStep.status: StepStatus` (pending/inProgress/completed/skipped/failed) — 단계별 실행 상태 추적
 
 ---
 
