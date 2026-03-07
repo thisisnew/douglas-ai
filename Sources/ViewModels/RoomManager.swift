@@ -1335,7 +1335,7 @@ class RoomManager: ObservableObject, WorkflowHost {
 
         let msg = ChatMessage(
             role: .system,
-            content: "'\(suggestion.name)' 에이전트가 생성되어 방에 참여했습니다."
+            content: "'\(suggestion.name)' 에이전트가 생성되었습니다."
         )
         appendMessage(msg, to: roomID)
         scheduleSave()

@@ -1284,11 +1284,15 @@ extension RoomManager {
         let roomAttachments = rooms[idx].messages.compactMap { $0.attachments }.flatMap { $0 }
         let hasImageAttachment = roomAttachments.contains { $0.isImage }
 
-        // Fast-path: 짧고 명확한 이미지 작업은 LLM TaskBrief 생성 스킵
+        // Fast-path: 짧고 단순한 이미지 변환 작업은 LLM TaskBrief 생성 스킵
+        // (번역/요약/추출 등 단일 변환만 해당, 설계/전략/계획 등 복합 작업은 제외)
+        let complexTaskIndicators = ["설계", "전략", "계획", "테스트", "분석", "구현", "개발", "작성", "기획", "리뷰"]
+        let hasComplexIndicator = complexTaskIndicators.contains(where: { actualTask.lowercased().contains($0) })
         let isSimpleImageTask = rooms[idx].workflowState.intent != nil
             && hasExplicitIntent
             && actualTask.count < 30
             && hasImageAttachment
+            && !hasComplexIndicator
 
         if isSimpleImageTask {
             let inferredOutput: OutputType = {

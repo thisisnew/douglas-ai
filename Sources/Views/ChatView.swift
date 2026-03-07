@@ -148,33 +148,34 @@ struct MessageBubble: View {
 
                         // 이미지 첨부
                         if !images.isEmpty {
-                            HStack(spacing: 6) {
-                                ForEach(images) { att in
-                                    if let data = try? att.loadData(), let nsImage = NSImage(data: data) {
-                                        let maxW: CGFloat = 220
-                                        let maxH: CGFloat = 160
-                                        let ratio = nsImage.size.width / max(nsImage.size.height, 1)
-                                        let w = min(maxW, maxH * ratio)
-                                        let h = min(maxH, maxW / ratio)
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 6) {
+                                    ForEach(images) { att in
+                                        if let data = try? att.loadData(), let nsImage = NSImage(data: data) {
+                                            let maxW: CGFloat = 220
+                                            let maxH: CGFloat = 160
+                                            let ratio = nsImage.size.width / max(nsImage.size.height, 1)
+                                            let w = min(maxW, maxH * ratio)
+                                            let h = min(maxH, maxW / ratio)
 
-                                        Image(nsImage: nsImage)
-                                            .resizable()
-                                            .frame(width: w, height: h)
-                                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                                    .strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1)
-                                            )
-                                            .shadow(color: palette.sidebarShadow.opacity(0.3), radius: 3, y: 2)
-                                            .onTapGesture { enlargedImage = nsImage }
-                                            .onHover { hovering in
-                                                if hovering { NSCursor.pointingHand.push() }
-                                                else { NSCursor.pop() }
-                                            }
+                                            Image(nsImage: nsImage)
+                                                .resizable()
+                                                .frame(width: w, height: h)
+                                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                        .strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1)
+                                                )
+                                                .shadow(color: palette.sidebarShadow.opacity(0.3), radius: 3, y: 2)
+                                                .onTapGesture { enlargedImage = nsImage }
+                                                .onHover { hovering in
+                                                    if hovering { NSCursor.pointingHand.push() }
+                                                    else { NSCursor.pop() }
+                                                }
+                                        }
                                     }
                                 }
                             }
-                            .frame(maxWidth: 220, alignment: message.role == .user ? .trailing : .leading)
                             .popover(isPresented: Binding(
                                 get: { enlargedImage != nil },
                                 set: { if !$0 { enlargedImage = nil } }

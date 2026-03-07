@@ -112,7 +112,7 @@ struct RoomChatView: View {
                         roomManager.addAgent(newAgent.id, to: roomID, silent: true)
                         let msg = ChatMessage(
                             role: .system,
-                            content: "'\(newAgent.name)' 에이전트가 생성되어 방에 참여했습니다."
+                            content: "'\(newAgent.name)' 에이전트가 생성되었습니다."
                         )
                         roomManager.appendMessage(msg, to: roomID)
                         roomManager.resumeSuggestionContinuationIfResolved(roomID: roomID)
