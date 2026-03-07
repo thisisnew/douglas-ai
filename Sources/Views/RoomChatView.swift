@@ -901,7 +901,7 @@ struct DiscussionProgressBar: View {
                         }
                         HStack(spacing: 3) {
                             phaseIcon(phase)
-                            Text(phase.displayName)
+                            Text(room.workflowState.intent?.phaseDisplayName(phase) ?? phase.displayName)
                                 .font(.system(size: DesignTokens.FontSize.nano, weight: phaseWeight(phase), design: .rounded))
                                 .foregroundColor(phaseTextColor(phase))
                                 .lineLimit(1)

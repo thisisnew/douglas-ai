@@ -169,6 +169,18 @@ enum IntentClassifier {
             return nil
         }
 
+        // 짧은 단순 변환 요청 (< 30자): 번역/요약/추출 등은 quickAnswer — 6단계 불필요
+        // 단, 복합 지표(pdf, 파일 생성 등)가 있으면 task로 유지
+        if task.count < 30 {
+            let simpleTransformKeywords = ["번역", "translate", "요약", "summarize", "추출", "extract"]
+            let complexIndicators = ["pdf", "워드", "엑셀", "word", "excel", "만들어", "파일", "문서", "보고서", "작성", "코드", "개발", "구현"]
+            let hasSimpleTransform = simpleTransformKeywords.contains(where: { text.contains($0) })
+            let hasComplex = complexIndicators.contains(where: { text.contains($0) })
+            if hasSimpleTransform && !hasComplex {
+                return .quickAnswer
+            }
+        }
+
         // NLTokenizer로 토큰 추출
         let tokens = tokenize(text)
         guard !tokens.isEmpty else { return nil }

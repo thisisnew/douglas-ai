@@ -525,13 +525,13 @@ struct Room: Identifiable, Codable {
         case .clarify, .understand:
             return "요건 확인"
         case .design:
-            return "설계 중"
+            return workflowState.intent == .discussion ? "토론 중" : "설계 중"
         case .build:
             return "구현 중"
         case .review:
             return "검토 중"
         case .deliver:
-            return "전달 중"
+            return workflowState.intent == .discussion ? "결론 도출 중" : "전달 중"
         case .plan:
             if discussion.currentRound > 0 { return "토론 중 (\(discussion.currentRound)R)" }
             if plan != nil { return "계획 검토 중" }

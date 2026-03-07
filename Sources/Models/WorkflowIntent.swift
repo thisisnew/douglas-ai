@@ -93,11 +93,30 @@ enum WorkflowIntent: String, CaseIterable {
         }
     }
 
+    /// intent 맥락에 맞는 단계 이름 (토론에서 "설계"→"토론", "전달"→"결론 도출" 등)
+    func phaseDisplayName(_ phase: WorkflowPhase) -> String {
+        switch self {
+        case .discussion:
+            switch phase {
+            case .design:  return "토론"
+            case .deliver: return "결론 도출"
+            default:       return phase.displayName
+            }
+        case .quickAnswer:
+            switch phase {
+            case .deliver: return "답변"
+            default:       return phase.displayName
+            }
+        default:
+            return phase.displayName
+        }
+    }
+
     /// 사용자에게 보여줄 진행 단계 요약 (intake/intent 제외)
     var phaseSummary: String {
         requiredPhases
             .filter { $0 != .intake && $0 != .intent }
-            .map { $0.displayName }
+            .map { phaseDisplayName($0) }
             .joined(separator: " → ")
     }
 

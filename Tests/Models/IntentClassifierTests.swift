@@ -12,9 +12,14 @@ struct IntentClassifierTests {
         #expect(IntentClassifier.quickClassify("이게 뭐야") == .quickAnswer)
     }
 
-    @Test("번역 → task")
-    func translation() {
-        #expect(IntentClassifier.quickClassify("이거 영어로 번역해줘") == .task)
+    @Test("짧은 번역 → quickAnswer (단순 변환)")
+    func shortTranslation() {
+        #expect(IntentClassifier.quickClassify("이거 영어로 번역해줘") == .quickAnswer)
+    }
+
+    @Test("긴 번역 요청 → task (복합 작업)")
+    func longTranslation() {
+        #expect(IntentClassifier.quickClassify("이 프로젝트의 README를 한국어로 번역하고 기술 용어집도 포함해서 문서화해줘") == .task)
     }
 
     @Test("설명 요청 → quickAnswer")
@@ -29,9 +34,9 @@ struct IntentClassifierTests {
 
     // MARK: - quickClassify: task (기존 research 케이스)
 
-    @Test("요약 요청 → task")
+    @Test("짧은 요약 → quickAnswer (단순 변환)")
     func summarize() {
-        #expect(IntentClassifier.quickClassify("요약해줘") == WorkflowIntent.task)
+        #expect(IntentClassifier.quickClassify("요약해줘") == WorkflowIntent.quickAnswer)
     }
 
     @Test("요약+pdf 복합 → task")
