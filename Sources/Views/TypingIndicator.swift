@@ -128,53 +128,94 @@ struct TypingIndicator: View {
 
     // MARK: - 헤더
 
+    /// 현재 실행 중인 단계 정보
+    private var currentStepInfo: (number: Int, total: Int, label: String)? {
+        guard let room, let plan = room.plan,
+              room.currentStepIndex < plan.steps.count,
+              [WorkflowPhase.build, .execute].contains(room.workflowState.currentPhase) else { return nil }
+        return (room.currentStepIndex + 1, plan.steps.count, plan.steps[room.currentStepIndex].text)
+    }
+
+    /// 최근 파일 수정 활동 (접힌 상태에서도 표시)
+    private var lastFileWriteDetail: ToolActivityDetail? {
+        activeActivities.last(where: {
+            ["file_write", "Edit", "Write"].contains($0.toolDetail?.toolName ?? "")
+        })?.toolDetail
+    }
+
     private var headerView: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let elapsed = elapsedSeconds(at: context.date)
-            HStack(spacing: 6) {
-                // 점 3개 바운스 애니메이션
-                HStack(spacing: 4) {
-                    ForEach(0..<3, id: \.self) { i in
-                        Circle()
-                            .fill(palette.accent.opacity(0.7))
-                            .frame(width: 6, height: 6)
-                            .offset(y: dotPhase == i ? -4 : 0)
-                            .scaleEffect(dotPhase == i ? 1.2 : 1.0)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    // 점 3개 바운스 애니메이션
+                    HStack(spacing: 4) {
+                        ForEach(0..<3, id: \.self) { i in
+                            Circle()
+                                .fill(palette.accent.opacity(0.7))
+                                .frame(width: 6, height: 6)
+                                .offset(y: dotPhase == i ? -4 : 0)
+                                .scaleEffect(dotPhase == i ? 1.2 : 1.0)
+                        }
+                    }
+
+                    Text(statusText)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary.opacity(0.6))
+
+                    if elapsed >= 3 {
+                        Text(elapsedLabel(elapsed))
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(.secondary.opacity(0.35))
+                    }
+
+                    // 최근 활동 요약 (접힌 상태에서 한 줄로 표시)
+                    if !isExpanded, let lastDetail = activeActivities.last?.toolDetail {
+                        Text("· \(lastDetail.displayName)\(lastDetail.subject.map { " \(shortenPath($0))" } ?? "")")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary.opacity(0.45))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+
+                    // 활동 개수 뱃지 + 펼침 화살표
+                    if !activeActivities.isEmpty {
+                        Text("\(activeActivities.count)")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(.secondary.opacity(0.5))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.secondary.opacity(0.08))
+                            .clipShape(Capsule())
+
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 8, weight: .medium))
+                            .foregroundColor(.secondary.opacity(0.4))
                     }
                 }
 
-                Text(statusText)
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary.opacity(0.6))
-
-                if elapsed >= 3 {
-                    Text(elapsedLabel(elapsed))
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundColor(.secondary.opacity(0.35))
+                // 현재 단계 정보 (Build/Execute 중에만 표시)
+                if let info = currentStepInfo {
+                    HStack(spacing: 4) {
+                        Text("단계 \(info.number)/\(info.total):")
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundColor(palette.accent.opacity(0.7))
+                        Text(info.label)
+                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                            .foregroundColor(palette.accent.opacity(0.6))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .padding(.leading, 26) // 점 애니메이션 너비만큼 들여쓰기
                 }
 
-                // 최근 활동 요약 (접힌 상태에서 한 줄로 표시)
-                if !isExpanded, let lastDetail = activeActivities.last?.toolDetail {
-                    Text("· \(lastDetail.displayName)\(lastDetail.subject.map { " \(shortenPath($0))" } ?? "")")
+                // 파일 수정 활동 (접힌 상태에서도 항상 표시)
+                if let writeDetail = lastFileWriteDetail {
+                    Text("· \(writeDetail.displayName) \(shortenPath(writeDetail.subject ?? ""))")
                         .font(.system(size: 10))
-                        .foregroundColor(.secondary.opacity(0.45))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-
-                // 활동 개수 뱃지 + 펼침 화살표
-                if !activeActivities.isEmpty {
-                    Text("\(activeActivities.count)")
-                        .font(.system(size: 9, weight: .medium))
                         .foregroundColor(.secondary.opacity(0.5))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Color.secondary.opacity(0.08))
-                        .clipShape(Capsule())
-
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 8, weight: .medium))
-                        .foregroundColor(.secondary.opacity(0.4))
+                        .lineLimit(1)
+                        .padding(.leading, 26)
                 }
             }
         }

@@ -93,8 +93,9 @@ DOUGLAS/
 │   │   ├── ProviderManager.swift    # 프로바이더 설정 관리
 │   │   ├── BuildLoopRunner.swift     # 빌드/테스트 실행 + 수정 프롬프트 생성 엔진
 │   │   ├── RoomManager.swift          # 프로젝트 방 생명주기, CRUD, 승인/입력 게이트, 상태 관리 (~2092줄)
-│   │   ├── RoomManager+Workflow.swift # 워크플로우 Phase 실행 메서드 (startRoomWorkflow, executePhaseWorkflow 등 ~4011줄)
+│   │   ├── RoomManager+Workflow.swift # 워크플로우 Phase 실행 메서드 (startRoomWorkflow, executePhaseWorkflow 등)
 │   │   ├── RoomManager+Discussion.swift # 빌드/QA 루프 + 토론 실행 (~949줄)
+│   │   ├── StepExecutionEngine.swift  # Build 단계 실행 엔진 (피드백 루프, StepStatus 전이, 롤백, Policy 기반 동작)
 │   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (Plan C: 3-tier 가중치 — skillTags×5, workModes×2, keyword+semantic×3, 0-1 정규화 confidence, 임계값 0.7/0.5)
 │   │   ├── DocumentExporter.swift   # 문서 산출물 파일 저장 (에이전트 생성 파일 탐지 → 고정 경로 자동저장 / NSSavePanel 폴백)
 │   │   ├── ThemeManager.swift       # 테마 관리 (기본값: .cozyGame, UserDefaults 저장, 커스텀 팔레트)
@@ -1039,7 +1040,7 @@ executeWithTools() 루프 (최대 10회):
 - **토론 알고리즘** (`executeDiscussion`): 라운드별 자유 토론 (마스터 제외, 전문가만 참여). 매 라운드 후 사용자 체크포인트 (DiscussionCheckpointCard). 사용자 피드백 시 새 라운드, "진행"(빈 입력) 시 브리핑으로. 라운드 무제한 (사용자 주도 종료). 첫 라운드는 병렬 실행 (`generateDiscussionResponse` + `withTaskGroup`, 히스토리 스냅샷 기준), 이후 라운드는 순차 실행 (이전 발언 참고). 모든 에이전트 프롬프트에 `clarifySummary` 앵커링 포함.
 - **Execute 분기** (`executeExecutePhase`): 2-way 분기:
   - quickAnswer → 전문가 1명 즉답 (도구 포함)
-  - task + needsPlan → 계획 기반 단계별 실행 (`executeRoomWork`)
+  - task + needsPlan → `StepExecutionEngine`으로 계획 기반 단계별 실행
   - task + !needsPlan → 토론/분석 후 결과 정리 (전문가 2명+ 자유 토론+브리핑, 1명 soloAnalysis, autoDocOutput 시 자동 문서화)
 - **실행 시 마스터 제외** (`executingAgentIDs`): `agent.isMaster`이면 실행 대상에서 제외
 - **계획 수립**: 전문가가 생성 (마스터 제외). 계획 JSON은 사용자에게 숨김.
@@ -1048,7 +1049,13 @@ executeWithTools() 루프 (최대 10회):
 - **방 shortID** (`Room.shortID`): UUID 앞 6자 소문자. 방 헤더(`RoomChatView`)와 방 목록(`RoomListView`)에 표시.
 - **CLI WebFetch 차단**: `ClaudeCodeProvider.sendMessage()`에서 `--disallowed-tools WebFetch` 적용
 
-**승인 게이트** (`executeRoomWork`): 첫 단계 + 마지막 단계 + 외부 영향 키워드(`hasExternalEffectKeywords`: PR, push, deploy, merge 등) 포함 단계에서 `.awaitingApproval` 상태 전환 + `CheckedContinuation`으로 비동기 일시 정지. `approveStep(roomID:)` / `rejectStep(roomID:)` 호출 시 continuation resume. **자동 승인 타이머**: 모든 리뷰 게이트에서 15초 카운트다운 후 자동 승인. 사용자가 "수정 요청" 클릭 시 타이머 취소 → 수동 응답 대기. **중간 단계 완료 표시**: 리뷰 게이트가 없는 중간 단계도 "단계 X 완료" 시스템 메시지를 표시하여 진행 흐름이 끊기지 않도록 함. **단계 카운트 동기화**: `setCurrentStep(stepIndex)`를 승인 게이트 전에 호출하여 이전 단계들이 즉시 체크 표시됨.
+**StepExecutionEngine**: Build 단계 실행을 전담하는 독립 클래스. `executeBuildPhase`와 `executeRoomWork`의 중복 로직을 `Policy` 기반으로 통합. 핵심 기능:
+- **실시간 피드백 루프**: 각 단계 실행 후 사용자 메시지를 확인하여, 새 요건이 있으면 같은 단계를 재실행. 요건이 다 반영될 때까지 다음 단계로 진행하지 않음.
+- **StepStatus 전이**: `pending → inProgress → completed/failed/skipped` 상태 자동 관리. PlanCard에서 실시간 반영.
+- **클릭 롤백**: PlanCard에서 완료된 단계 클릭 → `stepRollbackTargets`에 설정 → 엔진이 해당 단계부터 재실행.
+- **텍스트 롤백**: 사용자가 "3단계부터 다시" 입력 → 엔진이 롤백 구문 파싱 → 해당 단계로 점프.
+- **Policy**: `enableUserFeedbackLoop`, `deferHighRiskSteps`, `detectRepetition`, `generateWorkLog`로 동작 분기. `standard`(Build), `legacy`(executeRoomWork 호환) 프리셋 제공.
+- **실행 중 입력**: `.inProgress` 상태에서도 입력 영역이 표시되어 사용자가 실시간으로 요건을 입력 가능.
 
 **Plan 승인 루프** (`executePlanPhase`): Plan 승인 시 거부 → 피드백 추출 → `requestPlan(previousPlan:feedback:)`로 재계획 → 다시 승인 카드 표시 (무제한). 이전 계획과 사용자 피드백이 재계획 프롬프트에 주입됨.
 
@@ -1064,9 +1071,9 @@ executeWithTools() 루프 (최대 10회):
 
 **대상 경로 감지**: 코딩 관련 키워드가 포함된 요청에 파일 경로가 없으면 → `.awaitingUserInput`으로 전환 → 사용자에게 대상 파일/경로 질문 → 답변을 분석 결과에 추가.
 
-**실패 자동 감지** (`executeRoomWork`):
-- 단계 실행 실패(에러): `executeStep()` 반환값 `false` → 즉시 `.failed` 전환 + 중단.
-- 반복 응답 감지: 연속 단계에서 Jaccard 단어 유사도 > 60% → 에이전트가 stuck 상태로 판단 → `.failed` 전환 + 중단. (`wordOverlapSimilarity()`)
+**실패 자동 감지** (`StepExecutionEngine`):
+- 단계 실행 실패(에러): `executeStep()` 반환값 `false` → 1회 재시도 → 전원 실패 시 `.failed` 전환 + 중단.
+- 반복 응답 감지 (`Policy.detectRepetition`): 연속 단계에서 Jaccard 단어 유사도 > 60% → 에이전트가 stuck 상태로 판단 → `.failed` 전환 + 중단. (`wordOverlapSimilarity()`)
 
 **작업일지**: `executePhaseWorkflow()` 완료 후 `generateWorkLog()`를 fire-and-forget `Task`로 비동기 실행 — 완료 UI 즉시 표시. `completeRoom()` (수동 완료)에서도 동일하게 비동기 생성.
 

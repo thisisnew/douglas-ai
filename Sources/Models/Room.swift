@@ -340,7 +340,7 @@ struct RoomAgentSuggestion: Identifiable, Codable, Equatable {
 struct RoomPlan: Codable {
     let summary: String           // 계획 요약
     let estimatedSeconds: Int     // 예상 소요 시간 (초)
-    let steps: [RoomStep]         // 단계별 작업
+    var steps: [RoomStep]         // 단계별 작업
     var version: Int              // 계획 버전 (거부 시 +1)
 
     init(summary: String, estimatedSeconds: Int, steps: [RoomStep], version: Int = 1) {

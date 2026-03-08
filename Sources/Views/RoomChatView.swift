@@ -40,7 +40,9 @@ struct RoomChatView: View {
 
                 // 계획 카드 (계획 수립 후) — 헤더 아래 고정
                 if let plan = room.plan {
-                    PlanCard(plan: plan, currentStep: room.currentStepIndex, status: room.status, agentStore: agentStore)
+                    PlanCard(plan: plan, currentStep: room.currentStepIndex, status: room.status, agentStore: agentStore) { stepIndex in
+                        roomManager.stepRollbackTargets[roomID] = stepIndex
+                    }
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
@@ -94,8 +96,8 @@ struct RoomChatView: View {
                     .fill(LinearGradient(colors: [.clear, palette.separator.opacity(0.3), .clear], startPoint: .leading, endPoint: .trailing))
                     .frame(height: 1)
 
-                // 입력 영역 (완료/실패 후에만 — 진행 중에는 숨김)
-                if room.status == .completed || room.status == .failed {
+                // 입력 영역 (완료/실패 + 실행 중에도 표시 — 실시간 추가 요건 입력 가능)
+                if room.status == .completed || room.status == .failed || room.status == .inProgress {
                     inputArea(room)
                 }
             }
@@ -401,6 +403,15 @@ struct RoomChatView: View {
 
     private func inputArea(_ room: Room) -> some View {
         VStack(spacing: 4) {
+            // 실행 중 안내 텍스트
+            if room.status == .inProgress {
+                Text("실행 중 추가 요건을 입력하면 현재 단계에 반영됩니다")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary.opacity(0.5))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4)
+            }
+
             // 첨부 이미지 미리보기
             if !pendingAttachments.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -732,6 +743,8 @@ struct PlanCard: View {
     let currentStep: Int
     let status: RoomStatus
     var agentStore: AgentStore?
+    /// 완료된 단계 클릭 시 롤백 요청 (0-based step index)
+    var onRollbackToStep: ((Int) -> Void)?
     @Environment(\.colorPalette) private var palette
 
     @State private var isExpanded = true
@@ -770,37 +783,7 @@ struct PlanCard: View {
 
                     VStack(spacing: 3) {
                         ForEach(Array(plan.steps.enumerated()), id: \.offset) { index, step in
-                            HStack(alignment: .top, spacing: 8) {
-                                stepIcon(index: index)
-                                    .padding(.top, 2)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(step.text)
-                                        .font(.system(size: 11, weight: index == currentStep && status == .inProgress ? .semibold : .regular, design: .rounded))
-                                        .foregroundColor(stepColor(index: index))
-                                        .lineLimit(3)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                    if let name = agentName(for: step) {
-                                        Text(name)
-                                            .font(.system(size: 9, weight: .medium))
-                                            .foregroundColor(index == currentStep && status == .inProgress ? .orange.opacity(0.7) : .secondary.opacity(0.5))
-                                    }
-                                }
-                                Spacer(minLength: 0)
-                                if step.requiresApproval {
-                                    Image(systemName: "hand.raised.fill")
-                                        .font(.system(size: 9))
-                                        .foregroundColor(.orange.opacity(0.6))
-                                        .padding(.top, 2)
-                                }
-                            }
-                            .padding(.vertical, 4)
-                            .padding(.horizontal, 6)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(index == currentStep && status == .inProgress
-                                          ? Color.purple.opacity(0.06)
-                                          : Color.clear)
-                            )
+                            stepRow(index: index, step: step)
                         }
                     }
                 }
@@ -808,9 +791,64 @@ struct PlanCard: View {
         }
     }
 
+    @ViewBuilder
+    private func stepRow(index: Int, step: RoomStep) -> some View {
+        let isClickable = step.status == .completed && status == .inProgress
+
+        HStack(alignment: .top, spacing: 6) {
+            stepIcon(step: step)
+                .padding(.top, 2)
+            // 단계 번호
+            Text("\(index + 1)")
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(stepColor(step: step))
+                .frame(width: 14, alignment: .trailing)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(step.text)
+                    .font(.system(size: 11, weight: step.status == .inProgress ? .semibold : .regular, design: .rounded))
+                    .foregroundColor(stepColor(step: step))
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let name = agentName(for: step) {
+                    Text(name)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(step.status == .inProgress ? .orange.opacity(0.7) : .secondary.opacity(0.5))
+                }
+            }
+            Spacer(minLength: 0)
+            if step.requiresApproval {
+                Image(systemName: "hand.raised.fill")
+                    .font(.system(size: 9))
+                    .foregroundColor(.orange.opacity(0.6))
+                    .padding(.top, 2)
+            }
+            // 롤백 힌트 (완료된 단계에 표시)
+            if isClickable {
+                Image(systemName: "arrow.counterclockwise")
+                    .font(.system(size: 8))
+                    .foregroundColor(.secondary.opacity(0.3))
+                    .padding(.top, 2)
+            }
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(step.status == .inProgress
+                      ? Color.purple.opacity(0.06)
+                      : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if isClickable {
+                onRollbackToStep?(index)
+            }
+        }
+    }
+
     private var completedStepCount: Int {
-        if status == .completed { return plan.steps.count }
-        return currentStep
+        plan.steps.filter { $0.status == .completed }.count
     }
 
     @MainActor private func agentName(for step: RoomStep) -> String? {
@@ -820,28 +858,40 @@ struct PlanCard: View {
     }
 
     @ViewBuilder
-    private func stepIcon(index: Int) -> some View {
-        if status == .completed || index < currentStep {
+    private func stepIcon(step: RoomStep) -> some View {
+        switch step.status {
+        case .completed:
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 11))
                 .foregroundColor(.green.opacity(0.7))
-        } else if index == currentStep && status == .inProgress {
+        case .inProgress:
             Image(systemName: "play.circle.fill")
                 .font(.system(size: 11))
                 .foregroundColor(.orange.opacity(0.7))
-        } else {
+        case .failed:
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 11))
+                .foregroundColor(.red.opacity(0.7))
+        case .skipped:
+            Image(systemName: "forward.circle.fill")
+                .font(.system(size: 11))
+                .foregroundColor(.yellow.opacity(0.7))
+        case .pending:
             Image(systemName: "circle")
                 .font(.system(size: 11))
                 .foregroundColor(.gray.opacity(0.4))
         }
     }
 
-    private func stepColor(index: Int) -> Color {
-        if status == .completed || index < currentStep {
+    private func stepColor(step: RoomStep) -> Color {
+        switch step.status {
+        case .completed, .skipped:
             return .secondary
-        } else if index == currentStep && status == .inProgress {
+        case .inProgress:
             return .primary
-        } else {
+        case .failed:
+            return .red.opacity(0.7)
+        case .pending:
             return .secondary.opacity(0.7)
         }
     }

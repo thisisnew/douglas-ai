@@ -173,6 +173,8 @@ class RoomManager: ObservableObject, WorkflowHost {
     var teamConfirmationContinuations: [UUID: CheckedContinuation<Set<UUID>?, Never>] = [:]
     /// 이전 사이클 완료 시점의 에이전트 수 (후속 사이클에서 에이전트 변동 감지용)
     var previousCycleAgentCount: [UUID: Int] = [:]
+    /// 단계 롤백 요청 (PlanCard 클릭 시 설정, StepExecutionEngine이 소비)
+    var stepRollbackTargets: [UUID: Int] = [:]
     /// 멘션으로 지명된 에이전트 (라우팅 우선권 — executeQuickAnswer/executeSoloAnalysis에서 소비)
     var mentionedAgentIDsByRoom: [UUID: [UUID]] = [:]
     /// ask_user 도구의 선택지 (방 ID → 옵션 목록) — UserInputCard에서 버튼으로 표시

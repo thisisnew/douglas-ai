@@ -105,4 +105,20 @@ protocol WorkflowHost: AnyObject {
 
     /// 에이전트 생성 제안 추가
     func addAgentSuggestion(_ suggestion: RoomAgentSuggestion, to roomID: UUID)
+
+    // MARK: - 단계 실행
+
+    /// 단일 단계 LLM 실행 (StepExecutionEngine에서 호출)
+    @discardableResult
+    func executeStep(
+        step: String, fullTask: String, agentID: UUID, roomID: UUID,
+        stepIndex: Int, totalSteps: Int,
+        fileWriteTracker: FileWriteTracker?,
+        progressGroupID: UUID?,
+        deferHighRiskTools: Bool,
+        collectDeferred: ((DeferredAction) -> Void)?
+    ) async -> Bool
+
+    /// 단계 롤백 요청 (PlanCard 클릭 시 설정)
+    var stepRollbackTargets: [UUID: Int] { get set }
 }
