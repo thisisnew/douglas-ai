@@ -211,7 +211,7 @@ enum StepStatus: String, Codable {
 }
 
 struct RoomStep: Codable, Equatable {
-    let text: String
+    var text: String
     let requiresApproval: Bool
     var assignedAgentID: UUID?
     var riskLevel: RiskLevel

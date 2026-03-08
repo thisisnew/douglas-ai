@@ -40,9 +40,9 @@ struct RoomChatView: View {
 
                 // 계획 카드 (계획 수립 후) — 헤더 아래 고정
                 if let plan = room.plan {
-                    PlanCard(plan: plan, currentStep: room.currentStepIndex, status: room.status, agentStore: agentStore) { stepIndex in
-                        roomManager.stepRollbackTargets[roomID] = stepIndex
-                    }
+                    PlanCard(plan: plan, currentStep: room.currentStepIndex,
+                             status: room.status, agentStore: agentStore,
+                             mode: planCardMode(for: room))
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
@@ -401,6 +401,22 @@ struct RoomChatView: View {
         !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty
     }
 
+    /// PlanCard 모드 결정 (방 상태 기반)
+    private func planCardMode(for room: Room) -> PlanCardMode {
+        if room.awaitingType == .planApproval {
+            return .editing(
+                onEditStep: { idx, text in roomManager.updateStepText(roomID: room.id, stepIndex: idx, newText: text) },
+                onDeleteStep: { idx in roomManager.deleteStep(roomID: room.id, stepIndex: idx) },
+                onAddStep: { afterIdx, text in roomManager.addStep(roomID: room.id, afterIndex: afterIdx, text: text) },
+                onMoveStep: { from, to in roomManager.moveStep(roomID: room.id, fromIndex: from, toIndex: to) }
+            )
+        } else if room.status == .inProgress {
+            return .execution { stepIndex in roomManager.stepRollbackTargets[roomID] = stepIndex }
+        } else {
+            return .readOnly
+        }
+    }
+
     private func inputArea(_ room: Room) -> some View {
         VStack(spacing: 4) {
             // 실행 중 안내 텍스트
@@ -738,16 +754,37 @@ struct RoomChatView: View {
 
 // MARK: - 계획 카드
 
+/// PlanCard 인터랙션 모드
+enum PlanCardMode {
+    case readOnly                                               // 완료/실패
+    case execution(onRollback: (Int) -> Void)                  // 실행 중
+    case editing(                                               // 계획 승인 대기
+        onEditStep: (Int, String) -> Void,
+        onDeleteStep: (Int) -> Void,
+        onAddStep: (Int?, String) -> Void,
+        onMoveStep: (Int, Int) -> Void
+    )
+}
+
 struct PlanCard: View {
     let plan: RoomPlan
     let currentStep: Int
     let status: RoomStatus
     var agentStore: AgentStore?
-    /// 완료된 단계 클릭 시 롤백 요청 (0-based step index)
-    var onRollbackToStep: ((Int) -> Void)?
+    var mode: PlanCardMode = .readOnly
     @Environment(\.colorPalette) private var palette
 
     @State private var isExpanded = true
+    // 편집 모드 상태
+    @State private var editingStepIndex: Int?
+    @State private var editingText: String = ""
+    @State private var addingAfterIndex: Int? // nil = 미표시, -1 = 맨 앞, 0+ = 해당 인덱스 뒤
+    @State private var newStepText: String = ""
+
+    private var isEditing: Bool {
+        if case .editing = mode { return true }
+        return false
+    }
 
     var body: some View {
         CardContainer(accentColor: .purple) {
@@ -784,6 +821,11 @@ struct PlanCard: View {
                     VStack(spacing: 3) {
                         ForEach(Array(plan.steps.enumerated()), id: \.offset) { index, step in
                             stepRow(index: index, step: step)
+
+                            // 단계 추가 버튼 (편집 모드에서만)
+                            if isEditing {
+                                addStepInsertPoint(afterIndex: index)
+                            }
                         }
                     }
                 }
@@ -791,10 +833,10 @@ struct PlanCard: View {
         }
     }
 
+    // MARK: - 단계 행
+
     @ViewBuilder
     private func stepRow(index: Int, step: RoomStep) -> some View {
-        let isClickable = step.status == .completed && status == .inProgress
-
         HStack(alignment: .top, spacing: 6) {
             stepIcon(step: step)
                 .padding(.top, 2)
@@ -804,12 +846,25 @@ struct PlanCard: View {
                 .foregroundColor(stepColor(step: step))
                 .frame(width: 14, alignment: .trailing)
                 .padding(.top, 2)
+
+            // 텍스트 영역 (편집 모드에서 tap → 인라인 TextField)
             VStack(alignment: .leading, spacing: 2) {
-                Text(step.text)
-                    .font(.system(size: 11, weight: step.status == .inProgress ? .semibold : .regular, design: .rounded))
-                    .foregroundColor(stepColor(step: step))
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
+                if isEditing && editingStepIndex == index {
+                    editingTextField(index: index)
+                } else {
+                    Text(step.text)
+                        .font(.system(size: 11, weight: step.status == .inProgress ? .semibold : .regular, design: .rounded))
+                        .foregroundColor(stepColor(step: step))
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if isEditing {
+                                editingStepIndex = index
+                                editingText = step.text
+                            }
+                        }
+                }
                 if let name = agentName(for: step) {
                     Text(name)
                         .font(.system(size: 9, weight: .medium))
@@ -817,34 +872,201 @@ struct PlanCard: View {
                 }
             }
             Spacer(minLength: 0)
+
+            // 모드별 우측 액션
+            stepActions(index: index, step: step)
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(stepRowBackground(step: step))
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            handleStepTap(index: index, step: step)
+        }
+    }
+
+    // MARK: - 인라인 편집 TextField
+
+    @ViewBuilder
+    private func editingTextField(index: Int) -> some View {
+        TextField("단계 내용", text: $editingText, axis: .vertical)
+            .textFieldStyle(.plain)
+            .font(.system(size: 11, design: .rounded))
+            .lineLimit(1...4)
+            .padding(4)
+            .background(palette.inputBackground.opacity(0.5))
+            .continuousRadius(6)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(Color.purple.opacity(0.3), lineWidth: 1)
+            )
+            .onSubmit { commitEdit(index: index) }
+    }
+
+    private func commitEdit(index: Int) {
+        let trimmed = editingText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty, case .editing(let onEdit, _, _, _) = mode {
+            onEdit(index, trimmed)
+        }
+        editingStepIndex = nil
+        editingText = ""
+    }
+
+    // MARK: - 우측 액션 버튼
+
+    @ViewBuilder
+    private func stepActions(index: Int, step: RoomStep) -> some View {
+        switch mode {
+        case .editing(_, let onDelete, _, let onMove):
+            HStack(spacing: 2) {
+                // 순서 변경
+                if index > 0 {
+                    Button {
+                        onMove(index, index - 1)
+                    } label: {
+                        Image(systemName: "chevron.up")
+                            .font(.system(size: 8, weight: .medium))
+                            .foregroundColor(.secondary.opacity(0.5))
+                            .frame(width: 16, height: 16)
+                    }
+                    .buttonStyle(.plain)
+                }
+                if index < plan.steps.count - 1 {
+                    Button {
+                        onMove(index, index + 1)
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8, weight: .medium))
+                            .foregroundColor(.secondary.opacity(0.5))
+                            .frame(width: 16, height: 16)
+                    }
+                    .buttonStyle(.plain)
+                }
+                // 삭제
+                if plan.steps.count > 1 {
+                    Button {
+                        onDelete(index)
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 8, weight: .medium))
+                            .foregroundColor(.red.opacity(0.4))
+                            .frame(width: 16, height: 16)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.top, 2)
+
+        case .execution(let onRollback):
+            if step.status == .completed && status == .inProgress {
+                Image(systemName: "arrow.counterclockwise")
+                    .font(.system(size: 8))
+                    .foregroundColor(.secondary.opacity(0.3))
+                    .padding(.top, 2)
+                    .onTapGesture { onRollback(index) }
+            }
             if step.requiresApproval {
                 Image(systemName: "hand.raised.fill")
                     .font(.system(size: 9))
                     .foregroundColor(.orange.opacity(0.6))
                     .padding(.top, 2)
             }
-            // 롤백 힌트 (완료된 단계에 표시)
-            if isClickable {
-                Image(systemName: "arrow.counterclockwise")
-                    .font(.system(size: 8))
-                    .foregroundColor(.secondary.opacity(0.3))
+
+        case .readOnly:
+            if step.requiresApproval {
+                Image(systemName: "hand.raised.fill")
+                    .font(.system(size: 9))
+                    .foregroundColor(.orange.opacity(0.6))
                     .padding(.top, 2)
             }
         }
-        .padding(.vertical, 4)
-        .padding(.horizontal, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(step.status == .inProgress
-                      ? Color.purple.opacity(0.06)
-                      : Color.clear)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if isClickable {
-                onRollbackToStep?(index)
+    }
+
+    // MARK: - 단계 추가 삽입점
+
+    @ViewBuilder
+    private func addStepInsertPoint(afterIndex: Int) -> some View {
+        if addingAfterIndex == afterIndex {
+            // 인라인 입력
+            HStack(spacing: 4) {
+                TextField("새 단계 내용...", text: $newStepText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 10, design: .rounded))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(palette.inputBackground.opacity(0.5))
+                    .continuousRadius(6)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .strokeBorder(Color.purple.opacity(0.2), lineWidth: 1)
+                    )
+                    .onSubmit { commitAddStep(afterIndex: afterIndex) }
+                Button {
+                    commitAddStep(afterIndex: afterIndex)
+                } label: {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(.purple.opacity(0.6))
+                }
+                .buttonStyle(.plain)
+                .disabled(newStepText.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button {
+                    addingAfterIndex = nil
+                    newStepText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary.opacity(0.4))
+                }
+                .buttonStyle(.plain)
             }
+            .padding(.horizontal, 6)
+            .transition(.opacity.combined(with: .scale(scale: 0.95)))
+        } else {
+            // + 버튼
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    addingAfterIndex = afterIndex
+                    newStepText = ""
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 8, weight: .medium))
+                    Text("단계 추가")
+                        .font(.system(size: 9))
+                }
+                .foregroundColor(.purple.opacity(0.35))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 2)
+            }
+            .buttonStyle(.plain)
         }
+    }
+
+    private func commitAddStep(afterIndex: Int) {
+        let trimmed = newStepText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, case .editing(_, _, let onAdd, _) = mode else { return }
+        onAdd(afterIndex, trimmed)
+        addingAfterIndex = nil
+        newStepText = ""
+    }
+
+    // MARK: - 헬퍼
+
+    private func handleStepTap(index: Int, step: RoomStep) {
+        if case .execution(let onRollback) = mode,
+           step.status == .completed, status == .inProgress {
+            onRollback(index)
+        }
+    }
+
+    private func stepRowBackground(step: RoomStep) -> Color {
+        if isEditing && editingStepIndex != nil { return Color.clear }
+        return step.status == .inProgress ? Color.purple.opacity(0.06) : Color.clear
     }
 
     private var completedStepCount: Int {
@@ -1106,206 +1328,54 @@ struct ApprovalCard: View {
     @State private var feedbackText = ""
     @FocusState private var isFeedbackFocused: Bool
 
+    private var room: Room? {
+        roomManager.rooms.first { $0.id == roomID }
+    }
+
     /// 자동 승인 카운트다운 (nil이면 타이머 없음)
     private var autoApprovalRemaining: Int? {
         roomManager.reviewAutoApprovalRemaining[roomID]
     }
 
-    /// 방의 최근 .approvalRequest 메시지에서 승인 제목과 내용을 추출
-    private var approvalInfo: (title: String, detail: String?) {
-        guard let room = roomManager.rooms.first(where: { $0.id == roomID }),
-              let msg = room.messages.last(where: { $0.messageType == .approvalRequest }) else {
-            return ("이해한 내용이 맞는지 확인해주세요", nil)
+    /// awaitingType 기반 승인 제목
+    private var approvalTitle: String {
+        switch room?.awaitingType {
+        case .planApproval:           return "작업 계획을 확인해주세요"
+        case .clarification:          return "이해한 내용이 맞는지 확인해주세요"
+        case .stepApproval:           return "단계 승인이 필요합니다"
+        case .deliverApproval:        return "보류된 작업을 확인해주세요"
+        case .designApproval:         return "설계 결과를 확인해주세요"
+        case .discussionCheckpoint:   return "토론 결과를 확인해주세요"
+        case .finalApproval:          return "마지막 단계 확인"
+        case .irreversibleStep:       return "되돌릴 수 없는 작업입니다"
+        case .agentConfirmation:      return "에이전트 구성을 확인해주세요"
+        case .userFeedback, .none:    return "확인이 필요합니다"
         }
-        let content = msg.content
-        if content.hasPrefix("실행 계획:") {
-            return ("작업 계획을 확인해주세요", String(content.dropFirst("실행 계획:".count)).trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        if content.contains("이 단계는 승인이 필요합니다") {
-            return ("단계 승인이 필요합니다", content)
-        }
-        if content.hasPrefix("토론이 완료되었습니다") {
-            return ("토론 결과를 확인해주세요", String(content.dropFirst("토론이 완료되었습니다.".count)).trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        if content.contains("보류된 작업") {
-            return ("보류된 작업을 확인해주세요", content)
-        }
-        if content.contains("Review") && content.contains("실패") {
-            return ("Review 실패 — 확인이 필요합니다", content)
-        }
-        if content.hasPrefix("설계 완료:") {
-            return ("설계 결과를 확인해주세요", String(content.dropFirst("설계 완료:".count)).trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        if content.hasPrefix("마지막 단계입니다") {
-            return ("마지막 단계 확인", String(content.dropFirst("마지막 단계입니다. 승인하시면 완료합니다.".count)).trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        if content.contains("추가할까요") {
-            return ("에이전트 추가 제안", content)
-        }
-        if content.contains("결과를 확인해주세요") {
-            return ("단계 결과를 확인해주세요", content)
-        }
-        return ("확인이 필요합니다", content)
+    }
+
+    /// 메시지 기반 상세 내용 (plan 이외 유형에서 사용)
+    private var approvalDetail: String? {
+        guard let room, let msg = room.messages.last(where: { $0.messageType == .approvalRequest }) else { return nil }
+        return msg.content
     }
 
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 // 타이틀
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(.yellow.opacity(0.1))
-                        .frame(width: 24, height: 24)
-                        .overlay(
-                            Image(systemName: "checkmark.circle")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(.yellow.opacity(0.7))
-                        )
-                    Text(approvalInfo.title)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.primary.opacity(0.85))
-                    Spacer()
-                }
+                approvalHeader
 
-                // 상세 내용
-                if let detail = approvalInfo.detail, !detail.isEmpty {
-                    Text(detail)
-                        .font(.system(size: 11, design: .rounded))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .background(palette.inputBackground.opacity(0.5))
-                        .continuousRadius(DesignTokens.CozyGame.cardRadius)
-                }
+                // 유형별 콘텐츠
+                approvalContent
 
-                // 피드백 입력 영역 (수정 요청 클릭 시 표시)
+                // 피드백 입력 영역
                 if showFeedbackInput {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("어떤 부분을 수정해야 하나요?")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.secondary)
-
-                        TextField("수정 사항을 입력하세요...", text: $feedbackText, axis: .vertical)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 11, design: .rounded))
-                            .lineLimit(1...4)
-                            .padding(8)
-                            .background(palette.inputBackground)
-                            .continuousRadius(DesignTokens.CozyGame.cardRadius)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
-                                    .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1)
-                            )
-                            .focused($isFeedbackFocused)
-                            .onSubmit {
-                                submitFeedback()
-                            }
-
-                        HStack(spacing: 8) {
-                            Spacer()
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    showFeedbackInput = false
-                                    feedbackText = ""
-                                }
-                            } label: {
-                                Text("취소")
-                                    .font(.system(size: 10, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 4)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-
-                            Button {
-                                submitFeedback()
-                            } label: {
-                                let canSend = !feedbackText.trimmingCharacters(in: .whitespaces).isEmpty
-                                Image(systemName: "arrow.up.circle.fill")
-                                    .font(.system(size: 22))
-                                    .foregroundStyle(canSend ? palette.accent : Color.gray.opacity(0.4))
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(feedbackText.trimmingCharacters(in: .whitespaces).isEmpty)
-                        }
-                    }
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    feedbackInputView
                 }
 
-                // 버튼 (피드백 입력 중이 아닐 때만 표시)
+                // 버튼
                 if !showFeedbackInput {
-                    HStack(spacing: 10) {
-                        Spacer()
-                        Button {
-                            roomManager.cancelReviewAutoApproval(roomID: roomID)
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                showFeedbackInput = true
-                            }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                isFeedbackFocused = true
-                            }
-                        } label: {
-                            Text("수정 요청")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 6)
-                                .background(
-                                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
-                                        .fill(hoveredButton == "reject" ? palette.separator : palette.inputBackground)
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
-                                        .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1)
-                                )
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .onHover { hovering in
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                hoveredButton = hovering ? "reject" : (hoveredButton == "reject" ? nil : hoveredButton)
-                            }
-                        }
-
-                        Button {
-                            roomManager.approveStep(roomID: roomID)
-                        } label: {
-                            HStack(spacing: 6) {
-                                Text("승인")
-                                    .font(.system(size: 11, weight: .semibold))
-                                if let remaining = autoApprovalRemaining {
-                                    Text("\(remaining)s")
-                                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                                        .foregroundStyle(.white.opacity(0.7))
-                                }
-                            }
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 6)
-                            .background(
-                                RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
-                                    .fill(
-                                        LinearGradient(
-                                            colors: [
-                                                hoveredButton == "approve" ? palette.accent.opacity(0.85) : palette.accent.opacity(0.9),
-                                                palette.accent
-                                            ],
-                                            startPoint: .top, endPoint: .bottom
-                                        )
-                                    )
-                            )
-                            .shadow(color: palette.buttonShadow.opacity(0.25), radius: 4, y: DesignTokens.CozyGame.buttonShadowY)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .onHover { hovering in
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                hoveredButton = hovering ? "approve" : (hoveredButton == "approve" ? nil : hoveredButton)
-                            }
-                        }
-                    }
+                    actionButtons
                 }
             }
             .padding(14)
@@ -1324,12 +1394,225 @@ struct ApprovalCard: View {
         .animation(.easeInOut(duration: 0.2), value: showFeedbackInput)
     }
 
+    // MARK: - Shell 구성 요소
+
+    private var approvalHeader: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(.yellow.opacity(0.1))
+                .frame(width: 24, height: 24)
+                .overlay(
+                    Image(systemName: "checkmark.circle")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.yellow.opacity(0.7))
+                )
+            Text(approvalTitle)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.primary.opacity(0.85))
+            Spacer()
+        }
+    }
+
+    /// 승인 유형별 콘텐츠 dispatch (Strategy 패턴)
+    @ViewBuilder
+    private var approvalContent: some View {
+        switch room?.awaitingType {
+        case .planApproval:
+            // 계획 승인: header PlanCard가 편집 모드이므로 compact summary만 표시
+            PlanApprovalSummary(plan: room?.plan)
+        default:
+            // 기타 유형: 메시지 기반 텍스트 표시
+            GenericApprovalDetail(detail: approvalDetail)
+        }
+    }
+
+    private var feedbackInputView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("어떤 부분을 수정해야 하나요?")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            TextField("수정 사항을 입력하세요...", text: $feedbackText, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.system(size: 11, design: .rounded))
+                .lineLimit(1...4)
+                .padding(8)
+                .background(palette.inputBackground)
+                .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                        .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1)
+                )
+                .focused($isFeedbackFocused)
+                .onSubmit { submitFeedback() }
+
+            HStack(spacing: 8) {
+                Spacer()
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showFeedbackInput = false
+                        feedbackText = ""
+                    }
+                } label: {
+                    Text("취소")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    submitFeedback()
+                } label: {
+                    let canSend = !feedbackText.trimmingCharacters(in: .whitespaces).isEmpty
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(canSend ? palette.accent : Color.gray.opacity(0.4))
+                }
+                .buttonStyle(.plain)
+                .disabled(feedbackText.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    private var actionButtons: some View {
+        HStack(spacing: 10) {
+            Spacer()
+            Button {
+                roomManager.cancelReviewAutoApproval(roomID: roomID)
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showFeedbackInput = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    isFeedbackFocused = true
+                }
+            } label: {
+                Text("수정 요청")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
+                            .fill(hoveredButton == "reject" ? palette.separator : palette.inputBackground)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
+                            .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1)
+                    )
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering in
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    hoveredButton = hovering ? "reject" : (hoveredButton == "reject" ? nil : hoveredButton)
+                }
+            }
+
+            Button {
+                roomManager.approveStep(roomID: roomID)
+            } label: {
+                HStack(spacing: 6) {
+                    Text("승인")
+                        .font(.system(size: 11, weight: .semibold))
+                    if let remaining = autoApprovalRemaining {
+                        Text("\(remaining)s")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    hoveredButton == "approve" ? palette.accent.opacity(0.85) : palette.accent.opacity(0.9),
+                                    palette.accent
+                                ],
+                                startPoint: .top, endPoint: .bottom
+                            )
+                        )
+                )
+                .shadow(color: palette.buttonShadow.opacity(0.25), radius: 4, y: DesignTokens.CozyGame.buttonShadowY)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering in
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    hoveredButton = hovering ? "approve" : (hoveredButton == "approve" ? nil : hoveredButton)
+                }
+            }
+        }
+    }
+
     private func submitFeedback() {
         let text = feedbackText.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
-        // 피드백을 사용자 메시지로 추가 후 거부
         roomManager.appendAdditionalInput(roomID: roomID, text: text)
         roomManager.rejectStep(roomID: roomID)
+    }
+}
+
+// MARK: - 승인 콘텐츠 하위 뷰
+
+/// 계획 승인 시 compact summary (header PlanCard가 편집 모드이므로 중복 방지)
+private struct PlanApprovalSummary: View {
+    let plan: RoomPlan?
+    @Environment(\.colorPalette) private var palette
+
+    var body: some View {
+        if let plan {
+            HStack(spacing: 6) {
+                Image(systemName: "list.bullet.clipboard")
+                    .font(.system(size: 10))
+                    .foregroundColor(.purple.opacity(0.6))
+                Text("\(plan.steps.count)개 단계")
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundColor(.secondary)
+                if plan.estimatedSeconds > 0 {
+                    Text("·")
+                        .foregroundColor(.secondary.opacity(0.3))
+                    Text("약 \(plan.estimatedSeconds / 60)분")
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundColor(.secondary.opacity(0.7))
+                }
+                Text("·")
+                    .foregroundColor(.secondary.opacity(0.3))
+                Text("위에서 편집 가능")
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundColor(.purple.opacity(0.5))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(palette.inputBackground.opacity(0.3))
+            .continuousRadius(DesignTokens.CozyGame.cardRadius)
+        }
+    }
+}
+
+/// 기타 승인 유형의 텍스트 상세 표시
+private struct GenericApprovalDetail: View {
+    let detail: String?
+    @Environment(\.colorPalette) private var palette
+
+    var body: some View {
+        if let detail, !detail.isEmpty {
+            Text(detail)
+                .font(.system(size: 11, design: .rounded))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(palette.inputBackground.opacity(0.5))
+                .continuousRadius(DesignTokens.CozyGame.cardRadius)
+        }
     }
 }
 

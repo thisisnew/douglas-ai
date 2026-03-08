@@ -482,6 +482,58 @@ class RoomManager: ObservableObject, WorkflowHost {
         appendMessage(msg, to: roomID)
     }
 
+    // MARK: - 계획 단계 편집 (승인 전)
+
+    /// 단계 텍스트 수정
+    func updateStepText(roomID: UUID, stepIndex: Int, newText: String) {
+        let trimmed = newText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let idx = rooms.firstIndex(where: { $0.id == roomID }),
+              rooms[idx].awaitingType == .planApproval,
+              rooms[idx].plan?.steps.indices.contains(stepIndex) == true else { return }
+        cancelReviewAutoApproval(roomID: roomID)
+        rooms[idx].plan?.steps[stepIndex].text = trimmed
+        scheduleSave()
+    }
+
+    /// 단계 삭제 (최소 1단계 유지)
+    func deleteStep(roomID: UUID, stepIndex: Int) {
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }),
+              rooms[idx].awaitingType == .planApproval,
+              rooms[idx].plan?.steps.indices.contains(stepIndex) == true,
+              (rooms[idx].plan?.steps.count ?? 0) > 1 else { return }
+        cancelReviewAutoApproval(roomID: roomID)
+        rooms[idx].plan?.steps.remove(at: stepIndex)
+        scheduleSave()
+    }
+
+    /// 단계 추가 (afterIndex 뒤에 삽입, nil이면 맨 앞)
+    func addStep(roomID: UUID, afterIndex: Int?, text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let idx = rooms.firstIndex(where: { $0.id == roomID }),
+              rooms[idx].awaitingType == .planApproval else { return }
+        cancelReviewAutoApproval(roomID: roomID)
+        let newStep = RoomStep(text: trimmed)
+        let insertAt = min((afterIndex ?? -1) + 1, rooms[idx].plan?.steps.count ?? 0)
+        rooms[idx].plan?.steps.insert(newStep, at: insertAt)
+        scheduleSave()
+    }
+
+    /// 단계 순서 변경
+    func moveStep(roomID: UUID, fromIndex: Int, toIndex: Int) {
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }),
+              rooms[idx].awaitingType == .planApproval,
+              let steps = rooms[idx].plan?.steps,
+              steps.indices.contains(fromIndex),
+              toIndex >= 0, toIndex < steps.count,
+              fromIndex != toIndex else { return }
+        cancelReviewAutoApproval(roomID: roomID)
+        let step = rooms[idx].plan!.steps.remove(at: fromIndex)
+        rooms[idx].plan!.steps.insert(step, at: toIndex)
+        scheduleSave()
+    }
+
     // MARK: - 리뷰 자동 승인 타이머
 
     /// 리뷰 게이트 자동 승인 타이머 시작 (초)

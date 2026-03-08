@@ -1059,7 +1059,9 @@ executeWithTools() 루프 (최대 10회):
 
 **Plan 승인 루프** (`executePlanPhase`): Plan 승인 시 거부 → 피드백 추출 → `requestPlan(previousPlan:feedback:)`로 재계획 → 다시 승인 카드 표시 (무제한). 이전 계획과 사용자 피드백이 재계획 프롬프트에 주입됨.
 
-**승인 카드 UI** (`ApprovalCard`): 단계 결과 확인 + "승인"/"수정 요청" 버튼. 자동 승인 카운트다운 표시 (승인 버튼에 "15s" 형태). "수정 요청" 클릭 시 타이머 취소 → 피드백 입력 → `rejectStep()`으로 재계획 트리거.
+**승인 카드 UI** (`ApprovalCard`): Shell + Content 구조. Shell은 `approvalTitle`(awaitingType 기반) + 액션 버튼(승인/수정 요청) + 피드백 입력. Content는 `awaitingType`별 dispatch: `.planApproval` → `PlanApprovalSummary`(compact, header PlanCard가 편집 모드), 기타 → `GenericApprovalDetail`(메시지 기반 텍스트). 자동 승인 카운트다운 표시. "수정 요청" 클릭 시 타이머 취소 → 피드백 입력 → `rejectStep()`으로 재계획 트리거.
+
+**PlanCard 모드 시스템** (`PlanCardMode`): `.readOnly`(완료/실패), `.execution`(실행 중 — 롤백 클릭), `.editing`(계획 승인 대기 — 인라인 편집/삭제/추가/순서 변경). 편집 모드에서 단계 텍스트 탭 → 인라인 TextField, ↑↓ 순서 변경, 🗑 삭제, ＋ 단계 추가. 수정 사항은 RoomManager의 `updateStepText`/`deleteStep`/`addStep`/`moveStep`을 통해 `room.plan.steps`에 직접 반영 (LLM 재생성 불필요). 편집 시 자동 승인 타이머 자동 취소.
 
 **전문가 Solo 분석** (`executeSoloAnalysis`): 전문가 1명만 배정된 방에서 토론 대신 혼자 분석하여 결과 공유. task + !needsPlan 경로에서 `specialistCount == 1`일 때 자동 호출.
 
