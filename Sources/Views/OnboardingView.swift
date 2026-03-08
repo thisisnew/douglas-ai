@@ -149,6 +149,11 @@ struct OnboardingView: View {
                                 .foregroundColor(.secondary)
                                 .lineLimit(1)
                         }
+                        if let desc = dep.description {
+                            Text(desc)
+                                .font(.system(size: 9))
+                                .foregroundColor(.secondary)
+                        }
                     }
 
                     Spacer()

@@ -11,6 +11,7 @@ class DependencyChecker: ObservableObject {
         let isRequired: Bool
         let downloadURL: String?
         let installHint: String?   // "xcode-select --install"
+        var description: String?   // 보조 설명
         var isFound: Bool = false
         var foundPath: String?
     }
@@ -32,11 +33,20 @@ class DependencyChecker: ObservableObject {
     private static var defaultDependencies: [Dependency] {
         [
             Dependency(
+                name: "Git",
+                binaryNames: ["git"],
+                isRequired: true,
+                downloadURL: nil,
+                installHint: "xcode-select --install",
+                description: "동시 작업(워크트리)에 필요"
+            ),
+            Dependency(
                 name: "Node.js / npm",
                 binaryNames: ["node", "npm"],
                 isRequired: true,
                 downloadURL: "https://nodejs.org",
-                installHint: nil
+                installHint: nil,
+                description: nil
             ),
         ]
     }
