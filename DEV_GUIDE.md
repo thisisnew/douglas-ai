@@ -180,9 +180,9 @@ DOUGLAS/
 - `discussion`: 의견 교환/브레인스토밍 → Understand → Assemble → Design(토론+종합) → Deliver
 
 **discussion 워크플로우**: Design 내에서 완결
-- Turn 1: 전문가 의견 수렴 (병렬, 대화체 톤 가이드)
+- Turn 1: 전문가 의견 수렴 (병렬, 논거 기반 톤 가이드)
 - Turn 2: 상호 피드백 (순차 — 이전 피드백 참조 가능)
-- 종합: DOUGLAS 진행자가 중립적으로 종합 (참여자 X)
+- 종합: DOUGLAS 진행자가 추천안 포함 결론 도출 (참여자 X)
 - Build/Review 단계 없음 — 토론 자체가 산출물
 
 **6단계 워크플로우** (WorkflowPhase):
