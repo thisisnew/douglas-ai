@@ -823,7 +823,7 @@ class RoomManager: ObservableObject, WorkflowHost {
             let suggestedName = DocumentExporter.suggestedFilename(room: room)
             let targetPath = "\(saveDir)/\(DocumentExporter.sanitizeFilename(suggestedName, ext: requestedFormat))"
             docPrompt = """
-            \(agent.resolvedSystemPrompt)
+            \(systemPrompt(for: agent, roomID: roomID))
 
             ⚠️ 당신은 지금 "파일 생성 모드"입니다.
             이전 대화와 분석 내용을 바탕으로 \(requestedFormat) 파일을 생성합니다.
@@ -846,7 +846,7 @@ class RoomManager: ObservableObject, WorkflowHost {
         } else {
             // 텍스트 포맷 (md, csv, json, txt, pdf): Markdown/텍스트 출력 → 시스템 저장
             docPrompt = """
-            \(agent.resolvedSystemPrompt)
+            \(systemPrompt(for: agent, roomID: roomID))
 
             ⚠️ 당신은 지금 "문서 작성 모드"입니다.
             할 일은 딱 하나: 본문을 텍스트로 출력하는 것.

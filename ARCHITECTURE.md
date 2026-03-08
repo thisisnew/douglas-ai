@@ -43,7 +43,9 @@ DOUGLAS/
 │   │   ├── Agent.swift              # 에이전트 모델 (+ Plan C: skillTags, workModes, actionPermissions는 workModes에서 자동 추론, outputStyles 레거시)
 │   │   ├── AgentManifest.swift     # 에이전트 매니페스트 (.douglas 포맷, Plan C 카드 필드 포함)
 │   │   ├── AgentPreset.swift       # 12종 빌트인 에이전트 프리셋 (메타데이터 포함)
-│   │   ├── WorkingRules.swift       # 작업 규칙 (WorkingRulesSource — 인라인+파일 동시 지원)
+│   │   ├── WorkingRules.swift       # 작업 규칙 레거시 (WorkingRulesSource — WorkRule로 자동 마이그레이션)
+│   │   ├── WorkRule.swift            # 업무 규칙 레코드 (WorkRule + WorkRuleContent — 개별 규칙 단위)
+│   │   ├── WorkRuleMatcher.swift    # 규칙 매칭 (키워드 기반, LLM 호출 없음)
 │   │   ├── AgentTool.swift          # 도구 시스템 (AgentTool + ToolRisk + requiredActionScope, ToolCall, ToolResult, ToolRegistry)
 │   │   ├── ArtifactParser.swift     # 토론 산출물 파서 (artifact 블록 추출/제거)
 │   │   ├── ChatMessage.swift        # 메시지 모델 (MessageType 포함: toolActivity, buildStatus, qaStatus, approvalRequest 등, FileAttachment 첨부)
@@ -74,7 +76,7 @@ DOUGLAS/
 │   │   ├── ProcessRunner.swift      # 테스트 가능한 프로세스 실행기 (DI seam)
 │   │   ├── Room.swift               # 프로젝트 방 모델 (+ Plan C: TaskBrief, agentRoles, deferredActions, RiskLevel, OutputType, RuntimeRole)
 │   │   ├── ApprovalRecord.swift     # 승인 기록 모델 (ApprovalType, AwaitingType, ApprovalRecord)
-│   │   ├── WorkflowState.swift     # 워크플로우 진행 상태 값 객체 (intent, phase 추적)
+│   │   ├── WorkflowState.swift     # 워크플로우 진행 상태 값 객체 (intent, phase 추적, activeRuleIDs)
 │   │   ├── ClarifyContext.swift    # 복명복창 컨텍스트 값 객체 (intake, summary, delegation)
 │   │   ├── ProjectContext.swift    # 프로젝트 연동 컨텍스트 값 객체 (경로, 빌드/테스트 명령)
 │   │   ├── DiscussionSession.swift # 토론 세션 값 객체 (라운드, 산출물, 브리핑, 결정 로그)
@@ -443,7 +445,9 @@ struct FileAttachment: Codable, Identifiable {
 - `FileAttachmentError`: `.fileTooLarge`, `.unsupportedFormat`
 - `typealias ImageAttachment = FileAttachment` (하위 호환)
 
-### WorkingRulesSource (`Models/WorkingRules.swift`) — struct
+### WorkingRulesSource (`Models/WorkingRules.swift`) — struct (레거시)
+
+> **레거시**: WorkRule 레코드 시스템으로 대체됨. 디코딩 시 자동 마이그레이션.
 
 ```swift
 struct WorkingRulesSource: Codable, Equatable {
@@ -456,12 +460,46 @@ struct WorkingRulesSource: Codable, Equatable {
 }
 ```
 
-- 에이전트 생성 시 **필수 입력** (마스터 제외)
-- **인라인 텍스트 + 파일 참조 동시 사용 가능** (양분 아님, 합산)
-- persona = 역할 정체성, workingRules = 구체적 작업 지시사항으로 분리
-- `Agent.resolvedSystemPrompt`: persona + rules를 결합한 최종 시스템 프롬프트
-- 파일은 실행 시점에 읽어 항상 최신 규칙 반영
-- 레거시 enum 포맷(`inline(String)`, `filePath(String)`) 자동 마이그레이션
+- 기존 JSON에 `workRules` 배열이 없고 `workingRules`만 있으면 → 단일 WorkRule(`isAlwaysActive: true`)로 자동 변환
+- 신규 에이전트는 WorkRule 배열 사용
+
+### WorkRule (`Models/WorkRule.swift`) — struct
+
+에이전트의 업무 규칙을 **개별 레코드 단위**로 관리. 모놀리식 WorkingRulesSource를 대체.
+
+```swift
+struct WorkRule: Identifiable, Codable, Equatable {
+    let id: UUID
+    var name: String            // "코딩 규칙", "PR 규칙"
+    var summary: String         // 매칭용 키워드 포함 요약 (1-2줄)
+    var content: WorkRuleContent // .inline(String) | .file(String)
+    var isAlwaysActive: Bool    // true면 매칭 없이 항상 포함
+}
+```
+
+- **Agent.workRules: [WorkRule]** — 에이전트별 복수 규칙 보유
+- `resolve()`: 실행 시점에 규칙 텍스트 반환 (파일은 매번 읽어 최신 반영, 100KB 제한)
+- persona = 역할 정체성, workRules = 태스크별 선택적 작업 지시사항으로 분리
+- `Agent.resolvedSystemPrompt(activeRuleIDs:)`: persona + 활성 규칙만 결합한 시스템 프롬프트
+
+### WorkRuleMatcher (`Models/WorkRuleMatcher.swift`) — struct
+
+태스크 텍스트와 규칙 name+summary를 키워드 매칭하여 활성 규칙 선택. **LLM 호출 없음**.
+
+```swift
+static func match(rules: [WorkRule], taskText: String) -> Set<UUID>
+```
+
+- `isAlwaysActive` 규칙 → 무조건 포함
+- 각 규칙의 name + summary에서 키워드 추출 (2글자 이상) → 태스크 텍스트에 포함 여부 확인
+- 동적 매칭이 하나도 없으면 → **전체 규칙 포함** (안전 폴백)
+- 워크플로우 intake 단계에서 호출 → 결과를 `WorkflowState.activeRuleIDs`에 저장
+
+### 규칙 시스템 흐름
+
+1. **intake**: `WorkRuleMatcher.match()` → `WorkflowState.activeRuleIDs` 설정 (방별 추적)
+2. **프롬프트 생성**: `RoomManager.systemPrompt(for:in:)` → 방의 `activeRuleIDs` 조회 → `Agent.resolvedSystemPrompt(activeRuleIDs:)` 호출
+3. **워크플로우 전체**: clarify, assemble, plan, execute 등 모든 단계에서 `systemPrompt(for:roomID:)` 경유로 활성 규칙만 주입
 
 ### DiscussionArtifact (`Models/DiscussionArtifact.swift`)
 
@@ -1136,12 +1174,16 @@ executeWithTools() 루프 (최대 10회):
 
 | 항목 | 내용 | 상태 |
 |------|------|------|
-| H-1 | **WorkingRulesSource 모델**: 인라인 텍스트 + 파일 참조(여러 건) 동시 지원 struct. `resolve()`로 합산 반환. 레거시 enum 자동 마이그레이션. | ✅ |
+| H-1 | **WorkingRulesSource 모델**: 인라인 텍스트 + 파일 참조(여러 건) 동시 지원 struct. `resolve()`로 합산 반환. 레거시 enum 자동 마이그레이션. → **WorkRule 레코드로 대체됨** (아래 H-7~H-10). | ✅ |
 | H-2 | **Agent.workingRules 필드**: 마스터는 nil, 서브 에이전트는 필수 입력. `resolvedSystemPrompt`로 persona + rules 결합. | ✅ |
 | H-3 | **역할 템플릿 제거**: `AgentRoleTemplate`, `AgentRoleTemplateRegistry`, `TemplateCategory` 삭제. AgentAvatarView/AgentMatcher에서 템플릿 참조 제거. | ✅ |
 | H-4 | **AddAgentSheet/EditAgentSheet UI**: 인라인 + 파일 참조 동시 표시 (Segmented Picker 제거). 규칙 비어있으면 저장 불가. 에이전트 로스터 드래그 앤 드롭 재정렬. | ✅ |
 | H-5 | **시스템 프롬프트 주입 변경**: RoomManager/ChatViewModel 6+ 위치에서 `agent.persona` → `agent.resolvedSystemPrompt`. | ✅ |
 | H-6 | **트리아지 자동 생성 → 제안**: 매칭 실패 시 에이전트 자동 생성 대신 `RoomAgentSuggestion` 생성. AgentSuggestionCard 승인 시 AddAgentSheet 열기. | ✅ |
+| H-7 | **WorkRule 레코드 모델**: 모놀리식 WorkingRulesSource → 개별 레코드(name, summary, content, isAlwaysActive) 단위로 분리. Agent.workRules: [WorkRule]. | ✅ |
+| H-8 | **WorkRuleMatcher**: 태스크 텍스트 키워드 매칭 (LLM 없음). isAlwaysActive 무조건 포함, 동적 매칭 0건이면 전체 폴백. | ✅ |
+| H-9 | **WorkflowState.activeRuleIDs**: 방별 활성 규칙 추적. intake 단계에서 매칭 결과 저장, 이후 모든 프롬프트 생성에 사용. | ✅ |
+| H-10 | **RoomManager.systemPrompt(for:roomID:)**: 방의 activeRuleIDs 기반으로 에이전트 시스템 프롬프트 생성. 워크플로우 전 단계에서 호출. 레거시 WorkingRulesSource → WorkRule 자동 마이그레이션. | ✅ |
 
 ### Phase E — Intent 기반 범용 워크플로우 ✅ 완료 (v3: 2-Intent + 동적 Plan)
 
@@ -1479,7 +1521,8 @@ Tests/
 ├── Models/
 │   ├── AgentTests.swift              # 22 tests — 초기화, 팩토리, Codable, 레거시 디코딩, imageData I/O, resolvedToolIDs (항상 전체 도구)
 │   ├── AgentManifestTests.swift     # 14 tests — 매니페스트 라운드트립, Agent↔Entry 변환, 이름 중복, 마스터 skip, 전방 호환
-│   ├── WorkingRulesTests.swift       # WorkingRulesSource — resolve, isEmpty, displaySummary, Codable
+│   ├── WorkingRulesTests.swift       # WorkingRulesSource — resolve, isEmpty, displaySummary, Codable (레거시)
+│   ├── WorkRuleTests.swift           # WorkRule — resolve, isEmpty, WorkRuleMatcher 매칭, 레거시 마이그레이션
 │   ├── AgentToolTests.swift          # 32 tests — AgentTool/ToolCall/ToolResult Codable, ToolRegistry (11종 도구), ConversationMessage, Jira 도구
 │   ├── ArtifactParserTests.swift     # 15 tests — 산출물 추출, 다중 산출물, 타입별 파싱, 블록 제거
 │   ├── ChatMessageTests.swift        # 12 tests — 모든 MessageType, Codable 라운드트립, 이미지 첨부 호환

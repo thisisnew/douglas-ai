@@ -436,7 +436,7 @@ extension RoomManager {
         let discussionPrompt = """
         [역할] 당신은 **\(agent.name)**입니다.
         \(domainHint)
-        \(agent.resolvedSystemPrompt)
+        \(systemPrompt(for: agent, roomID: roomID))
         [필수 규칙]
         - 첫 문장을 반드시 **\(agent.name)의 전문 영역 시각**으로 시작하세요.
         - 예: "\(agent.name) 관점에서 보면..."
@@ -636,7 +636,7 @@ extension RoomManager {
         """
 
         let discussionPrompt = """
-        \(agent.resolvedSystemPrompt)
+        \(systemPrompt(for: agent, roomID: roomID))
         [시스템] 필요한 외부 데이터는 이미 수집되었습니다. 도구·인증·API 연동 관련 언급을 하지 마세요.
         \(anchorBlock)
 

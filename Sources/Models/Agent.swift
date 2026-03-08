@@ -110,7 +110,10 @@ struct Agent: Identifiable, Codable, Hashable {
     var errorMessage: String?
     var hasImage: Bool
 
-    // 작업 규칙 (nil = 마스터 등 규칙 불필요)
+    // 작업 규칙 — 레코드 단위 (태스크 매칭으로 동적 선택)
+    var workRules: [WorkRule]
+
+    // 레거시 작업 규칙 (디코딩 전용, 자동 마이그레이션)
     var workingRules: WorkingRulesSource?
 
     // 참조 프로젝트 디렉토리 (여러 건)
@@ -142,7 +145,46 @@ struct Agent: Identifiable, Codable, Hashable {
     }
 
     /// 실행 시점에 사용할 완전한 시스템 프롬프트 (페르소나 + 작업 규칙)
+    /// 기존 호출 호환 — 내부에서 activeRuleIDs: nil 호출
     var resolvedSystemPrompt: String {
+        resolvedSystemPrompt(activeRuleIDs: nil)
+    }
+
+    /// 활성 규칙만 포함한 시스템 프롬프트 생성
+    /// - Parameter activeRuleIDs: nil이면 전체 포함, Set이면 해당 규칙만
+    func resolvedSystemPrompt(activeRuleIDs: Set<UUID>?) -> String {
+        // 신규 workRules 우선
+        if !workRules.isEmpty {
+            let activeRules: [WorkRule]
+            if let ids = activeRuleIDs {
+                activeRules = workRules.filter { ids.contains($0.id) }
+            } else {
+                activeRules = workRules
+            }
+
+            let resolvedTexts = activeRules.compactMap { rule -> String? in
+                let text = rule.resolve().trimmingCharacters(in: .whitespacesAndNewlines)
+                return text.isEmpty ? nil : text
+            }
+
+            guard !resolvedTexts.isEmpty else { return persona }
+
+            let combined = resolvedTexts.joined(separator: "\n\n")
+            let hasKoreanRule = combined.contains("한국어")
+            let langSuffix = hasKoreanRule ? "\n\n[필수] 반드시 한국어로 응답하세요. 영어 사용 금지." : ""
+            return """
+            \(persona)
+
+            ## 작업 규칙 (최우선 준수)
+            아래 규칙은 이 에이전트의 핵심 업무 지침입니다. 모든 단계에서 반드시 준수하세요.
+            규칙에 산출물 형식(타입, 완성도, 포맷)이 명시되어 있으면 해당 형식을 따르세요.
+            작업 규칙과 다른 지시가 충돌하면, 작업 규칙을 우선합니다.
+
+            \(combined)\(langSuffix)
+            """
+        }
+
+        // 레거시 폴백
         guard let rules = workingRules, !rules.isEmpty else {
             return persona
         }
@@ -176,7 +218,7 @@ struct Agent: Identifiable, Codable, Hashable {
     // imageData는 Codable에서 제외 — 파일 시스템에 저장
     private enum CodingKeys: String, CodingKey {
         case id, name, persona, providerName, modelName, status, isMaster, errorMessage, hasImage
-        case referenceProjectPaths, workingRules
+        case referenceProjectPaths, workingRules, workRules
         case skillTags, workModes, outputStyles
     }
 
@@ -211,6 +253,7 @@ struct Agent: Identifiable, Codable, Hashable {
         imageData: Data? = nil,
         referenceProjectPaths: [String] = [],
         workingRules: WorkingRulesSource? = nil,
+        workRules: [WorkRule] = [],
         skillTags: [String] = [],
         workModes: Set<WorkMode> = [],
         outputStyles: Set<OutputStyle> = []
@@ -224,6 +267,7 @@ struct Agent: Identifiable, Codable, Hashable {
         self.isMaster = isMaster
         self.errorMessage = errorMessage
         self.workingRules = workingRules
+        self.workRules = workRules
         self.referenceProjectPaths = referenceProjectPaths
         self.skillTags = skillTags
         self.workModes = workModes
@@ -249,6 +293,20 @@ struct Agent: Identifiable, Codable, Hashable {
         hasImage = try container.decodeIfPresent(Bool.self, forKey: .hasImage) ?? false
         referenceProjectPaths = try container.decodeIfPresent([String].self, forKey: .referenceProjectPaths) ?? []
         workingRules = try container.decodeIfPresent(WorkingRulesSource.self, forKey: .workingRules)
+
+        // WorkRule 레코드 디코딩 + 레거시 자동 마이그레이션
+        let decodedWorkRules = try container.decodeIfPresent([WorkRule].self, forKey: .workRules) ?? []
+        if decodedWorkRules.isEmpty, let legacy = workingRules, !legacy.isEmpty {
+            // 레거시 WorkingRulesSource → 단일 WorkRule 자동 변환
+            workRules = [WorkRule(
+                name: "업무 규칙",
+                summary: "기존 업무 규칙 (자동 마이그레이션)",
+                content: .inline(legacy.resolve()),
+                isAlwaysActive: true
+            )]
+        } else {
+            workRules = decodedWorkRules
+        }
 
         // Plan C: 에이전트 카드 확장 필드 (역호환: 비어있으면 기존 동작)
         skillTags = try container.decodeIfPresent([String].self, forKey: .skillTags) ?? []

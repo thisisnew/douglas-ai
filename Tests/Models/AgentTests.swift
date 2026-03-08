@@ -336,4 +336,84 @@ struct AgentTests {
         #expect(agent.workingRules == nil)
         #expect(agent.resolvedSystemPrompt == "p")
     }
+
+    // MARK: - workRules (레코드 기반)
+
+    @Test("workRules — 초기화 + resolvedSystemPrompt")
+    func workRulesInit() {
+        let rules = [
+            WorkRule(name: "코딩", summary: "코드 작성", content: .inline("탭 사용")),
+            WorkRule(name: "PR", summary: "코드 리뷰", content: .inline("리뷰 필수"))
+        ]
+        let agent = Agent(name: "Dev", persona: "개발자", providerName: "P", modelName: "M", workRules: rules)
+        #expect(agent.workRules.count == 2)
+        let prompt = agent.resolvedSystemPrompt
+        #expect(prompt.contains("탭 사용"))
+        #expect(prompt.contains("리뷰 필수"))
+    }
+
+    @Test("resolvedSystemPrompt(activeRuleIDs:) — nil이면 전체")
+    func resolvedSystemPromptAllRules() {
+        let rules = [
+            WorkRule(name: "A", summary: "", content: .inline("규칙A")),
+            WorkRule(name: "B", summary: "", content: .inline("규칙B"))
+        ]
+        let agent = Agent(name: "Dev", persona: "p", providerName: "P", modelName: "M", workRules: rules)
+        let prompt = agent.resolvedSystemPrompt(activeRuleIDs: nil)
+        #expect(prompt.contains("규칙A"))
+        #expect(prompt.contains("규칙B"))
+    }
+
+    @Test("resolvedSystemPrompt(activeRuleIDs:) — Set으로 필터링")
+    func resolvedSystemPromptFilteredRules() {
+        let rules = [
+            WorkRule(name: "A", summary: "", content: .inline("규칙A")),
+            WorkRule(name: "B", summary: "", content: .inline("규칙B"))
+        ]
+        let agent = Agent(name: "Dev", persona: "p", providerName: "P", modelName: "M", workRules: rules)
+        let prompt = agent.resolvedSystemPrompt(activeRuleIDs: Set([rules[0].id]))
+        #expect(prompt.contains("규칙A"))
+        #expect(!prompt.contains("규칙B"))
+    }
+
+    @Test("resolvedSystemPrompt(activeRuleIDs:) — 빈 Set이면 persona만")
+    func resolvedSystemPromptEmptySet() {
+        let rules = [WorkRule(name: "A", summary: "", content: .inline("규칙A"))]
+        let agent = Agent(name: "Dev", persona: "p", providerName: "P", modelName: "M", workRules: rules)
+        let prompt = agent.resolvedSystemPrompt(activeRuleIDs: Set())
+        #expect(prompt == "p")
+    }
+
+    @Test("레거시 마이그레이션 — workingRules → workRules 자동 변환")
+    func legacyMigration() throws {
+        let json: [String: Any] = [
+            "id": UUID().uuidString,
+            "name": "Legacy",
+            "persona": "p",
+            "providerName": "P",
+            "modelName": "M",
+            "isMaster": false,
+            "hasImage": false,
+            "workingRules": ["inlineText": "레거시 규칙", "filePaths": []]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: json)
+        let agent = try JSONDecoder().decode(Agent.self, from: data)
+        #expect(agent.workRules.count == 1)
+        #expect(agent.workRules[0].name == "업무 규칙")
+        #expect(agent.workRules[0].isAlwaysActive == true)
+        #expect(agent.resolvedSystemPrompt.contains("레거시 규칙"))
+    }
+
+    @Test("workRules + workingRules 동시 → workRules 우선")
+    func workRulesPriority() {
+        let rules = [WorkRule(name: "New", summary: "", content: .inline("신규 규칙"))]
+        let agent = Agent(
+            name: "Dev", persona: "p", providerName: "P", modelName: "M",
+            workingRules: WorkingRulesSource(inlineText: "레거시"),
+            workRules: rules
+        )
+        let prompt = agent.resolvedSystemPrompt
+        #expect(prompt.contains("신규 규칙"))
+        #expect(!prompt.contains("레거시"))
+    }
 }

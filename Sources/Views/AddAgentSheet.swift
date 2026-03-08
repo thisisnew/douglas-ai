@@ -17,9 +17,10 @@ struct AddAgentSheet: View {
     @State private var imageData: Data?
     @State private var referenceProjectPaths: [String] = []
 
-    // 작업 규칙 (인라인 + 파일 동시 사용 가능)
-    @State private var inlineRules: String = ""
-    @State private var rulesFilePaths: [String] = []
+    // 작업 규칙 (레코드 단위)
+    @State private var workRules: [WorkRule] = []
+    @State private var editingRule: WorkRule?
+    @State private var showAddRule = false
 
     // Plan C: 에이전트 카드 메타데이터
     @State private var skillTagsText: String = ""
@@ -321,106 +322,96 @@ struct AddAgentSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             sectionLabel("작업 규칙", required: true)
 
-            // 직접 입력
-            TextEditor(text: $inlineRules)
-                .font(.body)
-                .scrollContentBackground(.hidden)
-                .frame(minHeight: 80)
-                .padding(8)
-                .background(palette.inputBackground)
-                .continuousRadius(DesignTokens.CozyGame.cardRadius)
-                .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous).strokeBorder(
-                    showValidation && !hasValidRules ? Color.orange.opacity(0.6) : palette.cardBorder.opacity(0.15), lineWidth: 1))
-                .overlay(
-                    Group {
-                        if inlineRules.isEmpty {
-                            Text("""
-                            [필수] 테스트 없이 커밋 금지
-                            [필수] 한국어로 작성
-                            [중요] feature/ 브랜치 사용
-                            [산출물] 마크다운 체크리스트, 초안 수준
-
-                            [필수] = 절대 규칙, [중요] = 우선 규칙
-                            [산출물] = 결과물 형식 지정
-                            마커 없이 쓰면 일반 규칙으로 적용됩니다
-                            """)
-                                .font(.body)
-                                .foregroundColor(.secondary.opacity(0.5))
-                                .padding(.leading, 12)
-                                .padding(.top, 16)
-                                .allowsHitTesting(false)
-                        }
-                    },
-                    alignment: .topLeading
-                )
-
-            // 파일 참조
-            rulesFileList
-
-            if !hasValidRules {
-                Label("작업 규칙을 입력하거나 파일을 추가해야 에이전트를 추가할 수 있습니다.",
+            if workRules.isEmpty && showValidation {
+                Label("규칙을 최소 하나 추가해야 에이전트를 추가할 수 있습니다.",
                       systemImage: "info.circle")
                     .font(.caption)
                     .foregroundColor(.orange)
             }
-        }
-    }
 
-    @ViewBuilder
-    private var rulesFileList: some View {
-        if !rulesFilePaths.isEmpty {
-            VStack(spacing: 0) {
-                ForEach(Array(rulesFilePaths.enumerated()), id: \.offset) { index, path in
-                    HStack(spacing: 8) {
-                        Image(systemName: "doc.text")
-                            .foregroundColor(.secondary)
-                            .font(.caption)
-                        Text((path as NSString).lastPathComponent)
-                            .font(.callout)
-                            .lineLimit(1)
-                        Spacer()
-                        Text(path)
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Button {
-                            rulesFilePaths.remove(at: index)
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.secondary)
-                                .font(.caption)
+            // 규칙 레코드 리스트
+            if !workRules.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(Array(workRules.enumerated()), id: \.element.id) { index, rule in
+                        HStack(spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 4) {
+                                    Text(rule.name)
+                                        .font(.system(size: DesignTokens.FontSize.sm, weight: .medium))
+                                    if rule.isAlwaysActive {
+                                        Text("항상")
+                                            .font(.system(size: 9, weight: .medium))
+                                            .foregroundColor(palette.accent)
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 1)
+                                            .background(palette.accent.opacity(0.12))
+                                            .continuousRadius(4)
+                                    }
+                                }
+                                if !rule.summary.isEmpty {
+                                    Text(rule.summary)
+                                        .font(.caption)
+                                        .foregroundColor(palette.textSecondary)
+                                        .lineLimit(1)
+                                }
+                            }
+                            Spacer()
+                            Button {
+                                editingRule = rule
+                            } label: {
+                                Image(systemName: "pencil")
+                                    .foregroundColor(palette.textSecondary)
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.plain)
+                            Button {
+                                workRules.remove(at: index)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    if index < rulesFilePaths.count - 1 {
-                        Rectangle()
-                            .fill(LinearGradient(colors: [.clear, palette.separator.opacity(0.3), .clear], startPoint: .leading, endPoint: .trailing))
-                            .frame(height: 1)
-                            .padding(.leading, 30)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        if index < workRules.count - 1 {
+                            Rectangle()
+                                .fill(LinearGradient(colors: [.clear, palette.separator.opacity(0.3), .clear], startPoint: .leading, endPoint: .trailing))
+                                .frame(height: 1)
+                                .padding(.leading, 10)
+                        }
                     }
                 }
+                .background(palette.inputBackground)
+                .continuousRadius(DesignTokens.Radius.lg)
             }
-            .background(palette.inputBackground)
-            .continuousRadius(DesignTokens.Radius.lg)
-        }
 
-        Button {
-            pickRulesFiles()
-        } label: {
-            HStack {
-                Image(systemName: "doc.badge.plus")
-                Text(rulesFilePaths.isEmpty ? "규칙 파일 추가" : "파일 추가")
+            Button { showAddRule = true } label: {
+                HStack {
+                    Image(systemName: "plus.circle")
+                    Text("규칙 추가")
+                }
+                .font(.callout)
+                .frame(maxWidth: .infinity)
+                .padding(8)
+                .background(palette.inputBackground)
+                .continuousRadius(DesignTokens.Radius.lg)
             }
-            .font(.callout)
-            .frame(maxWidth: .infinity)
-            .padding(8)
-            .background(palette.inputBackground)
-            .continuousRadius(DesignTokens.Radius.lg)
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
+        .sheet(isPresented: $showAddRule) {
+            WorkRuleEditSheet { rule in
+                workRules.append(rule)
+            }
+        }
+        .sheet(item: $editingRule) { rule in
+            WorkRuleEditSheet(existingRule: rule) { updated in
+                if let idx = workRules.firstIndex(where: { $0.id == updated.id }) {
+                    workRules[idx] = updated
+                }
+            }
+        }
     }
 
     // MARK: - Components
@@ -557,25 +548,10 @@ struct AddAgentSheet: View {
         referenceProjectPaths.append(contentsOf: newPaths)
     }
 
-    private func pickRulesFiles() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowsMultipleSelection = true
-        panel.message = "작업 규칙 파일을 선택하세요 (여러 개 가능)"
-        guard panel.runModal() == .OK else { return }
-        let newPaths = panel.urls.map(\.path).filter { !rulesFilePaths.contains($0) }
-        rulesFilePaths.append(contentsOf: newPaths)
-    }
-
     // MARK: - Logic
 
     private var isFormValid: Bool {
-        !name.isEmpty && !persona.isEmpty && !selectedModel.isEmpty && !isDuplicateName && hasValidRules
-    }
-
-    private var hasValidRules: Bool {
-        !inlineRules.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !rulesFilePaths.isEmpty
+        !name.isEmpty && !persona.isEmpty && !selectedModel.isEmpty && !isDuplicateName && !workRules.isEmpty
     }
 
     private var similarAgents: [Agent] {
@@ -626,8 +602,6 @@ struct AddAgentSheet: View {
     }
 
     private func addAgent() {
-        let rules = WorkingRulesSource(inlineText: inlineRules, filePaths: rulesFilePaths)
-
         let agent = Agent(
             name: name,
             persona: persona,
@@ -635,7 +609,7 @@ struct AddAgentSheet: View {
             modelName: selectedModel,
             imageData: imageData,
             referenceProjectPaths: referenceProjectPaths,
-            workingRules: rules,
+            workRules: workRules,
             skillTags: parsedSkillTags,
             workModes: selectedWorkModes,
             outputStyles: selectedOutputStyles

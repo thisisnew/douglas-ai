@@ -335,6 +335,9 @@ DOUGLAS는 요청에 따라 가장 적합한 에이전트를 자동 매칭한다
 ### 12.1 공통 워크플로우
 
 1. 사용자 입력 수신
+   - 입력 수신(intake) 단계에서 playbook 로딩 후 `WorkRuleMatcher.match()`를 실행하여 현재 작업에 관련된 업무규칙만 선별한다.
+   - 선별된 규칙 ID는 `room.workflowState.activeRuleIDs`에 저장된다.
+   - 이후 에이전트 시스템 프롬프트 생성 시 `systemPrompt(for:roomID:)` → `agent.resolvedSystemPrompt(activeRuleIDs:)`를 통해 활성 규칙만 주입하여 컨텍스트 낭비를 줄인다.
 2. intent 분류
 3. 불명확 시 재질문
 4. 방 생성 여부 결정 및 방 생성

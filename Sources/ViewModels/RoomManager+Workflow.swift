@@ -4,6 +4,14 @@ import Foundation
 
 extension RoomManager {
 
+    // MARK: - 규칙 기반 시스템 프롬프트
+
+    /// 방의 활성 규칙 기반으로 에이전트 시스템 프롬프트 생성
+    func systemPrompt(for agent: Agent, roomID: UUID) -> String {
+        let activeRuleIDs = rooms.first(where: { $0.id == roomID })?.workflowState.activeRuleIDs
+        return agent.resolvedSystemPrompt(activeRuleIDs: activeRuleIDs)
+    }
+
     // MARK: - 방 워크플로우
 
     /// 워크플로우 진입점: 항상 Intent 기반 Phase 워크플로우
@@ -377,6 +385,15 @@ extension RoomManager {
                 rooms[idx].clarifyContext.playbook = playbook
             }
         }
+
+        // 5) 업무 규칙 매칭 (에이전트 workRules 기반)
+        if let firstAgentID = rooms[idx].assignedAgentIDs.first,
+           let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
+           !agent.workRules.isEmpty {
+            let activeIDs = WorkRuleMatcher.match(rules: agent.workRules, taskText: task)
+            rooms[idx].workflowState.activeRuleIDs = activeIDs
+        }
+
         scheduleSave()
     }
 
@@ -470,7 +487,7 @@ extension RoomManager {
         }
 
         let clarifySystemPrompt = """
-        \(agent.resolvedSystemPrompt)
+        \(systemPrompt(for: agent, roomID: roomID))
 
         당신은 요건 확인(Clarify) 단계를 수행하고 있습니다.
         사용자의 요청을 정확히 이해했는지 복명복창(확인)만 합니다.
@@ -829,7 +846,7 @@ extension RoomManager {
         }
 
         let assembleSystemPrompt = """
-        \(agent.resolvedSystemPrompt)
+        \(systemPrompt(for: agent, roomID: roomID))
 
         당신은 Assemble(팀 구성) 단계를 수행하고 있습니다.
         작업 유형은 **\(intentName)**\(docTypeName != nil ? " (\(docTypeName!))" : "")입니다.
@@ -1547,14 +1564,18 @@ extension RoomManager {
         // --- Turn 1: 각 전문가가 자기 관점에서 의견 제시 (병렬) ---
         var opinions: [(name: String, content: String)] = []
 
+        // 태스크 그룹 진입 전 시스템 프롬프트 미리 계산 (@MainActor 격리)
+        let agentSystemPrompts = Dictionary(uniqueKeysWithValues: agentInfos.map { ($0.agent.id, systemPrompt(for: $0.agent, roomID: roomID)) })
+
         let turn1ProgressMsg = ChatMessage(role: .system, content: "각 전문가 의견 수렴 중", messageType: .progress)
         appendMessage(turn1ProgressMsg, to: roomID)
 
         await withTaskGroup(of: (String, String, UUID).self) { group in
             for info in agentInfos {
+                let agentPrompt = agentSystemPrompts[info.agent.id] ?? info.agent.resolvedSystemPrompt
                 group.addTask { [self] in
                     let prompt = """
-                    \(info.agent.resolvedSystemPrompt)
+                    \(agentPrompt)
 
                     당신은 **\(info.agent.name)**입니다. 오직 자신의 전문 영역에 대해서만 발언하세요.
                     다른 분야(예: 프론트엔드 개발자가 백엔드를, 백엔드 개발자가 프론트엔드를)를 설명하면 안 됩니다.
@@ -1678,7 +1699,7 @@ extension RoomManager {
                 "\n\n--- 이미 나온 피드백 ---\n" + feedbacks.map { "[\($0.name)]\n\($0.content)" }.joined(separator: "\n\n")
 
             let prompt = """
-            \(info.agent.resolvedSystemPrompt)
+            \(systemPrompt(for: info.agent, roomID: roomID))
 
             다른 전문가의 의견을 읽고, 당신의 관점에서 반응하세요.
 
@@ -1950,7 +1971,7 @@ extension RoomManager {
         let context = makeToolContext(roomID: roomID, currentAgentID: agentID)
 
         let soloPrompt = """
-        \(agent.resolvedSystemPrompt)
+        \(systemPrompt(for: agent, roomID: roomID))
 
         아래 작업을 수행하기 위한 실행 계획을 JSON으로 작성하세요.
 
@@ -2039,7 +2060,7 @@ extension RoomManager {
         let context = makeToolContext(roomID: roomID, currentAgentID: agentID)
 
         let discussionPrompt = """
-        \(agent.resolvedSystemPrompt)
+        \(systemPrompt(for: agent, roomID: roomID))
 
         아래 주제에 대해 전문가 관점에서 분석하고 의견을 제시하세요.
         대화 히스토리를 참고하여 작업 대상을 파악하세요.
@@ -2166,7 +2187,7 @@ extension RoomManager {
             guard !buildOutput.isEmpty else { return }
 
             let reviewPrompt = """
-            \(reviewer.resolvedSystemPrompt)
+            \(systemPrompt(for: reviewer, roomID: roomID))
 
             당신은 Review 단계의 Reviewer입니다.
             Build 결과물이 작업 목표와 성공기준을 충족하는지 검토하세요.
@@ -2258,7 +2279,7 @@ extension RoomManager {
             speakingAgentIDByRoom[roomID] = creator.id
 
             let fixPrompt = """
-            \(creator.resolvedSystemPrompt)
+            \(systemPrompt(for: creator, roomID: roomID))
 
             Reviewer가 결과물을 반려했습니다. 피드백을 반영하여 수정하세요.
 
@@ -2361,7 +2382,7 @@ extension RoomManager {
                   rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
             let reviewPrompt = """
-            \(agent.resolvedSystemPrompt)
+            \(systemPrompt(for: agent, roomID: roomID))
 
             지금부터 Reviewer 관점에서 Build 결과물이 작업 목표를 충족하는지 검토하세요.
 
@@ -2423,7 +2444,7 @@ extension RoomManager {
 
             speakingAgentIDByRoom[roomID] = agentID
             let fixPrompt = """
-            \(agent.resolvedSystemPrompt)
+            \(systemPrompt(for: agent, roomID: roomID))
 
             방금 자기 검토에서 결과물을 반려했습니다. 피드백을 반영하여 수정하세요.
 
@@ -2721,7 +2742,7 @@ extension RoomManager {
         let placeholderID = UUID()
         do {
             // 웹 검색 지침 추가: 모르는 내용은 반드시 검색 후 답변
-            let searchPrompt = agent.resolvedSystemPrompt
+            let searchPrompt = systemPrompt(for: agent, roomID: roomID)
                 + "\n\n[웹 검색 지침] 답을 확실히 알지 못하거나 최신 정보가 필요한 질문은 반드시 WebSearch 도구로 검색한 후 답변하세요. 인터넷 밈, 슬랭, 브랜드, 제품명, 또는 익숙하지 않은 용어는 검색을 먼저 수행하세요."
             let (response, _) = try await trackPhaseActivity(
                 roomID: roomID,
@@ -2847,7 +2868,7 @@ extension RoomManager {
         }
 
         let soloPrompt = """
-        \(agent.resolvedSystemPrompt)
+        \(systemPrompt(for: agent, roomID: roomID))
 
         현재 작업방에서 아래 작업에 대해 혼자 분석합니다.
         \(intakeBlock)
@@ -3103,7 +3124,7 @@ extension RoomManager {
         let docTemplateContext = room.workflowState.documentType?.templatePromptBlock() ?? ""
 
         let planSystemPrompt = """
-        \(agent.resolvedSystemPrompt)
+        \(systemPrompt(for: agent, roomID: roomID))
         \(intakeContext)\(clarifyContext)\(docTemplateContext.isEmpty ? "" : "\n\(docTemplateContext)\n")
         현재 작업방에 배정되었습니다. 팀원들과의 토론이 완료되었습니다.
         토론 내용을 바탕으로, 원래 사용자 요청 범위 안에서 실행 계획을 제출하세요:
@@ -3475,7 +3496,7 @@ extension RoomManager {
             let response = try await ToolExecutor.smartSend(
                 provider: provider,
                 agent: agent,
-                systemPrompt: agent.resolvedSystemPrompt,
+                systemPrompt: systemPrompt(for: agent, roomID: roomID),
                 conversationMessages: messagesWithStep,
                 context: context,
                 onToolActivity: { [weak self] activity, detail in
