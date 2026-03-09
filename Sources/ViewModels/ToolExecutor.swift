@@ -17,7 +17,8 @@ enum ToolExecutor {
     }
 
     /// 앱 tool ID → Claude Code CLI tool name 매핑
-    private static func cliToolName(for toolID: String) -> String? {
+    /// MCP 도구(mcp__*)는 그대로 통과시킨다.
+    static func cliToolName(for toolID: String) -> String? {
         switch toolID {
         case "web_search":  return "WebSearch"
         case "web_fetch":   return "WebFetch"
@@ -25,7 +26,10 @@ enum ToolExecutor {
         case "file_write":  return "Write"
         case "shell_exec":  return "Bash"
         case "code_search": return "Grep"
-        default:            return nil
+        default:
+            // MCP 도구는 CLI가 직접 처리 — 이름 그대로 전달
+            if toolID.hasPrefix("mcp__") { return toolID }
+            return nil
         }
     }
 

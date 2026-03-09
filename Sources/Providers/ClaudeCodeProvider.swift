@@ -413,7 +413,12 @@ class ClaudeCodeProvider: AIProvider {
             }
             // 비대화형 모드(-p)에서 도구 승인 프롬프트 없이 실행
             let tools = allowedTools ?? ["Edit", "Write", "Bash", "Read", "Glob", "Grep", "WebSearch"]
-            args += ["--allowedTools"] + tools
+            // MCP 도구(mcp__*)가 명시적으로 포함되지 않았으면 와일드카드 추가
+            var finalTools = tools
+            if !finalTools.contains(where: { $0.hasPrefix("mcp__") || $0.contains("mcp__") }) {
+                finalTools.append("mcp__*")
+            }
+            args += ["--allowedTools"] + finalTools
         }
 
         // 특정 도구만 선택적으로 차단 (바이브코딩 유지하면서 WebFetch 등 차단)

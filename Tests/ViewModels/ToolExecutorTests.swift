@@ -1357,4 +1357,37 @@ struct ToolExecutorTests {
         #expect(receivedSuggestion?.reason == "테스트 필요")
         #expect(receivedSuggestion?.suggestedBy == "분석가")
     }
+
+    // MARK: - cliToolName MCP 도구 통과
+
+    @Test("cliToolName — 기본 도구 ID를 CLI 이름으로 매핑")
+    func cliToolNameBasicMapping() {
+        #expect(ToolExecutor.cliToolName(for: "web_search") == "WebSearch")
+        #expect(ToolExecutor.cliToolName(for: "web_fetch") == "WebFetch")
+        #expect(ToolExecutor.cliToolName(for: "file_read") == "Read")
+        #expect(ToolExecutor.cliToolName(for: "file_write") == "Write")
+        #expect(ToolExecutor.cliToolName(for: "shell_exec") == "Bash")
+        #expect(ToolExecutor.cliToolName(for: "code_search") == "Grep")
+    }
+
+    @Test("cliToolName — 알 수 없는 도구 ID는 nil")
+    func cliToolNameUnknown() {
+        #expect(ToolExecutor.cliToolName(for: "unknown_tool") == nil)
+        #expect(ToolExecutor.cliToolName(for: "") == nil)
+        #expect(ToolExecutor.cliToolName(for: "jira_add_comment") == nil)
+    }
+
+    @Test("cliToolName — MCP 도구는 이름 그대로 통과")
+    func cliToolNameMCPPassthrough() {
+        #expect(ToolExecutor.cliToolName(for: "mcp__mcp-atlassian__jira_get_issue") == "mcp__mcp-atlassian__jira_get_issue")
+        #expect(ToolExecutor.cliToolName(for: "mcp__slack__post_message") == "mcp__slack__post_message")
+        #expect(ToolExecutor.cliToolName(for: "mcp__custom__any_tool") == "mcp__custom__any_tool")
+    }
+
+    @Test("cliToolName — mcp 접두사 없는 유사 이름은 통과하지 않음")
+    func cliToolNameMCPLikeButNot() {
+        #expect(ToolExecutor.cliToolName(for: "mcp_single_underscore") == nil)
+        #expect(ToolExecutor.cliToolName(for: "MCP__uppercase") == nil)
+        #expect(ToolExecutor.cliToolName(for: "mcp") == nil)
+    }
 }
