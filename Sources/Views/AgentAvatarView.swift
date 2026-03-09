@@ -94,21 +94,33 @@ func pickAgentImage() -> Data? {
           let nsImage = NSImage(contentsOf: url) else {
         return nil
     }
-    return resizedPNGData(from: nsImage, size: CGSize(width: 128, height: 128))
+    return resizedPNGData(from: nsImage, pixelSize: 256)
 }
 
-private func resizedPNGData(from image: NSImage, size: CGSize) -> Data? {
-    let newImage = NSImage(size: size)
-    newImage.lockFocus()
+private func resizedPNGData(from image: NSImage, pixelSize: Int) -> Data? {
+    guard let bitmapRep = NSBitmapImageRep(
+        bitmapDataPlanes: nil,
+        pixelsWide: pixelSize,
+        pixelsHigh: pixelSize,
+        bitsPerSample: 8,
+        samplesPerPixel: 4,
+        hasAlpha: true,
+        isPlanar: false,
+        colorSpaceName: .deviceRGB,
+        bytesPerRow: 0,
+        bitsPerPixel: 0
+    ) else { return nil }
+
+    let pointSize = NSSize(width: pixelSize, height: pixelSize)
+    bitmapRep.size = pointSize
+
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmapRep)
     NSGraphicsContext.current?.imageInterpolation = .high
-    image.draw(in: NSRect(origin: .zero, size: size),
+    image.draw(in: NSRect(origin: .zero, size: pointSize),
                from: NSRect(origin: .zero, size: image.size),
                operation: .copy, fraction: 1.0)
-    newImage.unlockFocus()
+    NSGraphicsContext.restoreGraphicsState()
 
-    guard let tiffData = newImage.tiffRepresentation,
-          let bitmap = NSBitmapImageRep(data: tiffData) else {
-        return nil
-    }
-    return bitmap.representation(using: .png, properties: [:])
+    return bitmapRep.representation(using: .png, properties: [:])
 }
