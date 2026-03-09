@@ -50,6 +50,8 @@ struct CreateRoomSheet: View {
                     attachmentSection
                 }
                 .padding(24)
+                .animation(nil, value: title)
+                .animation(nil, value: task)
             }
         }
         .frame(width: DesignTokens.WindowSize.createRoomSheet.width, height: DesignTokens.WindowSize.createRoomSheet.height)
