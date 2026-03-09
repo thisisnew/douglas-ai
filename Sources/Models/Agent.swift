@@ -217,6 +217,13 @@ struct Agent: Identifiable, Codable, Hashable {
 
     var hasToolsEnabled: Bool { true }
 
+    /// 개발자 에이전트 여부 (매칭에서 비개발 작업 제외 시 사용)
+    var isDeveloperAgent: Bool {
+        let nameLower = name.lowercased()
+        return ["개발자", "엔지니어", "developer", "engineer"]
+            .contains(where: { nameLower.contains($0) })
+    }
+
     // imageData는 Codable에서 제외 — 파일 시스템에 저장
     private enum CodingKeys: String, CodingKey {
         case id, name, persona, providerName, modelName, status, isMaster, errorMessage, hasImage, imageVersion

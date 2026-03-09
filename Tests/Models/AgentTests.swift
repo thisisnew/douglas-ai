@@ -436,4 +436,24 @@ struct AgentTests {
         #expect(prompt.contains("신규 규칙"))
         #expect(!prompt.contains("레거시"))
     }
+
+    // MARK: - isDeveloperAgent
+
+    @Test("isDeveloperAgent - 이름에 개발자 포함")
+    func isDeveloperAgentKorean() {
+        let agent = Agent(name: "백엔드 개발자", persona: "p", providerName: "P", modelName: "M")
+        #expect(agent.isDeveloperAgent == true)
+    }
+
+    @Test("isDeveloperAgent - 이름에 engineer 포함")
+    func isDeveloperAgentEnglish() {
+        let agent = Agent(name: "Senior Engineer", persona: "p", providerName: "P", modelName: "M")
+        #expect(agent.isDeveloperAgent == true)
+    }
+
+    @Test("isDeveloperAgent - 질의응답 전문가는 false")
+    func isDeveloperAgentFalse() {
+        let agent = Agent(name: "질의응답 전문가", persona: "p", providerName: "P", modelName: "M")
+        #expect(agent.isDeveloperAgent == false)
+    }
 }

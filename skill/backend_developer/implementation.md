@@ -49,9 +49,6 @@ class {한글_클래스명} {
 
 ### 3. 구현 (자동)
 
-analysis.md의 구현 방향에 따라 코드 작성
-
-
 ## 구현 원칙
 
 ### 1. 최소 변경
@@ -67,18 +64,6 @@ analysis.md의 구현 방향에 따라 코드 작성
 ### 3. @Transactional 규칙
 - UseCase 레이어에만 사용
 - Service, Repository에는 사용 X
-
----
-
-## Plan Agent 활용
-
-복잡한 구현의 경우:
-
-```
-Task tool 호출:
-- subagent_type: "Plan"
-- prompt: "Design implementation for {요구사항} based on analysis.md"
-```
 
 ---
 

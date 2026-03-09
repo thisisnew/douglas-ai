@@ -1020,93 +1020,29 @@ extension RoomManager {
                 let subAgentsForFallback = agentStore?.subAgents ?? []
                 let taskBriefForFallback = rooms[idx].taskBrief
 
-                // 비개발 작업인지 감지
-                let isNonDevTask: Bool = {
-                    if let ot = taskBriefForFallback?.outputType,
-                       [.answer, .analysis, .message, .document].contains(ot) {
-                        let lower = task.lowercased()
-                        let nonDevKeywords = ["번역", "요약", "분석", "리서치", "조사", "정리",
-                                              "translate", "summarize", "research", "analyze"]
-                        if nonDevKeywords.contains(where: { lower.contains($0) }) { return true }
-                    }
-                    return false
-                }()
-
                 var autoInvited = false
-                let isQuickAnswer = rooms[idx].workflowState.intent == .quickAnswer
+                let intent = rooms[idx].workflowState.intent
 
-                // 작업 키워드와 에이전트 skillTags/이름 매칭하여 가장 적합한 에이전트 탐색
-                let taskKeywords = AgentMatcher.extractSemanticKeywords(from: task)
-                var bestCandidate: (agent: Agent, score: Int)?
-                for candidate in subAgentsForFallback {
-                    let nameLower = candidate.name.lowercased()
-                    let isDev = ["개발자", "엔지니어", "developer", "engineer"]
-                        .contains(where: { nameLower.contains($0) })
-                    if isDev && (isNonDevTask || isQuickAnswer) { continue }
-
-                    var score = 0
-                    let tags = candidate.skillTags.map { $0.lowercased() }
-                    for kw in taskKeywords {
-                        if tags.contains(where: { $0.contains(kw) || kw.contains($0) }) { score += 3 }
-                        if nameLower.contains(kw) { score += 2 }
-                        if candidate.persona.lowercased().contains(kw) { score += 1 }
-                    }
-                    if score > (bestCandidate?.score ?? 0) {
-                        bestCandidate = (candidate, score)
-                    }
-                }
-
-                if let best = bestCandidate {
-                    addAgent(best.agent.id, to: roomID, silent: true)
+                // 1) AgentMatcher로 키워드 기반 최적 에이전트 탐색
+                if let best = AgentMatcher.findBestFallbackMatch(task: task, agents: subAgentsForFallback, intent: intent) {
+                    addAgent(best.id, to: roomID, silent: true)
                     autoInvited = true
                 }
 
+                // 2) 매칭 실패 → 제안 이름 결정 후 기존 에이전트 탐색 or 생성 제안
                 if !autoInvited {
-                    // 적합한 에이전트 없음 → 이름 결정 후 기존 에이전트 탐색 or 생성 제안
-                    let taskSnippet = String(task.prefix(60))
-                    let suggestedName: String
-                    let suggestedPersona: String
-                    let lower = task.lowercased()
-                    if lower.contains("번역") || lower.contains("translate") {
-                        suggestedName = "번역 전문가"
-                        suggestedPersona = "다국어 번역 및 현지화 전문가입니다."
-                    } else if lower.contains("트렌드") || lower.contains("동향") {
-                        suggestedName = "트렌드 분석가"
-                        suggestedPersona = "기술 트렌드와 산업 동향을 분석하는 전문가입니다."
-                    } else if lower.contains("코드") || lower.contains("개발") || lower.contains("구현") {
-                        suggestedName = "소프트웨어 엔지니어"
-                        suggestedPersona = "소프트웨어 설계 및 구현 전문가입니다."
-                    } else if lower.contains("문서") || lower.contains("보고서") || lower.contains("작성") {
-                        suggestedName = "문서 작성 전문가"
-                        suggestedPersona = "보고서, 기획서 등 문서 작성 전문가입니다."
-                    } else if isQuickAnswer {
-                        suggestedName = "질의응답 전문가"
-                        suggestedPersona = "다양한 주제에 대해 정확하고 이해하기 쉽게 답변하는 범용 질의응답 전문가입니다."
-                    } else if let brief = taskBriefForFallback {
-                        let domain = brief.goal.prefix(30)
-                        suggestedName = brief.outputType == .answer || brief.outputType == .analysis
-                            ? "리서치 전문가" : "\(intentName) 전문가"
-                        suggestedPersona = "\(domain) 관련 질문에 답변하고 분석하는 전문가입니다."
-                    } else {
-                        suggestedName = "범용 전문가"
-                        suggestedPersona = "'\(taskSnippet)' 작업을 수행하는 전문가입니다."
-                    }
+                    let (suggestedName, suggestedPersona) = AgentMatcher.suggestAgentProfile(
+                        for: task, intent: intent, taskBrief: taskBriefForFallback
+                    )
 
-                    // 같은 이름의 에이전트가 이미 있으면 자동 초대 (생성 제안 대신)
-                    let suggestedLower = suggestedName.lowercased()
-                    if let existingAgent = subAgentsForFallback.first(where: {
-                        let nameLower = $0.name.lowercased()
-                        return nameLower == suggestedLower
-                            || nameLower.contains(suggestedLower)
-                            || suggestedLower.contains(nameLower)
-                    }) {
-                        addAgent(existingAgent.id, to: roomID, silent: true)
+                    if let existing = AgentMatcher.findByName(suggestedName, among: subAgentsForFallback) {
+                        addAgent(existing.id, to: roomID, silent: true)
                         autoInvited = true
                     } else {
                         let suggestion = RoomAgentSuggestion(
                             name: suggestedName,
                             persona: suggestedPersona,
-                            reason: "'\(taskSnippet)' 작업에 적합한 전문가가 필요합니다.",
+                            reason: "'\(String(task.prefix(60)))' 작업에 적합한 전문가가 필요합니다.",
                             suggestedBy: agent.name
                         )
                         addAgentSuggestion(suggestion, to: roomID)
@@ -1176,12 +1112,7 @@ extension RoomManager {
 
             // 4) [필수] 미매칭 역할: 이름 유사 에이전트 탐색 → 없으면 생성 제안
             for req in matched where req.status == .unmatched && req.priority == .required {
-                // 이름이 같거나 포함되는 기존 에이전트가 있으면 바로 초대
-                let roleLower = req.roleName.lowercased()
-                if let existingAgent = subAgents.first(where: {
-                    let nameLower = $0.name.lowercased()
-                    return nameLower == roleLower || nameLower.contains(roleLower) || roleLower.contains(nameLower)
-                }) {
+                if let existingAgent = AgentMatcher.findByName(req.roleName, among: subAgents) {
                     if let room = rooms.first(where: { $0.id == roomID }),
                        !room.assignedAgentIDs.contains(existingAgent.id) {
                         addAgent(existingAgent.id, to: roomID, silent: true)

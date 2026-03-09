@@ -264,6 +264,78 @@ enum AgentMatcher {
         return confidence >= 0.3 ? agent : nil
     }
 
+    // MARK: - Fallback 매칭 (LLM 역할 분석 실패 시)
+
+    /// 작업 키워드 기반으로 가장 적합한 에이전트 탐색
+    /// - quickAnswer/비개발 작업 시 개발자 에이전트 제외
+    static func findBestFallbackMatch(
+        task: String,
+        agents: [Agent],
+        intent: WorkflowIntent?
+    ) -> Agent? {
+        let taskKeywords = extractSemanticKeywords(from: task)
+        let isQuickAnswer = intent == .quickAnswer
+
+        var bestMatch: (agent: Agent, score: Int)?
+        for candidate in agents {
+            if candidate.isDeveloperAgent && isQuickAnswer { continue }
+
+            var score = 0
+            let tags = candidate.skillTags.map { $0.lowercased() }
+            for kw in taskKeywords {
+                if tags.contains(where: { $0.contains(kw) || kw.contains($0) }) { score += 3 }
+                if candidate.name.lowercased().contains(kw) { score += 2 }
+                if candidate.persona.lowercased().contains(kw) { score += 1 }
+            }
+            if score > (bestMatch?.score ?? 0) {
+                bestMatch = (candidate, score)
+            }
+        }
+        return bestMatch?.agent
+    }
+
+    /// 이름으로 에이전트 탐색 (정확 매칭 또는 부분 포함)
+    static func findByName(_ name: String, among agents: [Agent]) -> Agent? {
+        let target = name.lowercased()
+        return agents.first {
+            let agentName = $0.name.lowercased()
+            return agentName == target
+                || agentName.contains(target)
+                || target.contains(agentName)
+        }
+    }
+
+    /// 작업에 적합한 에이전트 이름/페르소나 제안 (생성 제안용)
+    static func suggestAgentProfile(
+        for task: String,
+        intent: WorkflowIntent?,
+        taskBrief: TaskBrief? = nil
+    ) -> (name: String, persona: String) {
+        let lower = task.lowercased()
+        if lower.contains("번역") || lower.contains("translate") {
+            return ("번역 전문가", "다국어 번역 및 현지화 전문가입니다.")
+        }
+        if lower.contains("트렌드") || lower.contains("동향") {
+            return ("트렌드 분석가", "기술 트렌드와 산업 동향을 분석하는 전문가입니다.")
+        }
+        if lower.contains("코드") || lower.contains("개발") || lower.contains("구현") {
+            return ("소프트웨어 엔지니어", "소프트웨어 설계 및 구현 전문가입니다.")
+        }
+        if lower.contains("문서") || lower.contains("보고서") || lower.contains("작성") {
+            return ("문서 작성 전문가", "보고서, 기획서 등 문서 작성 전문가입니다.")
+        }
+        if intent == .quickAnswer {
+            return ("질의응답 전문가", "다양한 주제에 대해 정확하고 이해하기 쉽게 답변하는 범용 질의응답 전문가입니다.")
+        }
+        if let brief = taskBrief {
+            let domain = brief.goal.prefix(30)
+            let name = (brief.outputType == .answer || brief.outputType == .analysis)
+                ? "리서치 전문가" : "\(intent?.displayName ?? "범용") 전문가"
+            return (name, "\(domain) 관련 질문에 답변하고 분석하는 전문가입니다.")
+        }
+        return ("범용 전문가", "'\(String(task.prefix(60)))' 작업을 수행하는 전문가입니다.")
+    }
+
     // MARK: - 유사 에이전트 탐지
 
     /// 새 에이전트 등록 시 유사한 기존 에이전트 탐지 (이름 + 페르소나 양방향 매칭)

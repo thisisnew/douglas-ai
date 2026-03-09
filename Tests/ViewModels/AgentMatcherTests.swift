@@ -291,6 +291,53 @@ struct AgentMatcherTests {
         #expect(results[0].matchedAgentID == backendDev.id)
     }
 
+    // MARK: - findBestFallbackMatch
+
+    @Test("findBestFallbackMatch — 번역 키워드 → 번역 전문가 매칭")
+    func fallbackMatchTranslation() {
+        let translator = makeAgent(name: "번역 전문가", persona: "다국어 번역", skillTags: ["번역", "translate"])
+        let dev = makeAgent(name: "백엔드 개발자", persona: "서버 개발", skillTags: ["백엔드"])
+        let result = AgentMatcher.findBestFallbackMatch(task: "이거 번역해줘", agents: [dev, translator], intent: .quickAnswer)
+        #expect(result?.id == translator.id)
+    }
+
+    @Test("findBestFallbackMatch — quickAnswer + 개발자만 → nil")
+    func fallbackMatchDevOnlyQuickAnswer() {
+        let dev = makeAgent(name: "백엔드 개발자", persona: "서버 개발", skillTags: ["백엔드"])
+        let result = AgentMatcher.findBestFallbackMatch(task: "두쯔쿠가 뭐야", agents: [dev], intent: .quickAnswer)
+        #expect(result == nil)
+    }
+
+    @Test("findBestFallbackMatch — task intent + 개발자 → 매칭")
+    func fallbackMatchDevOnTask() {
+        let dev = makeAgent(name: "백엔드 개발자", persona: "서버 개발", skillTags: ["백엔드"])
+        let result = AgentMatcher.findBestFallbackMatch(task: "API 서버 구현", agents: [dev], intent: .task)
+        #expect(result?.id == dev.id)
+    }
+
+    // MARK: - findByName
+
+    @Test("findByName — 정확 매칭")
+    func findByNameExact() {
+        let agent = makeAgent(name: "질의응답 전문가", persona: "범용")
+        let result = AgentMatcher.findByName("질의응답 전문가", among: [agent])
+        #expect(result?.id == agent.id)
+    }
+
+    @Test("findByName — 부분 포함 매칭")
+    func findByNamePartial() {
+        let agent = makeAgent(name: "리서치 & 문서 전문가", persona: "조사 분석")
+        let result = AgentMatcher.findByName("문서 전문가", among: [agent])
+        #expect(result?.id == agent.id)
+    }
+
+    @Test("findByName — 매칭 없음")
+    func findByNameNoMatch() {
+        let agent = makeAgent(name: "백엔드 개발자", persona: "서버")
+        let result = AgentMatcher.findByName("번역 전문가", among: [agent])
+        #expect(result == nil)
+    }
+
     @Test("matchRoles — documentType 설정 시 도메인 키워드만 있으면 unmatched")
     func matchRolesDocAllKeywordsFiltered() {
         let frontendDev = makeAgent(name: "프론트엔드 개발자", persona: "React UI")
