@@ -1162,7 +1162,10 @@ extension RoomManager {
             }
 
             // 6) 팀 구성 확인 게이트
-            await showTeamConfirmation(roomID: roomID)
+            // 개별 suggested 에이전트 승인을 이미 거쳤으면 중복 확인 건너뛰기
+            if suggestedReqs.isEmpty {
+                await showTeamConfirmation(roomID: roomID)
+            }
 
         } catch {
             let errorMsg = ChatMessage(
