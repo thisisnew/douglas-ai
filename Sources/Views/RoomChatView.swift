@@ -1257,7 +1257,7 @@ struct ApprovalCard: View {
         case .discussionCheckpoint:   return "토론 결과를 확인해주세요"
         case .finalApproval:          return "마지막 단계 확인"
         case .irreversibleStep:       return "되돌릴 수 없는 작업입니다"
-        case .agentConfirmation:      return "에이전트 구성을 확인해주세요"
+        case .agentConfirmation:      return "참여 전문가"
         case .userFeedback, .none:    return "확인이 필요합니다"
         }
     }
@@ -1307,14 +1307,22 @@ struct ApprovalCard: View {
 
     private var approvalHeader: some View {
         HStack(spacing: 8) {
-            Circle()
-                .fill(.yellow.opacity(0.1))
-                .frame(width: 24, height: 24)
-                .overlay(
-                    Image(systemName: "checkmark.circle")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.yellow.opacity(0.7))
-                )
+            if room?.awaitingType == .agentConfirmation {
+                // 참여 전문가 스타일: person.2 아이콘
+                Image(systemName: "person.2")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(palette.accent.opacity(0.7))
+            } else {
+                // 기본 승인 스타일: 체크마크 아이콘
+                Circle()
+                    .fill(.yellow.opacity(0.1))
+                    .frame(width: 24, height: 24)
+                    .overlay(
+                        Image(systemName: "checkmark.circle")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.yellow.opacity(0.7))
+                    )
+            }
             Text(approvalTitle)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.primary.opacity(0.85))
