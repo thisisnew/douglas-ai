@@ -1407,7 +1407,7 @@ struct ApprovalCard: View {
                     isFeedbackFocused = true
                 }
             } label: {
-                Text("수정 요청")
+                Text(room?.awaitingType == .agentConfirmation ? "변경" : "수정 요청")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 14)
@@ -1433,9 +1433,9 @@ struct ApprovalCard: View {
                 roomManager.approveStep(roomID: roomID)
             } label: {
                 HStack(spacing: 6) {
-                    Text("승인")
+                    Text(room?.awaitingType == .agentConfirmation ? "이대로 진행" : "승인")
                         .font(.system(size: 11, weight: .semibold))
-                    if let remaining = autoApprovalRemaining {
+                    if room?.awaitingType != .agentConfirmation, let remaining = autoApprovalRemaining {
                         Text("\(remaining)s")
                             .font(.system(size: 10, weight: .medium, design: .monospaced))
                             .foregroundStyle(.white.opacity(0.7))
