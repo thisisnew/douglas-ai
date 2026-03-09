@@ -207,6 +207,27 @@ private final class StreamJsonHandler: @unchecked Sendable {
     }
 }
 
+// MARK: - 경로 해석 (인프라 계층)
+
+/// CLI 실행에 필요한 경로 정보
+private struct ResolvedExecutable {
+    let claudePath: String
+    let nodePath: String?  // nil이면 shebang 사용
+
+    /// 실제 실행할 바이너리 경로
+    var executable: String { nodePath ?? claudePath }
+
+    /// CLI 인자 (node 직접 실행 시 cli.js 경로 포함)
+    func baseArgs(prompt: String, model: String) -> [String] {
+        if let nodePath {
+            let resolvedClaude = ClaudeCodeProvider.resolveSymlink(claudePath)
+            cliLogger.info("node 직접 실행: \(nodePath, privacy: .public) \(resolvedClaude, privacy: .public)")
+            return [resolvedClaude, "-p", prompt, "--model", model]
+        }
+        return ["-p", prompt, "--model", model]
+    }
+}
+
 /// 이미 설치된 Claude Code CLI를 활용하는 프로바이더
 /// API 키 불필요 - 기존 claude 로그인 세션을 그대로 사용
 class ClaudeCodeProvider: AIProvider {
@@ -219,51 +240,50 @@ class ClaudeCodeProvider: AIProvider {
         self.config = config
     }
 
-    /// 시스템에서 claude CLI 경로를 자동으로 찾는다
-    /// homebrew/시스템 경로를 nvm보다 우선 탐색 (nvm에 구 버전이 남아있을 수 있음)
-    static func findClaudePath() -> String {
+    // MARK: - 경로 탐색 (단일 진실 공급원)
+
+    /// claude CLI 경로와 node 경로를 함께 해석 (v18 체크 통합)
+    /// 우선순위: nvm(v18+) → homebrew → 시스템 → 폴백("claude")
+    private static func resolveExecutable() -> ResolvedExecutable {
         let homePath = NSHomeDirectory()
-        // nvm 경로를 먼저 검색 (최신 버전 우선)
-        // Node v18 미만 nvm 경로는 건너뜀 (Claude Code는 ??= 등 v18+ 문법 사용)
-        let nvmCandidates = ShellEnvironment.nvmBinPaths.compactMap { binPath -> String? in
+
+        // 1. nvm 경로 검색 (v18+ 필터링)
+        for binPath in ShellEnvironment.nvmBinPaths {
             let claudePath = "\(binPath)/claude"
-            guard FileManager.default.isExecutableFile(atPath: claudePath) else { return nil }
-            // nvm 경로에서 node 버전 추출하여 v18 미만 건너뛰기
+            guard FileManager.default.isExecutableFile(atPath: claudePath) else { continue }
+
             let nodePath = (binPath as NSString).appendingPathComponent("node")
+            guard FileManager.default.isExecutableFile(atPath: nodePath) else { continue }
+
+            // v18 미만 건너뛰기
             if let major = nodeVersion(at: nodePath), major < 18 {
-                cliLogger.info("nvm claude 건너뜀 (node v\(major) < 18): \(claudePath, privacy: .public)")
-                return nil
+                cliLogger.info("nvm 건너뜀 (node v\(major) < 18): \(claudePath, privacy: .public)")
+                continue
             }
-            return claudePath
+
+            return ResolvedExecutable(claudePath: claudePath, nodePath: nodePath)
         }
-        let candidates = nvmCandidates + [
+
+        // 2. homebrew/시스템 경로 검색
+        let systemCandidates = [
             "/opt/homebrew/bin/claude",
             "/usr/local/bin/claude",
             "\(homePath)/.local/bin/claude"
         ]
-        for path in candidates {
-            if FileManager.default.isExecutableFile(atPath: path) {
-                return path
-            }
+
+        for claudePath in systemCandidates {
+            guard FileManager.default.isExecutableFile(atPath: claudePath) else { continue }
+            // homebrew/시스템 경로는 shebang에 의존 (nodePath = nil)
+            return ResolvedExecutable(claudePath: claudePath, nodePath: nil)
         }
-        return "claude"
+
+        // 3. 폴백
+        return ResolvedExecutable(claudePath: "claude", nodePath: nil)
     }
 
-    /// claude 바이너리와 같은 디렉토리에 있는 node 경로를 찾는다
-    /// claude 파일도 존재해야 반환 (경로 이동 시 stale node 방지)
-    /// Node v18+ 미만이면 건너뜀 (Claude Code는 ??= 등 v18+ 문법 사용)
-    private static func findNodePath(forClaude claudePath: String) -> String? {
-        guard FileManager.default.isExecutableFile(atPath: claudePath) else { return nil }
-        let claudeDir = (claudePath as NSString).deletingLastPathComponent
-        let nodePath = (claudeDir as NSString).appendingPathComponent("node")
-        guard FileManager.default.isExecutableFile(atPath: nodePath) else { return nil }
-
-        // node 버전 확인: v18 미만이면 Claude Code 실행 불가 (??= 등 문법)
-        if let majorVersion = nodeVersion(at: nodePath), majorVersion < 18 {
-            cliLogger.warning("node \(nodePath, privacy: .public) 버전 v\(majorVersion) < 18, 건너뜀")
-            return nil
-        }
-        return nodePath
+    /// 시스템에서 claude CLI 경로를 자동으로 찾는다 (외부 호출부 호환성 유지)
+    static func findClaudePath() -> String {
+        return resolveExecutable().claudePath
     }
 
     /// node 바이너리의 major 버전 추출 (v22.21.1 → 22)
@@ -279,7 +299,7 @@ class ClaudeCodeProvider: AIProvider {
     }
 
     /// symlink를 해석하여 실제 파일 경로 반환
-    private static func resolveSymlink(_ path: String) -> String {
+    fileprivate static func resolveSymlink(_ path: String) -> String {
         guard let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: path) else {
             return path
         }
@@ -440,48 +460,32 @@ class ClaudeCodeProvider: AIProvider {
         return userPrompt
     }
 
-    private func runClaude(
-        path: String, prompt: String, model: String,
-        systemPrompt: String = "", disableTools: Bool = false,
-        disallowedTools: [String] = [],
-        allowedTools: [String]? = nil,
-        workingDirectory: String? = nil,
-        onToolActivity: ((String, ToolActivityDetail?) -> Void)? = nil,
-        onTextChunk: (@Sendable (String) -> Void)? = nil
-    ) async throws -> String {
-        // 항상 최신 경로 사용 (저장된 경로가 구 버전 nvm에 묶여 있을 수 있음)
-        let claudePath = Self.findClaudePath()
+    // MARK: - CLI 실행 헬퍼 (Step 2: runClaude 분해)
 
-        // macOS GUI 앱에서는 shebang(#!/usr/bin/env node)이 시스템 기본 PATH의 구 버전 node를
-        // 사용할 수 있음. node를 직접 실행하고 cli.js를 인자로 전달하여 올바른 버전 보장.
-        let executable: String
-        var args: [String]
-        if let nodePath = Self.findNodePath(forClaude: claudePath) {
-            executable = nodePath
-            // claude symlink → 실제 cli.js 경로 해석
-            let resolvedClaude = Self.resolveSymlink(claudePath)
-            args = [resolvedClaude, "-p", prompt, "--model", model]
-            cliLogger.info("node 직접 실행: \(nodePath, privacy: .public) \(resolvedClaude, privacy: .public)")
-        } else {
-            executable = claudePath
-            args = ["-p", prompt, "--model", model]
-        }
-        cliLogger.info("runClaude: model=\(model, privacy: .public) disableTools=\(disableTools) prompt=\(prompt.count)자 system=\(systemPrompt.count)자")
+    /// CLI 인자 구성 (도구/시스템 프롬프트/스트리밍 설정)
+    private func buildCLIArguments(
+        baseArgs: [String],
+        systemPrompt: String,
+        disableTools: Bool,
+        allowedTools: [String]?,
+        disallowedTools: [String],
+        useStreaming: Bool,
+        includePartialMessages: Bool
+    ) -> [String] {
+        var args = baseArgs
 
-        // 라우터 모드: 내장 도구 비활성화 + 시스템 프롬프트 교체 (도구 지침 불필요)
+        // 라우터 모드: 내장 도구 비활성화 + 시스템 프롬프트 교체
         if disableTools {
             if !systemPrompt.isEmpty {
                 args += ["--system-prompt", systemPrompt]
             }
             args += ["--tools", ""]
         } else {
-            // 에이전트 모드: Claude Code 기본 프롬프트(도구 사용법 포함) 유지 + 페르소나 추가
+            // 에이전트 모드: Claude Code 기본 프롬프트 유지 + 페르소나 추가
             if !systemPrompt.isEmpty {
                 args += ["--append-system-prompt", systemPrompt]
             }
-            // 비대화형 모드(-p)에서 도구 승인 프롬프트 없이 실행
             var tools = allowedTools ?? ["Edit", "Write", "Bash", "Read", "Glob", "Grep", "WebSearch"]
-            // MCP 도구(mcp__*)가 명시적으로 포함되지 않았으면 와일드카드 추가
             if !tools.contains(where: { $0.hasPrefix("mcp__") }) {
                 tools.append("mcp__*")
             }
@@ -489,29 +493,30 @@ class ClaudeCodeProvider: AIProvider {
             cliLogger.info("CLI tools: \(tools, privacy: .public)")
         }
 
-        // 특정 도구만 선택적으로 차단 (바이브코딩 유지하면서 WebFetch 등 차단)
+        // 특정 도구 차단
         for tool in disallowedTools {
             args += ["--disallowed-tools", tool]
         }
 
-        // 스트리밍 모드: stream-json NDJSON 출력 (도구 활동 추적 또는 텍스트 스트리밍)
-        let useStreaming = onToolActivity != nil || onTextChunk != nil
+        // 스트리밍 모드 설정
         if useStreaming {
             args += ["--output-format", "stream-json", "--verbose"]
-            if onTextChunk != nil {
+            if includePartialMessages {
                 args += ["--include-partial-messages"]
             }
         }
 
-        // 환경변수 상속
+        return args
+    }
+
+    /// 환경변수 구성 (PATH에 nvm/homebrew 추가)
+    private func buildEnvironment(workingDirectory: String?) -> (env: [String: String], workDir: String) {
         var env = ProcessInfo.processInfo.environment
         env.removeValue(forKey: "CLAUDECODE")
 
         let homePath = env["HOME"] ?? NSHomeDirectory()
-        var additionalPaths = [
-            "/opt/homebrew/bin",
-            "/usr/local/bin"
-        ]
+        var additionalPaths = ["/opt/homebrew/bin", "/usr/local/bin"]
+
         let nvmDir = "\(homePath)/.nvm/versions/node"
         if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir) {
             let sorted = versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
@@ -519,28 +524,36 @@ class ClaudeCodeProvider: AIProvider {
                 additionalPaths.insert("\(nvmDir)/\(version)/bin", at: 0)
             }
         }
+
         let existingPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
         env["PATH"] = additionalPaths.joined(separator: ":") + ":" + existingPath
 
-        let effectiveWorkDir = workingDirectory ?? homePath
+        return (env, workingDirectory ?? homePath)
+    }
 
-        // 스트리밍 모드: NDJSON 실시간 파싱으로 도구 활동 + 텍스트 스트리밍
+    /// 프로세스 실행 및 결과 파싱
+    private func executeAndParse(
+        executable: String,
+        args: [String],
+        env: [String: String],
+        workDir: String,
+        useStreaming: Bool,
+        onToolActivity: ((String, ToolActivityDetail?) -> Void)?,
+        onTextChunk: (@Sendable (String) -> Void)?
+    ) async throws -> String {
+        // 스트리밍 모드
         if useStreaming {
             let activityHandler = onToolActivity ?? { _, _ in }
             let handler = StreamJsonHandler(onActivity: activityHandler, onTextChunk: onTextChunk)
             let result = await ProcessRunner.runStreaming(
                 executable: executable, args: args, env: env,
-                workDir: effectiveWorkDir,
+                workDir: workDir,
                 onOutput: { chunk in handler.feed(chunk) }
             )
 
-            // stream-json result 이벤트에서 최종 텍스트 추출
-            let finalText = handler.resultText
-            if !finalText.isEmpty {
-                return finalText
+            if !handler.resultText.isEmpty {
+                return handler.resultText
             }
-
-            // 폴백: stdout NDJSON에서 result 이벤트 재파싱
             if let parsed = Self.extractResultFromNdjson(result.stdout) {
                 return parsed
             }
@@ -555,19 +568,15 @@ class ClaudeCodeProvider: AIProvider {
             throw AIProviderError.invalidResponse
         }
 
-        // 일반 모드: 기존 동작
+        // 일반 모드
         let result = await ProcessRunner.run(
-            executable: executable,
-            args: args,
-            env: env,
-            workDir: effectiveWorkDir
+            executable: executable, args: args, env: env, workDir: workDir
         )
 
         let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         let errorOutput = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if result.exitCode == 15 {
-            // SIGTERM (타임아웃)
             throw AIProviderError.apiError("Claude Code 응답 시간 초과 (\(Int(timeoutSeconds))초)")
         } else if result.exitCode != 0 {
             let msg = errorOutput.isEmpty ? "Claude Code 실행 실패 (코드: \(result.exitCode))" : errorOutput
@@ -577,6 +586,49 @@ class ClaudeCodeProvider: AIProvider {
             throw AIProviderError.invalidResponse
         }
         return output
+    }
+
+    private func runClaude(
+        path: String, prompt: String, model: String,
+        systemPrompt: String = "", disableTools: Bool = false,
+        disallowedTools: [String] = [],
+        allowedTools: [String]? = nil,
+        workingDirectory: String? = nil,
+        onToolActivity: ((String, ToolActivityDetail?) -> Void)? = nil,
+        onTextChunk: (@Sendable (String) -> Void)? = nil
+    ) async throws -> String {
+        cliLogger.info("runClaude: model=\(model, privacy: .public) disableTools=\(disableTools) prompt=\(prompt.count)자 system=\(systemPrompt.count)자")
+
+        // 1. 경로 해석
+        let exe = Self.resolveExecutable()
+
+        // 2. 스트리밍 여부 결정
+        let useStreaming = onToolActivity != nil || onTextChunk != nil
+
+        // 3. CLI 인자 구성
+        let args = buildCLIArguments(
+            baseArgs: exe.baseArgs(prompt: prompt, model: model),
+            systemPrompt: systemPrompt,
+            disableTools: disableTools,
+            allowedTools: allowedTools,
+            disallowedTools: disallowedTools,
+            useStreaming: useStreaming,
+            includePartialMessages: onTextChunk != nil
+        )
+
+        // 4. 환경변수 구성
+        let (env, workDir) = buildEnvironment(workingDirectory: workingDirectory)
+
+        // 5. 실행 및 결과 파싱
+        return try await executeAndParse(
+            executable: exe.executable,
+            args: args,
+            env: env,
+            workDir: workDir,
+            useStreaming: useStreaming,
+            onToolActivity: onToolActivity,
+            onTextChunk: onTextChunk
+        )
     }
 
     /// NDJSON stdout에서 마지막 result 이벤트의 텍스트 추출
