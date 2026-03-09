@@ -1077,10 +1077,12 @@ extension RoomManager {
             }
 
             // 3.5) suggested(0.5~0.7) 에이전트: 사용자에게 추가 여부 질문
-            // 동일 에이전트가 여러 RoleRequirement에 매칭될 수 있으므로 agentID 기준 중복 제거
+            // 중복 제거: agentID 기준 + 이미 배정된 에이전트 제외
+            let currentAssigned = Set(rooms.first(where: { $0.id == roomID })?.assignedAgentIDs ?? [])
             var seenSuggestedAgentIDs = Set<UUID>()
             let suggestedReqs = matched.filter { req in
                 guard req.status == .suggested, let agentID = req.matchedAgentID else { return false }
+                guard !currentAssigned.contains(agentID) else { return false }
                 return seenSuggestedAgentIDs.insert(agentID).inserted
             }
             for req in suggestedReqs {
