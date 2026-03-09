@@ -93,9 +93,7 @@ struct AddAgentSheet: View {
                     // 역할 설명
                     VStack(alignment: .leading, spacing: 6) {
                         sectionLabel("역할 설명", required: true)
-                        TextEditor(text: $persona)
-                            .font(.body)
-                            .scrollContentBackground(.hidden)
+                        FormTextEditor(text: $persona, font: .systemFont(ofSize: 13))
                             .frame(minHeight: 80)
                             .padding(8)
                             .background(palette.inputBackground)

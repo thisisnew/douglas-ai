@@ -123,9 +123,7 @@ struct WorkRuleEditSheet: View {
                         .pickerStyle(.segmented)
 
                         if contentType == .inline {
-                            TextEditor(text: $inlineText)
-                                .font(.body)
-                                .scrollContentBackground(.hidden)
+                            FormTextEditor(text: $inlineText, font: .systemFont(ofSize: 13))
                                 .frame(minHeight: 120)
                                 .padding(8)
                                 .background(palette.inputBackground)

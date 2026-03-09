@@ -125,9 +125,7 @@ struct CreateRoomSheet: View {
     private var taskSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionLabel("작업 내용")
-            TextEditor(text: $task)
-                .font(.body)
-                .scrollContentBackground(.hidden)
+            FormTextEditor(text: $task, font: .systemFont(ofSize: 13))
                 .frame(minHeight: 80, maxHeight: 120)
                 .padding(8)
                 .background(palette.inputBackground)
