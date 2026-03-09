@@ -92,9 +92,11 @@ final class StepExecutionEngine {
                         room.plan?.steps[j].status = .pending
                     }
                 }
+                // 즉시 확인 메시지는 PlanCard에서 이미 전송됨
+                // 여기서는 실행 시작 메시지만 추가
                 let rollbackMsg = ChatMessage(
                     role: .system,
-                    content: "단계 \(rollbackTarget + 1)부터 다시 실행합니다.",
+                    content: "단계 \(rollbackTarget + 1) 재실행을 시작합니다.",
                     messageType: .progress
                 )
                 host.appendMessage(rollbackMsg, to: roomID)

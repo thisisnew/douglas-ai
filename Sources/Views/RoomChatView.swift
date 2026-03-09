@@ -411,7 +411,15 @@ struct RoomChatView: View {
                 onMoveStep: { from, to in roomManager.moveStep(roomID: room.id, fromIndex: from, toIndex: to) }
             )
         } else if room.status == .inProgress {
-            return .execution { stepIndex in roomManager.stepRollbackTargets[roomID] = stepIndex }
+            return .execution { stepIndex in
+                roomManager.stepRollbackTargets[roomID] = stepIndex
+                let confirmMsg = ChatMessage(
+                    role: .system,
+                    content: "단계 \(stepIndex + 1)부터 다시 실행합니다.",
+                    messageType: .progress
+                )
+                roomManager.appendMessage(confirmMsg, to: roomID)
+            }
         } else {
             return .readOnly
         }
@@ -787,6 +795,7 @@ struct PlanCard: View {
     @State private var editingText: String = ""
     @State private var addingAfterIndex: Int? // nil = 미표시, -1 = 맨 앞, 0+ = 해당 인덱스 뒤
     @State private var newStepText: String = ""
+    @State private var tappedRollbackIndex: Int?
 
     private var isEditing: Bool {
         if case .editing = mode { return true }
@@ -969,11 +978,24 @@ struct PlanCard: View {
 
         case .execution(let onRollback):
             if step.status == .completed && status == .inProgress {
-                Image(systemName: "arrow.counterclockwise")
-                    .font(.system(size: 8))
-                    .foregroundColor(.secondary.opacity(0.3))
-                    .padding(.top, 2)
-                    .onTapGesture { onRollback(index) }
+                Button {
+                    withAnimation(.dgBounce) { tappedRollbackIndex = index }
+                    onRollback(index)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        tappedRollbackIndex = nil
+                    }
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(tappedRollbackIndex == index ? .orange : .secondary.opacity(0.5))
+                        .padding(4)
+                        .background(
+                            Circle().fill(tappedRollbackIndex == index ? Color.orange.opacity(0.15) : Color.clear)
+                        )
+                        .scaleEffect(tappedRollbackIndex == index ? 1.3 : 1.0)
+                        .animation(.dgBounce, value: tappedRollbackIndex)
+                }
+                .buttonStyle(.plain)
             }
             if step.requiresApproval {
                 Image(systemName: "hand.raised.fill")
@@ -1067,7 +1089,11 @@ struct PlanCard: View {
     private func handleStepTap(index: Int, step: RoomStep) {
         if case .execution(let onRollback) = mode,
            step.status == .completed, status == .inProgress {
+            withAnimation(.dgBounce) { tappedRollbackIndex = index }
             onRollback(index)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                tappedRollbackIndex = nil
+            }
         }
     }
 

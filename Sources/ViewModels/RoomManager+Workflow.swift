@@ -3435,7 +3435,7 @@ extension RoomManager {
         let isDocumentation = room?.workflowState.documentType != nil
 
         let isLastStep = stepIndex == totalSteps - 1
-        let stepPrompt: String
+        var stepPrompt: String
         if isLastStep || totalSteps == 1 {
             let docWriteInstruction = isDocumentation ? """
 
@@ -3463,6 +3463,9 @@ extension RoomManager {
             """
         }
 
+        // Issue 1: 사용자 추가 지시를 stepPrompt에 주입
+        stepPrompt = StepPromptBuilder.injectDirective(into: stepPrompt, from: fullTask)
+
         do {
             agentStore?.updateStatus(agentID: agentID, status: .working)
             speakingAgentIDByRoom[roomID] = agentID
@@ -3488,6 +3491,29 @@ extension RoomManager {
                     toolDetail: startDetail
                 )
                 appendMessage(startMsg, to: roomID)
+
+                // 작업 컨텍스트 정보 활동
+                let ruleCount = room?.workflowState.activeRuleIDs?.count ?? agent.workRules.count
+                let toolCount = agent.resolvedToolIDs.count
+                let artifactCount = room?.discussion.artifacts.count ?? 0
+                let contextSummary = StepPromptBuilder.buildContextSummary(
+                    ruleCount: ruleCount, toolCount: toolCount, artifactCount: artifactCount
+                )
+                let contextDetail = ToolActivityDetail(
+                    toolName: "context_info",
+                    subject: contextSummary,
+                    contentPreview: nil,
+                    isError: false
+                )
+                let contextMsg = ChatMessage(
+                    role: .assistant,
+                    content: contextSummary,
+                    agentName: agent.name,
+                    messageType: .toolActivity,
+                    activityGroupID: progressGroupID,
+                    toolDetail: contextDetail
+                )
+                appendMessage(contextMsg, to: roomID)
             }
 
             // 스트리밍용 placeholder 메시지 (실시간 텍스트 업데이트)

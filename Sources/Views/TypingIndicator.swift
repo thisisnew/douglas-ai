@@ -371,6 +371,7 @@ struct TypingIndicator: View {
         guard let detail = activity.toolDetail else { return "arrow.right.circle" }
         if detail.isError { return "xmark.circle" }
         switch detail.toolName {
+        case "context_info": return "brain"
         case "llm_call":   return "arrow.up.circle"
         case "llm_result": return "checkmark.circle.fill"
         case "llm_error":  return "xmark.octagon"

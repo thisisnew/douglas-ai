@@ -49,6 +49,7 @@ struct ToolActivityDetail: Codable {
         case "code_diagnostics":           return "코드 진단"
         case "code_outline":               return "코드 구조"
         case "Agent":                       return "서브 에이전트"
+        case "context_info":                return "작업 컨텍스트"
         case "llm_call":                    return "실행 중"
         case "llm_result":                  return "완료"
         case "llm_error":                   return "API 오류"
