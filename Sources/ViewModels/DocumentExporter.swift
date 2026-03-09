@@ -70,11 +70,8 @@ enum DocumentExporter {
             }
         }
 
-        // 고정 경로 미설정 시 Documents 폴더에 자동 저장 (NSSavePanel 없이)
-        guard let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        let douglasDir = docsDir.appendingPathComponent("DOUGLAS", isDirectory: true)
+        // 고정 경로 미설정 시 Application Support에 자동 저장 (TCC 팝업 방지)
+        let douglasDir = defaultSaveDirectory()
         try? FileManager.default.createDirectory(at: douglasDir, withIntermediateDirectories: true)
         let fileURL = uniqueFileURL(directory: douglasDir, filename: filename)
         do {
@@ -129,6 +126,14 @@ enum DocumentExporter {
         }
 
         return nil
+    }
+
+    /// 기본 저장 디렉토리 (TCC 팝업 방지: ~/Library/Application Support/DOUGLAS/Documents/)
+    private static func defaultSaveDirectory() -> URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport
+            .appendingPathComponent("DOUGLAS", isDirectory: true)
+            .appendingPathComponent("Documents", isDirectory: true)
     }
 
     /// 날짜_번호 형식으로 고유 파일명 생성 (20260307_001.md, 20260307_002.md, ...)
@@ -228,8 +233,7 @@ enum DocumentExporter {
         if let dirURL = resolveDocumentSaveDirectory() {
             return dirURL.path
         }
-        let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let douglasDir = docsDir.appendingPathComponent("DOUGLAS", isDirectory: true)
+        let douglasDir = defaultSaveDirectory()
         try? FileManager.default.createDirectory(at: douglasDir, withIntermediateDirectories: true)
         return douglasDir.path
     }
@@ -264,8 +268,7 @@ enum DocumentExporter {
         if let dirURL = resolveDocumentSaveDirectory() {
             targetURL = uniqueFileURL(directory: dirURL, filename: filename)
         } else {
-            guard let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
-            let douglasDir = docsDir.appendingPathComponent("DOUGLAS", isDirectory: true)
+            let douglasDir = defaultSaveDirectory()
             try? FileManager.default.createDirectory(at: douglasDir, withIntermediateDirectories: true)
             targetURL = uniqueFileURL(directory: douglasDir, filename: filename)
         }
@@ -313,8 +316,7 @@ enum DocumentExporter {
             if (try? data.write(to: fileURL)) != nil { return fileURL }
         }
 
-        guard let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
-        let douglasDir = docsDir.appendingPathComponent("DOUGLAS", isDirectory: true)
+        let douglasDir = defaultSaveDirectory()
         try? FileManager.default.createDirectory(at: douglasDir, withIntermediateDirectories: true)
         let fileURL = uniqueFileURL(directory: douglasDir, filename: filename)
         return (try? data.write(to: fileURL)) != nil ? fileURL : nil
