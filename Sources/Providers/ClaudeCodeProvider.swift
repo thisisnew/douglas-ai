@@ -216,13 +216,21 @@ class ClaudeCodeProvider: AIProvider {
         self.config = config
     }
 
-    /// 시스템에서 claude CLI 경로를 자동으로 찾는다 (캐싱된 NVM 경로 사용)
+    /// 시스템에서 claude CLI 경로를 자동으로 찾는다
+    /// homebrew/시스템 경로를 nvm보다 우선 탐색 (nvm에 구 버전이 남아있을 수 있음)
     static func findClaudePath() -> String {
         let homePath = NSHomeDirectory()
-        let extras = [
+        let candidates = [
+            "/opt/homebrew/bin/claude",
+            "/usr/local/bin/claude",
             "\(homePath)/.local/bin/claude"
-        ]
-        return ShellEnvironment.findExecutable("claude", extraCandidates: extras) ?? "claude"
+        ] + ShellEnvironment.nvmBinPaths.map { "\($0)/claude" }
+        for path in candidates {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+        return "claude"
     }
 
     /// claude 바이너리와 같은 디렉토리에 있는 node 경로를 찾는다
@@ -393,24 +401,13 @@ class ClaudeCodeProvider: AIProvider {
         onToolActivity: ((String, ToolActivityDetail?) -> Void)? = nil,
         onTextChunk: (@Sendable (String) -> Void)? = nil
     ) async throws -> String {
-        // 저장된 경로가 유효하지 않으면 재탐색 (Claude CLI 업데이트/이동 대응)
-        let effectivePath: String
-        if FileManager.default.isExecutableFile(atPath: path) {
-            effectivePath = path
-        } else {
-            effectivePath = Self.findClaudePath()
-        }
+        // 항상 최신 경로 사용 (저장된 경로가 구 버전 nvm에 묶여 있을 수 있음)
+        let effectivePath = Self.findClaudePath()
 
-        // claude CLI는 Node.js 스크립트 → 같은 디렉토리의 node를 직접 사용
-        let executable: String
-        var args: [String]
-        if let nodePath = ClaudeCodeProvider.findNodePath(forClaude: effectivePath) {
-            executable = nodePath
-            args = [effectivePath, "-p", prompt, "--model", model]
-        } else {
-            executable = effectivePath
-            args = ["-p", prompt, "--model", model]
-        }
+        // claude 스크립트 직접 실행 — shebang(#!/usr/bin/env node)이
+        // 아래에서 구성한 PATH의 최신 node를 사용하므로 버전 불일치 방지
+        let executable = effectivePath
+        var args = ["-p", prompt, "--model", model]
 
         // 라우터 모드: 내장 도구 비활성화 + 시스템 프롬프트 교체 (도구 지침 불필요)
         if disableTools {
