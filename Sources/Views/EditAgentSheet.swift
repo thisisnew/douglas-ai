@@ -186,7 +186,8 @@ struct EditAgentSheet: View {
                 .padding(.vertical, 16)
             }
         }
-        .frame(width: DesignTokens.WindowSize.agentSheet.width, height: min(DesignTokens.WindowSize.agentSheet.height, (NSScreen.main?.frame.height ?? 800) * 0.75))
+        .frame(width: DesignTokens.WindowSize.agentSheet.width)
+        .frame(minHeight: DesignTokens.WindowSize.agentSheet.height, maxHeight: .infinity)
         .onAppear {
             loadModels(for: selectedProvider)
         }

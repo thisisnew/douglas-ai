@@ -44,7 +44,7 @@ final class UtilityWindowManager {
         )
         window.isReleasedWhenClosed = false
         window.title = title
-        window.minSize = NSSize(width: width * 0.8, height: height * 0.8)
+        window.minSize = NSSize(width: width * 0.8, height: height * 0.6)
         var rootView = AnyView(content()
             .environmentObject(agentStore)
             .environmentObject(providerManager)

@@ -286,7 +286,7 @@ enum DesignTokens {
     // MARK: - 윈도우 크기 상수
 
     enum WindowSize {
-        static let agentSheet = CGSize(width: 480, height: 560)
+        static let agentSheet = CGSize(width: 480, height: 680)
         static let createRoomSheet = CGSize(width: 480, height: 560)
         static let providerSheet = CGSize(width: 480, height: 560)
         static let agentInfoSheet = CGSize(width: 480, height: 480)
