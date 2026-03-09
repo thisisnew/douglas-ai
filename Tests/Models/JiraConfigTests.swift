@@ -72,6 +72,22 @@ struct JiraConfigTests {
         #expect("Basic \(expectedBase64)" == "Basic dXNlckB0ZXN0LmNvbTp0ZXN0LXRva2VuLTEyMw==")
     }
 
+    // MARK: - buildBrowseURL(forKey:)
+
+    @Test("buildBrowseURL — Jira 키로 브라우저 URL 생성")
+    func buildBrowseURL() {
+        let config = JiraConfig(domain: "company.atlassian.net", email: "a@b.com")
+        let url = config.buildBrowseURL(forKey: "PROJ-123")
+        #expect(url == "https://company.atlassian.net/browse/PROJ-123")
+    }
+
+    @Test("buildBrowseURL — 다양한 키 패턴")
+    func buildBrowseURLPatterns() {
+        let config = JiraConfig(domain: "kurly0521.atlassian.net", email: "test@test.com")
+        #expect(config.buildBrowseURL(forKey: "IBS-100") == "https://kurly0521.atlassian.net/browse/IBS-100")
+        #expect(config.buildBrowseURL(forKey: "BACKEND-456") == "https://kurly0521.atlassian.net/browse/BACKEND-456")
+    }
+
     // MARK: - isJiraURL
 
     @Test("isJiraURL - 일치하는 도메인")

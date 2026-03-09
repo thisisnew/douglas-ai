@@ -1,4 +1,7 @@
 import Foundation
+import os.log
+
+private let intakeLogger = Logger(subsystem: "com.douglas.app", category: "Intake")
 
 // MARK: - 워크플로우 실행 (Phase 6 분리)
 
@@ -361,16 +364,28 @@ extension RoomManager {
         var jiraDataList: [JiraTicketSummary] = []
 
         // 개별 URL 단위로 Jira 판별 (전체 텍스트가 아닌 추출된 URL 사용)
-        let jiraURLs = urls.filter { jiraConfig.isJiraURL($0) }
+        var jiraURLs = urls.filter { jiraConfig.isJiraURL($0) }
+
+        // Jira 키(PROJ-123 패턴)만 입력한 경우에도 URL 생성하여 fetch
+        if jiraConfig.isConfigured {
+            jiraKeys = extractJiraKeys(from: task)
+            // URL에서 이미 감지된 키 제외하고, 키만 입력된 것에 대해 URL 생성
+            let keysFromURLs = Set(jiraURLs.flatMap { extractJiraKeys(from: $0) })
+            let keyOnlyKeys = jiraKeys.filter { !keysFromURLs.contains($0) }
+            let keyBasedURLs = keyOnlyKeys.map { jiraConfig.buildBrowseURL(forKey: $0) }
+            jiraURLs += keyBasedURLs
+        }
 
         if jiraConfig.isConfigured, !jiraURLs.isEmpty {
             sourceType = .jira
-            // 모든 Jira 키 추출 (PROJ-123 패턴, 중복 제거)
-            jiraKeys = extractJiraKeys(from: task)
+            intakeLogger.info("Jira intake: keys=\(jiraKeys, privacy: .public), urls=\(jiraURLs.count) 건")
             // 각 Jira URL에서 티켓 요약 fetch (최대 10건)
             jiraDataList = await fetchJiraTicketSummaries(urls: Array(jiraURLs.prefix(10)))
+            intakeLogger.info("Jira fetch 완료: \(jiraDataList.count)/\(jiraURLs.prefix(10).count) 건 성공")
         } else if !urls.isEmpty {
             sourceType = .url
+        } else if !jiraKeys.isEmpty, !jiraConfig.isConfigured {
+            intakeLogger.warning("Jira 키 감지(\(jiraKeys, privacy: .public))되었으나 JiraConfig 미설정")
         }
 
         // 3) IntakeData 저장
@@ -2967,7 +2982,10 @@ extension RoomManager {
         let jiraConfig = JiraConfig.shared
         let apiURLString = jiraConfig.apiURL(from: urlString)
         guard let apiURL = URL(string: apiURLString),
-              let auth = jiraConfig.authHeader() else { return nil }
+              let auth = jiraConfig.authHeader() else {
+            intakeLogger.warning("Jira fetch 실패: URL 파싱 불가 또는 인증 헤더 없음 (\(urlString, privacy: .public))")
+            return nil
+        }
 
         var request = URLRequest(url: apiURL)
         request.setValue(auth, forHTTPHeaderField: "Authorization")
@@ -2977,9 +2995,15 @@ extension RoomManager {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            guard (200..<300).contains(status) else { return nil }
+            guard (200..<300).contains(status) else {
+                intakeLogger.warning("Jira fetch HTTP \(status) — \(apiURLString, privacy: .public)")
+                return nil
+            }
 
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                intakeLogger.warning("Jira fetch JSON 파싱 실패 — \(apiURLString, privacy: .public)")
+                return nil
+            }
 
             let fields = json["fields"] as? [String: Any] ?? [:]
             let key = json["key"] as? String ?? ""
@@ -2987,6 +3011,8 @@ extension RoomManager {
             let issueType = (fields["issuetype"] as? [String: Any])?["name"] as? String ?? ""
             let statusName = (fields["status"] as? [String: Any])?["name"] as? String ?? ""
             let description = extractDescription(from: fields["description"])
+
+            intakeLogger.info("Jira fetch 성공: \(key, privacy: .public) — \(summary, privacy: .public)")
 
             return JiraTicketSummary(
                 key: key,
@@ -2996,21 +3022,28 @@ extension RoomManager {
                 description: description
             )
         } catch {
+            intakeLogger.error("Jira fetch 네트워크 에러: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
 
-    /// Jira ADF(Atlassian Document Format) 또는 일반 텍스트에서 설명 추출
+    /// Jira ADF(Atlassian Document Format) 또는 일반 텍스트에서 설명 추출 (최대 1000자)
     private func extractDescription(from value: Any?) -> String {
-        if let text = value as? String { return text }
-        guard let adf = value as? [String: Any],
-              let content = adf["content"] as? [[String: Any]] else { return "" }
-        return content.compactMap { node -> String? in
-            guard let innerContent = node["content"] as? [[String: Any]] else { return nil }
-            return innerContent.compactMap { inner -> String? in
-                inner["text"] as? String
-            }.joined()
-        }.joined(separator: "\n")
+        let raw: String
+        if let text = value as? String {
+            raw = text
+        } else if let adf = value as? [String: Any],
+                  let content = adf["content"] as? [[String: Any]] {
+            raw = content.compactMap { node -> String? in
+                guard let innerContent = node["content"] as? [[String: Any]] else { return nil }
+                return innerContent.compactMap { inner -> String? in
+                    inner["text"] as? String
+                }.joined()
+            }.joined(separator: "\n")
+        } else {
+            return ""
+        }
+        return raw.count > 1000 ? String(raw.prefix(1000)) + "…" : raw
     }
 
     /// 에이전트에게 계획 수립 요청
@@ -3042,8 +3075,8 @@ extension RoomManager {
             intakeContext = ""
         }
 
-        // 브리핑 + 산출물 기반 컨텍스트 구성 (압축)
-        let briefingContext: String
+        // 브리핑 + 산출물 기반 컨텍스트 구성 (토큰 예산 제한)
+        var briefingContext: String
         if let briefing = room.discussion.briefing {
             briefingContext = briefing.asContextString()
         } else {
@@ -3051,15 +3084,23 @@ extension RoomManager {
             let history = buildDiscussionHistory(roomID: roomID, currentAgentName: agent.name)
             briefingContext = history.map { "[\($0.role)] \($0.content)" }.suffix(10).joined(separator: "\n")
         }
+        // 브리핑 최대 2000자
+        if briefingContext.count > 2000 {
+            briefingContext = String(briefingContext.prefix(2000)) + "…(이하 생략)"
+        }
 
-        let artifactContext: String
+        var artifactContext: String
         if !room.discussion.artifacts.isEmpty {
             // 계획 수립용: 산출물 프리뷰만 전달 (토큰 절감, 전체 내용은 실행 단계에서 사용)
             artifactContext = "\n\n[참고 산출물]\n" + room.discussion.artifacts.map {
-                let preview = $0.content.prefix(200)
-                let suffix = $0.content.count > 200 ? "... (\($0.content.count)자)" : ""
+                let preview = $0.content.prefix(100)
+                let suffix = $0.content.count > 100 ? "... (\($0.content.count)자)" : ""
                 return "[\($0.type.displayName)] \($0.title) (v\($0.version)):\n\(preview)\(suffix)"
             }.joined(separator: "\n---\n")
+            // 산출물 전체 최대 1000자
+            if artifactContext.count > 1000 {
+                artifactContext = String(artifactContext.prefix(1000)) + "…"
+            }
         } else {
             artifactContext = ""
         }
@@ -3091,6 +3132,22 @@ extension RoomManager {
 
         // 문서 유형 템플릿 주입
         let docTemplateContext = room.workflowState.documentType?.templatePromptBlock() ?? ""
+
+        // 토큰 예산: 시스템 프롬프트 합산이 8000자 초과 시 briefing/artifact 추가 절단
+        let basePromptSize = systemPrompt(for: agent, roomID: roomID).count
+            + intakeContext.count + clarifyContext.count + docTemplateContext.count + playbookContext.count
+        let contextBudget = max(0, 8000 - basePromptSize)
+        if briefingContext.count + artifactContext.count > contextBudget {
+            let briefingBudget = contextBudget * 2 / 3
+            let artifactBudget = contextBudget - briefingBudget
+            if briefingContext.count > briefingBudget {
+                briefingContext = String(briefingContext.prefix(briefingBudget)) + "…"
+            }
+            if artifactContext.count > artifactBudget {
+                artifactContext = String(artifactContext.prefix(artifactBudget)) + "…"
+            }
+            print("[DOUGLAS] ⚠️ requestPlan 토큰 예산 초과 — briefing/artifact 절단 (base=\(basePromptSize), budget=\(contextBudget))")
+        }
 
         let planSystemPrompt = """
         \(systemPrompt(for: agent, roomID: roomID))

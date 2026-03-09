@@ -870,10 +870,10 @@ extension RoomManager {
         guard let room = rooms.first(where: { $0.id == roomID }) else { return [] }
         return room.messages
             .filter { $0.messageType == .text || $0.messageType == .discussion || $0.messageType == .discussionRound }
-            .suffix(40)
+            .suffix(20)
             .map { msg in
                 let role: String
-                let content: String
+                var content: String
                 switch msg.role {
                 case .user:
                     role = "user"
@@ -890,6 +890,10 @@ extension RoomManager {
                 case .system:
                     role = "user"
                     content = "[시스템]: \(msg.content)"
+                }
+                // 토큰 절감: 메시지당 최대 800자
+                if content.count > 800 {
+                    content = String(content.prefix(800)) + "…"
                 }
                 return (role: role, content: content)
             }

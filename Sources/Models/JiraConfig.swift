@@ -42,6 +42,11 @@ struct JiraConfig: Codable {
         return host == domain || host.hasSuffix(".\(domain)")
     }
 
+    /// Jira 키(PROJ-123)로 브라우저 URL 생성
+    func buildBrowseURL(forKey key: String) -> String {
+        "\(baseURL)/browse/\(key)"
+    }
+
     /// Jira 브라우저 URL을 REST API URL로 변환
     /// "/browse/PROJ-123" → "/rest/api/3/issue/PROJ-123"
     func apiURL(from browseURL: String) -> String {

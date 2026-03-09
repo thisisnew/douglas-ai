@@ -1,4 +1,7 @@
 import Foundation
+import os.log
+
+private let cliLogger = Logger(subsystem: "com.douglas.app", category: "ClaudeCLI")
 
 /// Claude Code stream-json NDJSON 이벤트를 실시간 파싱하여 도구 활동 + 텍스트 스트리밍 추적
 private final class StreamJsonHandler: @unchecked Sendable {
@@ -220,11 +223,13 @@ class ClaudeCodeProvider: AIProvider {
     /// homebrew/시스템 경로를 nvm보다 우선 탐색 (nvm에 구 버전이 남아있을 수 있음)
     static func findClaudePath() -> String {
         let homePath = NSHomeDirectory()
-        let candidates = [
+        // nvm 경로를 먼저 검색 (최신 버전 우선)
+        // /opt/homebrew/bin에 오래된 버전이 남아 있으면 호환성 에러 발생 가능
+        let candidates = ShellEnvironment.nvmBinPaths.map { "\($0)/claude" } + [
             "/opt/homebrew/bin/claude",
             "/usr/local/bin/claude",
             "\(homePath)/.local/bin/claude"
-        ] + ShellEnvironment.nvmBinPaths.map { "\($0)/claude" }
+        ]
         for path in candidates {
             if FileManager.default.isExecutableFile(atPath: path) {
                 return path
@@ -243,6 +248,18 @@ class ClaudeCodeProvider: AIProvider {
             return nodePath
         }
         return nil
+    }
+
+    /// symlink를 해석하여 실제 파일 경로 반환
+    private static func resolveSymlink(_ path: String) -> String {
+        guard let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: path) else {
+            return path
+        }
+        if dest.hasPrefix("/") {
+            return dest
+        }
+        // 상대 경로: claude가 있는 디렉토리 기준으로 해석
+        return ((path as NSString).deletingLastPathComponent as NSString).appendingPathComponent(dest)
     }
 
     func fetchModels() async throws -> [String] {
@@ -384,7 +401,10 @@ class ClaudeCodeProvider: AIProvider {
             userPrompt += "[이전 대화]\n"
             for msg in history.suffix(10) {
                 let label = msg.role == "user" ? "사용자" : "어시스턴트"
-                userPrompt += "\(label): \(msg.content)\n"
+                let truncated = msg.content.count > 500
+                    ? String(msg.content.prefix(500)) + "…"
+                    : msg.content
+                userPrompt += "\(label): \(truncated)\n"
             }
             userPrompt += "\n"
         }
@@ -402,12 +422,23 @@ class ClaudeCodeProvider: AIProvider {
         onTextChunk: (@Sendable (String) -> Void)? = nil
     ) async throws -> String {
         // 항상 최신 경로 사용 (저장된 경로가 구 버전 nvm에 묶여 있을 수 있음)
-        let effectivePath = Self.findClaudePath()
+        let claudePath = Self.findClaudePath()
 
-        // claude 스크립트 직접 실행 — shebang(#!/usr/bin/env node)이
-        // 아래에서 구성한 PATH의 최신 node를 사용하므로 버전 불일치 방지
-        let executable = effectivePath
-        var args = ["-p", prompt, "--model", model]
+        // macOS GUI 앱에서는 shebang(#!/usr/bin/env node)이 시스템 기본 PATH의 구 버전 node를
+        // 사용할 수 있음. node를 직접 실행하고 cli.js를 인자로 전달하여 올바른 버전 보장.
+        let executable: String
+        var args: [String]
+        if let nodePath = Self.findNodePath(forClaude: claudePath) {
+            executable = nodePath
+            // claude symlink → 실제 cli.js 경로 해석
+            let resolvedClaude = Self.resolveSymlink(claudePath)
+            args = [resolvedClaude, "-p", prompt, "--model", model]
+            cliLogger.info("node 직접 실행: \(nodePath, privacy: .public) \(resolvedClaude, privacy: .public)")
+        } else {
+            executable = claudePath
+            args = ["-p", prompt, "--model", model]
+        }
+        cliLogger.info("runClaude: model=\(model, privacy: .public) disableTools=\(disableTools) prompt=\(prompt.count)자 system=\(systemPrompt.count)자")
 
         // 라우터 모드: 내장 도구 비활성화 + 시스템 프롬프트 교체 (도구 지침 불필요)
         if disableTools {
@@ -421,13 +452,13 @@ class ClaudeCodeProvider: AIProvider {
                 args += ["--append-system-prompt", systemPrompt]
             }
             // 비대화형 모드(-p)에서 도구 승인 프롬프트 없이 실행
-            let tools = allowedTools ?? ["Edit", "Write", "Bash", "Read", "Glob", "Grep", "WebSearch"]
+            var tools = allowedTools ?? ["Edit", "Write", "Bash", "Read", "Glob", "Grep", "WebSearch"]
             // MCP 도구(mcp__*)가 명시적으로 포함되지 않았으면 와일드카드 추가
-            var finalTools = tools
-            if !finalTools.contains(where: { $0.hasPrefix("mcp__") || $0.contains("mcp__") }) {
-                finalTools.append("mcp__*")
+            if !tools.contains(where: { $0.hasPrefix("mcp__") }) {
+                tools.append("mcp__*")
             }
-            args += ["--allowedTools"] + finalTools
+            args += ["--allowedTools"] + tools
+            cliLogger.info("CLI tools: \(tools, privacy: .public)")
         }
 
         // 특정 도구만 선택적으로 차단 (바이브코딩 유지하면서 WebFetch 등 차단)
@@ -490,6 +521,7 @@ class ClaudeCodeProvider: AIProvider {
                 throw AIProviderError.apiError("Claude Code 응답 시간 초과 (\(Int(timeoutSeconds))초)")
             } else if result.exitCode != 0 {
                 let msg = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                cliLogger.error("CLI 에러 (streaming, exit=\(result.exitCode)): \(msg.suffix(300), privacy: .public)")
                 throw AIProviderError.apiError(msg.isEmpty ? "Claude Code 실행 실패 (코드: \(result.exitCode))" : msg)
             }
             throw AIProviderError.invalidResponse
@@ -511,6 +543,7 @@ class ClaudeCodeProvider: AIProvider {
             throw AIProviderError.apiError("Claude Code 응답 시간 초과 (\(Int(timeoutSeconds))초)")
         } else if result.exitCode != 0 {
             let msg = errorOutput.isEmpty ? "Claude Code 실행 실패 (코드: \(result.exitCode))" : errorOutput
+            cliLogger.error("CLI 에러 (normal, exit=\(result.exitCode)): \(msg.suffix(300), privacy: .public)")
             throw AIProviderError.apiError(msg)
         } else if output.isEmpty {
             throw AIProviderError.invalidResponse
