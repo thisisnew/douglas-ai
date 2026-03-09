@@ -1439,7 +1439,55 @@ struct AgentInfoSheet: View {
                         }
                     }
 
-                    if let rules = agent.workingRules, !rules.isEmpty {
+                    // 산출물 유형
+                    if !agent.outputStyles.isEmpty {
+                        infoSection(title: "산출물 유형", icon: "doc.richtext") {
+                            FlowLayout(spacing: 6) {
+                                ForEach(Array(agent.outputStyles).sorted(by: { $0.rawValue < $1.rawValue }), id: \.self) { style in
+                                    Text(style.displayName)
+                                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                                        .foregroundColor(.primary.opacity(0.7))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(palette.inputBackground)
+                                        .continuousRadius(6)
+                                }
+                            }
+                        }
+                    }
+
+                    // 작업 규칙 (신규 레코드)
+                    if !agent.workRules.isEmpty {
+                        infoSection(title: "작업 규칙", icon: "list.clipboard") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(agent.workRules) { rule in
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        HStack(spacing: 4) {
+                                            Text(rule.name)
+                                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                                .foregroundColor(.primary.opacity(0.85))
+                                            if rule.isAlwaysActive {
+                                                Text("항상")
+                                                    .font(.system(size: 9, weight: .medium))
+                                                    .foregroundColor(palette.accent)
+                                                    .padding(.horizontal, 4)
+                                                    .padding(.vertical, 1)
+                                                    .background(palette.accent.opacity(0.12))
+                                                    .continuousRadius(4)
+                                            }
+                                        }
+                                        if !rule.summary.isEmpty {
+                                            Text(rule.summary)
+                                                .font(.system(size: 11, design: .rounded))
+                                                .foregroundColor(.primary.opacity(0.6))
+                                                .lineLimit(2)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if let rules = agent.workingRules, !rules.isEmpty {
+                        // 레거시 작업 규칙 (마이그레이션 전 데이터)
                         infoSection(title: "작업 규칙", icon: "list.clipboard") {
                             VStack(alignment: .leading, spacing: 6) {
                                 if !rules.inlineText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

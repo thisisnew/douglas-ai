@@ -865,6 +865,10 @@ extension RoomManager {
         3. 참조 데이터의 출처(Jira, GitHub 등)가 아닌, 실제 수행할 작업에 집중하세요.
         예: Jira URL이 있어도 코드 수정 작업이면 → 개발자. Jira 분석가가 아님.
         예: "프론트엔드 관점에서 분석해줘" → 프론트엔드 전문가만.
+        4. **적합한 에이전트가 목록에 없으면 억지로 매칭하지 마세요.**
+        일반 질문에 도메인 전문가(백엔드/프론트엔드 개발자 등)를 배정하지 마세요.
+        작업과 직접 관련이 없는 에이전트를 선택하느니, 새로운 역할명을 만드세요.
+        예: "두쯔쿠가 뭐야" → 백엔드 개발자(X), 질의응답 전문가(O)
 
         **역할 배정 규칙:**
         - 리서치/조사/분석/취합/문서작성/테스트계획/QA 작업에 소프트웨어 개발자(백엔드/프론트엔드/앱 개발자)를 배정하지 마세요.
@@ -886,8 +890,9 @@ extension RoomManager {
         ```
 
         주의:
-        - **반드시 위 에이전트 목록에서 선택하세요.** 목록의 정확한 이름을 그대로 사용하세요.
-        - 목록에 적합한 에이전트가 정말 없을 때만 새 이름을 만드세요. 이 경우에도 역할 역량 중심으로 짓세요.
+        - 위 에이전트 목록에서 **작업과 직접 관련된** 에이전트가 있으면 그 이름을 정확히 사용하세요.
+        - 목록에 적합한 에이전트가 없으면 새 역할명을 만드세요. 억지로 관련 없는 에이전트를 선택하지 마세요.
+        - 일반 지식 질문, 잡담, 설명 요청 등에는 도메인 전문가(개발자 등)를 배정하지 마세요. → "질의응답 전문가" 등 적합한 역할을 쓰세요.
         - 작업 내용과 직접 관련된 에이전트만 선택하세요. "백엔드 쿼리 수정" → 백엔드 개발자, "UI 개선" → 프론트엔드 개발자.
         """
 
@@ -1028,54 +1033,84 @@ extension RoomManager {
                 }()
 
                 var autoInvited = false
-                if let anyAgent = subAgentsForFallback.first {
-                    let nameLower = anyAgent.name.lowercased()
+                let isQuickAnswer = rooms[idx].workflowState.intent == .quickAnswer
+
+                // 작업 키워드와 에이전트 skillTags/이름 매칭하여 가장 적합한 에이전트 탐색
+                let taskKeywords = AgentMatcher.extractSemanticKeywords(from: task)
+                var bestCandidate: (agent: Agent, score: Int)?
+                for candidate in subAgentsForFallback {
+                    let nameLower = candidate.name.lowercased()
                     let isDev = ["개발자", "엔지니어", "developer", "engineer"]
                         .contains(where: { nameLower.contains($0) })
-                    if isDev && isNonDevTask {
-                        // 개발자 에이전트 + 비개발 작업 → 자동 초대 차단, 제안으로 전환
-                    } else {
-                        addAgent(anyAgent.id, to: roomID, silent: true)
-                        autoInvited = true
+                    if isDev && (isNonDevTask || isQuickAnswer) { continue }
+
+                    var score = 0
+                    let tags = candidate.skillTags.map { $0.lowercased() }
+                    for kw in taskKeywords {
+                        if tags.contains(where: { $0.contains(kw) || kw.contains($0) }) { score += 3 }
+                        if nameLower.contains(kw) { score += 2 }
+                        if candidate.persona.lowercased().contains(kw) { score += 1 }
+                    }
+                    if score > (bestCandidate?.score ?? 0) {
+                        bestCandidate = (candidate, score)
                     }
                 }
 
+                if let best = bestCandidate {
+                    addAgent(best.agent.id, to: roomID, silent: true)
+                    autoInvited = true
+                }
+
                 if !autoInvited {
-                    // 적합한 에이전트 없음 → 생성 제안
+                    // 적합한 에이전트 없음 → 이름 결정 후 기존 에이전트 탐색 or 생성 제안
                     let taskSnippet = String(task.prefix(60))
                     let suggestedName: String
                     let suggestedPersona: String
-                    if let brief = taskBriefForFallback {
+                    let lower = task.lowercased()
+                    if lower.contains("번역") || lower.contains("translate") {
+                        suggestedName = "번역 전문가"
+                        suggestedPersona = "다국어 번역 및 현지화 전문가입니다."
+                    } else if lower.contains("트렌드") || lower.contains("동향") {
+                        suggestedName = "트렌드 분석가"
+                        suggestedPersona = "기술 트렌드와 산업 동향을 분석하는 전문가입니다."
+                    } else if lower.contains("코드") || lower.contains("개발") || lower.contains("구현") {
+                        suggestedName = "소프트웨어 엔지니어"
+                        suggestedPersona = "소프트웨어 설계 및 구현 전문가입니다."
+                    } else if lower.contains("문서") || lower.contains("보고서") || lower.contains("작성") {
+                        suggestedName = "문서 작성 전문가"
+                        suggestedPersona = "보고서, 기획서 등 문서 작성 전문가입니다."
+                    } else if isQuickAnswer {
+                        suggestedName = "질의응답 전문가"
+                        suggestedPersona = "다양한 주제에 대해 정확하고 이해하기 쉽게 답변하는 범용 질의응답 전문가입니다."
+                    } else if let brief = taskBriefForFallback {
                         let domain = brief.goal.prefix(30)
                         suggestedName = brief.outputType == .answer || brief.outputType == .analysis
                             ? "리서치 전문가" : "\(intentName) 전문가"
                         suggestedPersona = "\(domain) 관련 질문에 답변하고 분석하는 전문가입니다."
                     } else {
-                        let lower = task.lowercased()
-                        if lower.contains("번역") || lower.contains("translate") {
-                            suggestedName = "번역 전문가"
-                            suggestedPersona = "다국어 번역 및 현지화 전문가입니다."
-                        } else if lower.contains("트렌드") || lower.contains("동향") {
-                            suggestedName = "트렌드 분석가"
-                            suggestedPersona = "기술 트렌드와 산업 동향을 분석하는 전문가입니다."
-                        } else if lower.contains("코드") || lower.contains("개발") || lower.contains("구현") {
-                            suggestedName = "소프트웨어 엔지니어"
-                            suggestedPersona = "소프트웨어 설계 및 구현 전문가입니다."
-                        } else if lower.contains("문서") || lower.contains("보고서") || lower.contains("작성") {
-                            suggestedName = "문서 작성 전문가"
-                            suggestedPersona = "보고서, 기획서 등 문서 작성 전문가입니다."
-                        } else {
-                            suggestedName = "범용 전문가"
-                            suggestedPersona = "'\(taskSnippet)' 작업을 수행하는 전문가입니다."
-                        }
+                        suggestedName = "범용 전문가"
+                        suggestedPersona = "'\(taskSnippet)' 작업을 수행하는 전문가입니다."
                     }
-                    let suggestion = RoomAgentSuggestion(
-                        name: suggestedName,
-                        persona: suggestedPersona,
-                        reason: "'\(taskSnippet)' 작업에 적합한 전문가가 필요합니다.",
-                        suggestedBy: agent.name
-                    )
-                    addAgentSuggestion(suggestion, to: roomID)
+
+                    // 같은 이름의 에이전트가 이미 있으면 자동 초대 (생성 제안 대신)
+                    let suggestedLower = suggestedName.lowercased()
+                    if let existingAgent = subAgentsForFallback.first(where: {
+                        let nameLower = $0.name.lowercased()
+                        return nameLower == suggestedLower
+                            || nameLower.contains(suggestedLower)
+                            || suggestedLower.contains(nameLower)
+                    }) {
+                        addAgent(existingAgent.id, to: roomID, silent: true)
+                        autoInvited = true
+                    } else {
+                        let suggestion = RoomAgentSuggestion(
+                            name: suggestedName,
+                            persona: suggestedPersona,
+                            reason: "'\(taskSnippet)' 작업에 적합한 전문가가 필요합니다.",
+                            suggestedBy: agent.name
+                        )
+                        addAgentSuggestion(suggestion, to: roomID)
+                    }
                 }
                 await waitForSuggestionResponse(roomID: roomID)
 
@@ -1109,10 +1144,9 @@ extension RoomManager {
             for req in suggestedReqs {
                 guard let agentID = req.matchedAgentID,
                       let sugAgent = agentStore?.agents.first(where: { $0.id == agentID }) else { continue }
-                let confidenceStr = String(format: "%.0f%%", req.confidence * 100)
                 let suggestMsg = ChatMessage(
                     role: .system,
-                    content: "\(sugAgent.name)도 추가할까요? (매칭도: \(confidenceStr)) [추가] [이대로]",
+                    content: "\(sugAgent.name)도 참여시킬까요?",
                     messageType: .approvalRequest
                 )
                 appendMessage(suggestMsg, to: roomID)

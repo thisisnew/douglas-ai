@@ -246,11 +246,9 @@ struct CreateRoomSheet: View {
         guard !trimmedTitle.isEmpty, !trimmedTask.isEmpty, !selectedAgentIDs.isEmpty else { return }
 
         let attachments = pendingAttachments.isEmpty ? nil : pendingAttachments
-        if let roomID = onCreateRoom?(trimmedTitle, Array(selectedAgentIDs), trimmedTask, attachments) {
-            UtilityWindowManager.shared.closeKeyWindow()
-            // 방 채팅 창 열기는 호출측에서 처리
-            _ = roomID
-        }
+        // 새 방 채팅 윈도우가 열리기 전에 현재 윈도우를 먼저 닫아야 key window 혼동 방지
+        UtilityWindowManager.shared.closeKeyWindow()
+        _ = onCreateRoom?(trimmedTitle, Array(selectedAgentIDs), trimmedTask, attachments)
     }
 
     // MARK: - 파일 첨부
