@@ -163,6 +163,7 @@ enum RoomStatus: String, Codable {
     case awaitingUserInput  // 사용자 입력 대기 (ask_user 도구)
     case completed          // 작업 완료
     case failed             // 실패
+    case cancelled          // 사용자 취소
 
     /// 허용된 상태 전이 검증
     func canTransition(to target: RoomStatus) -> Bool {
@@ -170,29 +171,62 @@ enum RoomStatus: String, Codable {
         case (.planning, .inProgress),
              (.planning, .completed),
              (.planning, .failed),
+             (.planning, .cancelled),
              (.planning, .awaitingApproval),
              (.planning, .awaitingUserInput),
              (.inProgress, .completed),
              (.inProgress, .failed),
+             (.inProgress, .cancelled),
              (.inProgress, .awaitingApproval),
              (.inProgress, .awaitingUserInput),
              (.awaitingApproval, .inProgress),
              (.awaitingApproval, .planning),
              (.awaitingApproval, .failed),
+             (.awaitingApproval, .cancelled),
              (.awaitingApproval, .completed),
              (.awaitingUserInput, .planning),
              (.awaitingUserInput, .inProgress),
              (.awaitingUserInput, .completed),
              (.awaitingUserInput, .failed),
+             (.awaitingUserInput, .cancelled),
              (.completed, .inProgress),
              (.completed, .planning),
              (.failed, .inProgress),
-             (.failed, .planning):
+             (.failed, .planning),
+             (.cancelled, .inProgress),
+             (.cancelled, .planning):
             return true
         default:
             return false
         }
     }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        self = RoomStatus(rawValue: raw) ?? .failed
+    }
+}
+
+// MARK: - 요청 상태 (WORKFLOW_SPEC §7 — 21개 상태 투영)
+
+enum RequestStatus: String, Codable {
+    // Intake
+    case received
+    // Clarification
+    case intentClassified
+    case waitingClarification
+    // Setup
+    case roomCreated
+    case agentMatched
+    case waitingAgentConfirmation
+    // Work
+    case discussing, planning, executing, documenting
+    // Approval Gates
+    case waitingPlanApproval, waitingExecutionApproval
+    case waitingUserFeedback, waitingFinalApproval
+    // Terminal
+    case completed, failed, cancelled
 }
 
 // MARK: - 방 생성자
@@ -207,7 +241,7 @@ enum RoomCreator: Codable, Equatable {
 /// 개별 실행 단계 (승인 게이트 + 에이전트 배정 지원)
 /// 단계 실행 상태
 enum StepStatus: String, Codable {
-    case pending, inProgress, completed, skipped, failed
+    case pending, inProgress, awaitingApproval, completed, skipped, failed
 }
 
 struct RoomStep: Codable, Equatable {
@@ -499,7 +533,10 @@ struct Room: Identifiable, Codable {
 
     /// 활성 방 여부 (planning, inProgress, awaitingApproval, awaitingUserInput)
     var isActive: Bool {
-        status == .planning || status == .inProgress || status == .awaitingApproval || status == .awaitingUserInput
+        switch status {
+        case .planning, .inProgress, .awaitingApproval, .awaitingUserInput: return true
+        case .completed, .failed, .cancelled: return false
+        }
     }
 
     /// 사용자 확인이 필요한 상태 (승인 대기, 입력 대기, 에이전트 생성 제안 대기)
@@ -563,6 +600,45 @@ struct Room: Identifiable, Codable {
             return "완료"
         case .failed:
             return "실패"
+        case .cancelled:
+            return "취소됨"
+        }
+    }
+
+    // MARK: - 요청 상태 투영 (WORKFLOW_SPEC §7)
+
+    /// RoomStatus + WorkflowPhase + AwaitingType 조합으로 명세 §7의 세분화된 상태를 투영
+    var requestStatus: RequestStatus {
+        switch status {
+        case .planning:
+            guard let phase = workflowState.currentPhase else { return .received }
+            switch phase {
+            case .intake: return .received
+            case .intent, .understand: return .intentClassified
+            case .clarify: return awaitingType == .clarification ? .waitingClarification : .intentClassified
+            case .assemble: return awaitingType == .agentConfirmation ? .waitingAgentConfirmation : .agentMatched
+            case .design: return .discussing
+            case .plan: return awaitingType == .planApproval ? .waitingPlanApproval : .planning
+            case .build, .execute: return .executing
+            case .review: return .executing
+            case .deliver: return awaitingType == .deliverApproval ? .waitingFinalApproval : .documenting
+            }
+        case .inProgress:
+            return .executing
+        case .awaitingApproval:
+            switch awaitingType {
+            case .planApproval: return .waitingPlanApproval
+            case .stepApproval, .irreversibleStep: return .waitingExecutionApproval
+            case .finalApproval, .deliverApproval: return .waitingFinalApproval
+            case .agentConfirmation: return .waitingAgentConfirmation
+            case .clarification: return .waitingClarification
+            case .designApproval: return .waitingPlanApproval
+            default: return .waitingUserFeedback
+            }
+        case .awaitingUserInput: return .waitingUserFeedback
+        case .completed: return .completed
+        case .failed: return .failed
+        case .cancelled: return .cancelled
         }
     }
 
@@ -764,7 +840,7 @@ struct Room: Identifiable, Codable {
         case approvalHistory, awaitingType
         case requests, followUpActions
         // WorkflowState (개별 키 유지 — JSON 호환)
-        case intent, documentType, autoDocOutput, needsPlan, currentPhase, completedPhases
+        case intent, documentType, autoDocOutput, needsPlan, currentPhase, completedPhases, phaseTransitions
         // ClarifyContext
         case intakeData, clarifySummary, clarifyQuestionCount
         case assumptions, userAnswers, delegationInfo, playbook
@@ -810,7 +886,8 @@ struct Room: Identifiable, Codable {
             autoDocOutput: try container.decodeIfPresent(Bool.self, forKey: .autoDocOutput) ?? false,
             needsPlan: try container.decodeIfPresent(Bool.self, forKey: .needsPlan) ?? false,
             currentPhase: (try? container.decodeIfPresent(WorkflowPhase.self, forKey: .currentPhase)) ?? nil,
-            completedPhases: try container.decodeIfPresent(Set<WorkflowPhase>.self, forKey: .completedPhases) ?? []
+            completedPhases: try container.decodeIfPresent(Set<WorkflowPhase>.self, forKey: .completedPhases) ?? [],
+            phaseTransitions: try container.decodeIfPresent([PhaseTransition].self, forKey: .phaseTransitions) ?? []
         )
 
         // ClarifyContext
@@ -894,6 +971,7 @@ struct Room: Identifiable, Codable {
         if workflowState.needsPlan { try container.encode(true, forKey: .needsPlan) }
         try container.encodeIfPresent(workflowState.currentPhase, forKey: .currentPhase)
         if !workflowState.completedPhases.isEmpty { try container.encode(workflowState.completedPhases, forKey: .completedPhases) }
+        if !workflowState.phaseTransitions.isEmpty { try container.encode(workflowState.phaseTransitions, forKey: .phaseTransitions) }
         // ClarifyContext
         try container.encodeIfPresent(clarifyContext.intakeData, forKey: .intakeData)
         try container.encodeIfPresent(clarifyContext.clarifySummary, forKey: .clarifySummary)

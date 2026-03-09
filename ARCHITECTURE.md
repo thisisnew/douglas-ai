@@ -54,7 +54,7 @@ DOUGLAS/
 │   │   ├── BuildResult.swift         # 빌드 결과 모델 + BuildLoopStatus + QAResult + QALoopStatus
 │   │   ├── FileWriteTracker.swift   # 병렬 실행 파일 쓰기 충돌 감지 (actor)
 │   │   ├── ToolExecutionContext.swift # 도구 실행 컨텍스트 (+ Plan C: agentPermissions)
-│   │   ├── WorkflowIntent.swift    # 워크플로우 의도 (WorkflowPhase, WorkflowIntent 3종: quickAnswer/task/discussion)
+│   │   ├── WorkflowIntent.swift    # 워크플로우 의도 (WorkflowPhase, WorkflowIntent 6종: quickAnswer/task/discussion/research/documentation/complex)
 │   │   ├── DocumentType.swift     # 문서 유형 (6종 + 섹션 템플릿, 문서화 요청 시 사용)
 │   │   ├── DocumentRequestDetector.swift # 문서화 요청 감지 (NLTokenizer + LLM 폴백) + 포맷 변환 판별
 │   │   ├── IntentClassifier.swift # Intent 분류기 (PreIntentRoute + 규칙 기반 + LLM 폴백)
@@ -1056,7 +1056,7 @@ executeWithTools() 루프 (최대 10회):
 - `.empty`: 텍스트+파일 없음 → 무시
 - `.fileOnly`: 파일만 업로드 → intent=nil로 방 생성, 빈 task로 워크플로우 시작 → Understand 단계에서 사용자에게 작업 의도 질문 (2분 타임아웃)
 - `.command(.summonAgent)`: "에이전트 불러와" 등 시스템 명령 → 안내 메시지 표시
-- `.classified(intent)`: quickAnswer, task, discussion 확정 → 정상 워크플로우
+- `.classified(intent)`: quickAnswer, task, discussion, research, documentation 확정 → 정상 워크플로우 (complex는 LLM에서만 판별)
 - `.ambiguous`: 분류 불가 → intent=nil로 방 생성 (사용자 선택 UI)
 
 **범용 워크플로우 (Intent 기반 적응형)**:
@@ -1070,7 +1070,7 @@ executeWithTools() 루프 (최대 10회):
   → ⑥ Execute: quickAnswer(즉답) / task+needsPlan(계획 기반 실행) / task+!needsPlan(토론/분석+문서)
 ```
 
-- **Intent 분류** (`IntentClassifier`): 2종 intent (quickAnswer / task). 규칙 기반 즉시 분류 (`quickClassify`) → 실패 시 LLM 분류 (`classifyWithLLM`). `quickClassify`가 nil(판단 불가)이면 `executeIntentPhase`에서 LLM 추천 intent와 함께 **IntentSelectionCard** UI를 표시하여 사용자가 2종 intent 중 선택. `pendingIntentSelection` + `intentContinuations`으로 비동기 게이트 구현. 분류 실패 시 `.quickAnswer` 폴백 (가장 가벼운 워크플로우). 레거시 research/implementation 문자열은 `.task`로 자동 마이그레이션.
+- **Intent 분류** (`IntentClassifier`): 6종 intent (quickAnswer/task/discussion/research/documentation/complex, WORKFLOW_SPEC §4.1). 규칙 기반 즉시 분류 (`quickClassify`: 5종 판별, complex는 LLM에서만) → 실패 시 LLM 분류 (`classifyWithLLM`: 6종 모두). `quickClassify`가 nil(판단 불가)이면 `executeIntentPhase`에서 LLM 추천 intent와 함께 **IntentSelectionCard** UI를 표시하여 사용자 선택. `pendingIntentSelection` + `intentContinuations`으로 비동기 게이트 구현. 분류 실패 시 `.quickAnswer` 폴백 (가장 가벼운 워크플로우). 레거시 implementation 등 문자열은 `.task`로 자동 마이그레이션.
 - **문서화 요청 감지** (`DocumentRequestDetector`): 2단계 감지 — ① intent 확정 후 초기 task에서 패턴 감지, ② clarify 후 사용자 피드백에서 재감지 (`detectDocumentSignalFromMessages`). 감지 규칙: 문서 확장자/유형 키워드(md, pdf, 워드, 문서, 보고서 등) + 동작 어간(만들, 생성, 작성, 정리 등) 조합 → 문서 요청 판정. 동사 활용 대응을 위해 prefix 매칭 사용 (만들어줘→만들, 생성해줘→생성). 감지 시 `room.autoDocOutput = true` + `room.documentType` 설정 (suggestedDocType nil → .freeform 폴백). **문서 요청이 감지되면 clarify 단계 자동 스킵** (사용자 의도가 명확하므로 복명복창 불필요). **autoDocOutput이면 assemble에서 LLM 역할 분석 바이패스** → 문서 역량 에이전트(outputStyles.contains(.document) > skillTags > name 키워드 순) 직접 배정. task 완료 후 자동 문서화 (preferredKeywords 기반 최적 에이전트 선택) + NSSavePanel 저장 (클릭 가능 file:// 링크 제공). 후속 사이클에서도 "문서로 정리해줘" 등 감지 가능 (1차 키워드 + 2차 LLM 폴백).
 - **복명복창 Clarify** (`executeClarifyPhase`): DOUGLAS가 요청을 요약 → 사용자 승인/거부 → 거부 시 피드백 반영 재요약 → 승인까지 무한 반복. 승인 시 `room.clarifySummary`에 저장 + `[delegation]` 블록 파싱 → `room.delegationInfo`(`DelegationInfo`)에 저장. explicit 타입이면 assemble에서 LLM 역할 분석 스킵 → 지정 에이전트만 배정. open이면 기존 흐름.
 - **동적 Plan 판단** (`classifyNeedsPlan`): assemble 완료 후 2단계 판별. ① 키워드 기반 즉시 판별(`classifyNeedsPlanByKeywords`): clarifySummary+task에서 구현 키워드(수정/구현/fix/쿼리 등)와 분석 키워드(리서치/요약/번역 등)를 가중치 합산 — planScore≥5이면 즉시 true, noPlanScore≥5 && planScore<3이면 즉시 false. ② 키워드 애매 시 LLM 폴백: light model이 YES/NO 판별. 실패 시 false (안전한 기본값). 결과를 `room.needsPlan`에 저장.
@@ -1189,7 +1189,7 @@ executeWithTools() 루프 (최대 10회):
 
 | 항목 | 내용 | 상태 |
 |------|------|------|
-| E-1 | **WorkflowIntent 3종**: quickAnswer, task, discussion. discussion = 의견 교환/브레인스토밍 (Build/Review 스킵, Design 내 DOUGLAS 종합). 레거시 brainstorm → `.discussion` 마이그레이션. | ✅ |
+| E-1 | **WorkflowIntent 6종**: quickAnswer, task, discussion, research, documentation, complex (WORKFLOW_SPEC §4.1). discussion/research = Design 내 완결. documentation = Design+Build (Review 불필요). complex = task와 동일 풀 파이프라인. | ✅ |
 | E-2 | **IntentClassifier + PreIntentRoute**: 규칙 기반 키워드 즉시 분류 → LLM 폴백. `ChatViewModel.handleMasterMessage`에서 `preRoute()`로 Pre-Intent 라우팅 (empty/fileOnly/command/classified/ambiguous). | ✅ |
 | E-3 | **복명복창 Clarify**: DOUGLAS가 이해한 내용 요약 → 사용자 승인까지 무한 루프. 거부 시 피드백 반영 재요약. | ✅ |
 | E-4 | **DecisionLog**: 토론 중 `[합의: 내용]` 파싱 → `DecisionEntry` 기록. `Room.decisionLog` 저장. | ✅ |
@@ -1219,14 +1219,19 @@ executeWithTools() 루프 (최대 10회):
 ⑥ Deliver ─── DeferredAction 프리뷰 + 승인 → 실제 실행, 거부 → 취소, 무응답 → HOLD
 ```
 
-**Intent별 경로**:
+**Intent별 경로** (WORKFLOW_SPEC §4.1):
 | Intent | 단계 |
 |--------|------|
 | quickAnswer | Understand → Assemble → Deliver |
 | task | Understand → Assemble → Design → Build → Review → Deliver |
 | discussion | Understand → Assemble → Design(토론+종합) → Deliver |
+| research | Understand → Assemble → Design(조사 수행) → Deliver |
+| documentation | Understand → Assemble → Design(구조 설계) → Build(문서 작성) → Deliver |
+| complex | Understand → Assemble → Design → Build → Review → Deliver |
 
-**discussion 워크플로우**: Design 단계 내에서 전문가 의견 수렴(병렬) → 상호 피드백(순차) → DOUGLAS 진행자 종합까지 완결. Build/Review 불필요.
+**discussion/research 워크플로우**: Design 단계 내에서 전문가 의견 수렴(병렬) → 상호 피드백(순차) → DOUGLAS 진행자 종합까지 완결. Build/Review 불필요.
+
+**documentation 워크플로우**: Design(구조 설계) → Build(문서 작성) → Deliver. 문서 전문가가 직접 최종화 — Review 불필요 (WORKFLOW_SPEC §12.6).
 
 **워크플로우 명세 (정본: `WORKFLOW_SPEC.md`)**:
 

@@ -251,16 +251,31 @@ DOUGLAS는 요청에 따라 가장 적합한 에이전트를 자동 매칭한다
 | 최종 승인 | 마무리 직전 결과 방향이 괜찮은지 확인하는 승인 |
 | 되돌릴 수 없는 단계 직전 승인 | 최종 파일 저장, 문서 export, 대규모 반영, 외부 전송, 커밋/배포/PR 생성 등 확정 행위 전 필수 승인 |
 
-### 8.2 실행 권한 상태
+### 8.2 실행 권한 모델
 
-| 권한 | 설명 |
-|------|------|
-| READ_ONLY | 읽기 전용 |
-| PLAN_ONLY | 계획만 가능 |
-| PATCH_ALLOWED | 패치 허용 |
-| FILE_WRITE_ALLOWED | 파일 쓰기 허용 |
-| TOOL_ALLOWED | 도구 사용 허용 |
-| FULL_EXECUTION_ALLOWED | 전체 실행 허용 |
+코드 구현은 2-레이어 모델을 사용한다:
+
+**ActionScope** (에이전트 레벨 — 도구 접근 범위 7종):
+
+| 범위 | 설명 | 예시 도구 |
+|------|------|-----------|
+| readFiles | 파일/코드 읽기 (항상 안전) | file_read, code_search |
+| readWeb | 웹 검색/수집 (항상 안전) | web_search, web_fetch |
+| writeFiles | 로컬 파일 쓰기 (되돌릴 수 있음) | file_write |
+| runCommands | 셸 명령 실행 (되돌릴 수 있음) | shell_exec |
+| modifyExternal | 외부 시스템 변경 (되돌리기 어려움) | jira_update, jira_comment |
+| communicate | 메시지 전송 (되돌리기 어려움) | send_email, slack_post |
+| inviteAgents | 다른 에이전트 초대 | invite_agent, list_agents |
+
+**RiskLevel** (단계 레벨 — 실행 위험도 3종):
+
+| 레벨 | 설명 | 승인 정책 |
+|------|------|-----------|
+| low | 내부 작업 (초안, 분석, 리서치, 요약) | 자동 진행 가능 |
+| medium | 수정 가능한 외부 작업 (Draft PR, 문서 초안) | 주의 알림 |
+| high | 되돌리기 어려운 외부 작업 (메일 전송, 배포, DB) | 반드시 사전 승인 |
+
+ActionScope × RiskLevel 조합으로 도구별 세밀한 권한 검사를 수행한다.
 
 ## 9. 후속 입력 처리 규칙
 

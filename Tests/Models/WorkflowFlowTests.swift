@@ -221,11 +221,11 @@ struct WorkflowFlowTests {
         #expect(result3?.isDocumentRequest == true)
     }
 
-    @Test("Case 7: 문서 요청은 task로 분류 (quickAnswer 아님)")
+    @Test("Case 7: 문서 요청은 documentation 또는 task로 분류 (quickAnswer 아님)")
     func case7IntentClassification() {
         #expect(IntentClassifier.quickClassify("문서 만들어줘") == .task)
-        #expect(IntentClassifier.quickClassify("보고서로 정리해줘") == .task)
-        #expect(IntentClassifier.quickClassify("기획서 작성해줘") == .task)
+        #expect(IntentClassifier.quickClassify("보고서로 정리해줘") == .documentation)
+        #expect(IntentClassifier.quickClassify("기획서 작성해줘") == .documentation)
     }
 
     @Test("Case 7: 비문서 요청은 감지 안 됨")
@@ -345,9 +345,11 @@ struct WorkflowFlowTests {
         }
     }
 
-    @Test("Phase 불변성: build 있으면 review도 반드시 있음")
+    @Test("Phase 불변성: build 있으면 review도 반드시 있음 (documentation 제외)")
     func buildImpliesReview() {
         for intent in WorkflowIntent.allCases {
+            // documentation은 문서 전문가가 직접 최종화 — review 불필요 (WORKFLOW_SPEC §12.6)
+            if intent == .documentation { continue }
             let phases = intent.requiredPhases
             if phases.contains(.build) {
                 #expect(phases.contains(.review),

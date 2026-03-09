@@ -133,6 +133,11 @@ final class ScriptPlugin: DougPlugin {
             let env = ["ROOM_ID": roomID.uuidString, "ROOM_TITLE": title]
             _ = await runScript(script, env: env)
 
+        case .roomCancelled(let roomID, let title):
+            guard let script = manifest.handlers?.onRoomFailed else { return }
+            let env = ["ROOM_ID": roomID.uuidString, "ROOM_TITLE": title, "ROOM_STATUS": "cancelled"]
+            _ = await runScript(script, env: env)
+
         case .workflowPhaseChanged,
              .toolExecutionStarted, .toolExecutionCompleted,
              .agentInvited, .agentResponseReceived,

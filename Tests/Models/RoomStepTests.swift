@@ -228,8 +228,40 @@ struct RoomStepTests {
 
     @Test("StepStatus - 모든 rawValue 왕복")
     func stepStatusAllRawValues() {
-        for status in [StepStatus.pending, .inProgress, .completed, .skipped, .failed] {
+        for status in [StepStatus.pending, .inProgress, .completed, .skipped, .failed, .awaitingApproval] {
             #expect(StepStatus(rawValue: status.rawValue) == status)
         }
+    }
+
+    // MARK: - StepStatus.awaitingApproval
+
+    @Test("StepStatus.awaitingApproval - 명시 설정")
+    func stepStatusAwaitingApproval() {
+        var step = RoomStep(text: "배포", requiresApproval: true)
+        step.status = .awaitingApproval
+        #expect(step.status == .awaitingApproval)
+    }
+
+    @Test("StepStatus.awaitingApproval - Codable 왕복")
+    func stepStatusAwaitingApprovalCodable() throws {
+        var step = RoomStep(text: "배포", requiresApproval: true)
+        step.status = .awaitingApproval
+        let data = try JSONEncoder().encode(step)
+        let decoded = try JSONDecoder().decode(RoomStep.self, from: data)
+        #expect(decoded.status == .awaitingApproval)
+    }
+
+    @Test("StepStatus.awaitingApproval - 전이: pending → inProgress → awaitingApproval → inProgress → completed")
+    func stepStatusAwaitingApprovalTransition() {
+        var step = RoomStep(text: "배포", requiresApproval: true)
+        #expect(step.status == .pending)
+        step.status = .inProgress
+        #expect(step.status == .inProgress)
+        step.status = .awaitingApproval
+        #expect(step.status == .awaitingApproval)
+        step.status = .inProgress
+        #expect(step.status == .inProgress)
+        step.status = .completed
+        #expect(step.status == .completed)
     }
 }

@@ -17,11 +17,6 @@ struct IntentClassifierTests {
         #expect(IntentClassifier.quickClassify("이거 영어로 번역해줘") == .quickAnswer)
     }
 
-    @Test("긴 번역 요청 → task (복합 작업)")
-    func longTranslation() {
-        #expect(IntentClassifier.quickClassify("이 프로젝트의 README를 한국어로 번역하고 기술 용어집도 포함해서 문서화해줘") == .task)
-    }
-
     @Test("설명 요청 → quickAnswer")
     func explanation() {
         #expect(IntentClassifier.quickClassify("알려줘") == .quickAnswer)
@@ -32,7 +27,51 @@ struct IntentClassifierTests {
         #expect(IntentClassifier.quickClassify("뜻이 뭐야") == .quickAnswer)
     }
 
-    // MARK: - quickClassify: task (기존 research 케이스)
+    // MARK: - quickClassify: research (Phase 3 신규)
+
+    @Test("조사 → research")
+    func researchDirect() {
+        #expect(IntentClassifier.quickClassify("이 주제 조사해줘") == .research)
+    }
+
+    @Test("리서치 → research")
+    func researchKeyword() {
+        #expect(IntentClassifier.quickClassify("리서치해줘") == .research)
+    }
+
+    @Test("서베이 → research")
+    func surveyKeyword() {
+        #expect(IntentClassifier.quickClassify("경쟁사 서베이 해줘") == .research)
+    }
+
+    // MARK: - quickClassify: documentation (Phase 3 신규)
+
+    @Test("기획서 작성 → documentation")
+    func documentWriting() {
+        #expect(IntentClassifier.quickClassify("기획서 작성해줘") == .documentation)
+    }
+
+    @Test("보고서 정리 → documentation")
+    func reportOrganize() {
+        #expect(IntentClassifier.quickClassify("보고서로 정리해줘") == .documentation)
+    }
+
+    @Test("PRD → documentation")
+    func prd() {
+        #expect(IntentClassifier.quickClassify("PRD 작성해줘") == .documentation)
+    }
+
+    @Test("문서화 → documentation")
+    func documentationKeyword() {
+        #expect(IntentClassifier.quickClassify("이걸 문서화해줘") == .documentation)
+    }
+
+    @Test("제안서 → documentation")
+    func proposalKeyword() {
+        #expect(IntentClassifier.quickClassify("제안서 만들어줘") == .documentation)
+    }
+
+    // MARK: - quickClassify: task (구현)
 
     @Test("짧은 요약 → quickAnswer (단순 변환)")
     func summarize() {
@@ -50,29 +89,9 @@ struct IntentClassifierTests {
         #expect(result == WorkflowIntent.task)
     }
 
-    @Test("문서 작성 → task")
-    func documentWriting() {
-        #expect(IntentClassifier.quickClassify("기획서 작성해줘") == WorkflowIntent.task)
-    }
-
-    @Test("보고서 정리 → task")
-    func reportOrganize() {
-        #expect(IntentClassifier.quickClassify("보고서로 정리해줘") == WorkflowIntent.task)
-    }
-
-    @Test("리서치 → task")
-    func researchDirect() {
-        #expect(IntentClassifier.quickClassify("이 주제 조사해줘") == WorkflowIntent.task)
-    }
-
     @Test("분석 요청 → task")
     func analysis() {
         #expect(IntentClassifier.quickClassify("이거 분석해봐") == WorkflowIntent.task)
-    }
-
-    @Test("PRD → task")
-    func prd() {
-        #expect(IntentClassifier.quickClassify("PRD 작성해줘") == WorkflowIntent.task)
     }
 
     @Test("브레인스토밍 → discussion")
@@ -84,8 +103,6 @@ struct IntentClassifierTests {
     func convert() {
         #expect(IntentClassifier.quickClassify("워드로 변환해줘") == WorkflowIntent.task)
     }
-
-    // MARK: - quickClassify: task (기존 implementation 케이스)
 
     @Test("코딩 → task")
     func coding() {
@@ -107,15 +124,13 @@ struct IntentClassifierTests {
         #expect(IntentClassifier.quickClassify("이 코드 리팩토링해줘") == WorkflowIntent.task)
     }
 
-    // MARK: - 문서/코드 모두 task
-
     @Test("pdf로 만들어줘 → task")
     func pdfContextOverridesAction() {
         let result = IntentClassifier.quickClassify("이걸 pdf로 만들어줘")
         #expect(result == WorkflowIntent.task)
     }
 
-    @Test("문서 만들어줘 → task")
+    @Test("문서 만들어줘 → task (문서 단독으로는 documentation 임계값 미달)")
     func documentMake() {
         let result = IntentClassifier.quickClassify("문서 만들어줘")
         #expect(result == WorkflowIntent.task)
@@ -125,6 +140,11 @@ struct IntentClassifierTests {
     func appMake() {
         let result = IntentClassifier.quickClassify("앱 만들어줘")
         #expect(result == WorkflowIntent.task)
+    }
+
+    @Test("번역 + 문서화 복합 → documentation (문서화가 최종 동사)")
+    func longTranslation() {
+        #expect(IntentClassifier.quickClassify("이 프로젝트의 README를 한국어로 번역하고 기술 용어집도 포함해서 문서화해줘") == .documentation)
     }
 
     // MARK: - nil 반환 케이스
@@ -210,5 +230,19 @@ struct IntentClassifierTests {
         """
         let route = IntentClassifier.preRoute(input, hasAttachments: false)
         #expect(route == .classified(.task))
+    }
+
+    // MARK: - LLM parseIntent (Phase 3 신규)
+
+    @Test("preRoute — 조사 요청 → classified research")
+    func preRouteResearch() {
+        let route = IntentClassifier.preRoute("이거 조사해줘", hasAttachments: false)
+        #expect(route == .classified(.research))
+    }
+
+    @Test("preRoute — 문서화 요청 → classified documentation")
+    func preRouteDocumentation() {
+        let route = IntentClassifier.preRoute("기획서 작성해줘", hasAttachments: false)
+        #expect(route == .classified(.documentation))
     }
 }

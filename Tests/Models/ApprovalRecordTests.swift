@@ -184,6 +184,178 @@ struct ApprovalRecordTests {
         #expect(decoded.awaitingType == .stepApproval)
     }
 
+    // MARK: - ApprovalPolicy (Phase 4: WORKFLOW_SPEC §6.4)
+
+    @Test("자동 진행 — 모든 조건 충족: quickAnswer + HIGH + low risk + 단일 에이전트")
+    func autoApproveAllConditionsMet() {
+        let result = ApprovalPolicy.shouldAutoApproveTeam(
+            intentConfidence: .high,
+            intent: .quickAnswer,
+            overallRisk: .low,
+            matchedAgentCount: 1,
+            suggestedAgentCount: 0
+        )
+        #expect(result == true)
+    }
+
+    @Test("자동 진행 — research + HIGH + low risk + 단일 에이전트")
+    func autoApproveResearch() {
+        let result = ApprovalPolicy.shouldAutoApproveTeam(
+            intentConfidence: .high,
+            intent: .research,
+            overallRisk: .low,
+            matchedAgentCount: 1,
+            suggestedAgentCount: 0
+        )
+        #expect(result == true)
+    }
+
+    @Test("수동 확인 — intent 신뢰도 MEDIUM")
+    func manualWhenMediumConfidence() {
+        let result = ApprovalPolicy.shouldAutoApproveTeam(
+            intentConfidence: .medium,
+            intent: .quickAnswer,
+            overallRisk: .low,
+            matchedAgentCount: 1,
+            suggestedAgentCount: 0
+        )
+        #expect(result == false)
+    }
+
+    @Test("수동 확인 — intent 신뢰도 LOW")
+    func manualWhenLowConfidence() {
+        let result = ApprovalPolicy.shouldAutoApproveTeam(
+            intentConfidence: .low,
+            intent: .research,
+            overallRisk: .low,
+            matchedAgentCount: 1,
+            suggestedAgentCount: 0
+        )
+        #expect(result == false)
+    }
+
+    @Test("수동 확인 — 구현 작업 (task)")
+    func manualWhenTaskIntent() {
+        let result = ApprovalPolicy.shouldAutoApproveTeam(
+            intentConfidence: .high,
+            intent: .task,
+            overallRisk: .low,
+            matchedAgentCount: 1,
+            suggestedAgentCount: 0
+        )
+        #expect(result == false)
+    }
+
+    @Test("수동 확인 — 복합 요청 (complex)")
+    func manualWhenComplexIntent() {
+        let result = ApprovalPolicy.shouldAutoApproveTeam(
+            intentConfidence: .high,
+            intent: .complex,
+            overallRisk: .low,
+            matchedAgentCount: 1,
+            suggestedAgentCount: 0
+        )
+        #expect(result == false)
+    }
+
+    @Test("수동 확인 — 에이전트 후보 경합")
+    func manualWhenSuggestedAgents() {
+        let result = ApprovalPolicy.shouldAutoApproveTeam(
+            intentConfidence: .high,
+            intent: .quickAnswer,
+            overallRisk: .low,
+            matchedAgentCount: 1,
+            suggestedAgentCount: 2
+        )
+        #expect(result == false)
+    }
+
+    @Test("수동 확인 — 복수 에이전트")
+    func manualWhenMultipleAgents() {
+        let result = ApprovalPolicy.shouldAutoApproveTeam(
+            intentConfidence: .high,
+            intent: .quickAnswer,
+            overallRisk: .low,
+            matchedAgentCount: 2,
+            suggestedAgentCount: 0
+        )
+        #expect(result == false)
+    }
+
+    @Test("수동 확인 — 고위험 작업")
+    func manualWhenHighRisk() {
+        let result = ApprovalPolicy.shouldAutoApproveTeam(
+            intentConfidence: .high,
+            intent: .quickAnswer,
+            overallRisk: .high,
+            matchedAgentCount: 1,
+            suggestedAgentCount: 0
+        )
+        #expect(result == false)
+    }
+
+    @Test("수동 확인 — 중위험 작업")
+    func manualWhenMediumRisk() {
+        let result = ApprovalPolicy.shouldAutoApproveTeam(
+            intentConfidence: .high,
+            intent: .quickAnswer,
+            overallRisk: .medium,
+            matchedAgentCount: 1,
+            suggestedAgentCount: 0
+        )
+        #expect(result == false)
+    }
+
+    @Test("수동 확인 — documentation (문서 생성 = 비용 있음)")
+    func manualWhenDocumentation() {
+        let result = ApprovalPolicy.shouldAutoApproveTeam(
+            intentConfidence: .high,
+            intent: .documentation,
+            overallRisk: .low,
+            matchedAgentCount: 1,
+            suggestedAgentCount: 0
+        )
+        #expect(result == false)
+    }
+
+    @Test("자동 진행 — discussion + HIGH + low + 단일")
+    func autoApproveDiscussion() {
+        let result = ApprovalPolicy.shouldAutoApproveTeam(
+            intentConfidence: .high,
+            intent: .discussion,
+            overallRisk: .low,
+            matchedAgentCount: 1,
+            suggestedAgentCount: 0
+        )
+        #expect(result == true)
+    }
+
+    @Test("수동 확인 — discussion이지만 복수 에이전트")
+    func manualWhenDiscussionMultiAgent() {
+        let result = ApprovalPolicy.shouldAutoApproveTeam(
+            intentConfidence: .high,
+            intent: .discussion,
+            overallRisk: .low,
+            matchedAgentCount: 3,
+            suggestedAgentCount: 0
+        )
+        #expect(result == false)
+    }
+
+    @Test("수동 확인 — 에이전트 0명 (빈 팀)")
+    func manualWhenNoAgents() {
+        let result = ApprovalPolicy.shouldAutoApproveTeam(
+            intentConfidence: .high,
+            intent: .quickAnswer,
+            overallRisk: .low,
+            matchedAgentCount: 0,
+            suggestedAgentCount: 0
+        )
+        #expect(result == false)
+    }
+
+    // MARK: - Room 통합 (계속)
+
     @Test("Room - 레거시 JSON(approvalHistory/awaitingType 없음) 디코딩")
     func roomLegacyDecodeWithoutApproval() throws {
         // 최소 Room JSON (필수 키만)

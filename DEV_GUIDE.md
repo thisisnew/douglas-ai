@@ -174,16 +174,22 @@ DOUGLAS/
 - AddAgentSheet에서 프리셋 선택 시 이름, 페르소나, 태그, 모드, 권한 자동 입력
 - 프리셋은 시작점일 뿐 — 사용자가 모든 값을 자유롭게 수정 가능
 
-**Intent 3종** (`WorkflowIntent`):
+**Intent 6종** (`WorkflowIntent`, WORKFLOW_SPEC §4.1):
 - `quickAnswer`: 단순 질문/번역 → Understand → Assemble → Deliver
-- `task`: 복합 작업 → Understand → Assemble → Design → Build → Review → Deliver
+- `task`: 구현 (코딩/빌드/배포) → Understand → Assemble → Design → Build → Review → Deliver
 - `discussion`: 의견 교환/브레인스토밍 → Understand → Assemble → Design(토론+종합) → Deliver
+- `research`: 자료 수집/비교/정리 → Understand → Assemble → Design(조사 수행) → Deliver
+- `documentation`: 문서 파일 작성 → Understand → Assemble → Design(구조 설계) → Build(문서 작성) → Deliver
+- `complex`: 복합 요청 (2+ 모드 혼합) → task와 동일 풀 파이프라인
 
-**discussion 워크플로우**: Design 내에서 완결
+**discussion/research 워크플로우**: Design 내에서 완결
 - Turn 1: 전문가 의견 수렴 (병렬, 논거 기반 톤 가이드)
 - Turn 2: 상호 피드백 (순차 — 이전 피드백 참조 가능)
 - 종합: DOUGLAS 진행자가 추천안 포함 결론 도출 (참여자 X)
-- Build/Review 단계 없음 — 토론 자체가 산출물
+- Build/Review 단계 없음 — 토론/조사 자체가 산출물
+
+**documentation 워크플로우**: Build → Deliver (Review 불필요)
+- 문서 전문가가 직접 최종화 (WORKFLOW_SPEC §12.6)
 
 **6단계 워크플로우** (WorkflowPhase):
 1. **Understand**: intake+intent+clarify 통합 + TaskBrief 생성 (`IntentClassifier.generateTaskBrief()`)

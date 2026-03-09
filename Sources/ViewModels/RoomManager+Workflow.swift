@@ -83,9 +83,13 @@ extension RoomManager {
             let phases = currentIntent.requiredPhases
             guard let nextPhase = phases.first(where: { !completedPhases.contains($0) }) else { break }
 
-            // 현재 단계 기록 (내부 상태만, UI 메시지 없음)
+            // 현재 단계 기록 + 전이 감사 기록 (내부 상태만, UI 메시지 없음)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                let previousPhase = rooms[i].workflowState.currentPhase
                 rooms[i].workflowState.currentPhase = nextPhase
+                rooms[i].workflowState.phaseTransitions.append(
+                    PhaseTransition(from: previousPhase, to: nextPhase)
+                )
             }
             scheduleSave()
 

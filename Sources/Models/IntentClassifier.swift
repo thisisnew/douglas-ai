@@ -90,7 +90,7 @@ enum IntentClassifier {
         let threshold: Int
     }
 
-    /// intent별 키워드 사전 (quickAnswer / discussion / task 3-카테고리)
+    /// intent별 키워드 사전 (WORKFLOW_SPEC §4.1: 5-카테고리 + complex는 LLM에서만 판별)
     private static let intentKeywords: [(intent: WorkflowIntent, keywords: ScoredKeywords)] = [
         // quickAnswer: 단순 질문 / 정보 확인 (짧은 텍스트에서만 유효)
         (.quickAnswer, ScoredKeywords(stems: [
@@ -119,11 +119,21 @@ enum IntentClassifier {
             ("알고싶", 2),
         ], threshold: 4)),
 
-        // task: 조사, 분석, 코딩, 문서작성, 요약, 변환 등 모든 복합 작업
+        // research: 자료 수집, 검색, 비교, 정리 (WORKFLOW_SPEC §4.1)
+        (.research, ScoredKeywords(stems: [
+            ("조사", 5), ("리서치", 5), ("research", 5),
+            ("서베이", 4), ("survey", 4),
+        ], threshold: 4)),
+
+        // documentation: 문서 파일 작성 (WORKFLOW_SPEC §4.1)
+        (.documentation, ScoredKeywords(stems: [
+            ("기획서", 5), ("문서작성", 5), ("문서화", 5),
+            ("prd", 5), ("제안서", 5), ("보고서", 5),
+            ("스펙", 4),
+        ], threshold: 4)),
+
+        // task: 코딩, 구현, 수정, 배포 등 구현 작업
         (.task, ScoredKeywords(stems: [
-            // 조사/리서치
-            ("조사", 4), ("리서치", 4), ("research", 4), ("트렌드", 1),
-            ("서베이", 3), ("survey", 3),
             // 분석/비교
             ("분석", 4), ("비교", 3), ("찾아", 2),
             // 자문/상담
@@ -134,9 +144,7 @@ enum IntentClassifier {
             ("테스트", 3), ("테스트계획", 4), ("테스트케이스", 4), ("test plan", 4), ("tc", 3),
             ("설계", 4), ("전략", 3), ("아키텍처", 4), ("architecture", 4),
             ("작업분해", 3), ("task breakdown", 3), ("쪼개", 2),
-            // 문서 작성
-            ("기획서", 4), ("문서작성", 4), ("문서화", 4), ("prd", 4), ("스펙", 3),
-            ("제안서", 4), ("보고서", 4),
+            // 정리/작성 (범용)
             ("정리", 3), ("작성", 3),
             // 번역
             ("번역", 4), ("translate", 4), ("翻訳", 4),
@@ -155,7 +163,7 @@ enum IntentClassifier {
             ("리팩토", 4), ("refactor", 4),
             ("배포", 4), ("deploy", 4),
             ("fix", 5), ("implement", 4),
-            ("커밋", 3), ("commit", 3), ("pr", 2), ("push", 2),
+            ("커밋", 3), ("commit", 3), ("pr ", 2), ("push", 2),
         ], threshold: 3)),
     ]
 
@@ -221,12 +229,15 @@ enum IntentClassifier {
         return maxScore?.intent
     }
 
-    /// intent 우선순위 (동점 해소용): task > discussion > quickAnswer
+    /// intent 우선순위 (동점 해소용): task > documentation > research > discussion > quickAnswer
     private static func intentPriority(_ intent: WorkflowIntent) -> Int {
         switch intent {
-        case .task: return 3
-        case .discussion: return 2
-        case .quickAnswer: return 1
+        case .complex:       return 5
+        case .task:          return 4
+        case .documentation: return 3
+        case .research:      return 2
+        case .discussion:    return 2
+        case .quickAnswer:   return 1
         }
     }
 
@@ -258,8 +269,11 @@ enum IntentClassifier {
 
         카테고리:
         - quickAnswer: 단순 질문, 정보 확인, 뜻/의미 질문 (짧은 답변으로 끝나는 것)
-        - discussion: 의견 요청, 브레인스토밍, 관점 탐색, 장단점 비교, 트렌드/전망에 대한 의견 교환 (구현/작성/수정 같은 실행 행동이 없는 것)
-        - task: 번역, 조사, 리서치, 분석, 자문, 상담, 요건 분석, 테스트 계획, 작업 분해, 기획서/문서 작성, PRD, 보고서, 요약, 문서 변환(PDF/Word 등), 코딩, 개발, 버그 수정, 구현, 배포
+        - discussion: 의견 요청, 브레인스토밍, 관점 탐색, 장단점 비교, 트렌드/전망에 대한 의견 교환
+        - research: 자료 수집, 검색, 비교 정리, 사례 조사, 레퍼런스 탐색
+        - documentation: 문서 파일 작성 — 기획서, 보고서, 제안서, PRD, 스펙, 회의록
+        - task: 코딩, 개발, 버그 수정, 구현, 배포, 리팩토링, 번역, 요약, 문서 변환(PDF/Word 등)
+        - complex: 둘 이상의 작업 모드가 혼합된 요청 (예: "조사하고 문서로 정리해줘")
 
         카테고리 이름만 한 단어로 출력하세요. 다른 내용은 절대 출력하지 마세요.
         """
@@ -286,8 +300,10 @@ enum IntentClassifier {
         case "task":                            return .task
         case "discussion":                      return .discussion
         case "brainstorm":                      return .discussion
-        // 레거시 매핑: LLM이 옛 이름을 반환할 경우 task로 통합
-        case "research", "documentation":       return .task
+        case "research":                        return .research
+        case "documentation":                   return .documentation
+        case "complex":                         return .complex
+        // 레거시 매핑: LLM이 옛 이름을 반환할 경우 task
         case "implementation":                  return .task
         case "requirementsanalysis",
              "requirements_analysis":           return .task

@@ -18,6 +18,7 @@ enum PluginEvent: Sendable {
     case roomCreated(roomID: UUID, title: String)
     case roomCompleted(roomID: UUID, title: String)
     case roomFailed(roomID: UUID, title: String)
+    case roomCancelled(roomID: UUID, title: String)
 
     // 메시지
     case messageAdded(roomID: UUID, message: ChatMessage)

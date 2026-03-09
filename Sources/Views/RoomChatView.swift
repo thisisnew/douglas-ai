@@ -97,7 +97,7 @@ struct RoomChatView: View {
                     .frame(height: 1)
 
                 // 입력 영역 (완료/실패 + 실행 중에도 표시 — 실시간 추가 요건 입력 가능)
-                if room.status == .completed || room.status == .failed || room.status == .inProgress {
+                if room.status == .completed || room.status == .failed || room.status == .cancelled || room.status == .inProgress {
                     inputArea(room)
                 }
             }
@@ -737,6 +737,13 @@ struct RoomChatView: View {
                 Text("실패")
                     .font(.system(size: 10, weight: .medium, design: .rounded))
                     .foregroundColor(.red.opacity(0.7))
+            case .cancelled:
+                Image(systemName: "slash.circle.fill")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary.opacity(0.5))
+                Text("취소됨")
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundColor(.secondary.opacity(0.5))
             }
 
             Text("·")
@@ -1094,6 +1101,10 @@ struct PlanCard: View {
             Image(systemName: "xmark.circle.fill")
                 .font(.system(size: 11))
                 .foregroundColor(.red.opacity(0.7))
+        case .awaitingApproval:
+            Image(systemName: "hand.raised.circle.fill")
+                .font(.system(size: 11))
+                .foregroundColor(.cyan.opacity(0.7))
         case .skipped:
             Image(systemName: "forward.circle.fill")
                 .font(.system(size: 11))
@@ -1109,7 +1120,7 @@ struct PlanCard: View {
         switch step.status {
         case .completed, .skipped:
             return .secondary
-        case .inProgress:
+        case .inProgress, .awaitingApproval:
             return .primary
         case .failed:
             return .red.opacity(0.7)

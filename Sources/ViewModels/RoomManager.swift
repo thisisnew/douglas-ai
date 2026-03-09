@@ -1436,6 +1436,7 @@ class RoomManager: ObservableObject, WorkflowHost {
 
     /// 에이전트 제안 취소 후: 기존 에이전트 피커를 표시하거나, 후보가 없으면 워크플로우 완료
     /// 팀 구성 확인 게이트: 자동 매칭된 에이전트를 사용자에게 확인받거나 변경 허용
+    /// WORKFLOW_SPEC §6.4: 조건 충족 시 자동 진행 (사용자 확인 스킵)
     func showTeamConfirmation(roomID: UUID) async {
         let subAgents = agentStore?.subAgents ?? []
         let roomAgentIDs = rooms.first(where: { $0.id == roomID })?.assignedAgentIDs ?? []
@@ -1452,6 +1453,30 @@ class RoomManager: ObservableObject, WorkflowHost {
             syncAgentStatuses()
             scheduleSave()
             return
+        }
+
+        // §6.4 자동 진행 판단
+        if let room = rooms.first(where: { $0.id == roomID }) {
+            let intentConfidence = room.requests.last?.intentClassification?.confidence ?? .medium
+            let intent = room.workflowState.intent ?? .task
+            let risk = room.taskBrief?.overallRisk ?? .medium
+            let suggestedCount = candidates.count - specialists.count  // 미배정 후보 수
+            let autoApprove = ApprovalPolicy.shouldAutoApproveTeam(
+                intentConfidence: intentConfidence,
+                intent: intent,
+                overallRisk: risk,
+                matchedAgentCount: specialists.count,
+                suggestedAgentCount: max(0, suggestedCount)
+            )
+            if autoApprove {
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].approvalHistory.append(
+                        ApprovalRecord(type: .teamConfirmation, approved: true, feedback: "자동 진행 (§6.4)")
+                    )
+                }
+                scheduleSave()
+                return
+            }
         }
 
         // 팀 확인 카드 표시 → 사용자 응답 대기
@@ -1803,7 +1828,7 @@ class RoomManager: ObservableObject, WorkflowHost {
         pendingTeamConfirmation.removeValue(forKey: roomID)
         pendingIntentSelection.removeValue(forKey: roomID)
         pendingDocTypeSelection.removeValue(forKey: roomID)
-        rooms[idx].transitionTo(.failed)
+        rooms[idx].transitionTo(.cancelled)
         rooms[idx].completedAt = Date()
         let msg = ChatMessage(role: .system, content: "사용자가 작업을 취소했습니다.", messageType: .error)
         appendMessage(msg, to: roomID)

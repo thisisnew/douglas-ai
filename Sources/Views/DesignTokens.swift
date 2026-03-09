@@ -170,6 +170,7 @@ enum DesignTokens {
             case .awaitingUserInput: return palette.roomAwaitingUserInput
             case .completed:         return palette.roomCompleted
             case .failed:            return palette.roomFailed
+            case .cancelled:         return palette.roomFailed.opacity(0.7)
             }
         }
         /// 레거시 호환
@@ -185,6 +186,7 @@ enum DesignTokens {
             case .awaitingUserInput: return "입력 대기"
             case .completed:         return "완료"
             case .failed:            return "실패"
+            case .cancelled:         return "취소됨"
             }
         }
     }

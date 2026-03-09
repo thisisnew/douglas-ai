@@ -170,10 +170,22 @@ enum AgentMatcher {
             var tier2Score: Double = 0
             if !agent.workModes.isEmpty, let intent = intent {
                 switch intent {
-                case .task:
+                case .task, .complex:
                     if agent.workModes.contains(.create) || agent.workModes.contains(.execute) {
                         tier2Score = 1.0
                     } else if agent.workModes.contains(.research) || agent.workModes.contains(.review) {
+                        tier2Score = 0.5
+                    }
+                case .research:
+                    if agent.workModes.contains(.research) {
+                        tier2Score = 1.0
+                    } else if agent.workModes.contains(.review) {
+                        tier2Score = 0.5
+                    }
+                case .documentation:
+                    if agent.workModes.contains(.create) {
+                        tier2Score = 1.0
+                    } else if agent.workModes.contains(.review) || agent.workModes.contains(.research) {
                         tier2Score = 0.5
                     }
                 case .quickAnswer, .discussion:

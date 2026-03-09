@@ -847,6 +847,158 @@ struct RoomTests {
         #expect(decoded.clarifyQuestionCount == 3)
     }
 
+    // MARK: - Phase DDD-2: RoomStatus.cancelled + RequestStatus
+
+    @Test("RoomStatus.cancelled rawValue")
+    func cancelledRawValue() {
+        #expect(RoomStatus.cancelled.rawValue == "cancelled")
+    }
+
+    @Test("canTransition - planning → cancelled 허용")
+    func canTransitionPlanningToCancelled() {
+        #expect(RoomStatus.planning.canTransition(to: .cancelled) == true)
+    }
+
+    @Test("canTransition - inProgress → cancelled 허용")
+    func canTransitionInProgressToCancelled() {
+        #expect(RoomStatus.inProgress.canTransition(to: .cancelled) == true)
+    }
+
+    @Test("canTransition - awaitingApproval → cancelled 허용")
+    func canTransitionAwaitingToCancelled() {
+        #expect(RoomStatus.awaitingApproval.canTransition(to: .cancelled) == true)
+    }
+
+    @Test("canTransition - awaitingUserInput → cancelled 허용")
+    func canTransitionAwaitingUserInputToCancelled() {
+        #expect(RoomStatus.awaitingUserInput.canTransition(to: .cancelled) == true)
+    }
+
+    @Test("canTransition - completed → cancelled 불가")
+    func canTransitionCompletedToCancelled() {
+        #expect(RoomStatus.completed.canTransition(to: .cancelled) == false)
+    }
+
+    @Test("canTransition - cancelled → planning 허용 (재활성화)")
+    func canTransitionCancelledToPlanning() {
+        #expect(RoomStatus.cancelled.canTransition(to: .planning) == true)
+    }
+
+    @Test("canTransition - cancelled → inProgress 허용 (재활성화)")
+    func canTransitionCancelledToInProgress() {
+        #expect(RoomStatus.cancelled.canTransition(to: .inProgress) == true)
+    }
+
+    @Test("canTransition - cancelled → completed 불가")
+    func canTransitionCancelledToCompleted() {
+        #expect(RoomStatus.cancelled.canTransition(to: .completed) == false)
+    }
+
+    @Test("Room isActive - cancelled → false")
+    func roomIsActiveCancelled() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user)
+        room.status = .cancelled
+        #expect(room.isActive == false)
+    }
+
+    @Test("RoomStatus.cancelled Codable 라운드트립")
+    func cancelledCodable() throws {
+        let data = try JSONEncoder().encode(RoomStatus.cancelled)
+        let decoded = try JSONDecoder().decode(RoomStatus.self, from: data)
+        #expect(decoded == .cancelled)
+    }
+
+    @Test("RequestStatus - planning + understand → intentClassified")
+    func requestStatusPlanningUnderstand() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .planning)
+        room.workflowState.currentPhase = .understand
+        #expect(room.requestStatus == .intentClassified)
+    }
+
+    @Test("RequestStatus - planning + assemble → agentMatched")
+    func requestStatusPlanningAssemble() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .planning)
+        room.workflowState.currentPhase = .assemble
+        #expect(room.requestStatus == .agentMatched)
+    }
+
+    @Test("RequestStatus - planning + design → discussing")
+    func requestStatusPlanningDesign() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .planning)
+        room.workflowState.currentPhase = .design
+        #expect(room.requestStatus == .discussing)
+    }
+
+    @Test("RequestStatus - planning + build → executing")
+    func requestStatusPlanningBuild() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .planning)
+        room.workflowState.currentPhase = .build
+        #expect(room.requestStatus == .executing)
+    }
+
+    @Test("RequestStatus - inProgress → executing")
+    func requestStatusInProgress() {
+        let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .inProgress)
+        #expect(room.requestStatus == .executing)
+    }
+
+    @Test("RequestStatus - awaitingApproval + planApproval → waitingPlanApproval")
+    func requestStatusAwaitingPlanApproval() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .inProgress)
+        room.status = .awaitingApproval
+        room.awaitingType = .planApproval
+        #expect(room.requestStatus == .waitingPlanApproval)
+    }
+
+    @Test("RequestStatus - awaitingApproval + stepApproval → waitingExecutionApproval")
+    func requestStatusAwaitingStepApproval() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .inProgress)
+        room.status = .awaitingApproval
+        room.awaitingType = .stepApproval
+        #expect(room.requestStatus == .waitingExecutionApproval)
+    }
+
+    @Test("RequestStatus - awaitingUserInput → waitingUserFeedback")
+    func requestStatusAwaitingUserInput() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user)
+        room.status = .awaitingUserInput
+        #expect(room.requestStatus == .waitingUserFeedback)
+    }
+
+    @Test("RequestStatus - completed")
+    func requestStatusCompleted() {
+        let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .completed)
+        #expect(room.requestStatus == .completed)
+    }
+
+    @Test("RequestStatus - failed")
+    func requestStatusFailed() {
+        let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .failed)
+        #expect(room.requestStatus == .failed)
+    }
+
+    @Test("RequestStatus - cancelled")
+    func requestStatusCancelled() {
+        var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user)
+        room.status = .cancelled
+        #expect(room.requestStatus == .cancelled)
+    }
+
+    @Test("RequestStatus - 모든 rawValue 왕복")
+    func requestStatusAllRawValues() {
+        let allCases: [RequestStatus] = [
+            .received, .intentClassified, .waitingClarification,
+            .roomCreated, .agentMatched, .waitingAgentConfirmation,
+            .discussing, .planning, .executing, .documenting,
+            .waitingPlanApproval, .waitingExecutionApproval,
+            .waitingUserFeedback, .waitingFinalApproval,
+            .completed, .failed, .cancelled
+        ]
+        for status in allCases {
+            #expect(RequestStatus(rawValue: status.rawValue) == status)
+        }
+    }
+
     @Test("Phase E 필드 없는 기존 데이터 역호환")
     func phaseEFieldsBackwardCompatible() throws {
         let room = Room(title: "Old", assignedAgentIDs: [], createdBy: .user)
