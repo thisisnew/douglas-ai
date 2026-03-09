@@ -496,6 +496,7 @@ struct Room: Identifiable, Codable {
     // Phase 1: 승인 기록 + 대기 유형
     var approvalHistory: [ApprovalRecord]
     var awaitingType: AwaitingType?
+    var pendingAgentConfirmationID: UUID?  // agentConfirmation 대기 중인 에이전트 ID
     // Phase 7: 값 객체 (30개 개별 프로퍼티 → 5개 그룹)
     var workflowState: WorkflowState
     var clarifyContext: ClarifyContext
@@ -837,7 +838,7 @@ struct Room: Identifiable, Codable {
         case timerStartedAt, timerDurationSeconds, createdAt, completedAt, createdBy
         case currentStepIndex, pendingApprovalStepIndex, pendingAgentSuggestions
         case workLog, taskBrief, agentRoles, deferredActions
-        case approvalHistory, awaitingType
+        case approvalHistory, awaitingType, pendingAgentConfirmationID
         case requests, followUpActions
         // WorkflowState (개별 키 유지 — JSON 호환)
         case intent, documentType, autoDocOutput, needsPlan, currentPhase, completedPhases, phaseTransitions
@@ -876,6 +877,7 @@ struct Room: Identifiable, Codable {
         deferredActions = try container.decodeIfPresent([DeferredAction].self, forKey: .deferredActions) ?? []
         approvalHistory = try container.decodeIfPresent([ApprovalRecord].self, forKey: .approvalHistory) ?? []
         awaitingType = try container.decodeIfPresent(AwaitingType.self, forKey: .awaitingType)
+        pendingAgentConfirmationID = try container.decodeIfPresent(UUID.self, forKey: .pendingAgentConfirmationID)
         requests = try container.decodeIfPresent([DouglasRequest].self, forKey: .requests) ?? []
         followUpActions = try container.decodeIfPresent([FollowUpAction].self, forKey: .followUpActions) ?? []
 
@@ -962,6 +964,7 @@ struct Room: Identifiable, Codable {
         if !deferredActions.isEmpty { try container.encode(deferredActions, forKey: .deferredActions) }
         if !approvalHistory.isEmpty { try container.encode(approvalHistory, forKey: .approvalHistory) }
         try container.encodeIfPresent(awaitingType, forKey: .awaitingType)
+        try container.encodeIfPresent(pendingAgentConfirmationID, forKey: .pendingAgentConfirmationID)
         if !requests.isEmpty { try container.encode(requests, forKey: .requests) }
         if !followUpActions.isEmpty { try container.encode(followUpActions, forKey: .followUpActions) }
         // WorkflowState (개별 키로 인코딩 — JSON 호환)

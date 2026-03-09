@@ -1112,6 +1112,7 @@ extension RoomManager {
 
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                     rooms[i].awaitingType = .agentConfirmation
+                    rooms[i].pendingAgentConfirmationID = agentID
                     rooms[i].transitionTo(.awaitingApproval)
                 }
                 syncAgentStatuses()

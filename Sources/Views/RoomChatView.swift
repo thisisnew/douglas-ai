@@ -1231,6 +1231,7 @@ struct BuildStatusCard: View {
 struct ApprovalCard: View {
     let roomID: UUID
     @EnvironmentObject var roomManager: RoomManager
+    @EnvironmentObject var agentStore: AgentStore
     @Environment(\.colorPalette) private var palette
     @State private var hoveredButton: String?
     @State private var showFeedbackInput = false
@@ -1239,6 +1240,12 @@ struct ApprovalCard: View {
 
     private var room: Room? {
         roomManager.rooms.first { $0.id == roomID }
+    }
+
+    /// agentConfirmation 대기 중인 에이전트
+    private var pendingAgent: Agent? {
+        guard let agentID = room?.pendingAgentConfirmationID else { return nil }
+        return agentStore.agents.first { $0.id == agentID }
     }
 
     /// 자동 승인 카운트다운 (nil이면 타이머 없음)
@@ -1337,6 +1344,13 @@ struct ApprovalCard: View {
         case .planApproval:
             // 계획 승인: header PlanCard가 편집 모드이므로 compact summary만 표시
             PlanApprovalSummary(plan: room?.plan)
+        case .agentConfirmation:
+            // 에이전트 추가 제안: 프로필 표시
+            if let agent = pendingAgent {
+                AgentConfirmationContent(agent: agent, palette: palette)
+            } else {
+                GenericApprovalDetail(detail: approvalDetail)
+            }
         default:
             // 기타 유형: 메시지 기반 텍스트 표시
             GenericApprovalDetail(detail: approvalDetail)
@@ -1530,6 +1544,32 @@ private struct GenericApprovalDetail: View {
                 .background(palette.inputBackground.opacity(0.5))
                 .continuousRadius(DesignTokens.CozyGame.cardRadius)
         }
+    }
+}
+
+/// 에이전트 추가 제안 콘텐츠 (참여 전문가 스타일)
+private struct AgentConfirmationContent: View {
+    let agent: Agent
+    let palette: ColorPalette
+
+    var body: some View {
+        HStack(spacing: 10) {
+            AgentAvatarView(agent: agent, size: 32)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(agent.name)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.primary)
+                Text(String(agent.persona.prefix(60)) + (agent.persona.count > 60 ? "..." : ""))
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer()
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .background(palette.inputBackground.opacity(0.5))
+        .continuousRadius(DesignTokens.CozyGame.cardRadius)
     }
 }
 
