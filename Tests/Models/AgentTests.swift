@@ -145,6 +145,26 @@ struct AgentTests {
 
     // MARK: - imageData (파일 시스템 I/O)
 
+    @Test("imageData 변경 시 Equatable이 변경을 감지해야 함")
+    func imageChangeDetectedByEquatable() {
+        let id = UUID()
+        var agent = Agent(id: id, name: "A", persona: "p", providerName: "P", modelName: "M")
+
+        // 첫 번째 이미지 설정
+        agent.imageData = Data("image-v1".utf8)
+        let snapshot1 = agent
+
+        // 다른 이미지로 변경
+        agent.imageData = Data("image-v2".utf8)
+        let snapshot2 = agent
+
+        // SwiftUI가 변경을 감지하려면 두 스냅샷이 다르게 비교되어야 함
+        #expect(snapshot1 != snapshot2, "이미지를 교체하면 Agent 비교에서 차이가 감지되어야 합니다")
+
+        // cleanup
+        agent.imageData = nil
+    }
+
     @Test("imageData - 설정 후 hasImage true")
     func imageDataSet() {
         let id = UUID()

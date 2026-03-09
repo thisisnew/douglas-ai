@@ -97,6 +97,7 @@ struct Agent: Identifiable, Codable, Hashable {
         lhs.id == rhs.id &&
         lhs.name == rhs.name &&
         lhs.hasImage == rhs.hasImage &&
+        lhs.imageVersion == rhs.imageVersion &&
         lhs.status == rhs.status
     }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
@@ -109,6 +110,7 @@ struct Agent: Identifiable, Codable, Hashable {
     var isMaster: Bool
     var errorMessage: String?
     var hasImage: Bool
+    var imageVersion: Int
 
     // 작업 규칙 — 레코드 단위 (태스크 매칭으로 동적 선택)
     var workRules: [WorkRule]
@@ -217,7 +219,7 @@ struct Agent: Identifiable, Codable, Hashable {
 
     // imageData는 Codable에서 제외 — 파일 시스템에 저장
     private enum CodingKeys: String, CodingKey {
-        case id, name, persona, providerName, modelName, status, isMaster, errorMessage, hasImage
+        case id, name, persona, providerName, modelName, status, isMaster, errorMessage, hasImage, imageVersion
         case referenceProjectPaths, workingRules, workRules
         case skillTags, workModes, outputStyles
     }
@@ -234,6 +236,7 @@ struct Agent: Identifiable, Codable, Hashable {
             if let data = newValue {
                 Self.saveImage(data, for: id)
                 hasImage = true
+                imageVersion += 1
             } else {
                 Self.deleteImage(for: id)
                 hasImage = false
@@ -273,6 +276,7 @@ struct Agent: Identifiable, Codable, Hashable {
         self.workModes = workModes
         self.outputStyles = outputStyles
         self.hasImage = false
+        self.imageVersion = 0
         if let imageData {
             Self.saveImage(imageData, for: id)
             self.hasImage = true
@@ -291,6 +295,7 @@ struct Agent: Identifiable, Codable, Hashable {
         isMaster = try container.decodeIfPresent(Bool.self, forKey: .isMaster) ?? false
         errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
         hasImage = try container.decodeIfPresent(Bool.self, forKey: .hasImage) ?? false
+        imageVersion = try container.decodeIfPresent(Int.self, forKey: .imageVersion) ?? 0
         referenceProjectPaths = try container.decodeIfPresent([String].self, forKey: .referenceProjectPaths) ?? []
         workingRules = try container.decodeIfPresent(WorkingRulesSource.self, forKey: .workingRules)
 
