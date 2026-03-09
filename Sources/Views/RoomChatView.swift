@@ -150,16 +150,16 @@ struct RoomChatView: View {
             .onAppear {
                 scrollToBottom(proxy: proxy, room: room)
             }
-            .onChange(of: room.messages.count) { _, _ in
+            .onChange(of: room.messages.count) { _ in
                 scrollToBottom(proxy: proxy, room: room)
             }
-            .onChange(of: room.messages.last?.id) { _, _ in
+            .onChange(of: room.messages.last?.id) { _ in
                 scrollToBottom(proxy: proxy, room: room)
             }
-            .onChange(of: room.status) { _, _ in
+            .onChange(of: room.status) { _ in
                 scrollToBottom(proxy: proxy, room: room)
             }
-            .onChange(of: room.workflowState.currentPhase) { _, _ in
+            .onChange(of: room.workflowState.currentPhase) { _ in
                 scrollToBottom(proxy: proxy, room: room)
             }
         }
@@ -1849,25 +1849,13 @@ struct IntentSelectionCard: View {
         }
         .focusable()
         .focused($isFocused)
-        .onKeyPress(.upArrow) {
-            selectedIndex = max(0, selectedIndex - 1)
-            return .handled
-        }
-        .onKeyPress(.downArrow) {
-            selectedIndex = min(intents.count - 1, selectedIndex + 1)
-            return .handled
-        }
-        .onKeyPress(.return) {
-            roomManager.selectIntent(roomID: roomID, intent: intents[selectedIndex])
-            return .handled
-        }
-        .onKeyPress(characters: .decimalDigits) { press in
-            if let num = Int(press.characters), num >= 1, num <= intents.count {
-                roomManager.selectIntent(roomID: roomID, intent: intents[num - 1])
-                return .handled
+        .keyboardNavigationCompat(
+            selectedIndex: $selectedIndex,
+            itemCount: intents.count,
+            onSelect: { index in
+                roomManager.selectIntent(roomID: roomID, intent: intents[index])
             }
-            return .ignored
-        }
+        )
         .onAppear {
             // 추천 intent를 초기 선택으로
             if let idx = intents.firstIndex(of: suggestedIntent) {
@@ -1952,25 +1940,13 @@ struct DocTypeSelectionCard: View {
         }
         .focusable()
         .focused($isFocused)
-        .onKeyPress(.upArrow) {
-            selectedIndex = max(0, selectedIndex - 1)
-            return .handled
-        }
-        .onKeyPress(.downArrow) {
-            selectedIndex = min(docTypes.count - 1, selectedIndex + 1)
-            return .handled
-        }
-        .onKeyPress(.return) {
-            roomManager.selectDocType(roomID: roomID, docType: docTypes[selectedIndex])
-            return .handled
-        }
-        .onKeyPress(characters: .decimalDigits) { press in
-            if let num = Int(press.characters), num >= 1, num <= docTypes.count {
-                roomManager.selectDocType(roomID: roomID, docType: docTypes[num - 1])
-                return .handled
+        .keyboardNavigationCompat(
+            selectedIndex: $selectedIndex,
+            itemCount: docTypes.count,
+            onSelect: { index in
+                roomManager.selectDocType(roomID: roomID, docType: docTypes[index])
             }
-            return .ignored
-        }
+        )
         .onAppear {
             // freeform을 초기 선택으로 (마지막 항목)
             selectedIndex = docTypes.count - 1

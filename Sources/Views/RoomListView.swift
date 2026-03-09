@@ -592,11 +592,7 @@ struct RoomListItem: View {
             .padding(.vertical, DesignTokens.Spacing.xs)
             .background(color.opacity(DesignTokens.Opacity.badgeBg))
             .clipShape(Capsule())
-            .phaseAnimator([false, true]) { content, phase in
-                content.opacity(phase ? 1.0 : 0.5)
-            } animation: { _ in
-                .easeInOut(duration: 1.2)
-            }
+            .pulseAnimatorCompat()
     }
 
     private var elapsedText: String {

@@ -1,4 +1,7 @@
 import Foundation
+import os.log
+
+private let errorLogger = Logger(subsystem: "com.douglas.app", category: "ErrorClassify")
 
 protocol AIProvider {
     var config: ProviderConfig { get }
@@ -151,10 +154,15 @@ private func classifyHTTPError(code: Int, body: String) -> String {
 private func classifyRawMessage(_ message: String) -> String {
     let lower = message.lowercased()
 
+    // [DEBUG] 원본 에러 메시지 로깅
+    let preview = message.count > 500 ? String(message.prefix(500)) + "…" : message
+    errorLogger.error("[DEBUG] classifyRawMessage 원본: \(preview, privacy: .public)")
+
     // Token / context length limit
     if lower.contains("context_length") || lower.contains("context window") ||
        lower.contains("too long") || lower.contains("too many input tokens") ||
        (lower.contains("token") && (lower.contains("limit") || lower.contains("maximum") || lower.contains("exceed"))) {
+        errorLogger.error("[DEBUG] → 토큰 한도 초과로 분류됨")
         return "모델의 토큰 한도를 초과했습니다. 대화를 정리하거나 다른 모델을 사용해 보세요."
     }
 

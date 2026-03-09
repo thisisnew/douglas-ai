@@ -80,7 +80,7 @@ struct AddAgentSheet: View {
                             .continuousRadius(DesignTokens.CozyGame.cardRadius)
                             .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous).strokeBorder(
                                 showValidation && name.isEmpty ? Color.orange.opacity(0.6) : palette.cardBorder.opacity(0.15), lineWidth: 1))
-                            .onChange(of: name) { _, _ in if showValidation { showValidation = false } }
+                            .onChange(of: name) { _ in if showValidation { showValidation = false } }
 
                         if isDuplicateName {
                             inlineWarning("이미 같은 이름의 에이전트가 있습니다")
@@ -211,7 +211,7 @@ struct AddAgentSheet: View {
             if let n = prefillName { name = n }
             if let p = prefillPersona { persona = p }
         }
-        .onChange(of: selectedProvider) { _, newValue in
+        .onChange(of: selectedProvider) { newValue in
             selectedModel = ""
             availableModels = []
             if !newValue.isEmpty { loadModels(for: newValue) }

@@ -191,7 +191,7 @@ struct EditAgentSheet: View {
         .onAppear {
             loadModels(for: selectedProvider)
         }
-        .onChange(of: selectedProvider) { _, newValue in
+        .onChange(of: selectedProvider) { newValue in
             selectedModel = ""
             availableModels = []
             if !newValue.isEmpty { loadModels(for: newValue) }

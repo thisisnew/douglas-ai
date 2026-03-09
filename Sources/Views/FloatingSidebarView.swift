@@ -401,7 +401,7 @@ struct FloatingSidebarView: View {
         .padding(.trailing, 6)
         .padding(.vertical, 8)
         .animation(.dgSlow, value: chatVM.showToast)
-        .onChange(of: roomManager.pendingAutoOpenRoomID) { _, newID in
+        .onChange(of: roomManager.pendingAutoOpenRoomID) { newID in
             if let roomID = newID {
                 roomManager.pendingAutoOpenRoomID = nil
                 pendingRoomToOpen = roomID
@@ -842,7 +842,7 @@ struct FloatingSidebarView: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
                     }
-                    .onChange(of: chatVM.messages(for: agentID).count) { _, _ in
+                    .onChange(of: chatVM.messages(for: agentID).count) { _ in
                         if let last = chatVM.messages(for: agentID).last {
                             withAnimation {
                                 proxy.scrollTo(last.id, anchor: .bottom)
@@ -895,7 +895,7 @@ struct FloatingSidebarView: View {
                             onSubmit: sendToMaster,
                             accessor: inputAccessor
                         )
-                        .onChange(of: inputText) { _, newValue in
+                        .onChange(of: inputText) { newValue in
                             // 드롭된 파일 경로 감지 → 파일 첨부로 변환
                             if let remaining = extractDroppedFilePath(from: newValue) {
                                 inputText = remaining
