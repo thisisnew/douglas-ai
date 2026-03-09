@@ -1090,7 +1090,7 @@ executeWithTools() 루프 (최대 10회):
 **StepExecutionEngine**: Build 단계 실행을 전담하는 독립 클래스. `executeBuildPhase`와 `executeRoomWork`의 중복 로직을 `Policy` 기반으로 통합. 핵심 기능:
 - **실시간 피드백 루프**: 각 단계 실행 후 사용자 메시지를 확인하여, 새 요건이 있으면 같은 단계를 재실행. 요건이 다 반영될 때까지 다음 단계로 진행하지 않음.
 - **StepStatus 전이**: `pending → inProgress → completed/failed/skipped` 상태 자동 관리. PlanCard에서 실시간 반영.
-- **클릭 롤백**: PlanCard에서 완료된 단계 클릭 → 즉시 확인 메시지 + `.dgBounce` 애니메이션 피드백 → `stepRollbackTargets`에 설정 → 엔진이 해당 단계부터 재실행.
+- **클릭 롤백**: PlanCard에서 완료된 단계 클릭 → 즉시 확인 메시지 + `.dgBounce` 애니메이션 피드백 → `stepRollbackTargets`에 설정 → 엔진이 해당 단계부터 재실행. 피드백 루프 진입 시 `Task.yield()`로 대기 중인 UI 이벤트 처리 후 롤백 체크. 전체 단계 완료 후에도 post-completion 외부 루프에서 한번 더 체크.
 - **텍스트 롤백**: 사용자가 "3단계부터 다시" 입력 → 엔진이 롤백 구문 파싱 → 해당 단계로 점프.
 - **Policy**: `enableUserFeedbackLoop`, `deferHighRiskSteps`, `detectRepetition`, `generateWorkLog`로 동작 분기. `standard`(Build), `legacy`(executeRoomWork 호환) 프리셋 제공.
 - **실행 중 입력**: `.inProgress` 상태에서도 입력 영역이 표시되어 사용자가 실시간으로 요건을 입력 가능.

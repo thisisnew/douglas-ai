@@ -76,105 +76,136 @@ final class StepExecutionEngine {
         host.scheduleSave()
 
         var stepIndex = 0
-        while stepIndex < plan.steps.count {
-            // 취소 / 비활성 체크
+
+        // 외부 루프: 전체 단계 완료 후에도 롤백 요청 처리
+        outerLoop: while true {
+            // 내부 루프: 단계 순회
+            while stepIndex < plan.steps.count {
+                // 취소 / 비활성 체크
+                guard !Task.isCancelled,
+                      let currentRoom = host.room(for: roomID),
+                      currentRoom.status == .inProgress else { break outerLoop }
+
+                // 롤백 요청 체크 (PlanCard 클릭)
+                if let rollbackTarget = host.stepRollbackTargets[roomID] {
+                    host.stepRollbackTargets.removeValue(forKey: roomID)
+                    let currentPlan = currentRoom.plan
+                    host.updateRoom(id: roomID) { room in
+                        guard let steps = currentPlan?.steps else { return }
+                        for j in rollbackTarget..<steps.count {
+                            room.plan?.steps[j].status = .pending
+                        }
+                    }
+                    // 즉시 확인 메시지는 PlanCard에서 이미 전송됨
+                    // 여기서는 실행 시작 메시지만 추가
+                    let rollbackMsg = ChatMessage(
+                        role: .system,
+                        content: "단계 \(rollbackTarget + 1) 재실행을 시작합니다.",
+                        messageType: .progress
+                    )
+                    host.appendMessage(rollbackMsg, to: roomID)
+                    stepIndex = rollbackTarget
+                    continue
+                }
+
+                let step = currentRoom.plan!.steps[stepIndex]
+
+                // 이전 단계 이후 사용자 메시지 수집
+                collectPendingDirective()
+
+                // 현재 단계 상태 업데이트
+                host.updateRoom(id: roomID) { room in
+                    room.setCurrentStep(stepIndex)
+                    room.plan?.steps[stepIndex].status = .inProgress
+                }
+
+                // High-risk 위임
+                if policy.deferHighRiskSteps && step.riskLevel == .high {
+                    deferHighRiskStep(stepIndex: stepIndex, step: step,
+                                      totalSteps: plan.steps.count)
+                    host.updateRoom(id: roomID) { room in
+                        room.plan?.steps[stepIndex].status = .skipped
+                    }
+                    stepIndex += 1
+                    continue
+                }
+
+                // 단계 실행 + 피드백 루프
+                let result = await executeStepWithFeedback(
+                    step: step, stepIndex: stepIndex, plan: plan
+                )
+
+                switch result {
+                case .success:
+                    host.updateRoom(id: roomID) { room in
+                        room.plan?.steps[stepIndex].status = .completed
+                    }
+                    stepIndex += 1
+
+                case .rollback(let target):
+                    // 피드백 루프에서 롤백 감지
+                    host.updateRoom(id: roomID) { room in
+                        for j in target..<plan.steps.count {
+                            room.plan?.steps[j].status = .pending
+                        }
+                    }
+                    let rollbackMsg = ChatMessage(
+                        role: .system,
+                        content: "단계 \(target + 1)부터 다시 실행합니다.",
+                        messageType: .progress
+                    )
+                    host.appendMessage(rollbackMsg, to: roomID)
+                    stepIndex = target
+
+                case .failed:
+                    host.updateRoom(id: roomID) { room in
+                        room.plan?.steps[stepIndex].status = .failed
+                        room.transitionTo(.failed)
+                        room.completedAt = Date()
+                    }
+                    let failMsg = ChatMessage(
+                        role: .system,
+                        content: "단계 \(stepIndex + 1): 모든 에이전트 실패로 워크플로우를 중단합니다.",
+                        messageType: .error
+                    )
+                    host.appendMessage(failMsg, to: roomID)
+                    host.syncAgentStatuses()
+                    host.scheduleSave()
+                    return
+
+                case .aborted:
+                    // 반복 감지 또는 취소
+                    host.syncAgentStatuses()
+                    host.scheduleSave()
+                    return
+                }
+            }
+
+            // 전체 단계 완료 후 — 대기 중인 UI 이벤트(PlanCard 롤백 클릭) 처리 기회 부여
+            await Task.yield()
+
             guard !Task.isCancelled,
                   let currentRoom = host.room(for: roomID),
                   currentRoom.status == .inProgress else { break }
 
-            // 롤백 요청 체크 (PlanCard 클릭)
-            if let rollbackTarget = host.stepRollbackTargets[roomID] {
-                host.stepRollbackTargets.removeValue(forKey: roomID)
-                let currentPlan = currentRoom.plan
-                host.updateRoom(id: roomID) { room in
-                    guard let steps = currentPlan?.steps else { return }
-                    for j in rollbackTarget..<steps.count {
-                        room.plan?.steps[j].status = .pending
-                    }
-                }
-                // 즉시 확인 메시지는 PlanCard에서 이미 전송됨
-                // 여기서는 실행 시작 메시지만 추가
-                let rollbackMsg = ChatMessage(
-                    role: .system,
-                    content: "단계 \(rollbackTarget + 1) 재실행을 시작합니다.",
-                    messageType: .progress
-                )
-                host.appendMessage(rollbackMsg, to: roomID)
-                stepIndex = rollbackTarget
-                continue
-            }
+            // Post-completion 롤백 체크
+            guard let rollbackTarget = host.stepRollbackTargets[roomID] else { break }
+            host.stepRollbackTargets.removeValue(forKey: roomID)
 
-            let step = currentRoom.plan!.steps[stepIndex]
-
-            // 이전 단계 이후 사용자 메시지 수집
-            collectPendingDirective()
-
-            // 현재 단계 상태 업데이트
+            let currentPlan = currentRoom.plan
             host.updateRoom(id: roomID) { room in
-                room.setCurrentStep(stepIndex)
-                room.plan?.steps[stepIndex].status = .inProgress
-            }
-
-            // High-risk 위임
-            if policy.deferHighRiskSteps && step.riskLevel == .high {
-                deferHighRiskStep(stepIndex: stepIndex, step: step,
-                                  totalSteps: plan.steps.count)
-                host.updateRoom(id: roomID) { room in
-                    room.plan?.steps[stepIndex].status = .skipped
+                guard let steps = currentPlan?.steps else { return }
+                for j in rollbackTarget..<steps.count {
+                    room.plan?.steps[j].status = .pending
                 }
-                stepIndex += 1
-                continue
             }
-
-            // 단계 실행 + 피드백 루프
-            let result = await executeStepWithFeedback(
-                step: step, stepIndex: stepIndex, plan: plan
+            let rollbackMsg = ChatMessage(
+                role: .system,
+                content: "단계 \(rollbackTarget + 1) 재실행을 시작합니다.",
+                messageType: .progress
             )
-
-            switch result {
-            case .success:
-                host.updateRoom(id: roomID) { room in
-                    room.plan?.steps[stepIndex].status = .completed
-                }
-                stepIndex += 1
-
-            case .rollback(let target):
-                // 피드백 루프에서 롤백 감지
-                host.updateRoom(id: roomID) { room in
-                    for j in target..<plan.steps.count {
-                        room.plan?.steps[j].status = .pending
-                    }
-                }
-                let rollbackMsg = ChatMessage(
-                    role: .system,
-                    content: "단계 \(target + 1)부터 다시 실행합니다.",
-                    messageType: .progress
-                )
-                host.appendMessage(rollbackMsg, to: roomID)
-                stepIndex = target
-
-            case .failed:
-                host.updateRoom(id: roomID) { room in
-                    room.plan?.steps[stepIndex].status = .failed
-                    room.transitionTo(.failed)
-                    room.completedAt = Date()
-                }
-                let failMsg = ChatMessage(
-                    role: .system,
-                    content: "단계 \(stepIndex + 1): 모든 에이전트 실패로 워크플로우를 중단합니다.",
-                    messageType: .error
-                )
-                host.appendMessage(failMsg, to: roomID)
-                host.syncAgentStatuses()
-                host.scheduleSave()
-                return
-
-            case .aborted:
-                // 반복 감지 또는 취소
-                host.syncAgentStatuses()
-                host.scheduleSave()
-                return
-            }
+            host.appendMessage(rollbackMsg, to: roomID)
+            stepIndex = rollbackTarget
         }
 
         host.scheduleSave()
@@ -219,6 +250,11 @@ final class StepExecutionEngine {
         guard policy.enableUserFeedbackLoop else { return .success }
 
         while true {
+            // 대기 중인 UI 이벤트 처리 기회 (PlanCard 롤백 클릭 등)
+            // runStep 완료 → 여기까지 동기 실행이므로, yield 없이는
+            // 큐에 대기 중인 버튼 핸들러가 실행되지 않음
+            await Task.yield()
+
             guard !Task.isCancelled,
                   let room = host.room(for: roomID),
                   room.status == .inProgress else { return .aborted }

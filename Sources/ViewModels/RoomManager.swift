@@ -808,13 +808,30 @@ class RoomManager: ObservableObject, WorkflowHost {
         let requestedFormat = DocumentExporter.detectRequestedFormat(task.lowercased())
         let isBinaryFormat = DocumentExporter.binaryFormats.contains(requestedFormat)
 
-        let formatConversionBlock = isFormatConversion ? """
+        // 포맷 변환: 원본 내용을 추출하여 프롬프트에 직접 포함
+        let formatConversionBlock: String
+        if isFormatConversion {
+            // 이전 대화에서 가장 최근의 실질적 응답을 원본으로 사용
+            let originalContent = room.messages.reversed()
+                .first(where: { $0.role == .assistant && $0.messageType == .text && $0.content.count >= 100 })?
+                .content ?? ""
+            let contentBlock = originalContent.isEmpty ? "" : """
 
-        ⚠️ 이것은 "포맷 변환" 요청입니다.
-        이전 대화에서 이미 작성된 답변 내용을 문서 형태로 정리하는 것이 목적입니다.
-        기존 내용을 충실히 보존하면서 문서 구조(제목, 섹션, 표 등)를 적용하세요.
-        새로운 내용을 추가하거나 기존 내용을 임의로 생략하지 마세요.
-        """ : ""
+            [원본 내용 — 아래 내용을 빠짐없이 문서화하세요]
+            \(originalContent)
+            """
+            formatConversionBlock = """
+
+            ⚠️ 이것은 "포맷 변환" 요청입니다.
+            이전 대화에서 이미 작성된 답변 내용을 문서 형태로 정리하는 것이 목적입니다.
+            기존 내용을 충실히 보존하면서 문서 구조(제목, 섹션, 표 등)를 적용하세요.
+            새로운 내용을 추가하거나 기존 내용을 임의로 생략하지 마세요.
+            링크나 참조만 나열하지 말고, 각 항목의 실제 내용을 본문에 포함하세요.
+            \(contentBlock)
+            """
+        } else {
+            formatConversionBlock = ""
+        }
 
         let docPrompt: String
         if isBinaryFormat {

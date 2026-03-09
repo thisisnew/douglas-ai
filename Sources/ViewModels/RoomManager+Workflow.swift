@@ -1077,7 +1077,12 @@ extension RoomManager {
             }
 
             // 3.5) suggested(0.5~0.7) 에이전트: 사용자에게 추가 여부 질문
-            let suggestedReqs = matched.filter { $0.status == .suggested && $0.matchedAgentID != nil }
+            // 동일 에이전트가 여러 RoleRequirement에 매칭될 수 있으므로 agentID 기준 중복 제거
+            var seenSuggestedAgentIDs = Set<UUID>()
+            let suggestedReqs = matched.filter { req in
+                guard req.status == .suggested, let agentID = req.matchedAgentID else { return false }
+                return seenSuggestedAgentIDs.insert(agentID).inserted
+            }
             for req in suggestedReqs {
                 guard let agentID = req.matchedAgentID,
                       let sugAgent = agentStore?.agents.first(where: { $0.id == agentID }) else { continue }
