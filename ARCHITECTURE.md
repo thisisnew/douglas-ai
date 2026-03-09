@@ -9,7 +9,7 @@ DOUGLAS는 **macOS 네이티브 AI 에이전트 관리 데스크톱 앱**이다.
 사이드바에 타이핑하면 마스터(PM)가 즉시 방을 만들고, 요구사항을 확인한 뒤 적합한 전문가를 소환하여 작업을 진행한다.
 사장님이 "야 이거 해" 하면 비서실장(마스터)이 방을 만들고 팀을 꾸려서 처리하는 구조.
 
-- **플랫폼**: macOS 14+ (Sonoma)
+- **플랫폼**: macOS 13+ (Ventura)
 - **언어**: Swift 5.9
 - **UI 프레임워크**: SwiftUI + AppKit (NSPanel, NSWindow)
 - **빌드 시스템**: Swift Package Manager (SPM)
@@ -917,7 +917,7 @@ MessageType에 따른 시각 차별화:
 
 **Info.plist 주요 설정**:
 - `CFBundleIdentifier`: com.douglas.app
-- `LSMinimumSystemVersion`: 14.0
+- `LSMinimumSystemVersion`: 13.0
 - `LSApplicationCategoryType`: public.app-category.developer-tools
 - `NSAppTransportSecurity.NSAllowsArbitraryLoads`: true (로컬 API 접근용)
 

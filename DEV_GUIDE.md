@@ -8,7 +8,7 @@
 
 ```
 DOUGLAS/
-├── Package.swift                  # SPM, macOS 14+
+├── Package.swift                  # SPM, macOS 13+
 ├── Makefile                       # 빌드/테스트/린트 통합 진입점
 ├── .swift-version                 # 툴체인 버전 고정 (6.1.2)
 ├── .swiftlint.yml                 # SwiftLint 코드 스타일 규칙

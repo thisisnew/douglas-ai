@@ -199,8 +199,8 @@ private func classifyRawMessage(_ message: String) -> String {
     if trimmed.isEmpty {
         return "일시적인 오류가 발생했습니다. 다시 시도해 주세요."
     }
-    let preview = trimmed.count > 200 ? String(trimmed.prefix(200)) + "…" : trimmed
-    return "오류: \(preview)"
+    let fallbackPreview = trimmed.count > 200 ? String(trimmed.prefix(200)) + "…" : trimmed
+    return "오류: \(fallbackPreview)"
 }
 
 // MARK: - SSE 스트리밍 유틸리티

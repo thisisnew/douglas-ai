@@ -2,7 +2,7 @@ import Foundation
 import NaturalLanguage
 
 /// NLEmbedding 기반 에이전트 의미 유사도 매칭
-/// macOS 14+의 NLEmbedding.wordEmbedding을 사용하여 작업과 에이전트 간 의미 거리 계산
+/// NLEmbedding.wordEmbedding을 사용하여 작업과 에이전트 간 의미 거리 계산
 final class SemanticMatcher {
 
     // MARK: - 캐시

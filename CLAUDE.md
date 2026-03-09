@@ -23,7 +23,7 @@
 - 빌드 통과 후에만 커밋
 
 ## 프로젝트 정보
-- Swift 5.9, macOS 14+ (SPM)
+- Swift 5.9, macOS 13+ (SPM)
 - MVVM 아키텍처
 - 빌드: `swift build -c release`
 - 배포: `scripts/build-app.sh`
