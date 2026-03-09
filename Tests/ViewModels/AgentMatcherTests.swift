@@ -338,6 +338,41 @@ struct AgentMatcherTests {
         #expect(result == nil)
     }
 
+    @Test("findBestFallbackMatch — 코드 작업 + enriched task → 백엔드 개발자 매칭")
+    func fallbackMatchCodeTaskEnriched() {
+        let dev = makeAgent(name: "백엔드 개발자", persona: "서버 API 개발 전문", skillTags: ["백엔드", "서버", "api"])
+        let qa = makeAgent(name: "QA 전문가", persona: "테스트 전략", skillTags: ["qa", "테스트"])
+        // Jira URL만으로는 매칭 안됨
+        let urlOnly = AgentMatcher.findBestFallbackMatch(
+            task: "https://kurly0521.atlassian.net/browse/IBS-3279",
+            agents: [dev, qa], intent: .task
+        )
+        // URL에 키워드가 없어서 매칭 실패하거나 점수 낮음
+        // enriched task에 사용자 의도 포함되면 매칭됨
+        let enriched = "https://kurly0521.atlassian.net/browse/IBS-3279 코드 작업. SignSpecificationInquiryExtensionRepository를 우선적으로 보면되고 연관 파일도 같이 보고 분석해서 작업해"
+        let result = AgentMatcher.findBestFallbackMatch(
+            task: enriched, agents: [dev, qa], intent: .task
+        )
+        #expect(result?.id == dev.id)
+    }
+
+    @Test("suggestAgentProfile — enriched task에서 코드 키워드 감지")
+    func suggestProfileEnrichedCodeTask() {
+        let urlOnly = AgentMatcher.suggestAgentProfile(
+            for: "https://kurly0521.atlassian.net/browse/IBS-3279",
+            intent: .task
+        )
+        // URL만으로는 "범용 전문가" 폴백
+        #expect(urlOnly.name.contains("범용") || urlOnly.name.contains("엔지니어") || urlOnly.name.contains("전문가"))
+
+        let enriched = AgentMatcher.suggestAgentProfile(
+            for: "https://kurly0521.atlassian.net/browse/IBS-3279 코드 작업. 분석해서 작업해",
+            intent: .task
+        )
+        // "코드" 키워드 감지 → 소프트웨어 엔지니어
+        #expect(enriched.name == "소프트웨어 엔지니어")
+    }
+
     @Test("matchRoles — documentType 설정 시 도메인 키워드만 있으면 unmatched")
     func matchRolesDocAllKeywordsFiltered() {
         let frontendDev = makeAgent(name: "프론트엔드 개발자", persona: "React UI")

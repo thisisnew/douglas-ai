@@ -923,19 +923,20 @@ extension RoomManager {
             // 매칭 실패 → 기존 directMatch + LLM 흐름으로 폴스루
         }
 
-        // 사전 매칭: 사용자의 모든 입력에서 에이전트 이름 키워드 직접 탐색
-        var directMatchText = task
+        // 사전 매칭 + LLM + 폴백에 사용할 enriched task (clarify 응답 포함)
+        var enrichedTask = task
         if let clarifySummary = rooms[idx].clarifyContext.clarifySummary {
-            directMatchText += " " + clarifySummary
+            enrichedTask += " " + clarifySummary
         }
-        // clarify 응답에서 사용자가 직접 역할을 언급했을 수 있음 (예: "백엔드만 있으면 돼")
         if let userAnswers = rooms[idx].clarifyContext.userAnswers {
             let answerTexts = userAnswers.map { $0.answer }.joined(separator: " ")
-            directMatchText += " " + answerTexts
+            enrichedTask += " " + answerTexts
         }
-        // Jira 키워드 자동 주입 제거: clarifySummary에 사용자 의도가 이미 반영됨
-        // (sourceType만으로 Jira 전문가를 강제 매칭하면 false positive 발생)
-        let taskLowered = directMatchText.lowercased()
+        // taskBrief.goal에 사용자 의도가 요약되어 있으면 추가
+        if let briefGoal = rooms[idx].taskBrief?.goal, !briefGoal.isEmpty {
+            enrichedTask += " " + briefGoal
+        }
+        let taskLowered = enrichedTask.lowercased()
         let taskWords = taskLowered
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { $0.count >= 2 }
@@ -975,7 +976,7 @@ extension RoomManager {
         // 사용자 요청을 먼저, 참조 데이터를 뒤로 (LLM이 요청에 집중하도록)
         let contextSuffix = contextParts.isEmpty ? "" : "\n\n[참조 데이터]\n\(contextParts.joined(separator: "\n\n"))"
         let messages: [(role: String, content: String)] = [
-            ("user", "사용자 요청: \(task)\n\n위 요청에 필요한 역할을 분석하세요.\(contextSuffix)")
+            ("user", "사용자 요청: \(enrichedTask)\n\n위 요청에 필요한 역할을 분석하세요.\(contextSuffix)")
         ]
 
         do {
@@ -1024,7 +1025,7 @@ extension RoomManager {
                 let intent = rooms[idx].workflowState.intent
 
                 // 1) AgentMatcher로 키워드 기반 최적 에이전트 탐색
-                if let best = AgentMatcher.findBestFallbackMatch(task: task, agents: subAgentsForFallback, intent: intent) {
+                if let best = AgentMatcher.findBestFallbackMatch(task: enrichedTask, agents: subAgentsForFallback, intent: intent) {
                     addAgent(best.id, to: roomID, silent: true)
                     autoInvited = true
                 }
@@ -1032,7 +1033,7 @@ extension RoomManager {
                 // 2) 매칭 실패 → 제안 이름 결정 후 기존 에이전트 탐색 or 생성 제안
                 if !autoInvited {
                     let (suggestedName, suggestedPersona) = AgentMatcher.suggestAgentProfile(
-                        for: task, intent: intent, taskBrief: taskBriefForFallback
+                        for: enrichedTask, intent: intent, taskBrief: taskBriefForFallback
                     )
 
                     if let existing = AgentMatcher.findByName(suggestedName, among: subAgentsForFallback) {

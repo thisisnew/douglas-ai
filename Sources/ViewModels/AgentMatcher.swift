@@ -268,6 +268,7 @@ enum AgentMatcher {
 
     /// 작업 키워드 기반으로 가장 적합한 에이전트 탐색
     /// - quickAnswer/비개발 작업 시 개발자 에이전트 제외
+    /// - task/complex intent + 코드 키워드 → 개발자 에이전트 보너스
     static func findBestFallbackMatch(
         task: String,
         agents: [Agent],
@@ -275,6 +276,13 @@ enum AgentMatcher {
     ) -> Agent? {
         let taskKeywords = extractSemanticKeywords(from: task)
         let isQuickAnswer = intent == .quickAnswer
+        let taskLower = task.lowercased()
+
+        // 코드/구현 관련 키워드 감지 → 개발자 에이전트에 보너스
+        let codeKeywords: Set<String> = ["코드", "구현", "개발", "코딩", "버그", "수정", "리팩토링", "배포",
+                                          "code", "implement", "develop", "fix", "refactor", "deploy"]
+        let isCodeTask = (intent == .task || intent == .complex) &&
+            codeKeywords.contains(where: { taskLower.contains($0) })
 
         var bestMatch: (agent: Agent, score: Int)?
         for candidate in agents {
@@ -287,6 +295,10 @@ enum AgentMatcher {
                 if candidate.name.lowercased().contains(kw) { score += 2 }
                 if candidate.persona.lowercased().contains(kw) { score += 1 }
             }
+
+            // 코드 작업 + 개발자 에이전트 → 보너스 (직접 키워드 매칭 없어도 적합)
+            if isCodeTask && candidate.isDeveloperAgent { score += 5 }
+
             if score > (bestMatch?.score ?? 0) {
                 bestMatch = (candidate, score)
             }
