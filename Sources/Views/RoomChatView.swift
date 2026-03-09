@@ -15,8 +15,6 @@ struct RoomChatView: View {
     @State private var showDeleteConfirm = false
     @State private var showCopiedFeedback = false
     @State private var selectedAgent: Agent?
-    @State private var mentionCandidates: [Agent] = []
-    @State private var mentionSelectionIndex: Int = 0
     @State private var suggestionToAdd: RoomAgentSuggestion? = nil
 
     private var room: Room? {
@@ -452,49 +450,6 @@ struct RoomChatView: View {
                 }
             }
 
-            // @멘션 자동완성 팝오버
-            if !mentionCandidates.isEmpty {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(mentionCandidates.enumerated()), id: \.element.id) { idx, agent in
-                        Button {
-                            insertMention(agent)
-                        } label: {
-                            HStack(spacing: 6) {
-                                AgentAvatarView(agent: agent, size: 18)
-                                Text(agent.name)
-                                    .font(.system(size: 11, weight: idx == mentionSelectionIndex ? .bold : .regular))
-                                    .foregroundColor(.primary)
-                                Spacer()
-                                if room.assignedAgentIDs.contains(agent.id) {
-                                    Text("참여 중")
-                                        .font(.system(size: 9))
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(
-                                idx == mentionSelectionIndex
-                                    ? palette.accent.opacity(0.12)
-                                    : Color.clear
-                            )
-                            .continuousRadius(6)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.vertical, 4)
-                .background(palette.panelGradientStart)
-                .continuousRadius(DesignTokens.CozyGame.cardRadius)
-                .overlay(
-                    RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
-                        .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1)
-                )
-                .shadow(color: palette.sidebarShadow, radius: 6, y: -2)
-                .padding(.horizontal, 10)
-            }
-
             HStack(spacing: 8) {
                 // 파일 첨부 버튼
                 Button(action: pickFile) {
@@ -506,9 +461,6 @@ struct RoomChatView: View {
                 .help("파일 첨부")
 
                 textInputView(room)
-                .onChange(of: inputText) { _, newValue in
-                    updateMentionCandidates(newValue)
-                }
 
                 SendButton(canSend: canSend, isLoading: false, action: sendMessage)
             }
@@ -536,35 +488,8 @@ struct RoomChatView: View {
             placeholder: room.status == .inProgress ? "추가 요건을 입력하세요..." : "메시지를 입력하세요...",
             font: NSFont.systemFont(ofSize: 13),
             maxHeight: 80,
-            onSubmit: {
-                if !mentionCandidates.isEmpty {
-                    let idx = min(mentionSelectionIndex, mentionCandidates.count - 1)
-                    insertMention(mentionCandidates[idx])
-                } else {
-                    sendMessage()
-                }
-            },
-            onSpecialKey: { key in
-                switch key {
-                case .upArrow:
-                    guard !mentionCandidates.isEmpty else { return false }
-                    mentionSelectionIndex = max(0, mentionSelectionIndex - 1)
-                    return true
-                case .downArrow:
-                    guard !mentionCandidates.isEmpty else { return false }
-                    mentionSelectionIndex = min(mentionCandidates.count - 1, mentionSelectionIndex + 1)
-                    return true
-                case .tab:
-                    guard !mentionCandidates.isEmpty else { return false }
-                    let idx = min(mentionSelectionIndex, mentionCandidates.count - 1)
-                    insertMention(mentionCandidates[idx])
-                    return true
-                case .escape:
-                    guard !mentionCandidates.isEmpty else { return false }
-                    mentionCandidates = []
-                    return true
-                }
-            },
+            onSubmit: { sendMessage() },
+            onSpecialKey: { _ in false },
             accessor: inputAccessor
         )
     }
@@ -577,60 +502,7 @@ struct RoomChatView: View {
         inputAccessor.clear()  // NSTextView + 바인딩 + 높이 직접 초기화
         inputText = ""
         pendingAttachments = []
-        mentionCandidates = []
         Task { await roomManager.sendUserMessage(text, to: roomID, attachments: attachments) }
-    }
-
-    // MARK: - @멘션 자동완성
-
-    /// 입력 텍스트에서 마지막 `@` 이후 쿼리를 추출하여 후보 목록 갱신
-    private func updateMentionCandidates(_ text: String) {
-        // 마지막 @ 찾기
-        guard let atRange = text.range(of: "@", options: .backwards) else {
-            mentionCandidates = []
-            return
-        }
-
-        // @ 앞이 공백이거나 문장 시작인 경우만 멘션으로 인식 (이메일 오탐 방지)
-        if atRange.lowerBound != text.startIndex {
-            let charBefore = text[text.index(before: atRange.lowerBound)]
-            if !charBefore.isWhitespace {
-                mentionCandidates = []
-                return
-            }
-        }
-
-        let afterAt = text[atRange.upperBound...]
-        // @ 뒤에 공백이 있으면 멘션 입력 완료 간주
-        if afterAt.contains(" ") {
-            mentionCandidates = []
-            return
-        }
-
-        let query = String(afterAt).lowercased()
-        // 이미 방에 참여 중인 에이전트 제외
-        let assignedIDs = room?.assignedAgentIDs ?? []
-        let available = agentStore.subAgents.filter { !assignedIDs.contains($0.id) }
-        if query.isEmpty {
-            // @ 만 입력 → 전체 미참여 에이전트 목록 (최대 6명)
-            mentionCandidates = Array(available.prefix(6))
-        } else {
-            // 쿼리로 필터
-            mentionCandidates = available.filter {
-                $0.name.lowercased().contains(query)
-            }
-        }
-        mentionSelectionIndex = 0
-    }
-
-    /// 자동완성에서 에이전트 선택 시 입력 필드에 멘션 삽입
-    private func insertMention(_ agent: Agent) {
-        // 마지막 @ 위치 찾아서 교체
-        if let atRange = inputText.range(of: "@", options: .backwards) {
-            inputText = String(inputText[inputText.startIndex..<atRange.lowerBound])
-                + "@\(agent.name) "
-        }
-        mentionCandidates = []
     }
 
     // MARK: - 파일 첨부

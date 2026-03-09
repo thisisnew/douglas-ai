@@ -55,7 +55,6 @@ struct MessageBubble: View {
     @EnvironmentObject var agentStore: AgentStore
     @State private var enlargedImage: NSImage?
     @State private var showAgentInfo = false
-    @State private var tappedMentionAgent: Agent?
 
     private var agent: Agent? {
         guard let name = message.agentName else { return nil }
@@ -255,13 +254,6 @@ struct MessageBubble: View {
                         )
                 }
             }
-            .sheet(item: $tappedMentionAgent) { mentionedAgent in
-                AgentInfoSheet(agent: mentionedAgent)
-                    .frame(
-                        width: DesignTokens.WindowSize.agentInfoSheet.width,
-                        height: DesignTokens.WindowSize.agentInfoSheet.height
-                    )
-            }
         }
     }
 
@@ -441,17 +433,9 @@ struct MessageBubble: View {
     @ViewBuilder
     private var messageContent: some View {
         if message.role == .user {
-            Text(buildMentionAttributedString(message.content))
+            Text(message.content)
                 .font(.system(size: DesignTokens.FontSize.bodyMd))
                 .lineSpacing(2)
-                .environment(\.openURL, OpenURLAction { url in
-                    if url.scheme == "mention",
-                       let name = url.host?.removingPercentEncoding,
-                       let agent = agentStore.agents.first(where: { $0.name == name }) {
-                        tappedMentionAgent = agent
-                    }
-                    return .handled
-                })
         } else {
             Markdown(Self.normalizeMarkdown(message.content))
                 .markdownTextStyle {
@@ -481,33 +465,6 @@ struct MessageBubble: View {
     }
 
     // MARK: - @멘션 하이라이트
-
-    /// 사용자 메시지에서 @에이전트이름을 찾아 강조 + 링크 처리
-    private func buildMentionAttributedString(_ text: String) -> AttributedString {
-        var result = AttributedString(text)
-        let agents = agentStore.agents
-
-        // 에이전트 이름 길이 내림차순 — 긴 이름 우선 매칭 (e.g. "백엔드 개발자" > "백엔드")
-        let sorted = agents.sorted { $0.name.count > $1.name.count }
-
-        for agent in sorted {
-            let mention = "@\(agent.name)"
-            var searchStart = result.startIndex
-
-            while searchStart < result.endIndex,
-                  let range = result[searchStart...].range(of: mention) {
-                result[range].foregroundColor = palette.userBubbleText.opacity(0.7)
-                result[range].font = .system(size: DesignTokens.FontSize.bodyMd, weight: .bold, design: .rounded)
-                result[range].underlineStyle = .single
-                if let url = URL(string: "mention://\(agent.name.addingPercentEncoding(withAllowedCharacters: .urlHostAllowed) ?? "")") {
-                    result[range].link = url
-                }
-                searchStart = range.upperBound
-            }
-        }
-
-        return result
-    }
 
     /// 채팅용 마크다운 정규화 (후처리)
     static func normalizeMarkdown(_ text: String) -> String {

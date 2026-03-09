@@ -175,8 +175,6 @@ class RoomManager: ObservableObject, WorkflowHost {
     var previousCycleAgentCount: [UUID: Int] = [:]
     /// 단계 롤백 요청 (PlanCard 클릭 시 설정, StepExecutionEngine이 소비)
     var stepRollbackTargets: [UUID: Int] = [:]
-    /// 멘션으로 지명된 에이전트 (라우팅 우선권 — executeQuickAnswer/executeSoloAnalysis에서 소비)
-    var mentionedAgentIDsByRoom: [UUID: [UUID]] = [:]
     /// ask_user 도구의 선택지 (방 ID → 옵션 목록) — UserInputCard에서 버튼으로 표시
     @Published var pendingQuestionOptions: [UUID: [String]] = [:]
 
@@ -1004,18 +1002,6 @@ class RoomManager: ObservableObject, WorkflowHost {
 
     /// 사용자가 방에 메시지 보내기
     func sendUserMessage(_ text: String, to roomID: UUID, attachments: [FileAttachment]? = nil) async {
-        // @멘션 파싱: 에이전트 초대 + 순수 텍스트 분리
-        let allSubAgents = agentStore?.subAgents ?? []
-        let parsed = MentionParser.parse(text, agents: allSubAgents)
-        for agent in parsed.mentions {
-            addAgent(agent.id, to: roomID)
-        }
-        // 멘션 에이전트 → 라우팅 우선권 저장 (executeQuickAnswer/executeSoloAnalysis에서 소비)
-        if !parsed.mentions.isEmpty {
-            mentionedAgentIDsByRoom[roomID] = parsed.mentions.map(\.id)
-        }
-        let cleanText = parsed.cleanText
-
         let userMsg = ChatMessage(role: .user, content: text, attachments: attachments)
         appendMessage(userMsg, to: roomID)
 
@@ -1023,20 +1009,17 @@ class RoomManager: ObservableObject, WorkflowHost {
 
         // 작업 진행 중: 워크플로우를 취소하지 않음 (승인 대기·입력 대기·실행 중 모두 포함)
         if room.isActive {
-            let userText = cleanText.isEmpty ? text : cleanText
             if let cont = userInputContinuations.removeValue(forKey: roomID) {
-                // 입력 대기 중이면 사용자 텍스트를 답변으로 전달
-                cont.resume(returning: userText)
+                cont.resume(returning: text)
             }
             scheduleSave()
             return
         }
 
         // 완료/실패 → 새 후속 사이클 시작
-        let task = cleanText.isEmpty ? text : cleanText
         roomTasks[roomID]?.cancel()
         roomTasks[roomID] = Task { [weak self] in
-            await self?.launchFollowUpCycle(roomID: roomID, task: task)
+            await self?.launchFollowUpCycle(roomID: roomID, task: text)
             self?.roomTasks.removeValue(forKey: roomID)
         }
     }

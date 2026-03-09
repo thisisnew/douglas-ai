@@ -2686,12 +2686,9 @@ extension RoomManager {
         let specialistIDs = executingAgentIDs(in: roomID)
         let room = rooms.first(where: { $0.id == roomID })
 
-        // 라우팅: 멘션 우선 → 전문가 2명+ LLM 지명 → 첫 번째 전문가 → 마스터 폴백
+        // 라우팅: 전문가 2명+ LLM 지명 → 첫 번째 전문가 → 마스터 폴백
         let candidateID: UUID?
-        if let mentionedIDs = mentionedAgentIDsByRoom.removeValue(forKey: roomID),
-           let firstMentioned = mentionedIDs.first {
-            candidateID = firstMentioned
-        } else if specialistIDs.count >= 2 {
+        if specialistIDs.count >= 2 {
             candidateID = await routeQuickAnswer(roomID: roomID, task: task, specialistIDs: specialistIDs)
                 ?? specialistIDs.first
         } else {
@@ -2823,14 +2820,8 @@ extension RoomManager {
     private func executeSoloAnalysis(roomID: UUID, task: String) async {
         let specialistIDs = executingAgentIDs(in: roomID)
         let room = rooms.first(where: { $0.id == roomID })
-        // 멘션 우선 → 첫 번째 전문가 → 마스터 폴백
-        let candidateID: UUID?
-        if let mentionedIDs = mentionedAgentIDsByRoom.removeValue(forKey: roomID),
-           let firstMentioned = mentionedIDs.first {
-            candidateID = firstMentioned
-        } else {
-            candidateID = specialistIDs.first ?? room?.assignedAgentIDs.first
-        }
+        // 첫 번째 전문가 → 마스터 폴백
+        let candidateID = specialistIDs.first ?? room?.assignedAgentIDs.first
         guard let agentID = candidateID,
               let agent = agentStore?.agents.first(where: { $0.id == agentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return }

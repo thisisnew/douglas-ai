@@ -81,10 +81,7 @@ protocol WorkflowHost: AnyObject {
     /// 플러그인 도구 인터셉트
     var pluginInterceptToolDelegate: ((String, [String: String]) async -> ToolInterceptResult)? { get }
 
-    // MARK: - 멘션/사이클 추적
-
-    /// 멘션으로 지명된 에이전트
-    var mentionedAgentIDsByRoom: [UUID: [UUID]] { get set }
+    // MARK: - 사이클 추적
 
     /// 이전 사이클 에이전트 수
     var previousCycleAgentCount: [UUID: Int] { get set }
