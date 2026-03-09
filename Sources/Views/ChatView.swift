@@ -1,5 +1,6 @@
 import SwiftUI
 import MarkdownUI
+import AppKit
 
 struct ChatView: View {
     @Environment(\.colorPalette) private var palette
@@ -146,9 +147,9 @@ struct MessageBubble: View {
                         let images = attachments.filter { $0.isImage }
                         let documents = attachments.filter { !$0.isImage }
 
-                        // 이미지 첨부
+                        // 이미지 첨부 (NSScrollView 기반 — 중첩 스크롤 환경에서 가로 스크롤 보장)
                         if !images.isEmpty {
-                            ScrollView(.horizontal, showsIndicators: false) {
+                            NativeHScrollView {
                                 HStack(spacing: 6) {
                                     ForEach(images) { att in
                                         if let data = try? att.loadData(), let nsImage = NSImage(data: data) {
@@ -176,6 +177,7 @@ struct MessageBubble: View {
                                     }
                                 }
                             }
+                            .frame(height: 166)
                             .popover(isPresented: Binding(
                                 get: { enlargedImage != nil },
                                 set: { if !$0 { enlargedImage = nil } }
@@ -538,5 +540,39 @@ struct MessageBubble: View {
         while result.last?.trimmingCharacters(in: .whitespaces).isEmpty == true { result.removeLast() }
 
         return result.joined(separator: "\n")
+    }
+}
+
+// MARK: - macOS 전용 가로 스크롤 뷰 (NSScrollView 기반)
+
+/// 중첩 ScrollView 환경에서도 가로 스크롤 제스처가 정상 동작하는 NSScrollView 래퍼
+struct NativeHScrollView<Content: View>: NSViewRepresentable {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let sv = NSScrollView()
+        sv.hasHorizontalScroller = true
+        sv.hasVerticalScroller = false
+        sv.autohidesScrollers = true
+        sv.drawsBackground = false
+        sv.horizontalScrollElasticity = .automatic
+        sv.verticalScrollElasticity = .none
+        sv.scrollerStyle = .overlay
+
+        let host = NSHostingView(rootView: content)
+        sv.documentView = host
+        host.frame.size = host.fittingSize
+        return sv
+    }
+
+    func updateNSView(_ sv: NSScrollView, context: Context) {
+        guard let host = sv.documentView as? NSHostingView<Content> else { return }
+        host.rootView = content
+        host.invalidateIntrinsicContentSize()
+        host.frame.size = host.fittingSize
     }
 }

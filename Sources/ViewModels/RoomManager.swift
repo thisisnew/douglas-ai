@@ -1454,7 +1454,7 @@ class RoomManager: ObservableObject, WorkflowHost {
     /// 에이전트 제안 취소 후: 기존 에이전트 피커를 표시하거나, 후보가 없으면 워크플로우 완료
     /// 팀 구성 확인 게이트: 자동 매칭된 에이전트를 사용자에게 확인받거나 변경 허용
     /// WORKFLOW_SPEC §6.4: 조건 충족 시 자동 진행 (사용자 확인 스킵)
-    func showTeamConfirmation(roomID: UUID) async {
+    func showTeamConfirmation(roomID: UUID, individuallyApproved: Bool = false) async {
         let subAgents = agentStore?.subAgents ?? []
         let roomAgentIDs = rooms.first(where: { $0.id == roomID })?.assignedAgentIDs ?? []
         let specialists = executingAgentIDs(in: roomID)
@@ -1468,6 +1468,17 @@ class RoomManager: ObservableObject, WorkflowHost {
                 rooms[i].completedAt = Date()
             }
             syncAgentStatuses()
+            scheduleSave()
+            return
+        }
+
+        // 개별 suggested 에이전트 승인을 이미 거쳤으면 자동 진행 (§6.4 확장)
+        if individuallyApproved {
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[i].approvalHistory.append(
+                    ApprovalRecord(type: .teamConfirmation, approved: true, feedback: "개별 승인 완료 → 자동 진행")
+                )
+            }
             scheduleSave()
             return
         }
