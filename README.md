@@ -23,7 +23,7 @@ macOS 화면 옆에 항상 떠 있는 **멀티에이전트 AI 비서**입니다.
 
 ## 설치
 
-> macOS 14 (Sonoma) 이상이 필요합니다.
+> macOS 13 (Ventura) 이상이 필요합니다.
 
 1. [최신 릴리즈](https://github.com/thefarmersfront/douglas/releases/latest)에서 **DOUGLAS.dmg**를 다운로드합니다.
 2. DMG를 열고 DOUGLAS를 Applications 폴더로 드래그합니다.
