@@ -224,8 +224,19 @@ class ClaudeCodeProvider: AIProvider {
     static func findClaudePath() -> String {
         let homePath = NSHomeDirectory()
         // nvm 경로를 먼저 검색 (최신 버전 우선)
-        // /opt/homebrew/bin에 오래된 버전이 남아 있으면 호환성 에러 발생 가능
-        let candidates = ShellEnvironment.nvmBinPaths.map { "\($0)/claude" } + [
+        // Node v18 미만 nvm 경로는 건너뜀 (Claude Code는 ??= 등 v18+ 문법 사용)
+        let nvmCandidates = ShellEnvironment.nvmBinPaths.compactMap { binPath -> String? in
+            let claudePath = "\(binPath)/claude"
+            guard FileManager.default.isExecutableFile(atPath: claudePath) else { return nil }
+            // nvm 경로에서 node 버전 추출하여 v18 미만 건너뛰기
+            let nodePath = (binPath as NSString).appendingPathComponent("node")
+            if let major = nodeVersion(at: nodePath), major < 18 {
+                cliLogger.info("nvm claude 건너뜀 (node v\(major) < 18): \(claudePath, privacy: .public)")
+                return nil
+            }
+            return claudePath
+        }
+        let candidates = nvmCandidates + [
             "/opt/homebrew/bin/claude",
             "/usr/local/bin/claude",
             "\(homePath)/.local/bin/claude"
@@ -240,14 +251,31 @@ class ClaudeCodeProvider: AIProvider {
 
     /// claude 바이너리와 같은 디렉토리에 있는 node 경로를 찾는다
     /// claude 파일도 존재해야 반환 (경로 이동 시 stale node 방지)
+    /// Node v18+ 미만이면 건너뜀 (Claude Code는 ??= 등 v18+ 문법 사용)
     private static func findNodePath(forClaude claudePath: String) -> String? {
         guard FileManager.default.isExecutableFile(atPath: claudePath) else { return nil }
         let claudeDir = (claudePath as NSString).deletingLastPathComponent
         let nodePath = (claudeDir as NSString).appendingPathComponent("node")
-        if FileManager.default.isExecutableFile(atPath: nodePath) {
-            return nodePath
+        guard FileManager.default.isExecutableFile(atPath: nodePath) else { return nil }
+
+        // node 버전 확인: v18 미만이면 Claude Code 실행 불가 (??= 등 문법)
+        if let majorVersion = nodeVersion(at: nodePath), majorVersion < 18 {
+            cliLogger.warning("node \(nodePath, privacy: .public) 버전 v\(majorVersion) < 18, 건너뜀")
+            return nil
         }
-        return nil
+        return nodePath
+    }
+
+    /// node 바이너리의 major 버전 추출 (v22.21.1 → 22)
+    private static func nodeVersion(at nodePath: String) -> Int? {
+        // nvm 경로에서 버전 추출: .../node/v22.21.1/bin/node
+        let components = nodePath.components(separatedBy: "/")
+        for comp in components {
+            if comp.hasPrefix("v"), let dot = comp.dropFirst().firstIndex(of: ".") {
+                return Int(comp[comp.index(after: comp.startIndex)..<dot])
+            }
+        }
+        return nil // 버전 추출 불가 시 사용 허용
     }
 
     /// symlink를 해석하여 실제 파일 경로 반환
