@@ -264,8 +264,8 @@ DOUGLAS는 요청에 따라 가장 적합한 에이전트를 자동 매칭한다
 | writeFiles | 로컬 파일 쓰기 (되돌릴 수 있음) | file_write |
 | runCommands | 셸 명령 실행 (되돌릴 수 있음) | shell_exec |
 | modifyExternal | 외부 시스템 변경 (되돌리기 어려움) | jira_update, jira_comment |
-| communicate | 메시지 전송 (되돌리기 어려움) | send_email, slack_post |
-| inviteAgents | 다른 에이전트 초대 | invite_agent, list_agents |
+| sendMessages | 메시지 전송 (되돌리기 어려움) | send_email, slack_post |
+| publish | 배포, 게시, PR merge (되돌리기 어려움) | deploy, publish, merge |
 
 **RiskLevel** (단계 레벨 — 실행 위험도 3종):
 
