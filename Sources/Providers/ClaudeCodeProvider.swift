@@ -298,6 +298,7 @@ class ClaudeCodeProvider: AIProvider {
         systemPrompt: String,
         messages: [(role: String, content: String)],
         allowedTools: [String],
+        workingDirectory: String? = nil,
         onToolActivity: ((String, ToolActivityDetail?) -> Void)? = nil,
         onChunk: @escaping @Sendable (String) -> Void
     ) async throws -> String {
@@ -306,6 +307,7 @@ class ClaudeCodeProvider: AIProvider {
             path: config.baseURL, prompt: userPrompt, model: model,
             systemPrompt: systemPrompt,
             allowedTools: allowedTools,
+            workingDirectory: workingDirectory,
             onToolActivity: onToolActivity ?? { _, _ in },
             onTextChunk: onChunk
         )

@@ -132,6 +132,7 @@ enum ToolExecutor {
                         systemPrompt: systemPrompt,
                         messages: simple,
                         allowedTools: cliTools,
+                        workingDirectory: context.projectPaths.first,
                         onToolActivity: onToolActivity,
                         onChunk: onStreamChunk ?? { _ in }
                     )
