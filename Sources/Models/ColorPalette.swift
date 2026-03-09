@@ -121,7 +121,15 @@ extension ColorPalette {
     static func custom(accent: Color) -> ColorPalette {
         let nsColor = NSColor(accent)
         var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        nsColor.usingColorSpace(.sRGB)?.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        // macOS 13 호환: colorSpace 변환 대신 calibratedRGB로 직접 접근 시도
+        if let srgb = nsColor.usingColorSpace(.sRGB) {
+            srgb.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        } else if let calibrated = nsColor.usingColorSpace(.genericRGB) {
+            calibrated.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        } else {
+            // 폴백: 기본값 사용 (핑크 계열)
+            h = 0.95; s = 0.3; b = 0.9
+        }
 
         // 매우 연한 버전 (배경용)
         let veryLight = Color(hue: Double(h), saturation: Double(s) * 0.08, brightness: 0.98)
@@ -196,17 +204,25 @@ extension Color {
         default:
             (r, g, b) = (0, 0, 0)
         }
+        // macOS 13 호환: 색상 공간 지정 없이 기본 생성자 사용
         self.init(
-            .sRGB,
             red: Double(r) / 255,
             green: Double(g) / 255,
-            blue: Double(b) / 255,
-            opacity: 1
+            blue: Double(b) / 255
         )
     }
 
     func toHex() -> String {
-        guard let components = NSColor(self).usingColorSpace(.sRGB) else { return "#000000" }
+        let nsColor = NSColor(self)
+        // macOS 13 호환: sRGB 실패 시 genericRGB 시도
+        let components: NSColor
+        if let srgb = nsColor.usingColorSpace(.sRGB) {
+            components = srgb
+        } else if let generic = nsColor.usingColorSpace(.genericRGB) {
+            components = generic
+        } else {
+            return "#000000"
+        }
         let r = Int(round(components.redComponent * 255))
         let g = Int(round(components.greenComponent * 255))
         let b = Int(round(components.blueComponent * 255))

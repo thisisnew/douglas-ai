@@ -45,7 +45,15 @@ enum IntentClassifier {
             return .classified(intent)
         }
 
-        // 4) 분류 불가 → 질의응답이 아니면 무조건 task
+        // 4) 분류 불가 → task가 기본값
+        //    단, 짧은 입력(15자 미만)이면서 작업 키워드가 없으면 quickAnswer
+        if trimmed.count < 15 {
+            let taskKeywords = ["해줘", "해봐", "만들", "고쳐", "수정", "추가", "삭제", "변경", "작성", "개발", "구현", "분석", "조사"]
+            let hasTaskKeyword = taskKeywords.contains(where: { trimmed.contains($0) })
+            if !hasTaskKeyword {
+                return .classified(.quickAnswer)
+            }
+        }
         return .classified(.task)
     }
 
@@ -172,6 +180,21 @@ enum IntentClassifier {
     /// NLTokenizer + 가중치 점수 기반 즉시 분류. 판별 불가 시 nil 반환
     static func quickClassify(_ task: String) -> WorkflowIntent? {
         let text = task.lowercased()
+        let trimmed = task.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // 인사말/간단한 대화: quickAnswer로 즉시 반환
+        // 짧은 텍스트(20자 미만)이면서 인사말 패턴이면 quickAnswer
+        if trimmed.count < 20 {
+            let greetings = [
+                "안녕", "반갑", "하이", "헬로", "hello", "hi ", "hey",
+                "좋은 아침", "좋은 저녁", "굿모닝", "굿나잇",
+                "잘 지내", "오랜만", "수고",
+                "ㅎㅇ", "ㅎㅎ", "ㅋㅋ", "감사", "고마워", "땡큐", "thank",
+            ]
+            if greetings.contains(where: { text.contains($0) }) {
+                return .quickAnswer
+            }
+        }
 
         // Jira/외부 URL만 넣은 경우: 의도를 알 수 없으므로 사용자에게 선택하게 함
         if containsTicketURL(text) && !hasExplicitUserIntent(text) {
