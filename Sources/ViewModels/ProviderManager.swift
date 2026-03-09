@@ -53,7 +53,15 @@ class ProviderManager: ObservableObject {
         // 온보딩 완료 전이면 기본 프로바이더 생성하지 않음
         guard OnboardingViewModel.isCompleted else { return }
         // Claude Code
-        if !configs.contains(where: { $0.type == .claudeCode }) {
+        if let idx = configs.firstIndex(where: { $0.type == .claudeCode }) {
+            // 저장된 경로가 유효하지 않으면 재탐색 (CLI 업데이트/이동 대응)
+            if !FileManager.default.isExecutableFile(atPath: configs[idx].baseURL) {
+                let freshPath = ClaudeCodeProvider.findClaudePath()
+                if FileManager.default.isExecutableFile(atPath: freshPath) {
+                    configs[idx].baseURL = freshPath
+                }
+            }
+        } else {
             let claudePath = ClaudeCodeProvider.findClaudePath()
             if FileManager.default.isExecutableFile(atPath: claudePath) {
                 configs.append(ProviderConfig(

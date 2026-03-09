@@ -226,7 +226,9 @@ class ClaudeCodeProvider: AIProvider {
     }
 
     /// claude 바이너리와 같은 디렉토리에 있는 node 경로를 찾는다
+    /// claude 파일도 존재해야 반환 (경로 이동 시 stale node 방지)
     private static func findNodePath(forClaude claudePath: String) -> String? {
+        guard FileManager.default.isExecutableFile(atPath: claudePath) else { return nil }
         let claudeDir = (claudePath as NSString).deletingLastPathComponent
         let nodePath = (claudeDir as NSString).appendingPathComponent("node")
         if FileManager.default.isExecutableFile(atPath: nodePath) {
@@ -391,14 +393,22 @@ class ClaudeCodeProvider: AIProvider {
         onToolActivity: ((String, ToolActivityDetail?) -> Void)? = nil,
         onTextChunk: (@Sendable (String) -> Void)? = nil
     ) async throws -> String {
+        // 저장된 경로가 유효하지 않으면 재탐색 (Claude CLI 업데이트/이동 대응)
+        let effectivePath: String
+        if FileManager.default.isExecutableFile(atPath: path) {
+            effectivePath = path
+        } else {
+            effectivePath = Self.findClaudePath()
+        }
+
         // claude CLI는 Node.js 스크립트 → 같은 디렉토리의 node를 직접 사용
         let executable: String
         var args: [String]
-        if let nodePath = ClaudeCodeProvider.findNodePath(forClaude: path) {
+        if let nodePath = ClaudeCodeProvider.findNodePath(forClaude: effectivePath) {
             executable = nodePath
-            args = [path, "-p", prompt, "--model", model]
+            args = [effectivePath, "-p", prompt, "--model", model]
         } else {
-            executable = path
+            executable = effectivePath
             args = ["-p", prompt, "--model", model]
         }
 
