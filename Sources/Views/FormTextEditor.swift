@@ -9,65 +9,105 @@ struct FormTextEditor: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
-    func makeNSView(context: Context) -> NSScrollView {
-        let sv = NSScrollView()
-        sv.hasVerticalScroller = true
-        sv.autohidesScrollers = true
-        sv.borderType = .noBorder
-        sv.drawsBackground = false
-
-        let tc = NSTextContainer(containerSize: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
-        tc.widthTracksTextView = true
-
-        let lm = NSLayoutManager()
-        lm.allowsNonContiguousLayout = true
-        lm.addTextContainer(tc)
-
-        let ts = NSTextStorage()
-        ts.addLayoutManager(lm)
-
-        let tv = NSTextView(frame: .zero, textContainer: tc)
-        tv.delegate = context.coordinator
-        tv.isRichText = false
-        tv.font = font
-        tv.drawsBackground = false
-        tv.string = text
-        tv.textContainerInset = NSSize(width: 2, height: 4)
-        tv.isVerticallyResizable = true
-        tv.isHorizontallyResizable = false
-        tv.autoresizingMask = [.width]
-
-        // 불필요한 텍스트 분석 비활성화 (성능 향상)
-        tv.isAutomaticSpellingCorrectionEnabled = false
-        tv.isContinuousSpellCheckingEnabled = false
-        tv.isGrammarCheckingEnabled = false
-        tv.isAutomaticQuoteSubstitutionEnabled = false
-        tv.isAutomaticDashSubstitutionEnabled = false
-        tv.isAutomaticTextReplacementEnabled = false
-        tv.isAutomaticLinkDetectionEnabled = false
-        tv.isAutomaticDataDetectionEnabled = false
-        tv.isAutomaticTextCompletionEnabled = false
-
-        sv.documentView = tv
-        context.coordinator.textView = tv
-        return sv
+    func makeNSView(context: Context) -> Container {
+        let container = Container(coordinator: context.coordinator, font: font, initialText: text)
+        return container
     }
 
-    func updateNSView(_ sv: NSScrollView, context: Context) {
+    func updateNSView(_ container: Container, context: Context) {
         let coord = context.coordinator
         coord.parent = self
-        guard !coord.isUpdating,
-              let tv = coord.textView,
-              tv.string != text else { return }
+        let tv = container.textView
+        guard !coord.isUpdating, tv.string != text else { return }
         coord.isUpdating = true
         tv.string = text
         coord.isUpdating = false
     }
 
+    // MARK: - Container (NSView + NSScrollView + NSTextView)
+
+    final class Container: NSView {
+        let scrollView: NSScrollView
+        let textView: NSTextView
+
+        init(coordinator: Coordinator, font: NSFont, initialText: String) {
+            let sv = NSScrollView()
+            sv.hasVerticalScroller = true
+            sv.autohidesScrollers = true
+            sv.borderType = .noBorder
+            sv.drawsBackground = false
+            sv.translatesAutoresizingMaskIntoConstraints = false
+
+            let tc = NSTextContainer(containerSize: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+            tc.widthTracksTextView = true
+
+            let lm = NSLayoutManager()
+            lm.allowsNonContiguousLayout = true
+            lm.addTextContainer(tc)
+
+            let ts = NSTextStorage()
+            ts.addLayoutManager(lm)
+
+            let tv = NSTextView(frame: .zero, textContainer: tc)
+            tv.delegate = coordinator
+            tv.isRichText = false
+            tv.font = font
+            tv.textColor = .labelColor
+            tv.insertionPointColor = .labelColor
+            tv.drawsBackground = false
+            tv.string = initialText
+            tv.textContainerInset = NSSize(width: 2, height: 4)
+            tv.isVerticallyResizable = true
+            tv.isHorizontallyResizable = false
+            tv.autoresizingMask = [.width]
+            tv.minSize = NSSize(width: 0, height: 0)
+            tv.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+
+            // 불필요한 텍스트 분석 비활성화
+            tv.isAutomaticSpellingCorrectionEnabled = false
+            tv.isContinuousSpellCheckingEnabled = false
+            tv.isGrammarCheckingEnabled = false
+            tv.isAutomaticQuoteSubstitutionEnabled = false
+            tv.isAutomaticDashSubstitutionEnabled = false
+            tv.isAutomaticTextReplacementEnabled = false
+            tv.isAutomaticLinkDetectionEnabled = false
+            tv.isAutomaticDataDetectionEnabled = false
+            tv.isAutomaticTextCompletionEnabled = false
+
+            sv.documentView = tv
+
+            self.scrollView = sv
+            self.textView = tv
+
+            super.init(frame: .zero)
+            translatesAutoresizingMaskIntoConstraints = false
+
+            addSubview(sv)
+            NSLayoutConstraint.activate([
+                sv.topAnchor.constraint(equalTo: topAnchor),
+                sv.bottomAnchor.constraint(equalTo: bottomAnchor),
+                sv.leadingAnchor.constraint(equalTo: leadingAnchor),
+                sv.trailingAnchor.constraint(equalTo: trailingAnchor),
+            ])
+        }
+
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func layout() {
+            super.layout()
+            let clipWidth = scrollView.contentView.bounds.width
+            if clipWidth > 0, abs(textView.frame.width - clipWidth) > 1 {
+                textView.frame.size.width = clipWidth
+                textView.textContainer?.containerSize.width = clipWidth
+            }
+        }
+    }
+
+    // MARK: - Coordinator
+
     class Coordinator: NSObject, NSTextViewDelegate {
         var parent: FormTextEditor
         var isUpdating = false
-        weak var textView: NSTextView?
 
         init(_ parent: FormTextEditor) { self.parent = parent }
 
