@@ -464,11 +464,25 @@ struct OnboardingView: View {
 
             // 하단 버튼
             HStack {
-                Button("나중에 설정") {
+                Button(action: {
                     viewModel.skipOnboarding(providerManager: providerManager, agentStore: agentStore)
                     onComplete()
+                }) {
+                    Text("나중에 설정")
+                        .font(.system(size: DesignTokens.FontSize.body, weight: .medium, design: .rounded))
+                        .foregroundColor(palette.textSecondary)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
+                                .fill(palette.surfaceSecondary)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DesignTokens.CozyGame.buttonRadius, style: .continuous)
+                                .strokeBorder(palette.cardBorder.opacity(0.2), lineWidth: 1)
+                        )
                 }
-                .foregroundColor(.secondary)
+                .buttonStyle(.plain)
 
                 Spacer()
 
