@@ -1390,4 +1390,91 @@ struct ToolExecutorTests {
         #expect(ToolExecutor.cliToolName(for: "MCP__uppercase") == nil)
         #expect(ToolExecutor.cliToolName(for: "mcp") == nil)
     }
+
+    // MARK: - export_pdf
+
+    @Test("export_pdf — 마크다운 → PDF 생성")
+    func exportPdfSuccess() async throws {
+        let tmpDir = NSTemporaryDirectory()
+        let outPath = (tmpDir as NSString).appendingPathComponent("test_export_\(UUID().uuidString).pdf")
+        defer { try? FileManager.default.removeItem(atPath: outPath) }
+
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "export_pdf", arguments: [
+            "content": .string("# 제목\n\n본문 텍스트입니다.\n\n- 항목 1\n- 항목 2"),
+            "path": .string(outPath)
+        ])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("done"))
+        ]
+
+        let agent = makeAgent()
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "pdf")]
+        )
+
+        // PDF 파일이 생성되었는지 확인
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResultMsg = lastMessages.first { $0.role == "tool" }
+        #expect(toolResultMsg?.content?.contains("PDF") == true)
+        #expect(toolResultMsg?.isError != true)
+        #expect(FileManager.default.fileExists(atPath: outPath))
+    }
+
+    @Test("export_pdf — content 파라미터 누락")
+    func exportPdfMissingContent() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "export_pdf", arguments: [
+            "path": .string("/tmp/test.pdf")
+        ])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("handled"))
+        ]
+
+        let agent = makeAgent()
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "pdf")]
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResultMsg = lastMessages.first { $0.role == "tool" }
+        #expect(toolResultMsg?.isError == true)
+    }
+
+    @Test("export_pdf — title 옵션 포함")
+    func exportPdfWithTitle() async throws {
+        let tmpDir = NSTemporaryDirectory()
+        let outPath = (tmpDir as NSString).appendingPathComponent("test_title_\(UUID().uuidString).pdf")
+        defer { try? FileManager.default.removeItem(atPath: outPath) }
+
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "export_pdf", arguments: [
+            "content": .string("본문 내용"),
+            "path": .string(outPath),
+            "title": .string("테스트 문서")
+        ])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("done"))
+        ]
+
+        let agent = makeAgent()
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "pdf")]
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResultMsg = lastMessages.first { $0.role == "tool" }
+        #expect(toolResultMsg?.isError != true)
+        #expect(FileManager.default.fileExists(atPath: outPath))
+        // PDF 파일 크기 검증 (빈 파일이 아닌지)
+        let attrs = try FileManager.default.attributesOfItem(atPath: outPath)
+        let size = attrs[.size] as? Int ?? 0
+        #expect(size > 100)
+    }
 }

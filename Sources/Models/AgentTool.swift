@@ -311,6 +311,20 @@ enum ToolRegistry {
             risk: .safe, requiredActionScope: .readFiles
         ),
         AgentTool(
+            id: "export_pdf",
+            name: "PDF 내보내기",
+            description: """
+            Convert markdown text to a styled PDF file. Supports headings, lists, bold, italic, code blocks, and tables. \
+            Use this to create professional documents from markdown content. No external dependencies required.
+            """,
+            parameters: [
+                .init(name: "content", type: .string, description: "Markdown text to convert to PDF", required: true, enumValues: nil),
+                .init(name: "path", type: .string, description: "Output PDF file path (must end with .pdf)", required: true, enumValues: nil),
+                .init(name: "title", type: .string, description: "Optional document title (displayed at the top)", required: false, enumValues: nil)
+            ],
+            risk: .local, requiredActionScope: .writeFiles
+        ),
+        AgentTool(
             id: "code_outline",
             name: "코드 구조 보기",
             description: """

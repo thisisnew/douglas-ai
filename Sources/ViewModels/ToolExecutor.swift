@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 /// 도구 호출 루프 실행 + smartSend 유틸리티
 enum ToolExecutor {
@@ -428,6 +429,8 @@ enum ToolExecutor {
             result = await executeCodeDiagnostics(call, context: context)
         case "code_outline":
             result = await executeCodeOutline(call, context: context)
+        case "export_pdf":
+            result = await executeExportPDF(call, context: context)
         default:
             result = ToolResult(callID: call.id, content: "알 수 없는 도구: \(call.toolName)", isError: true)
         }
@@ -1668,6 +1671,197 @@ enum ToolExecutor {
         defs.compactMap { def in
             guard let regex = try? NSRegularExpression(pattern: def.pattern, options: []) else { return nil }
             return (regex: regex, kind: def.kind, extractName: def.extractName)
+        }
+    }
+
+    // MARK: - export_pdf
+
+    @MainActor
+    private static func executeExportPDF(_ call: ToolCall, context: ToolExecutionContext) async -> ToolResult {
+        guard let content = call.arguments["content"]?.stringValue else {
+            return ToolResult(callID: call.id, content: "content 파라미터가 필요합니다.", isError: true)
+        }
+        guard let rawPath = call.arguments["path"]?.stringValue else {
+            return ToolResult(callID: call.id, content: "path 파라미터가 필요합니다.", isError: true)
+        }
+
+        let path = resolvePath(rawPath, projectPaths: context.projectPaths)
+        guard isPathAllowed(path, projectPaths: context.projectPaths) else {
+            return ToolResult(callID: call.id, content: "접근이 허용되지 않은 경로입니다: \(path)", isError: true)
+        }
+
+        let title = call.arguments["title"]?.stringValue
+
+        do {
+            let html = markdownToHTML(content, title: title)
+            try renderHTMLToPDF(html: html, outputPath: path)
+            let fileSize = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? 0
+            let sizeKB = fileSize / 1024
+            return ToolResult(callID: call.id, content: "PDF 생성 완료: \(path) (\(sizeKB)KB)", isError: false)
+        } catch {
+            return ToolResult(callID: call.id, content: "PDF 생성 실패: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    /// 마크다운 → HTML 변환 (간이 변환기)
+    private static func markdownToHTML(_ markdown: String, title: String?) -> String {
+        var html = markdown
+
+        // 코드 블록 (``` ... ```) — 다른 변환 전에 먼저 처리
+        var codeBlocks: [String] = []
+        if let codeRegex = try? NSRegularExpression(pattern: "```[\\w]*\\n([\\s\\S]*?)```", options: []) {
+            let range = NSRange(html.startIndex..., in: html)
+            let matches = codeRegex.matches(in: html, range: range).reversed()
+            for match in matches {
+                guard let fullRange = Range(match.range, in: html) else { continue }
+                let code = match.numberOfRanges > 1
+                    ? (Range(match.range(at: 1), in: html).map { String(html[$0]) } ?? "")
+                    : String(html[fullRange])
+                let placeholder = "%%CODEBLOCK\(codeBlocks.count)%%"
+                codeBlocks.append(code)
+                html.replaceSubrange(fullRange, with: placeholder)
+            }
+        }
+
+        // 인라인 코드
+        if let inlineCode = try? NSRegularExpression(pattern: "`([^`]+)`", options: []) {
+            html = inlineCode.stringByReplacingMatches(in: html, range: NSRange(html.startIndex..., in: html),
+                                                       withTemplate: "<code>$1</code>")
+        }
+
+        // 헤딩
+        let lines = html.components(separatedBy: "\n")
+        var result: [String] = []
+        var inList = false
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            // 헤딩
+            if trimmed.hasPrefix("### ") {
+                if inList { result.append("</ul>"); inList = false }
+                result.append("<h3>\(String(trimmed.dropFirst(4)))</h3>")
+            } else if trimmed.hasPrefix("## ") {
+                if inList { result.append("</ul>"); inList = false }
+                result.append("<h2>\(String(trimmed.dropFirst(3)))</h2>")
+            } else if trimmed.hasPrefix("# ") {
+                if inList { result.append("</ul>"); inList = false }
+                result.append("<h1>\(String(trimmed.dropFirst(2)))</h1>")
+            }
+            // 리스트
+            else if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") {
+                if !inList { result.append("<ul>"); inList = true }
+                result.append("<li>\(String(trimmed.dropFirst(2)))</li>")
+            }
+            // 번호 리스트
+            else if let numMatch = trimmed.range(of: #"^\d+\.\s"#, options: .regularExpression) {
+                if !inList { result.append("<ol>"); inList = true }
+                result.append("<li>\(String(trimmed[numMatch.upperBound...]))</li>")
+            }
+            // 빈 줄
+            else if trimmed.isEmpty {
+                if inList {
+                    result.append(inList ? "</ul>" : "</ol>")
+                    inList = false
+                }
+                result.append("")
+            }
+            // 수평선
+            else if trimmed == "---" || trimmed == "***" {
+                if inList { result.append("</ul>"); inList = false }
+                result.append("<hr>")
+            }
+            // 일반 텍스트
+            else {
+                if inList { result.append("</ul>"); inList = false }
+                result.append("<p>\(trimmed)</p>")
+            }
+        }
+        if inList { result.append("</ul>") }
+
+        html = result.joined(separator: "\n")
+
+        // 볼드/이탤릭
+        if let bold = try? NSRegularExpression(pattern: "\\*\\*(.+?)\\*\\*", options: []) {
+            html = bold.stringByReplacingMatches(in: html, range: NSRange(html.startIndex..., in: html),
+                                                  withTemplate: "<b>$1</b>")
+        }
+        if let italic = try? NSRegularExpression(pattern: "(?<!\\*)\\*(.+?)\\*(?!\\*)", options: []) {
+            html = italic.stringByReplacingMatches(in: html, range: NSRange(html.startIndex..., in: html),
+                                                    withTemplate: "<i>$1</i>")
+        }
+
+        // 코드 블록 복원
+        for (i, code) in codeBlocks.enumerated() {
+            let escaped = code.replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
+            html = html.replacingOccurrences(of: "%%CODEBLOCK\(i)%%",
+                                              with: "<pre><code>\(escaped)</code></pre>")
+        }
+
+        // 링크
+        if let link = try? NSRegularExpression(pattern: "\\[([^\\]]+)\\]\\(([^)]+)\\)", options: []) {
+            html = link.stringByReplacingMatches(in: html, range: NSRange(html.startIndex..., in: html),
+                                                  withTemplate: "<a href=\"$2\">$1</a>")
+        }
+
+        let titleBlock = title.map { "<h1 style=\"text-align:center;margin-bottom:20px;\">\($0)</h1><hr>" } ?? ""
+
+        return """
+        <!DOCTYPE html>
+        <html><head><meta charset="utf-8">
+        <style>
+            body { font-family: -apple-system, 'Apple SD Gothic Neo', sans-serif; font-size: 13px; line-height: 1.6; margin: 40px; color: #333; }
+            h1 { font-size: 22px; margin-top: 24px; }
+            h2 { font-size: 18px; margin-top: 20px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+            h3 { font-size: 15px; margin-top: 16px; }
+            code { background: #f4f4f4; padding: 2px 5px; border-radius: 3px; font-size: 12px; }
+            pre { background: #f8f8f8; padding: 12px; border-radius: 6px; overflow-x: auto; }
+            pre code { background: none; padding: 0; }
+            ul, ol { padding-left: 24px; }
+            li { margin-bottom: 4px; }
+            a { color: #0066cc; }
+            hr { border: none; border-top: 1px solid #ddd; margin: 16px 0; }
+            table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            th { background: #f4f4f4; font-weight: 600; }
+        </style>
+        </head><body>
+        \(titleBlock)
+        \(html)
+        </body></html>
+        """
+    }
+
+    /// HTML → PDF 렌더링 (macOS 네이티브)
+    @MainActor
+    private static func renderHTMLToPDF(html: String, outputPath: String) throws {
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 540, height: 720))
+        textView.isEditable = false
+
+        guard let data = html.data(using: .utf8),
+              let attrStr = NSAttributedString(html: data, documentAttributes: nil) else {
+            throw NSError(domain: "ExportPDF", code: 1, userInfo: [NSLocalizedDescriptionKey: "HTML 변환 실패"])
+        }
+
+        textView.textStorage?.setAttributedString(attrStr)
+        textView.sizeToFit()
+
+        let printInfo = NSPrintInfo()
+        printInfo.paperSize = NSSize(width: 612, height: 792) // US Letter
+        printInfo.topMargin = 36
+        printInfo.bottomMargin = 36
+        printInfo.leftMargin = 36
+        printInfo.rightMargin = 36
+        printInfo.jobDisposition = .save
+        printInfo.dictionary()[NSPrintInfo.AttributeKey.jobSavingURL] = URL(fileURLWithPath: outputPath)
+
+        let printOp = NSPrintOperation(view: textView, printInfo: printInfo)
+        printOp.showsPrintPanel = false
+        printOp.showsProgressPanel = false
+        printOp.run()
+
+        guard FileManager.default.fileExists(atPath: outputPath) else {
+            throw NSError(domain: "ExportPDF", code: 2, userInfo: [NSLocalizedDescriptionKey: "PDF 파일 생성 실패"])
         }
     }
 }

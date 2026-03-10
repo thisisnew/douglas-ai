@@ -1048,6 +1048,7 @@ executeWithTools() 루프 (최대 10회, 150K 문자 context guard):
 - **jira_update_status**: GET transitions → 대소문자 무시 이름 매칭 → POST transition
 - **jira_add_comment**: POST ADF 형식 코멘트 body
 - **Jira 공통**: `makeJiraRequest()` 헬퍼로 JiraConfig.shared 인증 + JSON 헤더 처리
+- **export_pdf**: 마크다운 → HTML → PDF 변환 (macOS 네이티브, 외부 의존성 없음). NSAttributedString(html:) + NSPrintOperation으로 생성. 제목/스타일 자동 적용.
 
 ### 통합 지점
 
