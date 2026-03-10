@@ -1196,17 +1196,24 @@ extension RoomManager {
     // MARK: - Plan C: 새 6단계 워크플로우
 
     /// Understand 단계 (Plan C): intake + intent + TaskBrief 생성 (clarify 루프 제거)
+    /// 순서: intake(URL/Jira fetch) → 의도 확인(필요 시) → intent 분류 → TaskBrief
     func executeUnderstandPhase(roomID: UUID, task: String) async {
         var actualTask = task
 
-        // 0) 명시적 의도 없는 경우: 사용자에게 작업 의도 확인
+        // 1) Intake: URL/Jira fetch (의도 확인 전에 실행하여 Jira 데이터 확보)
+        await executeIntakePhase(roomID: roomID, task: task)
+        guard !Task.isCancelled,
+              rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
+
+        // 2) 명시적 의도 없는 경우: 사용자에게 작업 의도 확인
         //    (파일만 업로드, URL만 입력, 이미지만 첨부 등)
         let hasExplicitIntentForTask = !task.isEmpty && IntentClassifier.hasExplicitUserIntent(task)
         if task.isEmpty || !hasExplicitIntentForTask {
-            // 상황에 맞는 질문 생성
+            // 상황에 맞는 질문 생성 (Jira 데이터가 이미 있으면 티켓 정보 포함)
             let attachedFiles = rooms.first(where: { $0.id == roomID })?.messages
                 .compactMap { $0.attachments }.flatMap { $0 } ?? []
             let hasURL = task.range(of: "https?://", options: .regularExpression) != nil
+            let intakeData = rooms.first(where: { $0.id == roomID })?.clarifyContext.intakeData
             let questionContent: String
             if !attachedFiles.isEmpty && hasURL {
                 // URL + 파일 첨부 동시
@@ -1216,6 +1223,10 @@ extension RoomManager {
                 // 파일 첨부만
                 let fileDesc = attachedFiles.map { $0.isImage ? "이미지(\($0.originalFilename ?? $0.displayName))" : $0.displayName }.joined(separator: ", ")
                 questionContent = "\(fileDesc)을 첨부해주셨네요. 어떤 작업을 진행할까요?\n(예: 번역, 분석, 텍스트 추출, 요약 등)"
+            } else if hasURL, let intakeData, !intakeData.jiraDataList.isEmpty {
+                // Jira URL + 티켓 데이터 성공적으로 조회됨
+                let ticketInfo = intakeData.jiraDataList.map { "[\($0.key)] \($0.summary)" }.joined(separator: ", ")
+                questionContent = "티켓을 확인했습니다: \(ticketInfo)\n\n이 이슈를 기반으로 어떤 작업을 진행할까요? (예: 개발, 기획서 작성, 분석, 요약, 코드 리뷰 등)"
             } else if hasURL {
                 // URL만 입력
                 questionContent = "추가 확인이 필요합니다:\n\n이 이슈를 기반으로 어떤 작업을 진행할까요? (예: 개발, 기획서 작성, 분석, 요약, 코드 리뷰 등)\n이슈를 확인한 뒤 작업 방향을 알려주시면 바로 시작하겠습니다."
@@ -1246,13 +1257,9 @@ extension RoomManager {
             }
             let userAnswer = answer
 
-            // 원본 입력의 URL/첨부 정보를 보존하면서 사용자 응답으로 actualTask 갱신
-            // (URL만 입력 → 질문 → 응답 시 URL이 소실되는 문제 방지)
-            if task.range(of: "https?://", options: .regularExpression) != nil {
-                actualTask = task + "\n" + userAnswer
-            } else {
-                actualTask = userAnswer
-            }
+            // 사용자 응답을 actualTask로 설정
+            // (URL/Jira 데이터는 이미 intakeData에 저장되어 있으므로 별도 보존 불필요)
+            actualTask = userAnswer
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].transitionTo(.planning)
                 let titleText = userAnswer.prefix(30).components(separatedBy: "\n").first ?? String(userAnswer.prefix(30))
@@ -1261,7 +1268,7 @@ extension RoomManager {
             scheduleSave()
         }
 
-        // 0b) 사용자에게 분석 시작 알림
+        // 2b) 사용자에게 분석 시작 알림
         let analyzeMsg = ChatMessage(
             role: .system,
             content: "요청을 분석합니다...",
@@ -1270,12 +1277,7 @@ extension RoomManager {
         )
         appendMessage(analyzeMsg, to: roomID)
 
-        // 1) Intake: URL/Jira fetch
-        await executeIntakePhase(roomID: roomID, task: actualTask)
-        guard !Task.isCancelled,
-              rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
-
-        // 2) Intent: quickAnswer vs task 분류
+        // 3) Intent: quickAnswer vs task 분류
         await executeIntentPhase(roomID: roomID, task: actualTask)
         guard !Task.isCancelled,
               rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
