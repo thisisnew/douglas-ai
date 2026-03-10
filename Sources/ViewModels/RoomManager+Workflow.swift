@@ -1664,6 +1664,8 @@ extension RoomManager {
             for info in agentInfos {
                 let agentPrompt = agentSystemPrompts[info.agent.id] ?? info.agent.resolvedSystemPrompt
                 group.addTask { [self] in
+                    guard !Task.isCancelled else { return ("", "", info.id) }
+
                     let prompt = """
                     \(agentPrompt)
 

@@ -308,7 +308,7 @@ extension RoomManager {
                 await withTaskGroup(of: (Int, ChatMessage, Bool).self) { group in
                     for (idx, agentID) in agentIDs.enumerated() {
                         group.addTask { [weak self] in
-                            guard let self else {
+                            guard !Task.isCancelled, let self else {
                                 return (idx, ChatMessage(role: .assistant, content: "", agentName: nil, messageType: .error), false)
                             }
                             let (msg, agreed) = await self.generateDiscussionResponse(

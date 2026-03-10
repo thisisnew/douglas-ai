@@ -327,7 +327,9 @@ protocol AIProvider {
 - PATH에 nvm 경로 추가하여 node 의존성 해결
 - 시스템 프롬프트 + 대화 히스토리를 단일 프롬프트로 조합
 - **도구 활동 추적 + 텍스트 스트리밍**: `--output-format stream-json --verbose`로 NDJSON 스트리밍 → `StreamJsonHandler`가 `tool_use` 이벤트 + 텍스트 청크 실시간 파싱. `onToolActivity` 콜백으로 도구 활동 추적, `onTextChunk` 콜백으로 텍스트 스트리밍 (`--include-partial-messages`). `sendMessageStreaming()` 구현으로 Design/Plan/Review 단계에서도 실시간 텍스트 출력 지원. 도구명은 한국어 변환(`ToolActivityDetail.displayName`), `contentPreview`는 tool_use input에서 추출. `sendMessageWithSearch()`에도 `onToolActivity` 지원
-- **도구 정책**: `sendMessage()` = 도구 활성화 (`--allowedTools Edit Write Bash Read Glob Grep`), `sendRouterMessage()` = 도구 비활성화 (`--tools ""`). 계획 수립(`requestPlan`), 브리핑 생성(`generateBriefing`), 작업일지(`generateWorkLog`)는 `sendRouterMessage` 사용 — 계획 승인 전 파일 수정/셸 실행 방지.
+- **도구 정책**: `sendMessage()` = 도구 활성화 (`--allowedTools Edit Write Bash Read Glob Grep`), `sendRouterMessage()` / `sendMessageStreaming()` = 도구 비활성화. `sendMessageWithTools(tools: [])` = **tools 빈 배열 시 자동 도구 비활성화** (`disableTools: true`). 토론/디자인 단계에서 에이전트가 코드 수정/PR 생성 등을 수행하지 못하도록 차단.
+- **Task 취소 → CLI 프로세스 즉시 종료**: `executeAndParse()`에서 `withTaskCancellationHandler`로 실행 중인 `Process`를 `terminate()`. `ProcessRunner.runStreaming(processHandle:)`로 프로세스 핸들 외부 노출. 정지 버튼 → `roomTasks[id]?.cancel()` → CLI 프로세스 즉시 종료.
+- **withTaskGroup 취소 전파**: 병렬 토론(Turn 1) 자식 태스크에서 `guard !Task.isCancelled` 체크 → 정지 버튼 시 즉시 빈 결과 반환.
 
 ### OpenAIProvider (`Providers/OpenAIProvider.swift`)
 

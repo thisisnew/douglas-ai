@@ -2,7 +2,7 @@ import Foundation
 
 /// @Sendable 클로저에서 안전하게 값을 변경할 수 있는 래퍼
 /// NSLock으로 보호하므로 실제 스레드 안전성도 보장.
-private final class SendableRef<T>: @unchecked Sendable {
+final class SendableRef<T>: @unchecked Sendable {
     private let lock = NSLock()
     private var _value: T
     init(_ value: T) { _value = value }
@@ -48,11 +48,13 @@ enum ProcessRunner {
     }
 
     /// 스트리밍 프로세스 실행: stdout을 점진적으로 읽으며 onOutput 콜백 호출
+    /// processHandle이 제공되면 실행 중인 Process를 저장하여 외부에서 terminate() 가능
     static func runStreaming(
         executable: String,
         args: [String],
         env: [String: String]? = nil,
         workDir: String? = nil,
+        processHandle: SendableRef<Process?>? = nil,
         onOutput: @escaping @Sendable (String) -> Void
     ) async -> (exitCode: Int32, stdout: String, stderr: String) {
         if let handler {
@@ -75,6 +77,7 @@ enum ProcessRunner {
 
                 do {
                     try process.run()
+                    processHandle?.value = process
 
                     let accumulatedStdout = SendableRef("")
                     let stderrRef = SendableRef(Data())
@@ -103,11 +106,13 @@ enum ProcessRunner {
 
                     group.wait()
                     process.waitUntilExit()
+                    processHandle?.value = nil
 
                     let stdout = accumulatedStdout.value
                     let stderr = String(data: stderrRef.value, encoding: .utf8) ?? ""
                     continuation.resume(returning: (process.terminationStatus, stdout, stderr))
                 } catch {
+                    processHandle?.value = nil
                     continuation.resume(returning: (-1, "", error.localizedDescription))
                 }
             }

@@ -366,7 +366,7 @@ class ClaudeCodeProvider: AIProvider {
         let userPrompt = buildUserPrompt(from: messages)
         return try await runClaude(
             path: config.baseURL, prompt: userPrompt, model: model,
-            systemPrompt: systemPrompt, disallowedTools: ["WebFetch"],
+            systemPrompt: systemPrompt, disableTools: true,
             onToolActivity: { _, _ in },  // 스트리밍 모드 활성화 (stream-json 사용)
             onTextChunk: onChunk
         )
@@ -410,25 +410,33 @@ class ClaudeCodeProvider: AIProvider {
     }
 
     /// 이미지 첨부를 파일 경로로 변환하여 CLI에 전달
+    /// tools가 비어있으면 CLI 내장 도구를 비활성화 (토론/디자인 단계에서 도구 사용 방지)
     func sendMessageWithTools(
         model: String,
         systemPrompt: String,
         messages: [ConversationMessage],
         tools: [AgentTool]
     ) async throws -> AIResponseContent {
+        let toolsDisabled = tools.isEmpty
         let simpleMsgs = messages
             .filter { $0.role != "tool" }
             .compactMap { msg -> (role: String, content: String)? in
                 var text = msg.content ?? ""
                 if let attachments = msg.attachments, !attachments.isEmpty {
                     let paths = attachments.map { $0.diskPath.path }
-                    text += "\n\n[첨부 이미지 — 아래 경로의 파일을 Read 도구로 확인하세요]\n" + paths.joined(separator: "\n")
+                    if toolsDisabled {
+                        // 도구 비활성화 시 이미지 경로만 첨부 (Read 도구 안내 불필요)
+                        text += "\n\n[첨부 이미지 경로]\n" + paths.joined(separator: "\n")
+                    } else {
+                        text += "\n\n[첨부 이미지 — 아래 경로의 파일을 Read 도구로 확인하세요]\n" + paths.joined(separator: "\n")
+                    }
                 }
                 guard !text.isEmpty else { return nil }
                 return (role: msg.role, content: text)
             }
         let result = try await sendMessage(
-            model: model, systemPrompt: systemPrompt, messages: simpleMsgs
+            model: model, systemPrompt: systemPrompt, messages: simpleMsgs,
+            workingDirectory: nil, disableTools: toolsDisabled
         )
         return .text(result)
     }
@@ -535,6 +543,7 @@ class ClaudeCodeProvider: AIProvider {
     }
 
     /// 프로세스 실행 및 결과 파싱
+    /// Task 취소 시 실행 중인 CLI 프로세스를 terminate하여 즉시 중단
     private func executeAndParse(
         executable: String,
         args: [String],
@@ -544,15 +553,25 @@ class ClaudeCodeProvider: AIProvider {
         onToolActivity: ((String, ToolActivityDetail?) -> Void)?,
         onTextChunk: (@Sendable (String) -> Void)?
     ) async throws -> String {
+        // 취소 시 프로세스 종료를 위한 핸들
+        let processHandle = SendableRef<Process?>(nil)
+
         // 스트리밍 모드
         if useStreaming {
             let activityHandler = onToolActivity ?? { _, _ in }
             let handler = StreamJsonHandler(onActivity: activityHandler, onTextChunk: onTextChunk)
-            let result = await ProcessRunner.runStreaming(
-                executable: executable, args: args, env: env,
-                workDir: workDir,
-                onOutput: { chunk in handler.feed(chunk) }
-            )
+            let result = await withTaskCancellationHandler {
+                await ProcessRunner.runStreaming(
+                    executable: executable, args: args, env: env,
+                    workDir: workDir, processHandle: processHandle,
+                    onOutput: { chunk in handler.feed(chunk) }
+                )
+            } onCancel: {
+                processHandle.value?.terminate()
+            }
+
+            // 취소로 프로세스가 종료된 경우 CancellationError 전파
+            try Task.checkCancellation()
 
             if !handler.resultText.isEmpty {
                 return handler.resultText
@@ -571,10 +590,16 @@ class ClaudeCodeProvider: AIProvider {
             throw AIProviderError.invalidResponse
         }
 
-        // 일반 모드
-        let result = await ProcessRunner.run(
-            executable: executable, args: args, env: env, workDir: workDir
-        )
+        // 일반 모드 — 취소 시 프로세스 종료
+        let result = await withTaskCancellationHandler {
+            await ProcessRunner.run(
+                executable: executable, args: args, env: env, workDir: workDir
+            )
+        } onCancel: {
+            // ProcessRunner.run은 processHandle 미지원이므로
+            // Task 취소 후 결과 수신 시 checkCancellation에서 전파
+        }
+        try Task.checkCancellation()
 
         let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         let errorOutput = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
