@@ -10,7 +10,7 @@ class GoogleProvider: AIProvider {
     }
 
     /// 하드코딩 모델 목록 (API 실패 시 폴백)
-    private static let fallbackModels = ["gemini-2.0-flash", "gemini-2.0-pro", "gemini-1.5-flash", "gemini-1.5-pro"]
+    private static let fallbackModels = ["gemini-2.0-flash", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"]
 
     func fetchModels() async throws -> [String] {
         guard let key = config.apiKey, !key.isEmpty else { throw AIProviderError.noAPIKey }
@@ -22,8 +22,7 @@ class GoogleProvider: AIProvider {
         request.setValue(key, forHTTPHeaderField: "x-goog-api-key")
         request.timeoutInterval = 15
 
-        let (data, response) = try await session.data(for: request)
-        try validateHTTPResponse(response)
+        let (data, response) = try await HTTPRetry.data(for: request, session: session)
 
         struct ModelList: Decodable {
             struct Model: Decodable { let name: String }
@@ -61,8 +60,7 @@ class GoogleProvider: AIProvider {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = 120
 
-        let (data, response) = try await session.data(for: request)
-        try validateHTTPResponse(response)
+        let (data, _) = try await HTTPRetry.data(for: request, session: session)
 
         struct Resp: Decodable {
             struct Candidate: Decodable {
@@ -114,8 +112,7 @@ class GoogleProvider: AIProvider {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = 120
 
-        let (bytes, response) = try await session.bytes(for: request)
-        try validateHTTPResponse(response)
+        let (bytes, _) = try await HTTPRetry.bytes(for: request, session: session)
 
         return try await SSEParser.consume(bytes: bytes, extractChunk: { payload in
             guard let data = payload.data(using: .utf8),
@@ -195,8 +192,7 @@ class GoogleProvider: AIProvider {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = 120
 
-        let (data, response) = try await session.data(for: request)
-        try validateHTTPResponse(response)
+        let (data, _) = try await HTTPRetry.data(for: request, session: session)
 
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw AIProviderError.invalidResponse

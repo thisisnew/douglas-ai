@@ -31,7 +31,7 @@ class AnthropicProvider: AIProvider {
         applyAuth(to: &request)
 
         let (data, response) = try await session.data(for: request)
-        try validateHTTPResponse(response)
+        try validateHTTPResponse(response, data: data)
 
         struct Resp: Decodable {
             struct Content: Decodable { let text: String? }
@@ -75,8 +75,7 @@ class AnthropicProvider: AIProvider {
         request.timeoutInterval = 120
         applyAuth(to: &request)
 
-        let (bytes, response) = try await session.bytes(for: request)
-        try validateHTTPResponse(response)
+        let (bytes, _) = try await HTTPRetry.bytes(for: request, session: session)
 
         return try await SSEParser.consume(bytes: bytes, extractChunk: { payload in
             guard let data = payload.data(using: .utf8),
@@ -163,7 +162,7 @@ class AnthropicProvider: AIProvider {
         applyAuth(to: &request)
 
         let (data, response) = try await session.data(for: request)
-        try validateHTTPResponse(response)
+        try validateHTTPResponse(response, data: data)
 
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw AIProviderError.invalidResponse

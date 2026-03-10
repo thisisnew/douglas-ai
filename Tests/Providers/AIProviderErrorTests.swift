@@ -77,10 +77,26 @@ struct AIProviderErrorTests {
         #expect(error.userFacingMessage.contains("토큰"))
     }
 
-    @Test("httpError 429 with context_length_exceeded → body wins over HTTP code (토큰)")
+    @Test("httpError 429 with context_length_exceeded → 429는 항상 요청 한도 (rate limit)")
     func httpError429_bodyOverride_message() {
         let error: Error = AIProviderError.httpError(statusCode: 429, body: "context_length_exceeded")
-        #expect(error.userFacingMessage.contains("토큰"))
+        #expect(error.userFacingMessage.contains("요청 한도"))
+    }
+
+    // MARK: - Google 429 quota exceeded (토큰 분당 할당량 초과 = rate limit)
+
+    @Test("apiError quota exceeded tokens_per_minute → 요청 한도 (rate limit, NOT token limit)")
+    func apiError_quotaTokensPerMinute_isRateLimit() {
+        let googleBody = "Quota exceeded for aiplatform.googleapis.com/generate_content_input_tokens_per_minute_per_project"
+        let error: Error = AIProviderError.apiError(googleBody)
+        #expect(error.userFacingMessage.contains("요청 한도"))
+    }
+
+    @Test("httpError 429 + Google RESOURCE_EXHAUSTED → 요청 한도")
+    func httpError429_resourceExhausted_isRateLimit() {
+        let body = "{\"error\":{\"code\":429,\"message\":\"Resource has been exhausted (e.g. check quota).\",\"status\":\"RESOURCE_EXHAUSTED\"}}"
+        let error: Error = AIProviderError.httpError(statusCode: 429, body: body)
+        #expect(error.userFacingMessage.contains("요청 한도"))
     }
 
     // MARK: - apiError keyword classification: rate limit
@@ -158,5 +174,104 @@ struct AIProviderErrorTests {
     func httpError999_fallback_message() {
         let error: Error = AIProviderError.httpError(statusCode: 999, body: "")
         #expect(error.userFacingMessage.contains("999"))
+    }
+
+    // MARK: - validateHTTPResponse with data (body 포함)
+
+    @Test("validateHTTPResponse: 200 → 에러 없음")
+    func validateHTTPResponse_200_noError() throws {
+        let provider = MockAIProvider()
+        let response = HTTPURLResponse(
+            url: URL(string: "https://test.com")!, statusCode: 200,
+            httpVersion: nil, headerFields: nil
+        )!
+        try provider.validateHTTPResponse(response, data: Data("ok".utf8))
+    }
+
+    @Test("validateHTTPResponse: 404 + data → 에러에 실제 body 포함")
+    func validateHTTPResponse_404_includesBody() {
+        let provider = MockAIProvider()
+        let response = HTTPURLResponse(
+            url: URL(string: "https://test.com")!, statusCode: 404,
+            httpVersion: nil, headerFields: nil
+        )!
+        let data = Data("{\"error\":{\"message\":\"Model not found\"}}".utf8)
+
+        do {
+            try provider.validateHTTPResponse(response, data: data)
+            Issue.record("Expected error")
+        } catch let error as AIProviderError {
+            if case .httpError(let code, let body) = error {
+                #expect(code == 404)
+                #expect(body.contains("Model not found"))
+            } else {
+                Issue.record("Wrong error variant: \(error)")
+            }
+        } catch {
+            Issue.record("Unexpected error type: \(error)")
+        }
+    }
+
+    @Test("validateHTTPResponse: 429 + data → 에러에 실제 body 포함")
+    func validateHTTPResponse_429_includesBody() {
+        let provider = MockAIProvider()
+        let response = HTTPURLResponse(
+            url: URL(string: "https://test.com")!, statusCode: 429,
+            httpVersion: nil, headerFields: nil
+        )!
+        let data = Data("{\"error\":\"rate limit exceeded\"}".utf8)
+
+        do {
+            try provider.validateHTTPResponse(response, data: data)
+            Issue.record("Expected error")
+        } catch let error as AIProviderError {
+            if case .httpError(_, let body) = error {
+                #expect(body.contains("rate limit exceeded"))
+            }
+        } catch {
+            Issue.record("Unexpected error type: \(error)")
+        }
+    }
+
+    @Test("validateHTTPResponse: data 없음 → 기본 폴백 메시지")
+    func validateHTTPResponse_noData_fallbackMessage() {
+        let provider = MockAIProvider()
+        let response = HTTPURLResponse(
+            url: URL(string: "https://test.com")!, statusCode: 500,
+            httpVersion: nil, headerFields: nil
+        )!
+
+        do {
+            try provider.validateHTTPResponse(response)
+            Issue.record("Expected error")
+        } catch let error as AIProviderError {
+            if case .httpError(let code, let body) = error {
+                #expect(code == 500)
+                #expect(body.contains("500"))
+            }
+        } catch {
+            Issue.record("Unexpected error type: \(error)")
+        }
+    }
+
+    @Test("validateHTTPResponse: 빈 data → 폴백 메시지")
+    func validateHTTPResponse_emptyData_fallbackMessage() {
+        let provider = MockAIProvider()
+        let response = HTTPURLResponse(
+            url: URL(string: "https://test.com")!, statusCode: 502,
+            httpVersion: nil, headerFields: nil
+        )!
+
+        do {
+            try provider.validateHTTPResponse(response, data: Data())
+            Issue.record("Expected error")
+        } catch let error as AIProviderError {
+            if case .httpError(let code, let body) = error {
+                #expect(code == 502)
+                #expect(body.contains("502"))
+            }
+        } catch {
+            Issue.record("Unexpected error type: \(error)")
+        }
     }
 }

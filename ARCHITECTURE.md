@@ -302,7 +302,10 @@ protocol AIProvider {
 ```
 
 - `applyAuth(to:)` 확장: AuthMethod에 따라 Bearer/x-api-key/커스텀 헤더 자동 적용
-- `AIProviderError`: invalidURL, invalidResponse, apiError, networkError, noAPIKey
+- `AIProviderError`: invalidURL, invalidResponse, apiError, networkError, noAPIKey, httpError(statusCode, body)
+- `validateHTTPResponse(_:data:)`: HTTP 상태 코드 검증. data 매개변수 전달 시 에러 메시지에 실제 응답 body 포함 (디버깅 용이)
+- `HTTPRetry.data(for:session:maxRetries:baseDelay:)`: 비스트리밍 429/503 재시도 (지수 백오프, Retry-After 존중, 최대 30초). 응답 body를 에러에 포함.
+- `HTTPRetry.bytes(for:session:maxRetries:baseDelay:)`: 스트리밍 429/503 재시도. 에러 시 바이트 스트림을 소비하여 body 추출.
 - **Tool Use default 구현**: `supportsToolCalling = false`, tools 무시하고 기존 `sendMessage()` 폴백
 - **스트리밍**: `supportsStreaming`, `sendMessageStreaming(onChunk:)` — SSE 기반 실시간 텍스트 전송. `SSEParser.consume(bytes:extractChunk:onChunk:)` 공용 유틸리티. Anthropic/OpenAI/Google 3개 프로바이더 지원, ClaudeCode는 폴백.
 
@@ -329,23 +332,25 @@ protocol AIProvider {
 
 - `/v1/models` 엔드포인트로 모델 목록 조회 (gpt, o1, o3, o4 필터)
 - `/v1/chat/completions`로 메시지 전송
-- 타임아웃: 120초
+- 타임아웃: 120초, 에러 응답 body 포함 (`validateHTTPResponse(_:data:)`)
 - **Tool Use**: `supportsToolCalling = true`, `tools` 배열 + `tool_calls` 응답 파싱
 - **Vision**: 이미지 첨부 시 `openAIContentArray()`로 `image_url` 블록 생성
 
 ### AnthropicProvider (`Providers/AnthropicProvider.swift`)
 
-- Anthropic Messages API (`/v1/messages`)
+- Anthropic Messages API (`/v1/messages`), 에러 응답 body 포함
 - **Tool Use**: `supportsToolCalling = true`, `tools` 배열 + `tool_use` content block 파싱
 - `tool_result`는 user role 메시지의 content block으로 전송 (Anthropic 규격)
 - **Vision**: 이미지 첨부 시 `anthropicContentBlocks()`로 `image` source 블록 생성
 
 ### GoogleProvider (`Providers/GoogleProvider.swift`)
 
-- 하드코딩된 모델 목록: gemini-2.0-flash, gemini-2.0-pro, gemini-1.5-flash, gemini-1.5-pro
-- `/v1beta/models/{model}:generateContent?key=` 엔드포인트
-- 시스템 프롬프트를 user/model 턴 쌍으로 주입
+- 하드코딩된 폴백 모델 목록: gemini-2.0-flash, gemini-2.5-pro, gemini-2.5-flash, gemini-1.5-pro (API 호출 실패 시 사용)
+- `/v1beta/models/{model}:generateContent` 엔드포인트 (x-goog-api-key 헤더 인증)
+- 시스템 프롬프트: `systemInstruction` 필드 사용 (공식 API 방식)
 - role 매핑: assistant → model
+- **재시도**: 비스트리밍 `HTTPRetry.data()` + 스트리밍 `HTTPRetry.bytes()` 적용 — 429/503 자동 재시도 (지수 백오프)
+- **에러 진단**: 404 등 에러 시 실제 응답 body 포함 (모델명 오류 등 원인 파악 가능)
 - **Tool Use**: `supportsToolCalling = true`, `function_declarations` + `functionCall` 파싱
 - **Vision**: 이미지 첨부 시 `googleParts()`로 `inlineData` 블록 생성
 
