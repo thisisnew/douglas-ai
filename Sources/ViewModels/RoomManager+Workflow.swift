@@ -3342,6 +3342,9 @@ extension RoomManager {
         )
         await engine.run()
 
+        // 취소된 경우 후속 처리 중단 (completeRoom과의 race condition 방지)
+        guard !Task.isCancelled else { return }
+
         // 완료: 상태 변경 + 작업일지 생성
         if rooms.first(where: { $0.id == roomID })?.status == .inProgress {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {

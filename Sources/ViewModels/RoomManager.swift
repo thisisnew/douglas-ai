@@ -1525,9 +1525,11 @@ class RoomManager: ObservableObject, WorkflowHost {
         // 에이전트 수 스냅샷 (다음 후속 사이클에서 변동 감지용)
         previousCycleAgentCount[roomID] = executingAgentIDs(in: roomID).count
 
-        // 작업일지 생성 (수동 완료 시에도)
-        let task = rooms[idx].messages.first(where: { $0.role == .user })?.content ?? rooms[idx].title
-        Task { await generateWorkLog(roomID: roomID, task: task) }
+        // 작업일지 생성 (수동 완료 시에도, 이미 있으면 중복 생성 방지)
+        if rooms[idx].workLog == nil {
+            let task = rooms[idx].messages.first(where: { $0.role == .user })?.content ?? rooms[idx].title
+            Task { await generateWorkLog(roomID: roomID, task: task) }
+        }
 
         syncAgentStatuses()
         scheduleSave()
