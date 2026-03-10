@@ -955,9 +955,19 @@ extension RoomManager {
             enrichedTask += " " + briefGoal
         }
         let taskLowered = enrichedTask.lowercased()
+        // 한글 조사 제거 ("프론트가" → "프론트", "백엔드를" → "백엔드")
+        let koreanParticles = ["가", "이", "를", "을", "는", "은", "도", "에", "와", "과", "로", "으로", "의", "에서", "까지", "부터", "만", "랑", "이랑"]
         let taskWords = taskLowered
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { $0.count >= 2 }
+            .map { word -> String in
+                for particle in koreanParticles.sorted(by: { $0.count > $1.count }) {
+                    if word.hasSuffix(particle) && word.count > particle.count + 1 {
+                        return String(word.dropLast(particle.count))
+                    }
+                }
+                return word
+            }
         let directMatches: [Agent] = subAgents.filter { sub in
             let nameKeywords = sub.name.lowercased()
                 .components(separatedBy: CharacterSet.alphanumerics.inverted)
