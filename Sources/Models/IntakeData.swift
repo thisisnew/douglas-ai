@@ -148,6 +148,26 @@ struct IntakeData: Codable {
 
 /// 텍스트에서 URL을 추출 (한글 조사 등 trailing non-ASCII 자동 제거)
 enum IntakeURLExtractor {
+    /// 텍스트에서 모든 Jira 키 추출 (중복 제거, 순서 유지)
+    static func extractJiraKeys(from text: String) -> [String] {
+        let pattern = "[A-Z][A-Z0-9]+-\\d+"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+        var seen = Set<String>()
+        var keys: [String] = []
+        for match in regex.matches(in: text, range: range) {
+            guard let r = Range(match.range, in: text) else { continue }
+            let key = String(text[r])
+            if seen.insert(key).inserted { keys.append(key) }
+        }
+        return keys
+    }
+
+    /// 텍스트에 외부 참조(URL 또는 Jira 키)가 포함되어 있는지 확인
+    static func containsExternalReferences(in text: String) -> Bool {
+        !extractURLs(from: text).isEmpty || !extractJiraKeys(from: text).isEmpty
+    }
+
     static func extractURLs(from text: String) -> [String] {
         let pattern = "https?://[^\\s]+"
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }

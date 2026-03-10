@@ -98,6 +98,7 @@ DOUGLAS/
 │   │   ├── RoomManager+Workflow.swift # 워크플로우 Phase 실행 메서드 (startRoomWorkflow, executePhaseWorkflow 등)
 │   │   ├── RoomManager+Discussion.swift # 빌드/QA 루프 + 토론 실행 (~949줄)
 │   │   ├── StepExecutionEngine.swift  # Build 단계 실행 엔진 (피드백 루프, StepStatus 전이, 롤백, Policy 기반 동작)
+│   │   ├── StepContextBudget.swift    # executeStep context 크기 관리 (100K 예산, 산출물 요약, history 축소)
 │   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (Plan C: 3-tier 가중치 — skillTags×5, workModes×2, keyword+semantic×3, 0-1 정규화 confidence, 임계값 0.7/0.5)
 │   │   ├── DocumentExporter.swift   # 문서 산출물 파일 저장 (에이전트 생성 파일 탐지 → 고정 경로 자동저장 / NSSavePanel 폴백)
 │   │   ├── ThemeManager.swift       # 테마 관리 (기본값: .cozyGame, UserDefaults 저장, 커스텀 팔레트)
@@ -1028,10 +1029,11 @@ smartSend(messages:) → 도구 없거나 미지원? → 기존 sendMessage()
 smartSend(conversationMessages:) → 이미지 첨부 있으면 도구 없어도 sendMessageWithTools()
                                  → 이미지+도구 → executeWithTools()
 
-executeWithTools() 루프 (최대 10회):
-  1. sendMessageWithTools() 호출
-  2. .text → 최종 응답 반환
-  3. .toolCalls/.mixed → 각 도구 실행 → 결과를 messages에 추가 → 1로 돌아감
+executeWithTools() 루프 (최대 10회, 150K 문자 context guard):
+  1. context 크기 체크 (150K 초과 시 조기 종료)
+  2. sendMessageWithTools() 호출
+  3. .text → 최종 응답 반환
+  4. .toolCalls/.mixed → 각 도구 실행 → 결과를 messages에 추가 → 1로 돌아감
 ```
 
 - 두 가지 `smartSend` 오버로드: 단순 텍스트 `[(role, content)]` + 이미지 가능 `[ConversationMessage]`
@@ -1109,7 +1111,7 @@ executeWithTools() 루프 (최대 10회):
 
 **전문가 Solo 분석** (`executeSoloAnalysis`): 전문가 1명만 배정된 방에서 토론 대신 혼자 분석하여 결과 공유. task + !needsPlan 경로에서 `specialistCount == 1`일 때 자동 호출.
 
-**후속 사이클** (`launchFollowUpCycle`): 완료/실패 방에서 사용자 후속 질문 시 방 재활성화 → 문서화 요청 감지(DocumentRequestDetector) → Intent 재분류 → clarify부터 워크플로우 재실행 (복명복창 포함). 문서화 요청 감지 시 `handleDocumentOutput()`으로 직접 문서 작성. 규칙 기반 quickAnswer 확정 + 에이전트 변동 없으면 clarify/assemble 스킵 (즉답 빠른 경로). `previousCycleAgentCount`로 에이전트 추가/제거 감지.
+**후속 사이클** (`launchFollowUpCycle`): 완료/실패 방에서 사용자 후속 질문 시 방 재활성화 → 문서화 요청 감지(DocumentRequestDetector) → Intent 재분류 → clarify부터 워크플로우 재실행 (복명복창 포함). 문서화 요청 감지 시 `handleDocumentOutput()`으로 직접 문서 작성. 규칙 기반 quickAnswer 확정 + 에이전트 변동 없으면 clarify/assemble 스킵 (즉답 빠른 경로). `previousCycleAgentCount`로 에이전트 추가/제거 감지. **`.understand` 조건부 스킵**: 기존 intakeData 존재 + 후속 메시지에 새 외부 참조(URL/Jira 키)가 없으면 understand 단계 스킵 — intakeData 덮어쓰기 및 TaskBrief 유실 방지.
 
 **quickAnswer 경량 라우팅** (`routeQuickAnswer`): 전문가 2명 이상인 방에서 즉답 시, 마스터가 질문에 최적인 전문가 1명을 지명하여 답변. LLM 1회 경량 호출.
 
@@ -1125,8 +1127,9 @@ executeWithTools() 루프 (최대 10회):
 
 **컨텍스트 압축**: 토론 종료 후 `generateBriefing()`이 전체 히스토리를 JSON 브리핑으로 압축. 브리핑/계획 프롬프트에 `clarifySummary`(원래 사용자 요청) 포함 → 탈선 방지.
 - 계획 수립: 브리핑 + 산출물 프리뷰(200자) 전달 (40msg → ~500토큰) + 원래 요청 앵커
-- 실행 단계: 브리핑 + 최근 5개 메시지 (`buildRoomHistory(limit: 5)`) + 산출물 전체 내용
+- 실행 단계: 브리핑 + 최근 5개 메시지 (`buildRoomHistory(limit: 5)`, 각 2000자 절단) + 산출물 (`StepContextBudget` 적용)
 - 브리핑 없으면 기존 히스토리 폴백
+- **토큰 예산 (`StepContextBudget`)**: `executeStep()` context 100K 문자 예산. 초과 시 Level 1: 산출물→요약(제목+200자), Level 2: history→최근 2개×500자. 토큰 에러 catch 시 최소 context로 1회 재시도.
 
 **토론 산출물**: `executeDiscussionTurn()`에서 응답 파싱 → `ArtifactParser.extractArtifacts()` → `Room.artifacts` 저장. 같은 type+title이면 버전 증가.
 
@@ -1297,6 +1300,7 @@ executeWithTools() 루프 (최대 10회):
 - `launchFollowUpCycle`: 완료/실패 방 후속 질문 → 방 재활성화 → assemble부터 경량 워크플로우.
   - **순수 포맷 변환** (`isFormatConversionOnly`): "md로 만들어줘" 등 기존 대화 내용의 문서화 요청 → understand/design/build 전부 스킵, `handleDocumentOutput` 직접 호출.
   - **새 작업+문서**: "분석해서 md로 만들어" 등 실질적 새 작업 포함 → understand 실행하되 workLog 맥락 주입.
+  - **`.understand` 조건부 스킵**: 이전 사이클 `intakeData` 존재 + 후속 메시지에 외부 참조(URL/Jira 키) 없으면 `.understand` 스킵 → intakeData 덮어쓰기 + TaskBrief 유실 방지. 판단은 `IntakeURLExtractor.containsExternalReferences(in:)` 사용.
 - `executeUnderstandPhase` TaskBrief 생성 시 workLog 컨텍스트를 intakeContext에 포함 (후속 사이클에서 대화 맥락 유지).
 - `Room.canTransition`: `.completed → .planning`, `.failed → .planning` 전이 추가.
 
@@ -1559,7 +1563,8 @@ Tests/
 │   ├── OnboardingViewModelTests.swift # 37 tests — Claude 셋업, 의존성 체크, 프로바이더 선택, 마스터 우선순위
 │   ├── ProviderManagerTests.swift    # 23 tests — 팩토리, configureFromOnboarding, 영속화, connectedConfigs, mock 오버라이드
 │   ├── RoomManagerTests.swift        # 54 tests — 방 생명주기, 에이전트 동기화, 워크플로우, 토론 과반, 계획 파싱
-│   └── ToolExecutorTests.swift      # 57 tests — smartSend 분기, 도구 루프, 개별 도구 실행, invite_agent/list_agents, web_fetch, Jira 도구
+│   ├── ToolExecutorTests.swift      # 57 tests — smartSend 분기, 도구 루프, 개별 도구 실행, invite_agent/list_agents, web_fetch, Jira 도구
+│   └── StepContextBudgetTests.swift # 4 tests — 산출물 예산, 요약 전환, history 축소, buildRoomHistory 절단
 ├── Providers/
 │   ├── ProviderTests.swift          # 62 tests — HTTP 검증, 인증, 전체 프로바이더 모킹, 이미지 첨부, tool result
 │   ├── ToolFormatConverterTests.swift # 21 tests — OpenAI/Anthropic/Google 형식 변환, JSON Schema

@@ -3040,19 +3040,7 @@ extension RoomManager {
 
     /// 텍스트에서 모든 Jira 키 추출 (중복 제거, 순서 유지)
     private func extractJiraKeys(from text: String) -> [String] {
-        let pattern = "[A-Z][A-Z0-9]+-\\d+"
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
-        let range = NSRange(text.startIndex..., in: text)
-        var seen = Set<String>()
-        var keys: [String] = []
-        for match in regex.matches(in: text, range: range) {
-            guard let r = Range(match.range, in: text) else { continue }
-            let key = String(text[r])
-            if seen.insert(key).inserted {
-                keys.append(key)
-            }
-        }
-        return keys
+        IntakeURLExtractor.extractJiraKeys(from: text)
     }
 
     /// 여러 Jira URL에서 티켓 요약을 동시 fetch
@@ -3561,14 +3549,24 @@ extension RoomManager {
         }
         history.append(contentsOf: recentHistory)
 
-        // 산출물 컨텍스트 구성
-        let artifactContext: String
-        if let room = room, !room.discussion.artifacts.isEmpty {
-            artifactContext = "\n\n[참고 산출물]\n" + room.discussion.artifacts.map {
-                "[\($0.type.displayName)] \($0.title) (v\($0.version)):\n\($0.content)"
-            }.joined(separator: "\n---\n")
-        } else {
-            artifactContext = ""
+        // 산출물 컨텍스트 구성 (토큰 예산 적용)
+        let budgetResult = StepContextBudget.apply(
+            artifacts: room?.discussion.artifacts ?? [],
+            systemPromptSize: systemPrompt(for: agent, roomID: roomID).count,
+            historySize: history.reduce(0) { $0 + ($1.content?.count ?? 0) }
+        )
+        let artifactContext = budgetResult.artifactContext
+        if budgetResult.shouldTrimHistory {
+            let trimmed = history.suffix(2).map { msg -> ConversationMessage in
+                guard let content = msg.content, content.count > 500 else { return msg }
+                return ConversationMessage(
+                    role: msg.role,
+                    content: String(content.prefix(500)) + "…",
+                    toolCalls: msg.toolCalls, toolCallID: msg.toolCallID,
+                    attachments: msg.attachments, isError: msg.isError
+                )
+            }
+            history = Array(trimmed)
         }
 
         // 문서 유형 템플릿 (documentType 설정 시 섹션 가이드 주입)
@@ -3611,6 +3609,11 @@ extension RoomManager {
 
         // Issue 1: 사용자 추가 지시를 stepPrompt에 주입
         stepPrompt = StepPromptBuilder.injectDirective(into: stepPrompt, from: fullTask)
+
+        // catch에서도 접근 필요한 변수들을 do 블록 밖에 선언
+        let streamPlaceholderID = UUID()
+        let buffer = StreamBuffer()
+        let context = makeToolContext(roomID: roomID, currentAgentID: agentID, fileWriteTracker: fileWriteTracker, deferHighRiskTools: deferHighRiskTools, collectDeferred: collectDeferred)
 
         do {
             agentStore?.updateStatus(agentID: agentID, status: .working)
@@ -3663,13 +3666,10 @@ extension RoomManager {
             }
 
             // 스트리밍용 placeholder 메시지 (실시간 텍스트 업데이트)
-            let streamPlaceholderID = UUID()
             let streamPlaceholder = ChatMessage(id: streamPlaceholderID, role: .assistant, content: "", agentName: agent.name)
             appendMessage(streamPlaceholder, to: roomID)
 
-            let context = makeToolContext(roomID: roomID, currentAgentID: agentID, fileWriteTracker: fileWriteTracker, deferHighRiskTools: deferHighRiskTools, collectDeferred: collectDeferred)
             let messagesWithStep = history + [ConversationMessage.user(stepPrompt)]
-            let buffer = StreamBuffer()
             let response = try await ToolExecutor.smartSend(
                 provider: provider,
                 agent: agent,
@@ -3746,6 +3746,52 @@ extension RoomManager {
             }
             return true
         } catch {
+            // 토큰 한도 초과 감지 → 최소 context로 1회 재시도
+            if error.userFacingMessage.contains("토큰 한도") {
+                print("[DOUGLAS] ⚠️ 토큰 한도 초과 감지 — 최소 context로 재시도")
+                let minimalMessages = [ConversationMessage.user("""
+                    [작업 \(stepIndex + 1)/\(totalSteps)] \(step)
+
+                    컨텍스트가 너무 큽니다. 이전 대화를 참고하지 않고, 위 단계 지시만으로 작업을 수행하세요.
+                    """)]
+                if let retryResponse = try? await ToolExecutor.smartSend(
+                    provider: provider,
+                    agent: agent,
+                    systemPrompt: systemPrompt(for: agent, roomID: roomID),
+                    conversationMessages: minimalMessages,
+                    context: context,
+                    onToolActivity: { [weak self] activity, detail in
+                        guard let self else { return }
+                        Task { @MainActor in
+                            let toolMsg = ChatMessage(
+                                role: .assistant, content: activity,
+                                agentName: agent.name, messageType: .toolActivity,
+                                activityGroupID: progressGroupID, toolDetail: detail
+                            )
+                            self.appendMessage(toolMsg, to: roomID)
+                        }
+                    },
+                    onStreamChunk: { [weak self] chunk in
+                        guard let self else { return }
+                        let current = buffer.append(chunk)
+                        Task { @MainActor in
+                            self.updateMessageContent(streamPlaceholderID, newContent: current, in: roomID)
+                        }
+                    }
+                ) {
+                    let cleanedRetry = expandTildePaths(stripHallucinatedAuthLines(stripTrailingOptions(retryResponse)))
+                    updateMessageContent(streamPlaceholderID, newContent: cleanedRetry, in: roomID)
+                    if let i = rooms.firstIndex(where: { $0.id == roomID }),
+                       let mi = rooms[i].messages.firstIndex(where: { $0.id == streamPlaceholderID }) {
+                        rooms[i].messages[mi].timestamp = Date()
+                        if !(isLastStep || totalSteps == 1) {
+                            rooms[i].messages[mi].messageType = .toolActivity
+                        }
+                    }
+                    return true
+                }
+            }
+
             if speakingAgentIDByRoom[roomID] == agentID {
                 speakingAgentIDByRoom.removeValue(forKey: roomID)
             }

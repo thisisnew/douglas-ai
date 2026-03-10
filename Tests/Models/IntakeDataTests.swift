@@ -248,6 +248,54 @@ struct IntakeDataTests {
         #expect(!str.contains("web_fetch"))
     }
 
+    // MARK: - extractJiraKeys
+
+    @Test("extractJiraKeys — 단일 키")
+    func extractJiraKeys_singleKey() {
+        let keys = IntakeURLExtractor.extractJiraKeys(from: "IBS-3110 구현")
+        #expect(keys == ["IBS-3110"])
+    }
+
+    @Test("extractJiraKeys — 복수 키")
+    func extractJiraKeys_multipleKeys() {
+        let keys = IntakeURLExtractor.extractJiraKeys(from: "IBS-3110 IBS-3111 처리")
+        #expect(keys == ["IBS-3110", "IBS-3111"])
+    }
+
+    @Test("extractJiraKeys — 키 없음")
+    func extractJiraKeys_noKeys() {
+        let keys = IntakeURLExtractor.extractJiraKeys(from: "구현하자")
+        #expect(keys.isEmpty)
+    }
+
+    @Test("extractJiraKeys — 중복 키 제거")
+    func extractJiraKeys_duplicateKeys() {
+        let keys = IntakeURLExtractor.extractJiraKeys(from: "IBS-3110 봐줘 IBS-3110 처리")
+        #expect(keys == ["IBS-3110"])
+    }
+
+    // MARK: - containsExternalReferences
+
+    @Test("containsExternalReferences — URL 포함")
+    func containsExternalReferences_withURL() {
+        #expect(IntakeURLExtractor.containsExternalReferences(in: "https://jira.com/browse/IBS-3110 구현"))
+    }
+
+    @Test("containsExternalReferences — Jira 키 포함")
+    func containsExternalReferences_withJiraKey() {
+        #expect(IntakeURLExtractor.containsExternalReferences(in: "IBS-3110 구현"))
+    }
+
+    @Test("containsExternalReferences — 참조 없음")
+    func containsExternalReferences_noReferences() {
+        #expect(!IntakeURLExtractor.containsExternalReferences(in: "구현하자"))
+    }
+
+    @Test("containsExternalReferences — 한국어만")
+    func containsExternalReferences_koreanOnly() {
+        #expect(!IntakeURLExtractor.containsExternalReferences(in: "다른 방법으로 토론해보자"))
+    }
+
     @Test("asContextString — Jira 설명 빈 문자열이면 미포함")
     func contextStringJiraEmptyDescription() {
         let jira = JiraTicketSummary(

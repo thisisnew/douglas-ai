@@ -203,6 +203,12 @@ enum ToolExecutor {
         var messages = initialMessages
 
         for _ in 0..<maxIterations {
+            // context 크기 guard: 누적 메시지가 너무 커지면 도구 루프 조기 종료
+            let totalSize = messages.reduce(0) { $0 + ($1.content?.count ?? 0) }
+            if totalSize > 150_000 {
+                print("[DOUGLAS] ⚠️ executeWithTools context 크기 초과 (\(totalSize)자) — 도구 루프 조기 종료")
+                break
+            }
             // 도구 라운드 사이에서 사용자 메시지 실시간 반영
             if let fetch = context.fetchPendingUserMessages {
                 let newMsgs = await fetch()

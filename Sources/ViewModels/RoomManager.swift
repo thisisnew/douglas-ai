@@ -881,6 +881,12 @@ class RoomManager: ObservableObject, WorkflowHost {
         // - quickAnswer + 에이전트 변동 없음 + 문서 요청 아님 → assemble 스킵
         // - 문서 요청 → clarify 스킵 (의도 명확) + assemble 실행 (적합 에이전트 확인)
         var completedPhases: Set<WorkflowPhase> = [.intake, .intent]
+        // 후속 메시지에 새 외부 참조(URL/Jira 키)가 없고 기존 intakeData가 있으면
+        // understand 스킵 (intakeData 덮어쓰기 + TaskBrief 유실 방지)
+        if rooms[idx].clarifyContext.intakeData != nil
+            && !IntakeURLExtractor.containsExternalReferences(in: task) {
+            completedPhases.insert(.understand)
+        }
         let specialists = executingAgentIDs(in: roomID)
         let previousAgentCount = previousCycleAgentCount[roomID] ?? specialists.count
         let agentsChanged = specialists.count != previousAgentCount
@@ -1725,7 +1731,9 @@ class RoomManager: ObservableObject, WorkflowHost {
                 }
                 return ConversationMessage(
                     role: role,
-                    content: msg.content,
+                    content: msg.content.count > 2000
+                        ? String(msg.content.prefix(2000)) + "…"
+                        : msg.content,
                     toolCalls: nil,
                     toolCallID: nil,
                     attachments: msg.attachments,
