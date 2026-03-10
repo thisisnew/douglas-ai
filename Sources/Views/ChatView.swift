@@ -146,9 +146,9 @@ struct MessageBubble: View {
                         let images = attachments.filter { $0.isImage }
                         let documents = attachments.filter { !$0.isImage }
 
-                        // 이미지 첨부 (NSScrollView 기반 — 중첩 스크롤 환경에서 가로 스크롤 보장)
+                        // 이미지 첨부 — 드래그로 가로 스크롤
                         if !images.isEmpty {
-                            NativeHScrollView {
+                            DragHScrollView {
                                 HStack(spacing: 6) {
                                     ForEach(images) { att in
                                         if let data = try? att.loadData(), let nsImage = NSImage(data: data) {
@@ -500,36 +500,60 @@ struct MessageBubble: View {
     }
 }
 
-// MARK: - macOS 전용 가로 스크롤 뷰 (NSScrollView 기반)
+// MARK: - 드래그 기반 가로 스크롤 뷰
 
-/// 중첩 ScrollView 환경에서도 가로 스크롤 제스처가 정상 동작하는 NSScrollView 래퍼
-struct NativeHScrollView<Content: View>: NSViewRepresentable {
+/// 중첩 ScrollView 환경에서 드래그 제스처로 가로 스크롤하는 뷰 (관성 스크롤 포함)
+struct DragHScrollView<Content: View>: View {
     let content: Content
+    @State private var offset: CGFloat = 0
+    @State private var dragStartOffset: CGFloat = 0
+    @State private var contentWidth: CGFloat = 0
 
     init(@ViewBuilder content: () -> Content) {
         self.content = content()
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
-        let sv = NSScrollView()
-        sv.hasHorizontalScroller = true
-        sv.hasVerticalScroller = false
-        sv.autohidesScrollers = true
-        sv.drawsBackground = false
-        sv.horizontalScrollElasticity = .automatic
-        sv.verticalScrollElasticity = .none
-        sv.scrollerStyle = .overlay
+    var body: some View {
+        GeometryReader { geo in
+            content
+                .fixedSize(horizontal: true, vertical: false)
+                .background(GeometryReader { contentGeo in
+                    Color.clear.onAppear {
+                        contentWidth = contentGeo.size.width
+                    }.onChange(of: contentGeo.size.width) { newWidth in
+                        contentWidth = newWidth
+                    }
+                })
+                .offset(x: offset)
+                .gesture(
+                    DragGesture(minimumDistance: 5)
+                        .onChanged { value in
+                            let newOffset = dragStartOffset + value.translation.width
+                            offset = clampOffset(newOffset, containerWidth: geo.size.width)
+                        }
+                        .onEnded { value in
+                            // 관성 스크롤: 속도에 비례한 추가 이동 (부드럽게)
+                            let velocity = value.predictedEndTranslation.width - value.translation.width
+                            let momentum = velocity * 0.15
+                            let targetOffset = offset + momentum
+                            let clampedOffset = clampOffset(targetOffset, containerWidth: geo.size.width)
 
-        let host = NSHostingView(rootView: content)
-        sv.documentView = host
-        host.frame.size = host.fittingSize
-        return sv
+                            withAnimation(.interpolatingSpring(stiffness: 170, damping: 25)) {
+                                offset = clampedOffset
+                            }
+                            dragStartOffset = clampedOffset
+                        }
+                )
+                .onAppear {
+                    dragStartOffset = offset
+                }
+        }
+        .clipped()
     }
 
-    func updateNSView(_ sv: NSScrollView, context: Context) {
-        guard let host = sv.documentView as? NSHostingView<Content> else { return }
-        host.rootView = content
-        host.invalidateIntrinsicContentSize()
-        host.frame.size = host.fittingSize
+    private func clampOffset(_ newOffset: CGFloat, containerWidth: CGFloat) -> CGFloat {
+        let maxOffset: CGFloat = 0
+        let minOffset = min(0, containerWidth - contentWidth)
+        return max(minOffset, min(maxOffset, newOffset))
     }
 }
