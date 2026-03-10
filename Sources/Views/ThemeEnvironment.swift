@@ -29,5 +29,7 @@ struct ThemedView<Content: View>: View {
             .environment(\.colorPalette, themeManager.currentPalette)
             .tint(themeManager.currentPalette.accent)
             .fontDesign(.rounded)
+            // DOUGLAS는 자체 테마를 사용하므로 시스템 다크모드와 독립적으로 라이트 모드 강제
+            .preferredColorScheme(themeManager.currentThemeID == .dark ? .dark : .light)
     }
 }
