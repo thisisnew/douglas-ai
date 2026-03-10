@@ -49,9 +49,8 @@ class ProviderManager: ObservableObject {
     }
 
     /// 3개 기본 프로바이더 보장: Claude Code, OpenAI, Google
+    /// 온보딩 완료 여부와 무관하게 항상 기본값을 생성하여 UI에서 목록 표시 가능
     private func ensureDefaultProviders() {
-        // 온보딩 완료 전이면 기본 프로바이더 생성하지 않음
-        guard OnboardingViewModel.isCompleted else { return }
         // Claude Code
         if let idx = configs.firstIndex(where: { $0.type == .claudeCode }) {
             // 저장된 경로가 유효하지 않으면 재탐색 (CLI 업데이트/이동 대응)
@@ -96,7 +95,11 @@ class ProviderManager: ObservableObject {
             ))
         }
 
-        saveConfigs()
+        // 온보딩 완료 후에만 저장 (첫 실행 시 기본값은 메모리에만 유지)
+        // → AppDelegate에서 hasSavedConfig 체크로 기존 사용자 감지 가능
+        if OnboardingViewModel.isCompleted {
+            saveConfigs()
+        }
     }
 
     /// 연결된(사용 가능한) 프로바이더 목록

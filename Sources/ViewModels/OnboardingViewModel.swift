@@ -118,7 +118,7 @@ class OnboardingViewModel: ObservableObject {
 
         // 전체 프로바이더 목록 (Claude Code 제외 — 이미 처리됨)
         let detectedTypes = Set(detected.map(\.type))
-        let subProviderOrder: [ProviderType] = [.openAI, .anthropic, .google]
+        let subProviderOrder: [ProviderType] = [.openAI, .google]
         let detectedSubTypes = detected.map(\.type).filter { $0 != .claudeCode }
         let undetectedSubTypes = subProviderOrder.filter { !detectedTypes.contains($0) }
         allProviderTypes = detectedSubTypes + undetectedSubTypes

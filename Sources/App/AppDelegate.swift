@@ -120,12 +120,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 고아 데이터 정리 (존재하지 않는 에이전트의 채팅 + 미참조 첨부 파일)
         cleanupOrphanedData()
 
-        // 기존 사용자 감지: 이미 프로바이더가 설정되어 있으면 온보딩 스킵
+        // 기존 사용자 감지: UserDefaults에 저장된 프로바이더 설정이 있으면 온보딩 스킵
+        // (기본 프로바이더가 아닌, 실제로 사용자가 설정을 저장한 경우만)
         if !OnboardingViewModel.isCompleted {
-            let hasConfigured = providerManager.configs.contains { config in
-                config.type == .claudeCode || config.apiKey != nil
-            }
-            if hasConfigured {
+            let hasSavedConfig = UserDefaults.standard.data(forKey: "providerConfigs") != nil
+            if hasSavedConfig {
                 OnboardingViewModel.isCompleted = true
             }
         }
