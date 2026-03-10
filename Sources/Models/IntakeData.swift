@@ -98,7 +98,7 @@ struct IntakeData: Codable {
             if !jiraDataList.isEmpty {
                 parts.append("[Jira 연동 활성] 아래 티켓 데이터는 Jira API에서 자동 조회된 결과입니다.")
             } else {
-                parts.append("[Jira 연동 활성] 티켓 데이터 조회 대기 중. 실행 단계에서 web_fetch 도구로 조회 가능합니다.")
+                parts.append("[Jira 연동 활성] 티켓 데이터 조회에 실패했습니다. 사용자에게 티켓 내용을 직접 확인하세요.")
             }
             parts.append("- Jira 티켓: \(jiraKeys.joined(separator: ", "))")
         }
@@ -135,7 +135,7 @@ struct IntakeData: Codable {
             }
         } else if !jiraKeys.isEmpty {
             parts.append("티켓 참조: \(jiraKeys.joined(separator: ", "))")
-            parts.append("(상세 데이터는 실행 단계에서 자동 조회됩니다)")
+            parts.append("(티켓 데이터 조회에 실패했습니다. 사용자에게 내용을 확인하세요)")
         } else if sourceType == .url, !urls.isEmpty {
             parts.append("참조 URL이 포함된 요청입니다.")
         }

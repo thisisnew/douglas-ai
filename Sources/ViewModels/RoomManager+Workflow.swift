@@ -1246,7 +1246,13 @@ extension RoomManager {
             }
             let userAnswer = answer
 
-            actualTask = userAnswer
+            // 원본 입력의 URL/첨부 정보를 보존하면서 사용자 응답으로 actualTask 갱신
+            // (URL만 입력 → 질문 → 응답 시 URL이 소실되는 문제 방지)
+            if task.range(of: "https?://", options: .regularExpression) != nil {
+                actualTask = task + "\n" + userAnswer
+            } else {
+                actualTask = userAnswer
+            }
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].transitionTo(.planning)
                 let titleText = userAnswer.prefix(30).components(separatedBy: "\n").first ?? String(userAnswer.prefix(30))

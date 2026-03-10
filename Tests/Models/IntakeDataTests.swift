@@ -207,6 +207,47 @@ struct IntakeDataTests {
         #expect(str.contains("URL: https://a.com, https://b.com"))
     }
 
+    // MARK: - Jira fetch 실패 시 메시지 정확성
+
+    @Test("asContextString — Jira 키만 있고 데이터 없으면 web_fetch 언급하지 않음")
+    func contextStringJiraNoData_noWebFetchMention() {
+        let intake = IntakeData(
+            sourceType: .jira,
+            rawInput: "IBS-3279",
+            jiraKeys: ["IBS-3279"]
+        )
+        let str = intake.asContextString()
+        #expect(!str.contains("web_fetch"), "web_fetch 도구는 차단되어 있으므로 언급하면 안 됨")
+        #expect(str.contains("IBS-3279"))
+    }
+
+    @Test("asClarifyContextString — Jira 키만 있고 데이터 없으면 자동 조회 약속하지 않음")
+    func clarifyContextStringJiraNoData_noAutoFetchPromise() {
+        let intake = IntakeData(
+            sourceType: .jira,
+            rawInput: "IBS-3279",
+            jiraKeys: ["IBS-3279"]
+        )
+        let str = intake.asClarifyContextString()
+        #expect(!str.contains("자동 조회"), "자동 조회 메커니즘이 없으므로 약속하면 안 됨")
+        #expect(str.contains("IBS-3279"))
+    }
+
+    @Test("asContextString — Jira 데이터 있으면 정상 표시")
+    func contextStringJiraWithData() {
+        let jira = JiraTicketSummary(
+            key: "IBS-3279", summary: "서명 조회 확장",
+            issueType: "Story", status: "In Progress", description: "상세"
+        )
+        let intake = IntakeData(
+            sourceType: .jira, rawInput: "IBS-3279",
+            jiraKeys: ["IBS-3279"], jiraDataList: [jira]
+        )
+        let str = intake.asContextString()
+        #expect(str.contains("[IBS-3279] 서명 조회 확장"))
+        #expect(!str.contains("web_fetch"))
+    }
+
     @Test("asContextString — Jira 설명 빈 문자열이면 미포함")
     func contextStringJiraEmptyDescription() {
         let jira = JiraTicketSummary(

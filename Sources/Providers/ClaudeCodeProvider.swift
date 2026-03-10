@@ -228,25 +228,7 @@ private struct ResolvedExecutable {
     }
 }
 
-/// CLI 옵션 스타일 (버전별 호환성)
-private enum CLIOptionStyle {
-    case legacy    // v1.0.88 미만: --disallowed-tools, --allowed-tools (kebab-case)
-    case modern    // v1.0.88 이상: --disallowedTools, --allowedTools (camelCase)
 
-    var allowedTools: String {
-        switch self {
-        case .legacy: return "--allowed-tools"
-        case .modern: return "--allowedTools"
-        }
-    }
-
-    var disallowedTools: String {
-        switch self {
-        case .legacy: return "--disallowed-tools"
-        case .modern: return "--disallowedTools"
-        }
-    }
-}
 
 /// 이미 설치된 Claude Code CLI를 활용하는 프로바이더
 /// API 키 불필요 - 기존 claude 로그인 세션을 그대로 사용
@@ -255,9 +237,6 @@ class ClaudeCodeProvider: AIProvider {
 
     /// 프로세스 타임아웃 (초)
     private let timeoutSeconds: Double = 120
-
-    /// 캐시된 CLI 옵션 스타일 (버전 감지 결과)
-    private static var cachedOptionStyle: CLIOptionStyle?
 
     init(config: ProviderConfig) {
         self.config = config
@@ -322,75 +301,16 @@ class ClaudeCodeProvider: AIProvider {
     }
 
     /// symlink를 해석하여 실제 파일 경로 반환
-    fileprivate static func resolveSymlink(_ path: String) -> String {
+    static func resolveSymlink(_ path: String) -> String {
         guard let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: path) else {
             return path
         }
         if dest.hasPrefix("/") {
             return dest
         }
-        // 상대 경로: claude가 있는 디렉토리 기준으로 해석
-        return ((path as NSString).deletingLastPathComponent as NSString).appendingPathComponent(dest)
-    }
-
-    /// Claude Code CLI 버전을 감지하여 적절한 옵션 스타일 반환
-    /// v1.0.88 이상: camelCase (--allowedTools), 미만: kebab-case (--allowed-tools)
-    private static func detectOptionStyle() -> CLIOptionStyle {
-        if let cached = cachedOptionStyle {
-            return cached
-        }
-
-        let exe = resolveExecutable()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: exe.executable)
-
-        // node 직접 실행 시 cli.js 경로 추가
-        if exe.nodePath != nil {
-            let resolvedClaude = resolveSymlink(exe.claudePath)
-            process.arguments = [resolvedClaude, "--version"]
-        } else {
-            process.arguments = ["--version"]
-        }
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? ""
-
-            // 버전 파싱: "1.0.88" 또는 "claude-code v1.0.88" 등
-            let versionPattern = #"(\d+)\.(\d+)\.(\d+)"#
-            if let regex = try? NSRegularExpression(pattern: versionPattern),
-               let match = regex.firstMatch(in: output, range: NSRange(output.startIndex..., in: output)),
-               let majorRange = Range(match.range(at: 1), in: output),
-               let minorRange = Range(match.range(at: 2), in: output),
-               let patchRange = Range(match.range(at: 3), in: output),
-               let major = Int(output[majorRange]),
-               let minor = Int(output[minorRange]),
-               let patch = Int(output[patchRange]) {
-
-                // v1.0.88 이상이면 modern, 미만이면 legacy
-                let isModern = (major > 1) ||
-                               (major == 1 && minor > 0) ||
-                               (major == 1 && minor == 0 && patch >= 88)
-
-                let style: CLIOptionStyle = isModern ? .modern : .legacy
-                cachedOptionStyle = style
-                cliLogger.info("Claude CLI 버전 감지: \(major).\(minor).\(patch) → \(isModern ? "modern" : "legacy")")
-                return style
-            }
-        } catch {
-            cliLogger.warning("Claude CLI 버전 감지 실패: \(error.localizedDescription)")
-        }
-
-        // 감지 실패 시 modern 우선 (최신 버전 가정)
-        cachedOptionStyle = .modern
-        return .modern
+        // 상대 경로: claude가 있는 디렉토리 기준으로 해석 + .. 정규화
+        let parent = URL(fileURLWithPath: path).deletingLastPathComponent()
+        return parent.appendingPathComponent(dest).standardized.path
     }
 
     func fetchModels() async throws -> [String] {
@@ -557,9 +477,6 @@ class ClaudeCodeProvider: AIProvider {
     ) -> [String] {
         var args = baseArgs
 
-        // 버전에 따른 옵션 스타일 결정
-        let optionStyle = Self.detectOptionStyle()
-
         // 라우터 모드: 내장 도구 비활성화 + 시스템 프롬프트 교체
         if disableTools {
             if !systemPrompt.isEmpty {
@@ -573,13 +490,13 @@ class ClaudeCodeProvider: AIProvider {
             }
             let tools = allowedTools ?? ["Edit", "Write", "Bash", "Read", "Glob", "Grep", "WebSearch"]
             // MCP 도구는 명시적으로 요청된 경우에만 포함 (자동 추가 안 함)
-            args += [optionStyle.allowedTools] + tools
+            args += ["--allowedTools"] + tools
             cliLogger.info("CLI tools: \(tools, privacy: .public)")
         }
 
         // 특정 도구 차단
         for tool in disallowedTools {
-            args += [optionStyle.disallowedTools, tool]
+            args += ["--disallowedTools", tool]
         }
 
         // 스트리밍 모드 설정

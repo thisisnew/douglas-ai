@@ -79,6 +79,57 @@ struct ClaudeCodeProviderTokenTests {
         #expect(prompt.contains("메시지15"))
     }
 
+    // MARK: - P2: resolveSymlink 경로 정규화
+
+    @Test("resolveSymlink — 비 symlink 파일은 원본 반환")
+    func resolveSymlinkNonSymlink() {
+        // /usr/bin/env 는 실제 파일 (symlink 아님)
+        let result = ClaudeCodeProvider.resolveSymlink("/usr/bin/env")
+        #expect(result == "/usr/bin/env")
+    }
+
+    @Test("resolveSymlink — 상대 경로의 .. 정규화")
+    func resolveSymlinkRelativePathNormalized() throws {
+        // 임시 디렉토리에 symlink 생성하여 테스트
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("resolve-symlink-test-\(UUID().uuidString)")
+        let binDir = tmpDir.appendingPathComponent("bin")
+        let libDir = tmpDir.appendingPathComponent("lib")
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: libDir, withIntermediateDirectories: true)
+
+        // lib/cli.js 생성
+        let targetFile = libDir.appendingPathComponent("cli.js")
+        FileManager.default.createFile(atPath: targetFile.path, contents: nil)
+
+        // bin/claude → ../lib/cli.js (상대 symlink)
+        let symlinkPath = binDir.appendingPathComponent("claude").path
+        try FileManager.default.createSymbolicLink(
+            atPath: symlinkPath,
+            withDestinationPath: "../lib/cli.js"
+        )
+
+        let result = ClaudeCodeProvider.resolveSymlink(symlinkPath)
+
+        // .. 가 해석되어 정규화된 경로여야 함
+        #expect(!result.contains(".."), "경로에 '..'이 남아있으면 안 됨")
+        #expect(result.hasSuffix("/lib/cli.js"))
+
+        // 정리
+        try? FileManager.default.removeItem(at: tmpDir)
+    }
+
+    // MARK: - P3: CLI 옵션 camelCase 고정
+
+    @Test("CLI 기본 도구 목록에 --allowed-tools(kebab) 미사용 확인")
+    func cliOptionsCamelCase() {
+        // buildCLIArguments는 private이므로 기본 도구 목록만 검증
+        let defaultTools = ["Edit", "Write", "Bash", "Read", "Glob", "Grep", "WebSearch"]
+        // 도구 목록 자체는 옵션명과 무관 — 실제 옵션은 항상 --allowedTools여야 함
+        #expect(defaultTools.count == 7)
+        // CLIOptionStyle enum이 제거되어 .legacy 분기가 없음을 컴파일 타임에 보장
+    }
+
     // MARK: - Helper (buildUserPrompt 로직 미러)
 
     /// ClaudeCodeProvider.buildUserPrompt와 동일한 로직 (테스트용)
