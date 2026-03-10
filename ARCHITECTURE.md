@@ -1035,6 +1035,7 @@ executeWithTools() 루프 (최대 10회):
 ```
 
 - 두 가지 `smartSend` 오버로드: 단순 텍스트 `[(role, content)]` + 이미지 가능 `[ConversationMessage]`
+- **useTools: false → CLI 도구 비활성화**: ClaudeCodeProvider일 때 `disableTools: true` 전달. 계획/토론/사전분석 단계에서 Edit, Write, Bash 등 CLI 내장 도구가 실행되지 않도록 차단. (WORKFLOW_SPEC §12.4 준수)
 - `onToolActivity` 콜백으로 도구 사용 상태를 채팅에 표시 (`.toolActivity` 메시지)
 - **경로 검증**: `isPathAllowed()` — `$HOME`, `/tmp`, 시스템 임시 디렉토리만 허용. `.ssh`, `.gnupg`, `Library/Keychains` 차단. 심링크 해석(`resolvingSymlinksInPath`)으로 우회 방지. 디렉토리 단위 프리픽스 매칭(`/` 슬래시 구분).
 - **shell_exec**: nvm 버전 동적 탐색 (하드코딩 아님)
@@ -1202,9 +1203,10 @@ executeWithTools() 루프 (최대 10회):
 
 **Plan C: 새 6단계 워크플로우** (런타임 구현 완료):
 ```
-① Understand ─ intake+intent+TaskBrief 통합 (clarify 루프 제거, needsClarification → 최대 2회 질문 + 30초 타임아웃)
+① Understand ─ intake → 의도확인(필요시) → intent → TaskBrief (clarify 루프 제거)
+              intake를 의도 확인 전에 실행하여 Jira 데이터를 먼저 fetch
               파일만 업로드(빈 task) 시 작업 의도 질문 후 대기 (2분 타임아웃)
-              bare URL(명시적 의도 없음) 시 needsClarification 강제 true → 작업 목적 질문
+              bare URL(명시적 의도 없음) 시 의도 질문 + Jira 티켓 정보 포함
 ② Assemble ── 3-tier 가중치 에이전트 매칭 (Tier1: skillTags×5, Tier2: workModes×2, Tier3: keyword+semantic×3)
               confidence 0.7↑ 자동, 0.5~0.7 사용자확인, 0.5↓ 제외 + RuntimeRole 사전배정 + 팀 확정 메시지(Role 표시)
 ③ Design ──── **통합 토론 프로토콜**: discussion/task 모두 동일한 토론 수행
