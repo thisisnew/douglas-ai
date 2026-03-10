@@ -951,4 +951,48 @@ extension RoomManager {
         }
         return ""
     }
+
+    // MARK: - Turn 2 발언 순서 파싱
+
+    /// LLM 응답에서 에이전트 발언 순서 파싱
+    /// 응답 형식: {"order": ["에이전트1", "에이전트2"], "reason": "이유"}
+    /// 모든 에이전트가 포함되어야 하며, 불일치 시 nil 반환 (원래 순서 폴백)
+    static func parseDiscussionOrder(from response: String, agentNames: [String]) -> [String]? {
+        DiscussionOrderParser.parse(from: response, agentNames: agentNames)
+    }
+}
+
+// MARK: - 토론 순서 파서
+
+/// Turn 2 발언 순서 JSON 파싱 유틸리티
+enum DiscussionOrderParser {
+    /// LLM 응답에서 발언 순서 파싱. 전원 포함 필수, 불일치 시 nil.
+    static func parse(from response: String, agentNames: [String]) -> [String]? {
+        // JSON 추출 (코드블록 지원)
+        let jsonString: String
+        if let codeBlockRange = response.range(of: "```"),
+           let endRange = response.range(of: "```", range: codeBlockRange.upperBound..<response.endIndex) {
+            var block = String(response[codeBlockRange.upperBound..<endRange.lowerBound])
+            // ```json 접두사 제거
+            if block.hasPrefix("json") { block = String(block.dropFirst(4)) }
+            jsonString = block.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            jsonString = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        guard let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let order = json["order"] as? [String] else {
+            return nil
+        }
+
+        // 전원 포함 검증 (에이전트 수 일치 + 모든 이름 포함)
+        let nameSet = Set(agentNames)
+        let orderSet = Set(order)
+        guard order.count == agentNames.count, orderSet == nameSet else {
+            return nil
+        }
+
+        return order
+    }
 }

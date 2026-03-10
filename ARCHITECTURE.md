@@ -1210,7 +1210,8 @@ executeWithTools() 루프 (최대 10회):
 ② Assemble ── 3-tier 가중치 에이전트 매칭 (Tier1: skillTags×5, Tier2: workModes×2, Tier3: keyword+semantic×3)
               confidence 0.7↑ 자동, 0.5~0.7 사용자확인, 0.5↓ 제외 + RuntimeRole 사전배정 + 팀 확정 메시지(Role 표시)
 ③ Design ──── **통합 토론 프로토콜**: discussion/task 모두 동일한 토론 수행
-              멀티에이전트: 병렬 의견 제시 → 사용자 체크포인트 → 상호 피드백 → 사용자 체크포인트 → DOUGLAS 종합
+              멀티에이전트: 병렬 의견 제시 → 사용자 체크포인트 → **LLM 발언 순서 결정** → 상호 피드백 → 사용자 체크포인트 → DOUGLAS 종합
+              Turn 2 순서: `determineTurn2Order()` — light model로 안건·의견 분석 → 핵심 도메인 전문가 선행 (실패 시 원래 순서 폴백)
               1인+discussion → `executeSoloDiscussion` (JSON 계획 없이 자연어 분석)
               1인+task → `executeSoloDesign` (구조화 플랜)
               task intent: 토론 결과 기반 계획 생성 → `awaitPlanApproval` (사용자 승인 루프)

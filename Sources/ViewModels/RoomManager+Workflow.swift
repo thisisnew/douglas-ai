@@ -1535,7 +1535,73 @@ extension RoomManager {
 
     // MARK: - 토론 모드 Design (analysis/answer)
 
-    /// 토론 모드: 전문가 각자 의견 제시 → 상호 피드백(순차) → DOUGLAS 종합
+    /// Turn 2 발언 순서를 LLM이 안건 기반으로 결정
+    /// 실패 시 원래 순서(agentInfos) 그대로 반환
+    private func determineTurn2Order(
+        roomID: UUID,
+        task: String,
+        opinions: [(name: String, content: String)],
+        agentInfos: [(id: UUID, agent: Agent, provider: any AIProvider)]
+    ) async -> [(id: UUID, agent: Agent, provider: any AIProvider)] {
+        // 에이전트 2명 미만이면 순서 결정 불필요
+        guard agentInfos.count >= 2 else { return agentInfos }
+
+        let agentNames = agentInfos.map { $0.agent.name }
+        let opinionsText = opinions.map { "[\($0.name)] \($0.content.prefix(200))" }.joined(separator: "\n")
+
+        // 마스터 에이전트의 프로바이더로 light model 호출
+        guard let masterAgent = agentStore?.masterAgent,
+              let provider = providerManager?.provider(named: masterAgent.providerName) else {
+            return agentInfos
+        }
+        let lightModel = providerManager?.lightModelName(for: masterAgent.providerName) ?? masterAgent.modelName
+
+        let orderSystemPrompt = """
+        당신은 토론 진행자입니다. 아래 안건과 전문가 의견을 보고, 상호 피드백(Turn 2)의 최적 발언 순서를 결정하세요.
+
+        원칙:
+        - 안건의 핵심 도메인을 담당하는 전문가가 먼저 발언합니다.
+        - 의존 관계가 있으면 상위(결정권자)가 먼저, 하위(수용자)가 나중에 발언합니다.
+          예: API 설계 → 프론트엔드 (백엔드가 먼저), UI 리뉴얼 → API 연동 (프론트엔드가 먼저)
+        - 나중에 발언하는 전문가는 앞선 피드백을 모두 참고할 수 있으므로 더 종합적인 의견을 낼 수 있습니다.
+
+        반드시 아래 JSON 형식으로만 응답하세요:
+        {"order": ["에이전트1", "에이전트2", ...], "reason": "순서 결정 이유 (1문장)"}
+        """
+
+        let userMessage = """
+        [안건] \(task)
+
+        [Turn 1 의견]
+        \(opinionsText)
+
+        [전문가 목록] \(agentNames.joined(separator: ", "))
+        """
+
+        do {
+            let response = try await provider.sendRouterMessage(
+                model: lightModel,
+                systemPrompt: orderSystemPrompt,
+                messages: [("user", userMessage)]
+            )
+
+            if let orderedNames = DiscussionOrderParser.parse(from: response, agentNames: agentNames) {
+                // 파싱 성공 → agentInfos를 orderedNames 순서로 재배열
+                let reordered = orderedNames.compactMap { name in
+                    agentInfos.first(where: { $0.agent.name == name })
+                }
+                if reordered.count == agentInfos.count {
+                    return reordered
+                }
+            }
+        } catch {
+            // LLM 호출 실패 → 원래 순서 폴백 (토론 진행에 영향 없음)
+        }
+
+        return agentInfos
+    }
+
+    /// 토론 모드: 전문가 각자 의견 제시 → 상호 피드백(LLM 순서 결정) → DOUGLAS 종합
     /// Build/Review 단계 없이 Design 내에서 토론 완결
     func executeDiscussionDesign(roomID: UUID, task: String, briefContext: String, specialists: [UUID]) async {
         let startMsg = ChatMessage(
@@ -1690,13 +1756,18 @@ extension RoomManager {
 
         guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
-        // --- Turn 2: 상호 피드백 (순차 — 이전 피드백도 볼 수 있도록) ---
+        // --- Turn 2 발언 순서 결정: LLM이 안건 기반으로 최적 순서 판단 ---
+        let orderedAgentInfos = await determineTurn2Order(
+            roomID: roomID, task: task, opinions: opinions, agentInfos: agentInfos
+        )
+
+        // --- Turn 2: 상호 피드백 (LLM이 결정한 순서) ---
         let turn2ProgressMsg = ChatMessage(role: .system, content: "상호 피드백 진행 중", messageType: .progress)
         appendMessage(turn2ProgressMsg, to: roomID)
 
         var feedbacks: [(name: String, content: String)] = []
 
-        for info in agentInfos {
+        for info in orderedAgentInfos {
             guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { break }
 
             let othersOpinions = opinions.filter { $0.name != info.agent.name }
