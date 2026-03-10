@@ -52,13 +52,15 @@ enum ToolExecutor {
             let result: String
             if let claudeProvider = provider as? ClaudeCodeProvider {
                 // ClaudeCodeProvider: 도구 활동 + 텍스트 스트리밍 동시 지원
+                // useTools: false → CLI 내장 도구도 비활성화 (계획/토론 단계 안전성)
                 result = try await claudeProvider.sendMessage(
                     model: agent.modelName,
                     systemPrompt: systemPrompt,
                     messages: messages,
                     workingDirectory: context.projectPaths.first,
                     onToolActivity: onToolActivity,
-                    onTextChunk: onStreamChunk
+                    onTextChunk: onStreamChunk,
+                    disableTools: !useTools
                 )
             } else if let onStreamChunk, provider.supportsStreaming {
                 result = try await provider.sendMessageStreaming(
@@ -147,13 +149,15 @@ enum ToolExecutor {
                     )
                 }
             } else if let claudeProvider = provider as? ClaudeCodeProvider {
+                // useTools: false → CLI 내장 도구도 비활성화 (계획/토론 단계 안전성)
                 result = try await claudeProvider.sendMessage(
                     model: agent.modelName,
                     systemPrompt: systemPrompt,
                     messages: simple,
                     workingDirectory: context.projectPaths.first,
                     onToolActivity: onToolActivity,
-                    onTextChunk: onStreamChunk
+                    onTextChunk: onStreamChunk,
+                    disableTools: !useTools
                 )
             } else if let onStreamChunk, provider.supportsStreaming {
                 result = try await provider.sendMessageStreaming(

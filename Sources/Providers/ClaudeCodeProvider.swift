@@ -340,12 +340,14 @@ class ClaudeCodeProvider: AIProvider {
         messages: [(role: String, content: String)],
         workingDirectory: String?,
         onToolActivity: ((String, ToolActivityDetail?) -> Void)? = nil,
-        onTextChunk: (@Sendable (String) -> Void)? = nil
+        onTextChunk: (@Sendable (String) -> Void)? = nil,
+        disableTools: Bool = false
     ) async throws -> String {
         let userPrompt = buildUserPrompt(from: messages)
         return try await runClaude(
             path: config.baseURL, prompt: userPrompt, model: model,
-            systemPrompt: systemPrompt, disallowedTools: ["WebFetch"],
+            systemPrompt: systemPrompt, disableTools: disableTools,
+            disallowedTools: disableTools ? [] : ["WebFetch"],
             workingDirectory: workingDirectory,
             onToolActivity: onToolActivity,
             onTextChunk: onTextChunk
