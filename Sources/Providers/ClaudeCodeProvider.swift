@@ -572,10 +572,8 @@ class ClaudeCodeProvider: AIProvider {
             if !systemPrompt.isEmpty {
                 args += ["--append-system-prompt", systemPrompt]
             }
-            var tools = allowedTools ?? ["Edit", "Write", "Bash", "Read", "Glob", "Grep", "WebSearch"]
-            if !tools.contains(where: { $0.hasPrefix("mcp__") }) {
-                tools.append("mcp__*")
-            }
+            let tools = allowedTools ?? ["Edit", "Write", "Bash", "Read", "Glob", "Grep", "WebSearch"]
+            // MCP 도구는 명시적으로 요청된 경우에만 포함 (자동 추가 안 함)
             args += [optionStyle.allowedTools] + tools
             cliLogger.info("CLI tools: \(tools, privacy: .public)")
         }
