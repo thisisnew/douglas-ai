@@ -354,8 +354,11 @@ extension RoomManager {
     private func executeIntakePhase(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
+        // 0) URL 오타 자동 교정 (ttps:// → https:// 등)
+        let correctedTask = IntakeURLCorrector.correct(task)
+
         // 1) URL 감지
-        let urls = extractURLs(from: task)
+        let urls = extractURLs(from: correctedTask)
 
         // 2) Jira URL 감지 + fetch
         let jiraConfig = JiraConfig.shared
@@ -368,7 +371,7 @@ extension RoomManager {
 
         // Jira 키(PROJ-123 패턴)만 입력한 경우에도 URL 생성하여 fetch
         if jiraConfig.isConfigured {
-            jiraKeys = extractJiraKeys(from: task)
+            jiraKeys = extractJiraKeys(from: correctedTask)
             // URL에서 이미 감지된 키 제외하고, 키만 입력된 것에 대해 URL 생성
             let keysFromURLs = Set(jiraURLs.flatMap { extractJiraKeys(from: $0) })
             let keyOnlyKeys = jiraKeys.filter { !keysFromURLs.contains($0) }
@@ -2942,7 +2945,7 @@ extension RoomManager {
 
     // MARK: - Intake 헬퍼
 
-    /// 텍스트에서 URL 추출
+    /// 텍스트에서 URL 추출 (오타 자동 교정 후)
     private func extractURLs(from text: String) -> [String] {
         let pattern = "https?://[^\\s]+"
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
@@ -3240,8 +3243,33 @@ extension RoomManager {
                 )
             }
 
+            if let plan = parsePlan(from: response) {
+                speakingAgentIDByRoom.removeValue(forKey: roomID)
+                return plan
+            }
+
+            // JSON 파싱 실패 → 1회 재시도 (JSON만 요청)
+            let retryMessages: [(role: String, content: String)] = [
+                ("user", planMessages[0].1),
+                ("assistant", response),
+                ("user", "위 내용을 반드시 유효한 JSON 형식으로 다시 작성하세요. {\"plan\": {\"summary\": \"...\", \"estimated_minutes\": N, \"steps\": [...]}} 형태만 응답하세요.")
+            ]
+            let (retryResponse, _) = try await trackPhaseActivity(
+                roomID: roomID,
+                label: "계획 형식을 정리하는 중…",
+                agentName: agent.name,
+                modelName: agent.modelName,
+                providerName: agent.providerName
+            ) { _ in
+                try await provider.sendRouterMessage(
+                    model: agent.modelName,
+                    systemPrompt: planSystemPrompt,
+                    messages: retryMessages
+                )
+            }
+
             speakingAgentIDByRoom.removeValue(forKey: roomID)
-            return parsePlan(from: response)
+            return parsePlan(from: retryResponse)
         } catch {
             speakingAgentIDByRoom.removeValue(forKey: roomID)
             let errorMsg = ChatMessage(
@@ -3256,7 +3284,7 @@ extension RoomManager {
     }
 
     /// 계획 JSON 파싱
-    private func parsePlan(from response: String) -> RoomPlan? {
+    func parsePlan(from response: String) -> RoomPlan? {
         let jsonString = extractJSON(from: response)
         guard let data = jsonString.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

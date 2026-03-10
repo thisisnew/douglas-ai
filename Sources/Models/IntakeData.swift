@@ -143,3 +143,35 @@ struct IntakeData: Codable {
         return parts.joined(separator: "\n")
     }
 }
+
+// MARK: - URL 오타 자동 교정
+
+/// 사용자 입력의 흔한 URL 오타를 교정 (ttps:// → https:// 등)
+enum IntakeURLCorrector {
+    /// 텍스트 내 URL 오타를 교정하여 반환
+    /// 이미 올바른 `https://`, `http://`는 건드리지 않음
+    static func correct(_ text: String) -> String {
+        // 프로토콜 오타 패턴: 단어 경계 또는 줄 시작/공백 뒤에서만 매칭
+        // 정상 URL(https://, http://)을 먼저 보호한 뒤 오타만 교정
+        guard let regex = try? NSRegularExpression(
+            pattern: #"(?:^|(?<=\s))(h?t?t?ps?://)(?=\S)"#
+        ) else { return text }
+
+        let nsText = text as NSString
+        let range = NSRange(location: 0, length: nsText.length)
+        var result = text
+
+        // 역순으로 매칭하여 인덱스 변동 방지
+        let matches = regex.matches(in: text, range: range).reversed()
+        for match in matches {
+            guard let swiftRange = Range(match.range(at: 1), in: result) else { continue }
+            let proto = String(result[swiftRange])
+            // 이미 정상이면 건너뛰기
+            if proto == "https://" || proto == "http://" { continue }
+            // s 포함 여부로 https/http 판별
+            let replacement = proto.contains("s") ? "https://" : "http://"
+            result.replaceSubrange(swiftRange, with: replacement)
+        }
+        return result
+    }
+}
