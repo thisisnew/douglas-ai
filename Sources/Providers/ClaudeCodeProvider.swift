@@ -479,7 +479,8 @@ class ClaudeCodeProvider: AIProvider {
             if !systemPrompt.isEmpty {
                 args += ["--system-prompt", systemPrompt]
             }
-            args += ["--tools", ""]
+            // 도구 비활성화: 빈 allowedTools 목록 사용
+            args += ["--allowedTools"]
         } else {
             // 에이전트 모드: Claude Code 기본 프롬프트 유지 + 페르소나 추가
             if !systemPrompt.isEmpty {
@@ -495,7 +496,7 @@ class ClaudeCodeProvider: AIProvider {
 
         // 특정 도구 차단
         for tool in disallowedTools {
-            args += ["--disallowed-tools", tool]
+            args += ["--disallowedTools", tool]
         }
 
         // 스트리밍 모드 설정
