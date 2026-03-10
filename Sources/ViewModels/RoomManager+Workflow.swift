@@ -1343,14 +1343,18 @@ extension RoomManager {
             taskWithAttachmentHint += "\n\n[첨부 이미지: \(imageNames.joined(separator: ", "))] 사용자가 이미지를 첨부했습니다. 이미지 내용(텍스트, 메뉴, 디자인 등)이 작업 대상일 수 있으므로 needsClarification: false로 설정하세요."
         }
 
+        let clarifySummary = rooms[idx].clarifyContext.clarifySummary
         let brief = await IntentClassifier.generateTaskBrief(
             task: taskWithAttachmentHint,
             intakeContext: intakeContext,
-            clarifySummary: rooms[idx].clarifyContext.clarifySummary,
+            clarifySummary: clarifySummary,
             userHasExplicitIntent: hasExplicitIntent || hasImageAttachment,
             provider: provider,
             model: lightModel
         )
+
+        // await 이후 idx 재탐색 (배열 변동 가능)
+        guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
         if var brief {
             // 명시적 의도 + 외부 데이터(Jira 등) 또는 첨부파일이 있으면 clarification 강제 스킵
@@ -1403,10 +1407,11 @@ extension RoomManager {
                     rooms[i].transitionTo(.planning)
                 }
                 enrichedTask = "\(enrichedTask)\n\n추가 정보: \(answer)"
+                let currentClarifySummary = rooms.first(where: { $0.id == roomID })?.clarifyContext.clarifySummary
                 if let updatedBrief = await IntentClassifier.generateTaskBrief(
                     task: enrichedTask,
                     intakeContext: intakeContext,
-                    clarifySummary: rooms[idx].clarifyContext.clarifySummary,
+                    clarifySummary: currentClarifySummary,
                     userHasExplicitIntent: true,
                     provider: provider,
                     model: lightModel
