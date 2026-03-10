@@ -363,7 +363,7 @@ extension RoomManager {
                 userInputContinuations[roomID] = cont
             }
             userInputContinuations.removeValue(forKey: roomID)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].discussion.isCheckpoint = false

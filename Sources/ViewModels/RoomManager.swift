@@ -1038,9 +1038,10 @@ class RoomManager: ObservableObject, WorkflowHost {
                         self?.userInputContinuations[roomID] = continuation
                     }
                 }
-                // 3) 상태 복귀 (MainActor)
+                // 3) 상태 복귀 (MainActor) — 취소/완료된 방이면 무시
                 await MainActor.run { [weak self] in
-                    if let self, let idx = self.rooms.firstIndex(where: { $0.id == roomID }) {
+                    if let self, let idx = self.rooms.firstIndex(where: { $0.id == roomID }),
+                       self.rooms[idx].isActive {
                         self.rooms[idx].transitionTo(.planning)
                     }
                 }
@@ -1239,6 +1240,8 @@ class RoomManager: ObservableObject, WorkflowHost {
         let result = await withCheckedContinuation { (cont: CheckedContinuation<Set<UUID>?, Never>) in
             self.teamConfirmationContinuations[roomID] = cont
         }
+
+        guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
         // nil → 건너뛰기
         guard let finalIDs = result else {

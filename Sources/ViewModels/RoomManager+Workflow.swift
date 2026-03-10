@@ -634,7 +634,7 @@ extension RoomManager {
                 approvalContinuations[roomID] = continuation
             }
             approvalContinuations.removeValue(forKey: roomID)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
             if approved {
                 // 승인됨 → clarify 요약 저장 + delegation 분리 + planning 복귀
@@ -673,6 +673,8 @@ extension RoomManager {
                     userInputContinuations[roomID] = continuation
                 }
             }
+
+            guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].transitionTo(.planning)
@@ -1135,6 +1137,7 @@ extension RoomManager {
                     approvalContinuations[roomID] = cont
                 }
                 approvalContinuations.removeValue(forKey: roomID)
+                guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
                 if approved {
                     if let room = rooms.first(where: { $0.id == roomID }),
@@ -1411,6 +1414,8 @@ extension RoomManager {
             let answer: String = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
                 self.userInputContinuations[roomID] = continuation
             }
+
+            guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
             if !answer.isEmpty {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
@@ -1761,6 +1766,8 @@ extension RoomManager {
             userInputContinuations[roomID] = cont
         }
 
+        guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
+
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
             rooms[i].discussion.isCheckpoint = false
             rooms[i].transitionTo(.inProgress)
@@ -1770,8 +1777,6 @@ extension RoomManager {
         if !userFeedback1.isEmpty {
             opinions.append(("사용자", userFeedback1))
         }
-
-        guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
         // --- Turn 2 발언 순서 결정: LLM이 안건 기반으로 최적 순서 판단 ---
         let orderedAgentInfos = await determineTurn2Order(
@@ -1860,6 +1865,8 @@ extension RoomManager {
             userInputContinuations[roomID] = cont
         }
 
+        guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
+
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
             rooms[i].discussion.isCheckpoint = false
             rooms[i].transitionTo(.inProgress)
@@ -1869,8 +1876,6 @@ extension RoomManager {
         if !userFeedback2.isEmpty {
             feedbacks.append(("사용자", userFeedback2))
         }
-
-        guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
         // --- DOUGLAS 진행자 종합 정리 ---
         let discussionSummary = opinions.map { "[\($0.name) 의견]\n\($0.content)" }.joined(separator: "\n\n")
@@ -1964,6 +1969,7 @@ extension RoomManager {
                 approvalContinuations[roomID] = cont
             }
             approvalContinuations.removeValue(forKey: roomID)
+            guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return false }
 
             if approved {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
@@ -2624,6 +2630,7 @@ extension RoomManager {
                     approvalContinuations[roomID] = cont
                 }
                 approvalContinuations.removeValue(forKey: roomID)
+                guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
                 if approved {
                     if let i = rooms.firstIndex(where: { $0.id == roomID }) {
