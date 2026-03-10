@@ -144,6 +144,26 @@ struct IntakeData: Codable {
     }
 }
 
+// MARK: - URL 추출
+
+/// 텍스트에서 URL을 추출 (한글 조사 등 trailing non-ASCII 자동 제거)
+enum IntakeURLExtractor {
+    static func extractURLs(from text: String) -> [String] {
+        let pattern = "https?://[^\\s]+"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+        return regex.matches(in: text, range: range).compactMap { match in
+            guard let r = Range(match.range, in: text) else { return nil }
+            var url = String(text[r])
+            // URL 끝에 붙은 비-ASCII 문자 제거 (한글 조사: 를, 을, 에서, 이, 가 등)
+            while let last = url.unicodeScalars.last, !last.isASCII {
+                url = String(url.dropLast())
+            }
+            return url.isEmpty ? nil : url
+        }
+    }
+}
+
 // MARK: - URL 오타 자동 교정
 
 /// 사용자 입력의 흔한 URL 오타를 교정 (ttps:// → https:// 등)

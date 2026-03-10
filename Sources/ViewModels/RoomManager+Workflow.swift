@@ -1451,6 +1451,10 @@ extension RoomManager {
         }
 
         // TaskBrief 기반 컨텍스트
+        let intakeText = room.clarifyContext.intakeData?.asClarifyContextString() ?? ""
+        let intakeBlock = intakeText.isEmpty ? "" : "\n\(intakeText)"
+        let projectPathsBlock = room.effectiveProjectPaths.isEmpty ? "" : "\n[프로젝트 경로]\n" + room.effectiveProjectPaths.map { "- \($0)" }.joined(separator: "\n")
+
         let briefContext: String
         if let brief = room.taskBrief {
             briefContext = """
@@ -1461,9 +1465,10 @@ extension RoomManager {
             비목표: \(brief.nonGoals.joined(separator: ", "))
             위험도: \(brief.overallRisk.rawValue)
             산출물 유형: \(brief.outputType.rawValue)
+            \(intakeBlock)\(projectPathsBlock)
             """
         } else {
-            briefContext = room.clarifyContext.clarifySummary ?? task
+            briefContext = (room.clarifyContext.clarifySummary ?? task) + intakeBlock + projectPathsBlock
         }
 
         // --- 멀티에이전트: 통합 토론 프로토콜 ---
@@ -1949,6 +1954,10 @@ extension RoomManager {
 
     /// 1인 에이전트 구조화된 플랜 생성 (4b: executePlanPhase 대신)
     private func executeSoloDesign(roomID: UUID, task: String, room: Room) async {
+        let intakeText = room.clarifyContext.intakeData?.asClarifyContextString() ?? ""
+        let intakeBlock = intakeText.isEmpty ? "" : "\n\(intakeText)"
+        let projectPathsBlock = room.effectiveProjectPaths.isEmpty ? "" : "\n[프로젝트 경로]\n" + room.effectiveProjectPaths.map { "- \($0)" }.joined(separator: "\n")
+
         let briefContext: String
         if let brief = room.taskBrief {
             briefContext = """
@@ -1957,9 +1966,10 @@ extension RoomManager {
             제약: \(brief.constraints.joined(separator: ", "))
             성공기준: \(brief.successCriteria.joined(separator: ", "))
             위험도: \(brief.overallRisk.rawValue)
+            \(intakeBlock)\(projectPathsBlock)
             """
         } else {
-            briefContext = room.clarifyContext.clarifySummary ?? task
+            briefContext = (room.clarifyContext.clarifySummary ?? task) + intakeBlock + projectPathsBlock
         }
 
         let specialists = executingAgentIDs(in: roomID)
@@ -2064,8 +2074,15 @@ extension RoomManager {
         let history = buildRoomHistory(roomID: roomID)
         let context = makeToolContext(roomID: roomID, currentAgentID: agentID)
 
+        let intakeText = room.clarifyContext.intakeData?.asClarifyContextString() ?? ""
+        let intakeBlock = intakeText.isEmpty ? "" : "\n\(intakeText)"
+        let projectPathsBlock = room.effectiveProjectPaths.isEmpty ? "" : "\n[프로젝트 경로]\n" + room.effectiveProjectPaths.map { "- \($0)" }.joined(separator: "\n")
+
         let discussionPrompt = """
         \(systemPrompt(for: agent, roomID: roomID))
+
+        [시스템] 필요한 외부 데이터는 이미 수집되었습니다. 도구·인증·API 연동 관련 언급을 하지 마세요.
+        \(intakeBlock)\(projectPathsBlock)
 
         아래 주제에 대해 전문가 관점에서 분석하고 의견을 제시하세요.
         대화 히스토리를 참고하여 작업 대상을 파악하세요.
@@ -2947,13 +2964,7 @@ extension RoomManager {
 
     /// 텍스트에서 URL 추출 (오타 자동 교정 후)
     private func extractURLs(from text: String) -> [String] {
-        let pattern = "https?://[^\\s]+"
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
-        let range = NSRange(text.startIndex..., in: text)
-        return regex.matches(in: text, range: range).compactMap { match in
-            guard let r = Range(match.range, in: text) else { return nil }
-            return String(text[r])
-        }
+        IntakeURLExtractor.extractURLs(from: text)
     }
 
     /// 텍스트에서 모든 Jira 키 추출 (중복 제거, 순서 유지)
@@ -3145,9 +3156,12 @@ extension RoomManager {
         // 문서 유형 템플릿 주입
         let docTemplateContext = room.workflowState.documentType?.templatePromptBlock() ?? ""
 
+        // 프로젝트 경로
+        let projectPathsContext = room.effectiveProjectPaths.isEmpty ? "" : "\n[프로젝트 경로]\n" + room.effectiveProjectPaths.map { "- \($0)" }.joined(separator: "\n")
+
         // 토큰 예산: 시스템 프롬프트 합산이 8000자 초과 시 briefing/artifact 추가 절단
         let basePromptSize = systemPrompt(for: agent, roomID: roomID).count
-            + intakeContext.count + clarifyContext.count + docTemplateContext.count + playbookContext.count
+            + intakeContext.count + clarifyContext.count + docTemplateContext.count + playbookContext.count + projectPathsContext.count
         let contextBudget = max(0, 8000 - basePromptSize)
         if briefingContext.count + artifactContext.count > contextBudget {
             let briefingBudget = contextBudget * 2 / 3
@@ -3163,7 +3177,7 @@ extension RoomManager {
 
         let planSystemPrompt = """
         \(systemPrompt(for: agent, roomID: roomID))
-        \(intakeContext)\(clarifyContext)\(docTemplateContext.isEmpty ? "" : "\n\(docTemplateContext)\n")
+        \(intakeContext)\(clarifyContext)\(projectPathsContext)\(docTemplateContext.isEmpty ? "" : "\n\(docTemplateContext)\n")
         현재 작업방에 배정되었습니다. 팀원들과의 토론이 완료되었습니다.
         토론 내용을 바탕으로, 원래 사용자 요청 범위 안에서 실행 계획을 제출하세요:
 

@@ -1236,6 +1236,8 @@ executeWithTools() 루프 (최대 10회):
 
 **discussion/research 워크플로우**: Design 단계 내에서 전문가 의견 수렴(병렬) → 상호 피드백(순차) → DOUGLAS 진행자 종합까지 완결. Build/Review 불필요.
 
+**Design 단계 컨텍스트 주입**: Design 단계의 모든 경로(멀티에이전트 토론, 솔로 설계, 솔로 토론)에서 intakeData(Jira 티켓 등)와 프로젝트 경로가 에이전트 프롬프트에 포함됨. `requestPlan`에도 프로젝트 경로가 주입됨.
+
 **documentation 워크플로우**: Design(구조 설계) → Build(문서 작성) → Deliver. 문서 전문가가 직접 최종화 — Review 불필요 (WORKFLOW_SPEC §12.6).
 
 **워크플로우 명세 (정본: `WORKFLOW_SPEC.md`)**:

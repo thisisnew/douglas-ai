@@ -65,6 +65,30 @@ struct IntakeURLCorrectionTests {
         #expect(corrected.contains("https://a.com"))
         #expect(corrected.contains("https://b.com"))
     }
+
+    // MARK: - URL 끝 한글 조사 제거
+
+    @Test("URL 뒤 한글 조사 '를' 제거")
+    func urlTrailingKoreanParticle() {
+        // "https://...IBS-3110를" → "를" 제거
+        let urls = IntakeURLExtractor.extractURLs(from: "https://kurly0521.atlassian.net/browse/IBS-3110를 개발해줘")
+        #expect(urls.count == 1)
+        #expect(urls.first == "https://kurly0521.atlassian.net/browse/IBS-3110")
+    }
+
+    @Test("URL 뒤 한글 조사 '에서' 제거")
+    func urlTrailingKoreanParticle2() {
+        let urls = IntakeURLExtractor.extractURLs(from: "https://example.com/page에서 확인")
+        #expect(urls.count == 1)
+        #expect(urls.first == "https://example.com/page")
+    }
+
+    @Test("URL 뒤 한글 없으면 그대로")
+    func urlNoTrailingKorean() {
+        let urls = IntakeURLExtractor.extractURLs(from: "https://example.com/page 확인")
+        #expect(urls.count == 1)
+        #expect(urls.first == "https://example.com/page")
+    }
 }
 
 @Suite("parsePlan 재시도 Tests")
