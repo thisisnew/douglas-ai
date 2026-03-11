@@ -409,15 +409,7 @@ struct RoomChatView: View {
                 onMoveStep: { from, to in roomManager.moveStep(roomID: room.id, fromIndex: from, toIndex: to) }
             )
         } else if room.status == .inProgress {
-            return .execution { stepIndex in
-                roomManager.stepRollbackTargets[roomID] = stepIndex
-                let confirmMsg = ChatMessage(
-                    role: .system,
-                    content: "단계 \(stepIndex + 1)부터 다시 실행합니다.",
-                    messageType: .progress
-                )
-                roomManager.appendMessage(confirmMsg, to: roomID)
-            }
+            return .readOnly
         } else {
             return .readOnly
         }
@@ -643,8 +635,7 @@ struct RoomChatView: View {
 
 /// PlanCard 인터랙션 모드
 enum PlanCardMode {
-    case readOnly                                               // 완료/실패
-    case execution(onRollback: (Int) -> Void)                  // 실행 중
+    case readOnly                                               // 완료/실패/실행 중
     case editing(                                               // 계획 승인 대기
         onEditStep: (Int, String) -> Void,
         onDeleteStep: (Int) -> Void,
@@ -662,12 +653,11 @@ struct PlanCard: View {
     @Environment(\.colorPalette) private var palette
 
     @State private var isExpanded = true
-    // 편집 모드 상태
-    @State private var editingStepIndex: Int?
-    @State private var editingText: String = ""
-    @State private var addingAfterIndex: Int? // nil = 미표시, -1 = 맨 앞, 0+ = 해당 인덱스 뒤
-    @State private var newStepText: String = ""
-    @State private var tappedRollbackIndex: Int?
+    // 팝오버 편집 상태
+    @State private var popoverStepIndex: Int?   // nil이면 팝오버 숨김
+    @State private var popoverText: String = ""
+    @State private var popoverIsNew: Bool = false // true면 신규 추가 모드
+    @State private var popoverInsertAfter: Int = 0 // 신규 추가 시 삽입 위치
 
     private var isEditing: Bool {
         if case .editing = mode { return true }
@@ -719,6 +709,12 @@ struct PlanCard: View {
                 }
             }
         }
+        .popover(isPresented: Binding(
+            get: { popoverStepIndex != nil },
+            set: { if !$0 { popoverStepIndex = nil } }
+        ), arrowEdge: .trailing) {
+            stepEditPopoverContent()
+        }
     }
 
     // MARK: - 단계 행
@@ -735,24 +731,21 @@ struct PlanCard: View {
                 .frame(width: 14, alignment: .trailing)
                 .padding(.top, 2)
 
-            // 텍스트 영역 (편집 모드에서 tap → 인라인 TextField)
+            // 텍스트 영역 (편집 모드에서 tap → 팝오버)
             VStack(alignment: .leading, spacing: 2) {
-                if isEditing && editingStepIndex == index {
-                    editingTextField(index: index)
-                } else {
-                    Text(step.text)
-                        .font(.system(size: 11, weight: step.status == .inProgress ? .semibold : .regular, design: .rounded))
-                        .foregroundColor(stepColor(step: step))
-                        .lineLimit(3)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if isEditing {
-                                editingStepIndex = index
-                                editingText = step.text
-                            }
+                Text(step.text)
+                    .font(.system(size: 11, weight: step.status == .inProgress ? .semibold : .regular, design: .rounded))
+                    .foregroundColor(stepColor(step: step))
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if isEditing {
+                            popoverIsNew = false
+                            popoverText = step.text
+                            popoverStepIndex = index
                         }
-                }
+                    }
                 if let name = agentName(for: step) {
                     Text(name)
                         .font(.system(size: 9, weight: .medium))
@@ -776,31 +769,90 @@ struct PlanCard: View {
         }
     }
 
-    // MARK: - 인라인 편집 TextField
+    // MARK: - 단계 편집 팝오버
 
     @ViewBuilder
-    private func editingTextField(index: Int) -> some View {
-        TextField("단계 내용", text: $editingText, axis: .vertical)
-            .textFieldStyle(.plain)
-            .font(.system(size: 11, design: .rounded))
-            .lineLimit(1...4)
-            .padding(4)
-            .background(palette.inputBackground.opacity(0.5))
-            .continuousRadius(6)
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .strokeBorder(Color.purple.opacity(0.3), lineWidth: 1)
-            )
-            .onSubmit { commitEdit(index: index) }
-    }
+    private func stepEditPopoverContent() -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // 제목
+            Text(popoverIsNew ? "새 단계 추가" : "단계 \((popoverStepIndex ?? 0) + 1) 편집")
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundColor(.primary)
 
-    private func commitEdit(index: Int) {
-        let trimmed = editingText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty, case .editing(let onEdit, _, _, _) = mode {
-            onEdit(index, trimmed)
+            // TextEditor
+            TextEditor(text: $popoverText)
+                .font(.system(size: 13, design: .rounded))
+                .scrollContentBackground(.hidden)
+                .padding(6)
+                .frame(minHeight: 80, maxHeight: 160)
+                .background(palette.inputBackground.opacity(0.5))
+                .continuousRadius(8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Color.purple.opacity(0.25), lineWidth: 1)
+                )
+
+            // 하단 버튼
+            HStack {
+                // 삭제 (편집 모드 + 단계 2개 이상)
+                if !popoverIsNew, plan.steps.count > 1,
+                   case .editing(_, let onDelete, _, _) = mode {
+                    Button {
+                        onDelete(popoverStepIndex ?? 0)
+                        popoverStepIndex = nil
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 11))
+                            Text("삭제")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundColor(.red.opacity(0.8))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer()
+
+                // 취소
+                Button {
+                    popoverStepIndex = nil
+                } label: {
+                    Text("취소")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+
+                // 저장
+                Button {
+                    let trimmed = popoverText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+                    if popoverIsNew {
+                        if case .editing(_, _, let onAdd, _) = mode {
+                            onAdd(popoverInsertAfter, trimmed)
+                        }
+                    } else {
+                        if case .editing(let onEdit, _, _, _) = mode {
+                            onEdit(popoverStepIndex ?? 0, trimmed)
+                        }
+                    }
+                    popoverStepIndex = nil
+                } label: {
+                    Text("저장")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                        .background(Color.purple.opacity(0.8))
+                        .continuousRadius(6)
+                }
+                .buttonStyle(.plain)
+                .disabled(popoverText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
         }
-        editingStepIndex = nil
-        editingText = ""
+        .padding(12)
+        .frame(width: 280)
     }
 
     // MARK: - 우측 액션 버튼
@@ -808,9 +860,8 @@ struct PlanCard: View {
     @ViewBuilder
     private func stepActions(index: Int, step: RoomStep) -> some View {
         switch mode {
-        case .editing(_, let onDelete, _, let onMove):
+        case .editing(_, _, _, let onMove):
             HStack(spacing: 2) {
-                // 순서 변경
                 if index > 0 {
                     Button {
                         onMove(index, index - 1)
@@ -833,48 +884,8 @@ struct PlanCard: View {
                     }
                     .buttonStyle(.plain)
                 }
-                // 삭제
-                if plan.steps.count > 1 {
-                    Button {
-                        onDelete(index)
-                    } label: {
-                        Image(systemName: "trash")
-                            .font(.system(size: 8, weight: .medium))
-                            .foregroundColor(.red.opacity(0.4))
-                            .frame(width: 16, height: 16)
-                    }
-                    .buttonStyle(.plain)
-                }
             }
             .padding(.top, 2)
-
-        case .execution(let onRollback):
-            if step.status == .completed && status == .inProgress {
-                Button {
-                    withAnimation(.dgBounce) { tappedRollbackIndex = index }
-                    onRollback(index)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                        tappedRollbackIndex = nil
-                    }
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(tappedRollbackIndex == index ? .orange : .secondary.opacity(0.5))
-                        .padding(4)
-                        .background(
-                            Circle().fill(tappedRollbackIndex == index ? Color.orange.opacity(0.15) : Color.clear)
-                        )
-                        .scaleEffect(tappedRollbackIndex == index ? 1.3 : 1.0)
-                        .animation(.dgBounce, value: tappedRollbackIndex)
-                }
-                .buttonStyle(.plain)
-            }
-            if step.requiresApproval {
-                Image(systemName: "hand.raised.fill")
-                    .font(.system(size: 9))
-                    .foregroundColor(.orange.opacity(0.6))
-                    .padding(.top, 2)
-            }
 
         case .readOnly:
             if step.requiresApproval {
@@ -890,87 +901,36 @@ struct PlanCard: View {
 
     @ViewBuilder
     private func addStepInsertPoint(afterIndex: Int) -> some View {
-        if addingAfterIndex == afterIndex {
-            // 인라인 입력
+        Button {
+            popoverIsNew = true
+            popoverText = ""
+            popoverInsertAfter = afterIndex
+            popoverStepIndex = max(afterIndex, 0) // 팝오버 앵커용
+        } label: {
             HStack(spacing: 4) {
-                TextField("새 단계 내용...", text: $newStepText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 10, design: .rounded))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 4)
-                    .background(palette.inputBackground.opacity(0.5))
-                    .continuousRadius(6)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .strokeBorder(Color.purple.opacity(0.2), lineWidth: 1)
-                    )
-                    .onSubmit { commitAddStep(afterIndex: afterIndex) }
-                Button {
-                    commitAddStep(afterIndex: afterIndex)
-                } label: {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(.purple.opacity(0.6))
-                }
-                .buttonStyle(.plain)
-                .disabled(newStepText.trimmingCharacters(in: .whitespaces).isEmpty)
-                Button {
-                    addingAfterIndex = nil
-                    newStepText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary.opacity(0.4))
-                }
-                .buttonStyle(.plain)
+                Image(systemName: "plus")
+                    .font(.system(size: 8, weight: .medium))
+                Text("단계 추가")
+                    .font(.system(size: 9))
             }
-            .padding(.horizontal, 6)
-            .transition(.opacity.combined(with: .scale(scale: 0.95)))
-        } else {
-            // + 버튼
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    addingAfterIndex = afterIndex
-                    newStepText = ""
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 8, weight: .medium))
-                    Text("단계 추가")
-                        .font(.system(size: 9))
-                }
-                .foregroundColor(.purple.opacity(0.35))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 2)
-            }
-            .buttonStyle(.plain)
+            .foregroundColor(.purple.opacity(0.35))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 2)
         }
-    }
-
-    private func commitAddStep(afterIndex: Int) {
-        let trimmed = newStepText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, case .editing(_, _, let onAdd, _) = mode else { return }
-        onAdd(afterIndex, trimmed)
-        addingAfterIndex = nil
-        newStepText = ""
+        .buttonStyle(.plain)
     }
 
     // MARK: - 헬퍼
 
     private func handleStepTap(index: Int, step: RoomStep) {
-        if case .execution(let onRollback) = mode,
-           step.status == .completed, status == .inProgress {
-            withAnimation(.dgBounce) { tappedRollbackIndex = index }
-            onRollback(index)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                tappedRollbackIndex = nil
-            }
+        if isEditing {
+            popoverIsNew = false
+            popoverText = step.text
+            popoverStepIndex = index
         }
     }
 
     private func stepRowBackground(step: RoomStep) -> Color {
-        if isEditing && editingStepIndex != nil { return Color.clear }
         return step.status == .inProgress ? Color.purple.opacity(0.06) : Color.clear
     }
 

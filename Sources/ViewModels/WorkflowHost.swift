@@ -117,6 +117,4 @@ protocol WorkflowHost: AnyObject {
         workingDirectoryOverride: String?
     ) async -> Bool
 
-    /// 단계 롤백 요청 (PlanCard 클릭 시 설정)
-    var stepRollbackTargets: [UUID: Int] { get set }
 }

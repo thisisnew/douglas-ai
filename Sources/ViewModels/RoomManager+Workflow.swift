@@ -1951,9 +1951,19 @@ extension RoomManager {
                 return "\(i + 1). \(s.text)\(risk)"
             }.joined(separator: "\n")
 
+            // high-risk 단계 경고
+            let highRiskSteps = plan.steps.enumerated().filter { $0.element.riskLevel != .low }
+            let highRiskWarning: String
+            if highRiskSteps.isEmpty {
+                highRiskWarning = ""
+            } else {
+                let listing = highRiskSteps.map { "- 단계 \($0.offset + 1): \($0.element.text)" }.joined(separator: "\n")
+                highRiskWarning = "\n\n⚠️ 이 계획에는 외부 영향 작업이 포함되어 있습니다:\n\(listing)\n승인 시 끝까지 자동으로 실행됩니다."
+            }
+
             let approvalMsg = ChatMessage(
                 role: .system,
-                content: "실행 계획:\n\n\(stepsDesc)\n\n승인하시면 실행을 시작합니다. 수정이 필요하면 요건을 말씀해주세요.",
+                content: "실행 계획:\n\n\(stepsDesc)\(highRiskWarning)\n\n승인하시면 실행을 시작합니다. 수정이 필요하면 요건을 말씀해주세요.",
                 messageType: .approvalRequest
             )
             appendMessage(approvalMsg, to: roomID)
@@ -2026,24 +2036,6 @@ extension RoomManager {
                 }
             }
         }
-    }
-
-    /// 사용자 피드백에서 롤백 대상 단계 번호 추출
-    private func parseRollbackStepIndex(from feedback: String, totalSteps: Int) -> Int {
-        let lower = feedback.lowercased()
-        // "3단계로 돌아가줘", "step 2부터 다시", "2번째" 등에서 숫자 추출
-        let patterns: [String] = ["(\\d+)\\s*단계", "(\\d+)\\s*번", "step\\s*(\\d+)"]
-        for pattern in patterns {
-            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
-               let match = regex.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)) {
-                let range = match.range(at: 1)
-                if let swiftRange = Range(range, in: lower), let num = Int(lower[swiftRange]),
-                   num >= 1 && num <= totalSteps {
-                    return num - 1
-                }
-            }
-        }
-        return max(0, totalSteps - 2)
     }
 
     /// 1인 에이전트 구조화된 플랜 생성 (4b: executePlanPhase 대신)
@@ -2599,104 +2591,6 @@ extension RoomManager {
     func executeDeliverPhase(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
         let room = rooms[idx]
-
-        // DeferredAction 처리 (high risk 도구 호출이 보류된 경우)
-        if !room.deferredActions.isEmpty {
-            let pending = room.deferredActions.filter { $0.status == .pending }
-            if !pending.isEmpty {
-                let deferredDesc = pending.enumerated().map { i, action in
-                    var line = "\(i + 1). [\(action.riskLevel.displayName)] \(action.description)"
-                    if let preview = action.previewContent, !preview.isEmpty {
-                        line += "\n   \(preview)"
-                    }
-                    return line
-                }.joined(separator: "\n")
-
-                let approvalMsg = ChatMessage(
-                    role: .system,
-                    content: "보류된 작업 \(pending.count)건:\n\n\(deferredDesc)\n\n[승인] 실행 / [거부] 취소",
-                    messageType: .approvalRequest
-                )
-                appendMessage(approvalMsg, to: roomID)
-
-                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].awaitingType = .deliverApproval
-                    rooms[i].transitionTo(.awaitingApproval)
-                }
-                syncAgentStatuses()
-                scheduleSave()
-
-                let approved = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-                    approvalContinuations[roomID] = cont
-                }
-                approvalContinuations.removeValue(forKey: roomID)
-                guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
-
-                if approved {
-                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                        rooms[i].transitionTo(.inProgress)
-                    }
-
-                    // 승인된 deferred 도구 실제 실행
-                    for action in pending {
-                        if let i = rooms.firstIndex(where: { $0.id == roomID }),
-                           let j = rooms[i].deferredActions.firstIndex(where: { $0.id == action.id }) {
-                            rooms[i].deferredActions[j].status = .approved
-                        }
-
-                        let execMsg = ChatMessage(
-                            role: .system,
-                            content: "▶ 실행 중: \(action.description)",
-                            messageType: .progress
-                        )
-                        appendMessage(execMsg, to: roomID)
-
-                        // step 기반 deferred (step_N) → executeStep으로 실행
-                        if action.toolName.hasPrefix("step_") {
-                            let stepText = action.arguments["text"]?.stringValue ?? action.description
-                            let specialists = executingAgentIDs(in: roomID)
-                            let agentID = specialists.first ?? room.assignedAgentIDs.first
-                            if let agentID {
-                                _ = await executeStep(
-                                    step: stepText,
-                                    fullTask: task,
-                                    agentID: agentID,
-                                    roomID: roomID,
-                                    stepIndex: 0,
-                                    totalSteps: 1,
-                                    fileWriteTracker: nil,
-                                    progressGroupID: execMsg.id
-                                )
-                            }
-                        } else {
-                            // 도구 기반 deferred → ToolExecutor로 직접 실행
-                            let context = makeToolContext(
-                                roomID: roomID,
-                                currentAgentID: room.assignedAgentIDs.first
-                            )
-                            let toolCall = ToolCall(
-                                id: UUID().uuidString,
-                                toolName: action.toolName,
-                                arguments: action.arguments
-                            )
-                            _ = await ToolExecutor.executeSingleTool(toolCall, context: context)
-                        }
-
-                        if let i = rooms.firstIndex(where: { $0.id == roomID }),
-                           let j = rooms[i].deferredActions.firstIndex(where: { $0.id == action.id }) {
-                            rooms[i].deferredActions[j].status = .executed
-                        }
-                        scheduleSave()
-                    }
-                } else {
-                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                        for j in rooms[i].deferredActions.indices where rooms[i].deferredActions[j].status == .pending {
-                            rooms[i].deferredActions[j].status = .cancelled
-                        }
-                    }
-                }
-            }
-        }
 
         // quickAnswer: deliver에서 실제 답변 실행 (requiredPhases에 execute 없음)
         if room.workflowState.intent == .quickAnswer {

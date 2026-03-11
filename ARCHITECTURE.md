@@ -97,7 +97,7 @@ DOUGLAS/
 │   │   ├── RoomManager.swift          # 프로젝트 방 생명주기, CRUD, 승인/입력 게이트, 상태 관리 (~2092줄)
 │   │   ├── RoomManager+Workflow.swift # 워크플로우 Phase 실행 메서드 (startRoomWorkflow, executePhaseWorkflow 등)
 │   │   ├── RoomManager+Discussion.swift # 빌드/QA 루프 + 토론 실행 (~949줄)
-│   │   ├── StepExecutionEngine.swift  # Build 단계 실행 엔진 (피드백 루프, StepStatus 전이, 롤백, Policy 기반 동작)
+│   │   ├── StepExecutionEngine.swift  # Build 단계 실행 엔진 (StepStatus 전이, Policy 기반 동작, 계획 승인 후 자동 실행)
 │   │   ├── StepContextBudget.swift    # executeStep context 토큰 예산 (30K 토큰, TokenEstimator 기반) — Step Journal 패턴 도입으로 역할 축소
 │   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (Plan C: 3-tier 가중치 — skillTags×5, workModes×2, keyword+semantic×3, 0-1 정규화 confidence, 임계값 0.7/0.5)
 │   │   ├── DocumentExporter.swift   # 문서 산출물 파일 저장 (에이전트 생성 파일 탐지 → 고정 경로 자동저장 / NSSavePanel 폴백)
@@ -1101,19 +1101,17 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
 - **방 shortID** (`Room.shortID`): UUID 앞 6자 소문자. 방 헤더(`RoomChatView`)와 방 목록(`RoomListView`)에 표시.
 - **CLI WebFetch 차단**: `ClaudeCodeProvider.sendMessage()`에서 `--disallowed-tools WebFetch` 적용
 
-**StepExecutionEngine**: Build 단계 실행을 전담하는 독립 클래스. `executeBuildPhase`와 `executeRoomWork`의 중복 로직을 `Policy` 기반으로 통합. 핵심 기능:
-- **실시간 피드백 루프**: 각 단계 실행 후 사용자 메시지를 확인하여, 새 요건이 있으면 같은 단계를 재실행. 요건이 다 반영될 때까지 다음 단계로 진행하지 않음.
-- **StepStatus 전이**: `pending → inProgress → completed/failed/skipped` 상태 자동 관리. PlanCard에서 실시간 반영.
-- **클릭 롤백**: PlanCard에서 완료된 단계 클릭 → 즉시 확인 메시지 + `.dgBounce` 애니메이션 피드백 → `stepRollbackTargets`에 설정 → 엔진이 해당 단계부터 재실행. 피드백 루프 진입 시 `Task.yield()`로 대기 중인 UI 이벤트 처리 후 롤백 체크. 전체 단계 완료 후에도 post-completion 외부 루프에서 한번 더 체크.
-- **텍스트 롤백**: 사용자가 "3단계부터 다시" 입력 → 엔진이 롤백 구문 파싱 → 해당 단계로 점프.
-- **Policy**: `enableUserFeedbackLoop`, `deferHighRiskSteps`, `detectRepetition`, `generateWorkLog`로 동작 분기. `standard`(Build), `legacy`(executeRoomWork 호환) 프리셋 제공.
-- **실행 중 입력**: `.inProgress` 상태에서도 입력 영역이 표시되어 사용자가 실시간으로 요건을 입력 가능.
+**StepExecutionEngine**: Build 단계 실행을 전담하는 독립 클래스. 계획 승인 후 끝까지 자동 실행 — 실행 중 사용자 개입 없음. 핵심 기능:
+- **StepStatus 전이**: `pending → inProgress → completed/failed` 상태 자동 관리. PlanCard에서 실시간 반영.
+- **Step Journal + Full Archive**: 각 단계 완료 시 전문(`stepResultsFull`)과 300자 요약(`stepJournal`)을 별도 기록. 다음 단계는 직전 전문 + 이전 journal 요약만 참조.
+- **Policy**: `detectRepetition`, `generateWorkLog`로 동작 분기. `standard`(Build), `legacy`(executeRoomWork 호환) 프리셋 제공.
+- **병렬 에이전트 실행**: `withTaskGroup`으로 동일 단계에 배정된 에이전트들을 병렬 실행. 실패 시 1회 재시도, 전원 실패 시 워크플로우 중단.
 
 **Plan 승인 루프** (`executePlanPhase`): Plan 승인 시 거부 → 피드백 추출 → `requestPlan(previousPlan:feedback:)`로 재계획 → 다시 승인 카드 표시 (무제한). 이전 계획과 사용자 피드백이 재계획 프롬프트에 주입됨.
 
 **승인 카드 UI** (`ApprovalCard`): Shell + Content 구조. Shell은 `approvalTitle`(awaitingType 기반) + 액션 버튼(승인/수정 요청) + 피드백 입력. Content는 `awaitingType`별 dispatch: `.planApproval` → `PlanApprovalSummary`(compact, header PlanCard가 편집 모드), 기타 → `GenericApprovalDetail`(메시지 기반 텍스트). 자동 승인 카운트다운 표시. "수정 요청" 클릭 시 타이머 취소 → 피드백 입력 → `rejectStep()`으로 재계획 트리거.
 
-**PlanCard 모드 시스템** (`PlanCardMode`): `.readOnly`(완료/실패), `.execution`(실행 중 — 롤백 클릭), `.editing`(계획 승인 대기 — 인라인 편집/삭제/추가/순서 변경). 편집 모드에서 단계 텍스트 탭 → 인라인 TextField, ↑↓ 순서 변경, 🗑 삭제, ＋ 단계 추가. 수정 사항은 RoomManager의 `updateStepText`/`deleteStep`/`addStep`/`moveStep`을 통해 `room.plan.steps`에 직접 반영 (LLM 재생성 불필요). 편집 시 자동 승인 타이머 자동 취소.
+**PlanCard 모드 시스템** (`PlanCardMode`): `.readOnly`(완료/실패/실행 중), `.editing`(계획 승인 대기 — 팝오버 편집/삭제/추가/순서 변경). 편집 모드에서 단계 텍스트 탭 → 팝오버(280pt, TextEditor 최소 80pt 높이)로 편집/삭제, ↑↓ 인라인 순서 변경, ＋ 단계 추가(팝오버). 수정 사항은 RoomManager의 `updateStepText`/`deleteStep`/`addStep`/`moveStep`을 통해 `room.plan.steps`에 직접 반영 (LLM 재생성 불필요). 편집 시 자동 승인 타이머 자동 취소.
 
 **전문가 Solo 분석** (`executeSoloAnalysis`): 전문가 1명만 배정된 방에서 토론 대신 혼자 분석하여 결과 공유. task + !needsPlan 경로에서 `specialistCount == 1`일 때 자동 호출.
 
@@ -1231,13 +1229,11 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
               1인+task → `executeSoloDesign` (구조화 플랜)
               task intent: 토론 결과 기반 계획 생성 → `awaitPlanApproval` (사용자 승인 루프)
               1인 플랜 세분화 규칙: 1산출물=1단계, 구현/테스트/PR 별개 분할
-④ Build ───── step 루프: low/medium=자동실행, high=DeferredAction
-              도구 레벨: deferHighRiskTools=true → external 도구도 DeferredAction으로 수집
-              **라이브 협업**: step 간 사용자 메시지 체크 → 다음 step fullTask에 주입
-              도구 라운드 간 `fetchPendingUserMessages` 콜백으로 실시간 반영
+④ Build ───── step 루프: 계획 승인 후 전 단계 자동 실행 (사용자 개입 없음)
+              병렬 에이전트 실행 + 실패 1회 재시도 + 전원 실패 시 중단
 ⑤ Review ──── verdict 파싱 (PASS/FAIL/통과/불합격) + fail 시 Creator 수정 → 재검토 (최대 2회, 초과 시 자동 통과)
               1인 → `executeSoloReview` (자기 검토: FAIL 시 자기 수정 1회 → 재검토 → 자동 PASS)
-⑥ Deliver ─── DeferredAction 프리뷰 + 승인 → 실제 실행, 거부 → 취소, 무응답 → HOLD
+⑥ Deliver ─── 완료 메시지 + 작업일지 생성
 ```
 
 **Intent별 경로** (WORKFLOW_SPEC §4.1):
@@ -1265,7 +1261,7 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
 | A. 질의응답 | 단일 에이전트/DOUGLAS 직접 응답. 신뢰도 HIGH 시 에이전트 확인 생략 가능 |
 | B. 단일 에이전트 토론 | 심화 질의응답 수준의 단독 검토 |
 | C. 복수 에이전트 토론 | 라운드 기반 토론 → 종료 조건 충족 시 결론/대안/쟁점 정리 |
-| D. 단일 에이전트 구현 | 계획 → 승인(무한 루프) → 실행(실시간 사용자 개입) → 최종 승인 → 완료 |
+| D. 단일 에이전트 구현 | 계획 → 승인(무한 루프) → 자동 실행 → 완료 |
 | E. 복수 에이전트 구현 | 사전 토론 → 계획 → 승인 → 실행 → 최종 승인 → 완료 |
 | F. 문서 생성 | 문서 전문가 최종 책임. "완료되었습니다." + 경로만 표시 |
 | G. 후속처리 | 완료 후 같은 방에서 질의응답/토론/구현/문서화로 확장 가능 |
@@ -1284,19 +1280,17 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
   - create → + writeFiles
   - execute → + writeFiles, runCommands
 
-**2-layer 안전 시스템**:
-- Layer 1: 에이전트 `actionPermissions` (workModes 기반 자동 추론) — 도구별 `requiredActionScope` 대조
-- Layer 2: `deferHighRiskTools` — Build 단계에서 external 도구 → DeferredAction으로 수집 (Deliver에서 실행)
+**안전 시스템**:
+- 에이전트 `actionPermissions` (workModes 기반 자동 추론) — 도구별 `requiredActionScope` 대조
 
 **12종 빌트인 프리셋** (`AgentPreset.builtIn`): 백엔드/프론트엔드/QA/DevOps/기획자/리서처/문서작성자/마케터/디자이너/법무/데이터분석가/CS
 
 **승인 게이트 정리**:
-- **계획 승인**: `awaitPlanApproval` — 사용자 승인될 때까지 무한 루프 (거부 시 피드백 반영 재계획)
-- **마지막 단계 승인**: Build step 루프에서 마지막 단계 직전 반드시 확인 요청 (거부 시 지정 단계로 롤백)
+- **계획 승인**: `awaitPlanApproval` — 사용자 승인될 때까지 무한 루프 (거부 시 피드백 반영 재계획). high-risk 단계 포함 시 경고 메시지 표시.
 - **토론 체크포인트**: 토론 라운드마다 사용자 의견 입력 기회
 - **팀 확인**: Assemble 후 에이전트 구성 확인 요청 (거부 시 직접 선택)
-- **Deliver 승인**: DeferredAction 프리뷰 + 승인 (비가역 작업)
 - **Clarify**: 요건 불명확 시 DOUGLAS가 재차 질문 (복명복창)
+- 실행 중 개입 없음: 계획 승인 = 끝까지 자동 실행 위임
 - `requestPlan(previousPlan:feedback:)`: 재계획 프롬프트 주입 (승인 루프에서 거부 시 사용)
 - `executeSoloAnalysis`: 전문가 1명 Solo 분석 (토론 대신). task + !needsPlan에서 `specialistCount == 1`일 때 자동 호출.
 - `executeSoloDiscussion`: 1인+discussion intent → JSON 없이 자연어 분석/의견 제시
