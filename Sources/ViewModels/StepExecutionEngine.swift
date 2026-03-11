@@ -138,8 +138,23 @@ final class StepExecutionEngine {
 
                 switch result {
                 case .success:
+                    // 완료된 단계의 결과를 journal에 기록 (300자 캡)
+                    let journalEntry: String
+                    if let room = host.room(for: roomID),
+                       let lastMsg = room.messages.last(where: { $0.role == .assistant && $0.messageType == .text }),
+                       !lastMsg.content.isEmpty {
+                        journalEntry = String(lastMsg.content.prefix(300))
+                    } else {
+                        journalEntry = ""
+                    }
                     host.updateRoom(id: roomID) { room in
                         room.plan?.steps[stepIndex].status = .completed
+                        if !journalEntry.isEmpty {
+                            while room.plan?.stepJournal.count ?? 0 <= stepIndex {
+                                room.plan?.stepJournal.append("")
+                            }
+                            room.plan?.stepJournal[stepIndex] = journalEntry
+                        }
                     }
                     stepIndex += 1
 

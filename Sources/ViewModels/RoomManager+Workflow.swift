@@ -3553,51 +3553,48 @@ extension RoomManager {
 
         let room = rooms.first(where: { $0.id == roomID })
 
-        // 브리핑 기반 컨텍스트 (압축) + 최근 메시지 + 첫 사용자 메시지(이미지 포함) 보장
+        // Step Journal 기반 context 구성 — 예측 가능한 고정 크기
         var history: [ConversationMessage] = []
+
+        // 1. 첫 사용자 메시지 (이미지 첨부 보존)
         if let intakeData = room?.clarifyContext.intakeData, intakeData.sourceType != .text {
             history.append(ConversationMessage.user(intakeData.asClarifyContextString()))
         }
+
+        // 2. 브리핑 (2000자 캡)
         if let briefing = room?.discussion.briefing {
             let ctx = briefing.asContextString()
             let capped = ctx.count > 2000 ? String(ctx.prefix(2000)) + "…" : ctx
             history.append(ConversationMessage.user("작업 브리핑:\n\(capped)"))
         }
 
-        // 첫 사용자 메시지(이미지 첨부 포함)를 항상 포함
-        let recentHistory = buildRoomHistory(roomID: roomID, limit: 5, afterIndex: room?.buildPhaseMessageOffset)
+        // 3. 첫 사용자 메시지(이미지 첨부 포함)를 항상 포함
         if let room = room,
            let firstUserMsg = room.messages.first(where: { $0.role == .user && $0.messageType == .text }),
-           firstUserMsg.attachments != nil && !(firstUserMsg.attachments?.isEmpty ?? true),
-           !recentHistory.contains(where: { $0.attachments != nil && !($0.attachments?.isEmpty ?? true) }) {
+           firstUserMsg.attachments != nil && !(firstUserMsg.attachments?.isEmpty ?? true) {
             history.append(ConversationMessage(
                 role: "user", content: firstUserMsg.content,
                 toolCalls: nil, toolCallID: nil, attachments: firstUserMsg.attachments,
                 isError: false
             ))
         }
-        history.append(contentsOf: recentHistory)
 
-        // 산출물 컨텍스트 구성 (토큰 예산 적용)
-        let sysPromptText = systemPrompt(for: agent, roomID: roomID)
-        let budgetResult = StepContextBudget.apply(
-            artifacts: room?.discussion.artifacts ?? [],
-            systemPromptSize: TokenEstimator.estimate(sysPromptText),
-            historySize: TokenEstimator.estimate(history.compactMap(\.content))
-        )
-        let artifactContext = budgetResult.artifactContext
-        if budgetResult.shouldTrimHistory {
-            let trimmed = history.suffix(2).map { msg -> ConversationMessage in
-                guard let content = msg.content, content.count > 500 else { return msg }
-                return ConversationMessage(
-                    role: msg.role,
-                    content: String(content.prefix(500)) + "…",
-                    toolCalls: msg.toolCalls, toolCallID: msg.toolCallID,
-                    attachments: msg.attachments, isError: msg.isError
-                )
+        // 4. Step Journal (이전 단계 요약) — buildRoomHistory + artifacts 대체
+        if let journal = room?.plan?.stepJournal, !journal.isEmpty {
+            let journalEntries = journal.enumerated()
+                .filter { !$1.isEmpty }
+                .map { "Step \($0 + 1): \($1)" }
+                .joined(separator: "\n")
+            if !journalEntries.isEmpty {
+                let capped = journalEntries.count > 3000
+                    ? String(journalEntries.prefix(3000)) + "…"
+                    : journalEntries
+                history.append(ConversationMessage.user("[이전 단계 진행 상황]\n\(capped)"))
             }
-            history = Array(trimmed)
         }
+
+        let sysPromptText = systemPrompt(for: agent, roomID: roomID)
+        let artifactContext = "" // artifacts는 briefing + journal로 대체
 
         // 문서 유형 템플릿 (documentType 설정 시 섹션 가이드 주입)
         let docTemplateBlock: String
@@ -3700,10 +3697,16 @@ extension RoomManager {
             appendMessage(streamPlaceholder, to: roomID)
 
             let messagesWithStep = history + [ConversationMessage.user(stepPrompt)]
+
+            // Pre-flight 토큰 로깅 (디버깅용)
+            let sysTokens = TokenEstimator.estimate(sysPromptText)
+            let msgTokens = TokenEstimator.estimate(messagesWithStep.compactMap(\.content))
+            print("[DOUGLAS] 📊 Step \(stepIndex + 1)/\(totalSteps) 토큰 추정: sys=\(sysTokens) msg=\(msgTokens) total=\(sysTokens + msgTokens + 4_000)")
+
             let response = try await ToolExecutor.smartSend(
                 provider: provider,
                 agent: agent,
-                systemPrompt: systemPrompt(for: agent, roomID: roomID),
+                systemPrompt: sysPromptText,
                 conversationMessages: messagesWithStep,
                 context: context,
                 onToolActivity: { [weak self] activity, detail in
@@ -3777,8 +3780,17 @@ extension RoomManager {
             return true
         } catch {
             // 토큰 한도 초과 감지 → 최소 context로 1회 재시도
+            // ⚠️ 재시도 시 work rules 제거 — §12.1 activeRuleIDs 의무와 tradeoff.
+            // 근거: (1) 초기 시도(full rules)가 토큰 한도로 실패 → 재시도 불가피
+            //       (2) work rules는 텍스트 지시일 뿐, 도구 권한은 resolvedToolIDs로 별도 관리
+            //       (3) 완전 실패보다 규칙 없는 실행이 나음 (langSuffix는 보존)
             if error.userFacingMessage.contains("토큰 한도") {
-                print("[DOUGLAS] ⚠️ 토큰 한도 초과 감지 — 최소 context로 재시도")
+                print("[DOUGLAS] ⚠️ 토큰 한도 초과 감지 — persona만으로 재시도 (work rules 제거)")
+                // 재시도: persona + langSuffix만 (work rules 제거 → 시스템 프롬프트 대폭 축소)
+                let hasKoreanRule = agent.workRules.contains {
+                    $0.name.contains("한국어") || $0.summary.contains("한국어")
+                }
+                let retryPrompt = agent.persona + (hasKoreanRule ? "\n\n[필수] 반드시 한국어로 응답하세요." : "")
                 let previousWork = String(buffer.current.prefix(500))
                 let previousSummary = previousWork.isEmpty ? "" : "\n\n[이전 시도 요약]\n\(previousWork)"
                 let minimalMessages = [ConversationMessage.user("""
@@ -3789,7 +3801,7 @@ extension RoomManager {
                 if let retryResponse = try? await ToolExecutor.smartSend(
                     provider: provider,
                     agent: agent,
-                    systemPrompt: systemPrompt(for: agent, roomID: roomID),
+                    systemPrompt: retryPrompt,
                     conversationMessages: minimalMessages,
                     context: context,
                     onToolActivity: { [weak self] activity, detail in

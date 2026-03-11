@@ -98,7 +98,7 @@ DOUGLAS/
 │   │   ├── RoomManager+Workflow.swift # 워크플로우 Phase 실행 메서드 (startRoomWorkflow, executePhaseWorkflow 등)
 │   │   ├── RoomManager+Discussion.swift # 빌드/QA 루프 + 토론 실행 (~949줄)
 │   │   ├── StepExecutionEngine.swift  # Build 단계 실행 엔진 (피드백 루프, StepStatus 전이, 롤백, Policy 기반 동작)
-│   │   ├── StepContextBudget.swift    # executeStep context 토큰 예산 (30K 토큰, TokenEstimator 기반, 산출물 요약, history 축소)
+│   │   ├── StepContextBudget.swift    # executeStep context 토큰 예산 (30K 토큰, TokenEstimator 기반) — Step Journal 패턴 도입으로 역할 축소
 │   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (Plan C: 3-tier 가중치 — skillTags×5, workModes×2, keyword+semantic×3, 0-1 정규화 confidence, 임계값 0.7/0.5)
 │   │   ├── DocumentExporter.swift   # 문서 산출물 파일 저장 (에이전트 생성 파일 탐지 → 고정 경로 자동저장 / NSSavePanel 폴백)
 │   │   ├── ThemeManager.swift       # 테마 관리 (기본값: .cozyGame, UserDefaults 저장, 커스텀 팔레트)
@@ -1133,10 +1133,15 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
 
 **컨텍스트 압축**: 토론 종료 후 `generateBriefing()`이 전체 히스토리를 JSON 브리핑으로 압축. 브리핑/계획 프롬프트에 `clarifySummary`(원래 사용자 요청) 포함 → 탈선 방지.
 - 계획 수립: 브리핑 + 산출물 프리뷰(200자) 전달 (40msg → ~500토큰) + 원래 요청 앵커
-- 실행 단계: 브리핑 + Build 이후 최근 5개 메시지만 (`buildRoomHistory(limit: 5, afterIndex: buildPhaseMessageOffset)`, 각 2000자 절단) + 산출물 (`StepContextBudget` 적용)
-- **Build Phase Context Reset**: `StepExecutionEngine.run()` 시작 시 `room.buildPhaseMessageOffset = messages.count` 기록. `executeStep`에서 이 offset 이후 메시지만 history에 포함 → 토론/계획 단계 잔여물 제거, Step 1은 브리핑만으로 시작
+- **Step Journal 패턴**: `executeStep()`은 buildRoomHistory/artifacts 대신 `RoomPlan.stepJournal`을 사용. 각 단계 완료 시 결과를 300자로 요약하여 journal에 기록. 다음 단계는 briefing + journal만 참조 → 고정 크기 context, 토큰 예측 가능
+  - Step 1: sysPrompt + briefing → 실행 → journal[0] 기록
+  - Step N: sysPrompt + briefing + journal[0..N-1] + step 지시 → 실행
+  - journal 총합 3000자 캡, 단계당 300자 캡
+- **Build Phase Context Reset**: `StepExecutionEngine.run()` 시작 시 `room.buildPhaseMessageOffset = messages.count` 기록
 - 브리핑 없으면 기존 히스토리 폴백
-- **토큰 예산 (`StepContextBudget` + `TokenEstimator`)**: `executeStep()` context 30K 토큰 예산. `TokenEstimator`가 CJK/ASCII 비율 고려하여 토큰 추정 (한국어 ~2자/토큰, 영어 ~4자/토큰). 초과 시 Level 1: 산출물→요약(제목+200자), Level 2: history→최근 2개×500자. briefing context 2000자 캡. 토큰 에러 catch 시 이전 작업 요약 포함하여 최소 context로 1회 재시도.
+- **Pre-flight 토큰 로깅**: API 호출 전 `sys=X msg=Y total=Z` 출력 → 토큰 초과 원인 파악
+- **재시도 경량화**: 토큰 한도 초과 시 persona + langSuffix만으로 재시도 (work rules 제거 → 시스템 프롬프트 대폭 축소). langSuffix는 `rule.name`/`rule.summary`에서 "한국어" 감지하여 보존
+- **토큰 예산 (`TokenEstimator`)**: CJK/ASCII 비율 고려 토큰 추정 (한국어 ~2자/토큰, 영어 ~4자/토큰). briefing context 2000자 캡. 도구 결과 10K 캡, 80K 압축, 100K 조기 종료
 
 **토론 산출물**: `executeDiscussionTurn()`에서 응답 파싱 → `ArtifactParser.extractArtifacts()` → `Room.artifacts` 저장. 같은 type+title이면 버전 증가.
 

@@ -1022,4 +1022,27 @@ struct RoomTests {
         #expect(decoded.intakeData == nil)
         #expect(decoded.clarifyQuestionCount == 0)
     }
+
+    // MARK: - RoomPlan stepJournal
+
+    @Test("RoomPlan stepJournal — 인코딩/디코딩 왕복")
+    func stepJournal_codable_roundTrip() throws {
+        var plan = RoomPlan(summary: "테스트", estimatedSeconds: 60, steps: ["단계 1", "단계 2"])
+        plan.stepJournal = ["Step 1 완료: 백엔드 API 구현", "Step 2 완료: 프론트 연동"]
+
+        let data = try JSONEncoder().encode(plan)
+        let decoded = try JSONDecoder().decode(RoomPlan.self, from: data)
+        #expect(decoded.stepJournal == ["Step 1 완료: 백엔드 API 구현", "Step 2 완료: 프론트 연동"])
+    }
+
+    @Test("RoomPlan stepJournal — 기존 저장본에 journal 없으면 빈 배열")
+    func stepJournal_backwardCompatible() throws {
+        // stepJournal 필드 없는 JSON
+        let json = """
+        {"summary":"테스트","estimatedSeconds":60,"steps":["단계 1"],"version":1}
+        """
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(RoomPlan.self, from: data)
+        #expect(decoded.stepJournal.isEmpty)
+    }
 }

@@ -383,12 +383,14 @@ struct RoomPlan: Codable {
     let estimatedSeconds: Int     // 예상 소요 시간 (초)
     var steps: [RoomStep]         // 단계별 작업
     var version: Int              // 계획 버전 (거부 시 +1)
+    var stepJournal: [String]     // 완료된 단계의 요약 (인덱스 = 단계 번호, 300자 캡)
 
     init(summary: String, estimatedSeconds: Int, steps: [RoomStep], version: Int = 1) {
         self.summary = summary
         self.estimatedSeconds = estimatedSeconds
         self.steps = steps
         self.version = version
+        self.stepJournal = []
     }
 
     init(from decoder: Decoder) throws {
@@ -397,6 +399,7 @@ struct RoomPlan: Codable {
         estimatedSeconds = try container.decode(Int.self, forKey: .estimatedSeconds)
         steps = try container.decode([RoomStep].self, forKey: .steps)
         version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        stepJournal = try container.decodeIfPresent([String].self, forKey: .stepJournal) ?? []
     }
 }
 

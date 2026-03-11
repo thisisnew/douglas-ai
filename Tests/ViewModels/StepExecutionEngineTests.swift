@@ -257,4 +257,93 @@ struct StepExecutionEngineTests {
         let room = host.rooms[roomID]!
         #expect(room.buildPhaseMessageOffset == 3)
     }
+
+    // MARK: - Step Journal
+
+    @Test("단계 완료 시 stepJournal에 결과 요약 기록")
+    @MainActor
+    func stepJournal_recordedOnCompletion() async {
+        let roomID = UUID()
+        let agentID = UUID()
+        let host = Self.makeHost(roomID: roomID, agentID: agentID, stepCount: 2)
+
+        // executeStep에서 assistant 메시지 추가 시뮬레이션
+        host.executeStepHandler = { stepIndex in
+            let msg = ChatMessage(
+                role: .assistant,
+                content: "단계 \(stepIndex + 1) 결과: 작업 완료",
+                messageType: .text
+            )
+            host.appendMessage(msg, to: roomID)
+        }
+
+        let engine = StepExecutionEngine(
+            host: host, roomID: roomID, task: "테스트", policy: .standard
+        )
+        await engine.run()
+
+        let room = host.rooms[roomID]!
+        #expect(room.plan!.stepJournal.count == 2)
+        #expect(room.plan!.stepJournal[0].contains("단계 1 결과"))
+        #expect(room.plan!.stepJournal[1].contains("단계 2 결과"))
+    }
+
+    @Test("stepJournal 항목이 300자로 잘림")
+    @MainActor
+    func stepJournal_cappedAt300Chars() async {
+        let roomID = UUID()
+        let agentID = UUID()
+        let host = Self.makeHost(roomID: roomID, agentID: agentID, stepCount: 1)
+
+        // 긴 응답 시뮬레이션
+        host.executeStepHandler = { _ in
+            let longContent = String(repeating: "가", count: 500)
+            let msg = ChatMessage(role: .assistant, content: longContent, messageType: .text)
+            host.appendMessage(msg, to: roomID)
+        }
+
+        let engine = StepExecutionEngine(
+            host: host, roomID: roomID, task: "테스트", policy: .standard
+        )
+        await engine.run()
+
+        let room = host.rooms[roomID]!
+        #expect(room.plan!.stepJournal.count == 1)
+        #expect(room.plan!.stepJournal[0].count <= 300)
+    }
+
+    @Test("롤백 시 이전 단계 journal 유지, 이후 덮어쓰기")
+    @MainActor
+    func stepJournal_preservedOnRollback() async {
+        let roomID = UUID()
+        let agentID = UUID()
+        let host = Self.makeHost(roomID: roomID, agentID: agentID, stepCount: 3)
+
+        var executionCount = 0
+        host.executeStepHandler = { stepIndex in
+            executionCount += 1
+            let msg = ChatMessage(
+                role: .assistant,
+                content: "실행 \(executionCount) 단계 \(stepIndex + 1)",
+                messageType: .text
+            )
+            host.appendMessage(msg, to: roomID)
+
+            // step 2 첫 실행 시 rollback to step 1
+            if stepIndex == 1 && executionCount == 2 {
+                host.stepRollbackTargets[roomID] = 1
+            }
+        }
+
+        let engine = StepExecutionEngine(
+            host: host, roomID: roomID, task: "테스트", policy: .standard
+        )
+        await engine.run()
+
+        let room = host.rooms[roomID]!
+        // Step 0의 journal은 첫 실행 값 유지
+        #expect(room.plan!.stepJournal[0].contains("단계 1"))
+        // 모든 단계 완료
+        #expect(room.plan!.steps.allSatisfy { $0.status == .completed })
+    }
 }
