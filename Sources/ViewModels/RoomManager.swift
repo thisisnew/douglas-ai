@@ -981,7 +981,8 @@ class RoomManager: ObservableObject, WorkflowHost {
         currentAgentID: UUID? = nil,
         fileWriteTracker: FileWriteTracker? = nil,
         deferHighRiskTools: Bool = false,
-        collectDeferred: ((DeferredAction) -> Void)? = nil
+        collectDeferred: ((DeferredAction) -> Void)? = nil,
+        workingDirectoryOverride: String? = nil
     ) -> ToolExecutionContext {
         guard let store = agentStore else { return .empty }
         let subAgents = store.subAgents
@@ -990,6 +991,16 @@ class RoomManager: ObservableObject, WorkflowHost {
             store.agents.first { $0.id == id }
         }
         let currentAgentName = currentAgent?.name
+
+        // 단계별 workingDirectory 오버라이드: 지정된 경로를 projectPaths[0]으로 배치
+        let resolvedPaths: [String] = {
+            var paths = room?.effectiveProjectPaths ?? []
+            guard let override = workingDirectoryOverride else { return paths }
+            paths.removeAll { $0 == override }
+            paths.insert(override, at: 0)
+            return paths
+        }()
+
         return ToolExecutionContext(
             roomID: roomID,
             agentsByName: Dictionary(uniqueKeysWithValues: subAgents.map { ($0.name, $0.id) }),
@@ -1008,7 +1019,7 @@ class RoomManager: ObservableObject, WorkflowHost {
                     return true
                 }
             },
-            projectPaths: room?.effectiveProjectPaths ?? [],
+            projectPaths: resolvedPaths,
             currentAgentID: currentAgentID,
             currentAgentName: currentAgentName,
             agentPermissions: currentAgent?.actionPermissions ?? [],

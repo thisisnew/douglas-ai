@@ -561,4 +561,39 @@ struct RoomManagerTests {
     func detectConsensus_mixed() {
         #expect(RoomManager.detectConsensus(in: "동의합니다만 수정이 필요합니다") == false)
     }
+
+    // MARK: - parsePlan: workingDirectory
+
+    @Test("parsePlan - working_directory 추출")
+    func parsePlan_extractsWorkingDirectory() {
+        let mgr = makeManager()
+        let json = """
+        ```json
+        {"plan": {"summary": "멀티 프로젝트 작업", "estimated_minutes": 10, "steps": [
+            {"text": "백엔드 API 추가", "agent": "백엔드 개발자", "working_directory": "/Users/test/backend"},
+            {"text": "프론트엔드 UI 구현", "agent": "프론트엔드 개발자", "working_directory": "/Users/test/frontend"}
+        ]}}
+        ```
+        """
+        let plan = mgr.parsePlan(from: json)
+        #expect(plan != nil)
+        #expect(plan?.steps.count == 2)
+        #expect(plan?.steps[0].workingDirectory == "/Users/test/backend")
+        #expect(plan?.steps[1].workingDirectory == "/Users/test/frontend")
+    }
+
+    @Test("parsePlan - working_directory 없으면 nil")
+    func parsePlan_workingDirectoryNilWhenAbsent() {
+        let mgr = makeManager()
+        let json = """
+        ```json
+        {"plan": {"summary": "단일 프로젝트", "estimated_minutes": 5, "steps": [
+            {"text": "코드 작성", "agent": "개발자"}
+        ]}}
+        ```
+        """
+        let plan = mgr.parsePlan(from: json)
+        #expect(plan != nil)
+        #expect(plan?.steps[0].workingDirectory == nil)
+    }
 }

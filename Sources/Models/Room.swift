@@ -250,13 +250,15 @@ struct RoomStep: Codable, Equatable {
     var assignedAgentID: UUID?
     var riskLevel: RiskLevel
     var status: StepStatus
+    var workingDirectory: String?
 
-    init(text: String, requiresApproval: Bool = false, assignedAgentID: UUID? = nil, riskLevel: RiskLevel = .low, status: StepStatus = .pending) {
+    init(text: String, requiresApproval: Bool = false, assignedAgentID: UUID? = nil, riskLevel: RiskLevel = .low, status: StepStatus = .pending, workingDirectory: String? = nil) {
         self.text = text
         self.requiresApproval = requiresApproval
         self.assignedAgentID = assignedAgentID
         self.riskLevel = riskLevel
         self.status = status
+        self.workingDirectory = workingDirectory
     }
 
     /// 커스텀 디코딩: plain String 또는 {"text":..., "requires_approval":...} 둘 다 지원
@@ -269,6 +271,7 @@ struct RoomStep: Codable, Equatable {
             self.assignedAgentID = nil
             self.riskLevel = .low
             self.status = .pending
+            self.workingDirectory = nil
             return
         }
         // object 형태
@@ -278,11 +281,12 @@ struct RoomStep: Codable, Equatable {
         self.assignedAgentID = try container.decodeIfPresent(UUID.self, forKey: .assignedAgentID)
         self.riskLevel = try container.decodeIfPresent(RiskLevel.self, forKey: .riskLevel) ?? .low
         self.status = try container.decodeIfPresent(StepStatus.self, forKey: .status) ?? .pending
+        self.workingDirectory = try container.decodeIfPresent(String.self, forKey: .workingDirectory)
     }
 
     func encode(to encoder: Encoder) throws {
         // 승인 불필요 + 배정 없으면 plain String으로 인코딩 (역호환)
-        if !requiresApproval && assignedAgentID == nil && riskLevel == .low && status == .pending {
+        if !requiresApproval && assignedAgentID == nil && riskLevel == .low && status == .pending && workingDirectory == nil {
             var container = encoder.singleValueContainer()
             try container.encode(text)
         } else {
@@ -296,6 +300,7 @@ struct RoomStep: Codable, Equatable {
             if status != .pending {
                 try container.encode(status, forKey: .status)
             }
+            try container.encodeIfPresent(workingDirectory, forKey: .workingDirectory)
         }
     }
 
@@ -305,6 +310,7 @@ struct RoomStep: Codable, Equatable {
         case assignedAgentID = "assigned_agent_id"
         case riskLevel = "risk_level"
         case status
+        case workingDirectory = "working_directory"
     }
 }
 
@@ -314,6 +320,7 @@ extension RoomStep: ExpressibleByStringLiteral {
         self.requiresApproval = false
         self.riskLevel = .low
         self.status = .pending
+        self.workingDirectory = nil
     }
 }
 

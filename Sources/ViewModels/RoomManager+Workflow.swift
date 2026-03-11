@@ -3264,7 +3264,7 @@ extension RoomManager {
         현재 작업방에 배정되었습니다. 팀원들과의 토론이 완료되었습니다.
         토론 내용을 바탕으로, 원래 사용자 요청 범위 안에서 실행 계획을 제출하세요:
 
-        {"plan": {"summary": "전체 계획 요약", "estimated_minutes": 5, "steps": [{"text": "단계 설명", "agent": "담당 에이전트 이름"}, ...]}}
+        {"plan": {"summary": "전체 계획 요약", "estimated_minutes": 5, "steps": [{"text": "단계 설명", "agent": "담당 에이전트 이름", "working_directory": "/프로젝트/경로"}, ...]}}
 
         방 내 전문가: \(specialistNames)
 
@@ -3276,6 +3276,7 @@ extension RoomManager {
         - 같은 에이전트가 연속 수행해도, 산출물이 다르면 단계를 나누세요.
         - estimated_minutes는 현실적으로 추정하세요 (1~30분)
         - 각 step에 "agent" 필드로 담당 전문가를 지정하세요 (위 목록에서 정확한 이름 사용)
+        - 프로젝트 경로가 2개 이상이면, 각 step에 "working_directory" 필드로 해당 단계의 작업 디렉토리를 지정하세요 (위 프로젝트 경로 중 선택)
         - 마스터(진행자/오케스트레이터)는 실행 대상이 아닙니다. 마스터에게 step을 배정하지 마세요.
         - "requires_approval": true는 **외부에 영향을 미치거나 되돌리기 어려운 모든 작업**에 반드시 사용하세요. 예: 커밋, PR, push, 배포, DB 변경, API 호출, 메시지 전송, 파일 삭제 등. 코드 분석, 파일 읽기 등 읽기 전용 작업에는 불필요합니다.
         - 반드시 유효한 JSON으로만 응답하세요
@@ -3424,7 +3425,8 @@ extension RoomManager {
                 } else {
                     riskLevel = .low
                 }
-                steps.append(RoomStep(text: text, requiresApproval: requiresApproval, assignedAgentID: agentID, riskLevel: riskLevel))
+                let workingDir = dict["working_directory"] as? String
+                steps.append(RoomStep(text: text, requiresApproval: requiresApproval, assignedAgentID: agentID, riskLevel: riskLevel, workingDirectory: workingDir))
             }
         }
         guard !steps.isEmpty else { return nil }
@@ -3542,7 +3544,8 @@ extension RoomManager {
         fileWriteTracker: FileWriteTracker? = nil,
         progressGroupID: UUID? = nil,
         deferHighRiskTools: Bool = false,
-        collectDeferred: ((DeferredAction) -> Void)? = nil
+        collectDeferred: ((DeferredAction) -> Void)? = nil,
+        workingDirectoryOverride: String? = nil
     ) async -> Bool {
         guard let baseAgent = agentStore?.agents.first(where: { $0.id == agentID }) else { return false }
         let agent = baseAgent
@@ -3637,7 +3640,7 @@ extension RoomManager {
         // catch에서도 접근 필요한 변수들을 do 블록 밖에 선언
         let streamPlaceholderID = UUID()
         let buffer = StreamBuffer()
-        let context = makeToolContext(roomID: roomID, currentAgentID: agentID, fileWriteTracker: fileWriteTracker, deferHighRiskTools: deferHighRiskTools, collectDeferred: collectDeferred)
+        let context = makeToolContext(roomID: roomID, currentAgentID: agentID, fileWriteTracker: fileWriteTracker, deferHighRiskTools: deferHighRiskTools, collectDeferred: collectDeferred, workingDirectoryOverride: workingDirectoryOverride)
 
         do {
             agentStore?.updateStatus(agentID: agentID, status: .working)

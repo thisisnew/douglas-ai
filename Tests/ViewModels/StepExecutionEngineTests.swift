@@ -63,7 +63,8 @@ final class MockWorkflowHost: WorkflowHost {
         fileWriteTracker: FileWriteTracker?,
         progressGroupID: UUID?,
         deferHighRiskTools: Bool,
-        collectDeferred: ((DeferredAction) -> Void)?
+        collectDeferred: ((DeferredAction) -> Void)?,
+        workingDirectoryOverride: String?
     ) async -> Bool {
         executeStepCallCount += 1
         executeStepHandler?(stepIndex)

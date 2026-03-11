@@ -344,7 +344,8 @@ final class StepExecutionEngine {
                         fileWriteTracker: self.tracker,
                         progressGroupID: progressMsg.id,
                         deferHighRiskTools: self.policy.deferHighRiskSteps,
-                        collectDeferred: deferCollector
+                        collectDeferred: deferCollector,
+                        workingDirectoryOverride: step.workingDirectory
                     )
                     return (agentID, success)
                 }
@@ -368,7 +369,8 @@ final class StepExecutionEngine {
                     fileWriteTracker: tracker,
                     progressGroupID: progressMsg.id,
                     deferHighRiskTools: policy.deferHighRiskSteps,
-                    collectDeferred: deferCollector
+                    collectDeferred: deferCollector,
+                    workingDirectoryOverride: step.workingDirectory
                 )
                 if !success { stillFailed.append(agentID) }
             }

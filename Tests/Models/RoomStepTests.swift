@@ -264,4 +264,59 @@ struct RoomStepTests {
         step.status = .completed
         #expect(step.status == .completed)
     }
+
+    // MARK: - workingDirectory
+
+    @Test("workingDirectory - 기본값 nil")
+    func workingDirectoryDefault() {
+        let step = RoomStep(text: "작업")
+        #expect(step.workingDirectory == nil)
+    }
+
+    @Test("workingDirectory - JSON 디코딩")
+    func workingDirectoryDecode() throws {
+        let json = """
+        {"text": "프론트엔드 구현", "working_directory": "/Users/test/rms-front-web"}
+        """
+        let data = json.data(using: .utf8)!
+        let step = try JSONDecoder().decode(RoomStep.self, from: data)
+        #expect(step.text == "프론트엔드 구현")
+        #expect(step.workingDirectory == "/Users/test/rms-front-web")
+    }
+
+    @Test("workingDirectory - 있으면 object 인코딩")
+    func workingDirectoryEncodesAsObject() throws {
+        let step = RoomStep(text: "작업", workingDirectory: "/path/to/project")
+        let data = try JSONEncoder().encode(step)
+        let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        #expect(dict?["text"] as? String == "작업")
+        #expect(dict?["working_directory"] as? String == "/path/to/project")
+    }
+
+    @Test("workingDirectory nil + 기본값 → plain String 인코딩 유지")
+    func workingDirectoryNilPlainEncode() throws {
+        let step = RoomStep(text: "작업")
+        let data = try JSONEncoder().encode(step)
+        let str = String(data: data, encoding: .utf8)!
+        #expect(str == "\"작업\"")
+    }
+
+    @Test("workingDirectory - Codable 라운드트립")
+    func workingDirectoryRoundTrip() throws {
+        let step = RoomStep(text: "백엔드 API", workingDirectory: "/Users/test/backend")
+        let data = try JSONEncoder().encode(step)
+        let decoded = try JSONDecoder().decode(RoomStep.self, from: data)
+        #expect(decoded == step)
+        #expect(decoded.workingDirectory == "/Users/test/backend")
+    }
+
+    @Test("workingDirectory - 레거시 JSON (필드 없음) → nil")
+    func workingDirectoryLegacyDecode() throws {
+        let json = """
+        {"text": "작업", "requires_approval": true}
+        """
+        let data = json.data(using: .utf8)!
+        let step = try JSONDecoder().decode(RoomStep.self, from: data)
+        #expect(step.workingDirectory == nil)
+    }
 }

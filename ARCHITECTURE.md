@@ -1095,6 +1095,7 @@ executeWithTools() 루프 (최대 10회, 150K 문자 context guard):
 - **계획 수립**: 전문가가 생성 (마스터 제외). 계획 JSON은 사용자에게 숨김.
 - **DecisionLog**: 토론 중 `[합의: 내용]` 태그 파싱 → `Room.decisionLog`에 기록
 - **에이전트 참조 프로젝트** (`Agent.referenceProjectPaths`): 에이전트별로 참조 프로젝트 디렉토리를 여러 건 등록. 방에 초대 시 `addAgent(_:to:silent:)`에서 방의 `projectPaths`에 자동 병합. `silent: true` 시 참여 시스템 메시지 생략 (호출부에서 커스텀 메시지 표시 시 중복 방지).
+- **단계별 workingDirectory** (`RoomStep.workingDirectory`): 멀티 프로젝트 방에서 각 단계의 CLI 작업 디렉토리를 명시적으로 지정. 계획 생성 시 LLM이 `"working_directory"` 필드로 할당. `makeToolContext(workingDirectoryOverride:)`에서 해당 경로를 `projectPaths[0]`에 배치하여 `ToolExecutor`가 올바른 디렉토리에서 실행.
 - **방 shortID** (`Room.shortID`): UUID 앞 6자 소문자. 방 헤더(`RoomChatView`)와 방 목록(`RoomListView`)에 표시.
 - **CLI WebFetch 차단**: `ClaudeCodeProvider.sendMessage()`에서 `--disallowed-tools WebFetch` 적용
 
