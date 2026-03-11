@@ -3605,6 +3605,16 @@ extension RoomManager {
         }
         let isDocumentation = room?.workflowState.documentType != nil
 
+        // 현재 단계의 작업 디렉토리를 step prompt에 명시
+        let workingDirContext: String
+        if let dir = workingDirectoryOverride {
+            workingDirContext = "\n[작업 디렉토리: \(dir)]"
+        } else if let primary = room?.effectiveProjectPath {
+            workingDirContext = "\n[작업 디렉토리: \(primary)]"
+        } else {
+            workingDirContext = ""
+        }
+
         let isLastStep = stepIndex == totalSteps - 1
         var stepPrompt: String
         if isLastStep || totalSteps == 1 {
@@ -3618,7 +3628,7 @@ extension RoomManager {
             """ : ""
 
             stepPrompt = """
-            [작업 \(stepIndex + 1)/\(totalSteps)] \(step)
+            [작업 \(stepIndex + 1)/\(totalSteps)] \(step)\(workingDirContext)
             \(artifactContext)\(docTemplateBlock)\(docWriteInstruction)
 
             이것이 최종 단계입니다. 사용자에게 전달할 완성된 결과물을 직접 작성하세요.
@@ -3626,7 +3636,7 @@ extension RoomManager {
             """
         } else {
             stepPrompt = """
-            [작업 \(stepIndex + 1)/\(totalSteps)] \(step)
+            [작업 \(stepIndex + 1)/\(totalSteps)] \(step)\(workingDirContext)
             \(artifactContext)\(docTemplateBlock)
 
             중간 단계입니다. 다음 단계에 필요한 핵심 데이터만 간결하게 출력하세요 (3줄 이내).
@@ -3698,10 +3708,11 @@ extension RoomManager {
 
             let messagesWithStep = history + [ConversationMessage.user(stepPrompt)]
 
-            // Pre-flight 토큰 로깅 (디버깅용)
+            // Pre-flight 토큰 + 작업 디렉토리 로깅 (디버깅용)
             let sysTokens = TokenEstimator.estimate(sysPromptText)
             let msgTokens = TokenEstimator.estimate(messagesWithStep.compactMap(\.content))
-            print("[DOUGLAS] 📊 Step \(stepIndex + 1)/\(totalSteps) 토큰 추정: sys=\(sysTokens) msg=\(msgTokens) total=\(sysTokens + msgTokens + 4_000)")
+            let resolvedDir = workingDirectoryOverride ?? room?.effectiveProjectPath ?? "(없음)"
+            print("[DOUGLAS] 📊 Step \(stepIndex + 1)/\(totalSteps) 토큰 추정: sys=\(sysTokens) msg=\(msgTokens) total=\(sysTokens + msgTokens + 4_000) dir=\(resolvedDir)")
 
             let response = try await ToolExecutor.smartSend(
                 provider: provider,
