@@ -118,6 +118,7 @@ func stripDelegationBlock(_ text: String) -> String {
 /// 스트리밍 청크 누적용 스레드-안전 버퍼
 final class StreamBuffer: @unchecked Sendable {
     private var _value = ""
+    var current: String { _value }
     func append(_ chunk: String) -> String {
         _value += chunk
         return _value
@@ -1731,9 +1732,15 @@ class RoomManager: ObservableObject, WorkflowHost {
     }
 
     /// ConversationMessage 히스토리 (이미지 첨부 포함, smartSend용)
-    func buildRoomHistory(roomID: UUID, limit: Int = 20) -> [ConversationMessage] {
+    func buildRoomHistory(roomID: UUID, limit: Int = 20, afterIndex: Int? = nil) -> [ConversationMessage] {
         guard let room = rooms.first(where: { $0.id == roomID }) else { return [] }
-        return room.messages
+        let base: ArraySlice<ChatMessage>
+        if let offset = afterIndex, offset < room.messages.count {
+            base = room.messages[offset...]
+        } else {
+            base = room.messages[...]
+        }
+        return base
             .filter { $0.messageType == .text }
             .suffix(limit)
             .map { msg in

@@ -486,6 +486,8 @@ struct Room: Identifiable, Codable {
     var plan: RoomPlan?
     var timerStartedAt: Date?
     var timerDurationSeconds: Int?
+    /// Build 단계 시작 시점의 메시지 인덱스 (이전 메시지는 executeStep history에서 제외)
+    var buildPhaseMessageOffset: Int?
     let createdAt: Date
     var completedAt: Date?
     let createdBy: RoomCreator
@@ -817,6 +819,7 @@ struct Room: Identifiable, Codable {
         self.plan = nil
         self.timerStartedAt = nil
         self.timerDurationSeconds = nil
+        self.buildPhaseMessageOffset = nil
         self.createdAt = createdAt
         self.completedAt = nil
         self.createdBy = createdBy
@@ -842,7 +845,7 @@ struct Room: Identifiable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case id, title, assignedAgentIDs, messages, status, mode, plan
-        case timerStartedAt, timerDurationSeconds, createdAt, completedAt, createdBy
+        case timerStartedAt, timerDurationSeconds, buildPhaseMessageOffset, createdAt, completedAt, createdBy
         case currentStepIndex, pendingApprovalStepIndex, pendingAgentSuggestions
         case workLog, taskBrief, agentRoles, deferredActions
         case approvalHistory, awaitingType, pendingAgentConfirmationID
@@ -872,6 +875,7 @@ struct Room: Identifiable, Codable {
         plan = try container.decodeIfPresent(RoomPlan.self, forKey: .plan)
         timerStartedAt = try container.decodeIfPresent(Date.self, forKey: .timerStartedAt)
         timerDurationSeconds = try container.decodeIfPresent(Int.self, forKey: .timerDurationSeconds)
+        buildPhaseMessageOffset = try container.decodeIfPresent(Int.self, forKey: .buildPhaseMessageOffset)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
         createdBy = try container.decode(RoomCreator.self, forKey: .createdBy)
@@ -959,6 +963,7 @@ struct Room: Identifiable, Codable {
         try container.encodeIfPresent(plan, forKey: .plan)
         try container.encodeIfPresent(timerStartedAt, forKey: .timerStartedAt)
         try container.encodeIfPresent(timerDurationSeconds, forKey: .timerDurationSeconds)
+        try container.encodeIfPresent(buildPhaseMessageOffset, forKey: .buildPhaseMessageOffset)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encodeIfPresent(completedAt, forKey: .completedAt)
         try container.encode(createdBy, forKey: .createdBy)

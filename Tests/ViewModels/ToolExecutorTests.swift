@@ -1477,4 +1477,54 @@ struct ToolExecutorTests {
         let size = attrs[.size] as? Int ?? 0
         #expect(size > 100)
     }
+
+    // MARK: - 도구 결과 압축
+
+    @Test("compressOldToolResults — 최근 N개 tool_result는 유지")
+    func compressOldToolResults_keepsRecent() {
+        var messages: [ConversationMessage] = [
+            .user("작업 시작"),
+            .toolResult(callID: "c1", content: String(repeating: "A", count: 5000), isError: false),
+            .toolResult(callID: "c2", content: String(repeating: "B", count: 5000), isError: false),
+            .toolResult(callID: "c3", content: String(repeating: "C", count: 5000), isError: false),
+        ]
+        ToolExecutor.compressOldToolResults(&messages, keepRecent: 2)
+
+        // c1은 압축됨
+        let c1 = messages.first(where: { $0.toolCallID == "c1" })!
+        #expect((c1.content?.count ?? 0) < 5000)
+        // c2, c3은 원본 유지
+        let c2 = messages.first(where: { $0.toolCallID == "c2" })!
+        #expect(c2.content?.count == 5000)
+        let c3 = messages.first(where: { $0.toolCallID == "c3" })!
+        #expect(c3.content?.count == 5000)
+    }
+
+    @Test("compressOldToolResults — 500자 이하 tool_result는 압축 스킵")
+    func compressOldToolResults_skipsShortContent() {
+        var messages: [ConversationMessage] = [
+            .toolResult(callID: "c1", content: "짧은 결과", isError: false),
+            .toolResult(callID: "c2", content: String(repeating: "X", count: 5000), isError: false),
+        ]
+        ToolExecutor.compressOldToolResults(&messages, keepRecent: 1)
+
+        // c1은 500자 이하 → 원본 유지
+        let c1 = messages.first(where: { $0.toolCallID == "c1" })!
+        #expect(c1.content == "짧은 결과")
+    }
+
+    @Test("capToolResultContent — 10K 초과 시 축소")
+    func capToolResultContent_truncatesLargeContent() {
+        let large = String(repeating: "Z", count: 20_000)
+        let capped = ToolExecutor.capToolResultContent(large)
+        #expect(capped.count <= 11_000) // 10K + 생략 표시 여유
+        #expect(capped.contains("생략"))
+    }
+
+    @Test("capToolResultContent — 10K 이하 시 원본 유지")
+    func capToolResultContent_keepsSmallContent() {
+        let small = String(repeating: "Z", count: 5000)
+        let result = ToolExecutor.capToolResultContent(small)
+        #expect(result == small)
+    }
 }

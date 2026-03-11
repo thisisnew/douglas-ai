@@ -203,11 +203,21 @@ enum ToolExecutor {
     ) async throws -> String {
         var messages = initialMessages
 
+        let systemPromptTokens = TokenEstimator.estimate(systemPrompt)
+
         for _ in 0..<maxIterations {
-            // context 크기 guard: 누적 메시지가 너무 커지면 도구 루프 조기 종료
-            let totalSize = messages.reduce(0) { $0 + ($1.content?.count ?? 0) }
-            if totalSize > 150_000 {
-                print("[DOUGLAS] ⚠️ executeWithTools context 크기 초과 (\(totalSize)자) — 도구 루프 조기 종료")
+            // 토큰 기반 context guard
+            let totalTokens = TokenEstimator.estimate(
+                messages.compactMap(\.content)
+            ) + systemPromptTokens
+            if totalTokens > 80_000 {
+                // Level 1: 오래된 tool_result 압축 (최근 2개만 유지)
+                compressOldToolResults(&messages, keepRecent: 2)
+                print("[DOUGLAS] ⚠️ 토큰 ~\(totalTokens) — 오래된 도구 결과 압축")
+            }
+            if totalTokens > 100_000 {
+                // Level 2: 루프 조기 종료
+                print("[DOUGLAS] ⚠️ 토큰 ~\(totalTokens) 초과 — 도구 루프 조기 종료")
                 break
             }
             // 도구 라운드 사이에서 사용자 메시지 실시간 반영
@@ -244,7 +254,7 @@ enum ToolExecutor {
                         let toolLabel = call?.toolName ?? result.callID
                         onToolActivity?("도구 오류: \(toolLabel)", detail)
                     }
-                    messages.append(.toolResult(callID: result.callID, content: result.content, isError: result.isError))
+                    messages.append(.toolResult(callID: result.callID, content: capToolResultContent(result.content), isError: result.isError))
                 }
 
             case .mixed(let text, let calls):
@@ -262,7 +272,7 @@ enum ToolExecutor {
                         let toolLabel = call?.toolName ?? result.callID
                         onToolActivity?("도구 오류: \(toolLabel)", detail)
                     }
-                    messages.append(.toolResult(callID: result.callID, content: result.content, isError: result.isError))
+                    messages.append(.toolResult(callID: result.callID, content: capToolResultContent(result.content), isError: result.isError))
                 }
             }
         }
@@ -1118,6 +1128,39 @@ enum ToolExecutor {
         let tail = String(text.suffix(tailLen))
         let omitted = text.count - headLen - tailLen
         return "\(head)\n\n... (\(omitted)자 생략) ...\n\n\(tail)"
+    }
+
+    // MARK: - 도구 결과 토큰 관리
+
+    /// 도구 결과를 API 메시지용으로 캡 (10K자 상한)
+    static func capToolResultContent(_ content: String) -> String {
+        let maxLen = 10_000
+        guard content.count > maxLen else { return content }
+        return truncatePreview(content, max: maxLen) ?? content
+    }
+
+    /// 오래된 tool_result 메시지의 content를 축소하여 토큰 절약
+    /// - Parameters:
+    ///   - messages: 대화 메시지 배열 (in-out)
+    ///   - keepRecent: 원본 유지할 최근 tool_result 개수
+    static func compressOldToolResults(
+        _ messages: inout [ConversationMessage],
+        keepRecent: Int
+    ) {
+        var toolResultIndices = messages.indices.filter { messages[$0].role == "tool" }
+        guard toolResultIndices.count > keepRecent else { return }
+        toolResultIndices.removeLast(keepRecent)
+        for i in toolResultIndices {
+            guard let content = messages[i].content, content.count > 500 else { continue }
+            messages[i] = ConversationMessage(
+                role: messages[i].role,
+                content: truncatePreview(content, max: 500) ?? content,
+                toolCalls: messages[i].toolCalls,
+                toolCallID: messages[i].toolCallID,
+                attachments: nil,
+                isError: messages[i].isError
+            )
+        }
     }
 
     // MARK: - shell_exec

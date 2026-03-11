@@ -3559,11 +3559,13 @@ extension RoomManager {
             history.append(ConversationMessage.user(intakeData.asClarifyContextString()))
         }
         if let briefing = room?.discussion.briefing {
-            history.append(ConversationMessage.user("작업 브리핑:\n\(briefing.asContextString())"))
+            let ctx = briefing.asContextString()
+            let capped = ctx.count > 2000 ? String(ctx.prefix(2000)) + "…" : ctx
+            history.append(ConversationMessage.user("작업 브리핑:\n\(capped)"))
         }
 
         // 첫 사용자 메시지(이미지 첨부 포함)를 항상 포함
-        let recentHistory = buildRoomHistory(roomID: roomID, limit: 5)
+        let recentHistory = buildRoomHistory(roomID: roomID, limit: 5, afterIndex: room?.buildPhaseMessageOffset)
         if let room = room,
            let firstUserMsg = room.messages.first(where: { $0.role == .user && $0.messageType == .text }),
            firstUserMsg.attachments != nil && !(firstUserMsg.attachments?.isEmpty ?? true),
@@ -3577,10 +3579,11 @@ extension RoomManager {
         history.append(contentsOf: recentHistory)
 
         // 산출물 컨텍스트 구성 (토큰 예산 적용)
+        let sysPromptText = systemPrompt(for: agent, roomID: roomID)
         let budgetResult = StepContextBudget.apply(
             artifacts: room?.discussion.artifacts ?? [],
-            systemPromptSize: systemPrompt(for: agent, roomID: roomID).count,
-            historySize: history.reduce(0) { $0 + ($1.content?.count ?? 0) }
+            systemPromptSize: TokenEstimator.estimate(sysPromptText),
+            historySize: TokenEstimator.estimate(history.compactMap(\.content))
         )
         let artifactContext = budgetResult.artifactContext
         if budgetResult.shouldTrimHistory {
@@ -3776,8 +3779,10 @@ extension RoomManager {
             // 토큰 한도 초과 감지 → 최소 context로 1회 재시도
             if error.userFacingMessage.contains("토큰 한도") {
                 print("[DOUGLAS] ⚠️ 토큰 한도 초과 감지 — 최소 context로 재시도")
+                let previousWork = String(buffer.current.prefix(500))
+                let previousSummary = previousWork.isEmpty ? "" : "\n\n[이전 시도 요약]\n\(previousWork)"
                 let minimalMessages = [ConversationMessage.user("""
-                    [작업 \(stepIndex + 1)/\(totalSteps)] \(step)
+                    [작업 \(stepIndex + 1)/\(totalSteps)] \(step)\(previousSummary)
 
                     컨텍스트가 너무 큽니다. 이전 대화를 참고하지 않고, 위 단계 지시만으로 작업을 수행하세요.
                     """)]

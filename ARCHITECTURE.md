@@ -98,11 +98,13 @@ DOUGLAS/
 │   │   ├── RoomManager+Workflow.swift # 워크플로우 Phase 실행 메서드 (startRoomWorkflow, executePhaseWorkflow 등)
 │   │   ├── RoomManager+Discussion.swift # 빌드/QA 루프 + 토론 실행 (~949줄)
 │   │   ├── StepExecutionEngine.swift  # Build 단계 실행 엔진 (피드백 루프, StepStatus 전이, 롤백, Policy 기반 동작)
-│   │   ├── StepContextBudget.swift    # executeStep context 크기 관리 (100K 예산, 산출물 요약, history 축소)
+│   │   ├── StepContextBudget.swift    # executeStep context 토큰 예산 (30K 토큰, TokenEstimator 기반, 산출물 요약, history 축소)
 │   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (Plan C: 3-tier 가중치 — skillTags×5, workModes×2, keyword+semantic×3, 0-1 정규화 confidence, 임계값 0.7/0.5)
 │   │   ├── DocumentExporter.swift   # 문서 산출물 파일 저장 (에이전트 생성 파일 탐지 → 고정 경로 자동저장 / NSSavePanel 폴백)
 │   │   ├── ThemeManager.swift       # 테마 관리 (기본값: .cozyGame, UserDefaults 저장, 커스텀 팔레트)
-│   │   └── ToolExecutor.swift       # 도구 호출 루프 + smartSend + 경로 해석/충돌 추적
+│   │   └── ToolExecutor.swift       # 도구 호출 루프 + smartSend + 경로 해석/충돌 추적 + 도구 결과 토큰 압축
+│   ├── Utilities/
+│   │   └── TokenEstimator.swift     # CJK 인지 토큰 수 추정 (한국어 ~2자/토큰, ASCII ~4자/토큰)
 │   ├── Providers/
 │   │   ├── AIProvider.swift         # AIProvider 프로토콜 + 공통 인증 + Tool Use 확장
 │   │   ├── ToolFormatConverter.swift # 프로바이더별 도구 형식 변환 + Vision 이미지 블록 빌더
@@ -1031,8 +1033,8 @@ smartSend(messages:) → 도구 없거나 미지원? → 기존 sendMessage()
 smartSend(conversationMessages:) → 이미지 첨부 있으면 도구 없어도 sendMessageWithTools()
                                  → 이미지+도구 → executeWithTools()
 
-executeWithTools() 루프 (최대 10회, 150K 문자 context guard):
-  1. context 크기 체크 (150K 초과 시 조기 종료)
+executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
+  1. 토큰 추정 체크 (80K 토큰: 오래된 tool_result 압축, 100K: 조기 종료)
   2. sendMessageWithTools() 호출
   3. .text → 최종 응답 반환
   4. .toolCalls/.mixed → 각 도구 실행 → 결과를 messages에 추가 → 1로 돌아감
@@ -1131,9 +1133,10 @@ executeWithTools() 루프 (최대 10회, 150K 문자 context guard):
 
 **컨텍스트 압축**: 토론 종료 후 `generateBriefing()`이 전체 히스토리를 JSON 브리핑으로 압축. 브리핑/계획 프롬프트에 `clarifySummary`(원래 사용자 요청) 포함 → 탈선 방지.
 - 계획 수립: 브리핑 + 산출물 프리뷰(200자) 전달 (40msg → ~500토큰) + 원래 요청 앵커
-- 실행 단계: 브리핑 + 최근 5개 메시지 (`buildRoomHistory(limit: 5)`, 각 2000자 절단) + 산출물 (`StepContextBudget` 적용)
+- 실행 단계: 브리핑 + Build 이후 최근 5개 메시지만 (`buildRoomHistory(limit: 5, afterIndex: buildPhaseMessageOffset)`, 각 2000자 절단) + 산출물 (`StepContextBudget` 적용)
+- **Build Phase Context Reset**: `StepExecutionEngine.run()` 시작 시 `room.buildPhaseMessageOffset = messages.count` 기록. `executeStep`에서 이 offset 이후 메시지만 history에 포함 → 토론/계획 단계 잔여물 제거, Step 1은 브리핑만으로 시작
 - 브리핑 없으면 기존 히스토리 폴백
-- **토큰 예산 (`StepContextBudget`)**: `executeStep()` context 100K 문자 예산. 초과 시 Level 1: 산출물→요약(제목+200자), Level 2: history→최근 2개×500자. 토큰 에러 catch 시 최소 context로 1회 재시도.
+- **토큰 예산 (`StepContextBudget` + `TokenEstimator`)**: `executeStep()` context 30K 토큰 예산. `TokenEstimator`가 CJK/ASCII 비율 고려하여 토큰 추정 (한국어 ~2자/토큰, 영어 ~4자/토큰). 초과 시 Level 1: 산출물→요약(제목+200자), Level 2: history→최근 2개×500자. briefing context 2000자 캡. 토큰 에러 catch 시 이전 작업 요약 포함하여 최소 context로 1회 재시도.
 
 **토론 산출물**: `executeDiscussionTurn()`에서 응답 파싱 → `ArtifactParser.extractArtifacts()` → `Room.artifacts` 저장. 같은 type+title이면 버전 증가.
 
@@ -1567,12 +1570,14 @@ Tests/
 │   ├── OnboardingViewModelTests.swift # 37 tests — Claude 셋업, 의존성 체크, 프로바이더 선택, 마스터 우선순위
 │   ├── ProviderManagerTests.swift    # 23 tests — 팩토리, configureFromOnboarding, 영속화, connectedConfigs, mock 오버라이드
 │   ├── RoomManagerTests.swift        # 54 tests — 방 생명주기, 에이전트 동기화, 워크플로우, 토론 과반, 계획 파싱
-│   ├── ToolExecutorTests.swift      # 57 tests — smartSend 분기, 도구 루프, 개별 도구 실행, invite_agent/list_agents, web_fetch, Jira 도구
-│   └── StepContextBudgetTests.swift # 4 tests — 산출물 예산, 요약 전환, history 축소, buildRoomHistory 절단
+│   ├── ToolExecutorTests.swift      # 61 tests — smartSend 분기, 도구 루프, 개별 도구 실행, invite_agent/list_agents, web_fetch, Jira 도구, 도구 결과 압축/캡
+│   └── StepContextBudgetTests.swift # 5 tests — 산출물 예산, 요약 전환, history 축소, buildRoomHistory 절단, tokenBudget 값
 ├── Providers/
 │   ├── ProviderTests.swift          # 62 tests — HTTP 검증, 인증, 전체 프로바이더 모킹, 이미지 첨부, tool result
 │   ├── ToolFormatConverterTests.swift # 21 tests — OpenAI/Anthropic/Google 형식 변환, JSON Schema
 │   └── ToolFormatConverterImageTests.swift # 8 tests — 프로바이더별 이미지 블록 변환 검증
+├── Utilities/
+│   └── TokenEstimatorTests.swift    # 5 tests — ASCII/CJK/혼합 토큰 추정, 빈 문자열, 배열 합산
 ├── Helpers/
 │   └── TestHelpers.swift            # 팩토리 함수 (makeTestAgent, makeTestDefaults, makeTestRoom 등)
 └── Mocks/

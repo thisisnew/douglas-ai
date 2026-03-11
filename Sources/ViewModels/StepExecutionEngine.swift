@@ -66,9 +66,10 @@ final class StepExecutionEngine {
         guard let host else { return }
         guard let room = host.room(for: roomID), let plan = room.plan else { return }
 
-        // 초기화
+        // 초기화 — Build 시작 시점 기록 (이전 메시지는 executeStep history에서 제외)
         stepBaselineMessageCount = room.messages.count
         host.updateRoom(id: roomID) { room in
+            room.buildPhaseMessageOffset = room.messages.count
             room.timerDurationSeconds = plan.estimatedSeconds
             room.timerStartedAt = Date()
             room.transitionTo(.inProgress)

@@ -3,8 +3,9 @@ import Foundation
 /// executeStep의 context 크기를 관리하는 유틸리티
 /// 산출물 + history가 토큰 예산을 초과하면 단계적으로 축소
 enum StepContextBudget {
-    /// 전체 context 예산 (보수적: ~25K 토큰, 모든 모델 호환)
-    static let budget = 100_000
+    /// 초기 context 토큰 예산 (도구 루프를 위한 여유 ~50K 확보)
+    /// CJK 텍스트 비율에 따라 실제 토큰 수가 달라지므로 TokenEstimator 기반 추정
+    static let tokenBudget = 30_000
 
     struct Result {
         let artifactContext: String
@@ -14,8 +15,8 @@ enum StepContextBudget {
     /// 산출물 context를 예산에 맞게 조정
     /// - Parameters:
     ///   - artifacts: 토론 산출물 배열
-    ///   - systemPromptSize: 시스템 프롬프트 문자 수
-    ///   - historySize: history 메시지 총 문자 수
+    ///   - systemPromptSize: 시스템 프롬프트 토큰 추정치
+    ///   - historySize: history 메시지 총 토큰 추정치
     /// - Returns: 조정된 산출물 context + history 축소 필요 여부
     static func apply(
         artifacts: [DiscussionArtifact],
@@ -30,8 +31,9 @@ enum StepContextBudget {
             }.joined(separator: "\n---\n")
         }
 
-        let totalEstimate = systemPromptSize + historySize + artifactContext.count + 1000
-        guard totalEstimate > budget else {
+        let artifactTokens = TokenEstimator.estimate(artifactContext)
+        let totalEstimate = systemPromptSize + historySize + artifactTokens + 500
+        guard totalEstimate > tokenBudget else {
             return Result(artifactContext: artifactContext, shouldTrimHistory: false)
         }
 
@@ -45,11 +47,12 @@ enum StepContextBudget {
             }.joined(separator: "\n---\n")
         }
 
-        let reducedEstimate = systemPromptSize + historySize + artifactContext.count + 1000
-        let shouldTrimHistory = reducedEstimate > budget
+        let reducedArtifactTokens = TokenEstimator.estimate(artifactContext)
+        let reducedEstimate = systemPromptSize + historySize + reducedArtifactTokens + 500
+        let shouldTrimHistory = reducedEstimate > tokenBudget
 
-        if totalEstimate > budget {
-            print("[DOUGLAS] ⚠️ executeStep 토큰 예산 초과 — context 축소 (total=\(totalEstimate), budget=\(budget))")
+        if totalEstimate > tokenBudget {
+            print("[DOUGLAS] ⚠️ executeStep 토큰 예산 초과 — context 축소 (total=\(totalEstimate), budget=\(tokenBudget))")
         }
 
         return Result(artifactContext: artifactContext, shouldTrimHistory: shouldTrimHistory)

@@ -230,4 +230,31 @@ struct StepExecutionEngineTests {
         }
         #expect(!rollbackMessages.isEmpty)
     }
+
+    // MARK: - Build Phase Context Reset
+
+    @Test("run() 호출 시 buildPhaseMessageOffset 설정")
+    @MainActor
+    func runSetsBuildPhaseMessageOffset() async {
+        let roomID = UUID()
+        let agentID = UUID()
+        let host = Self.makeHost(roomID: roomID, agentID: agentID, stepCount: 1)
+
+        // 사전 메시지 3개 추가 (토론 단계 시뮬레이션)
+        for i in 0..<3 {
+            host.appendMessage(
+                ChatMessage(role: .assistant, content: "토론 \(i)", messageType: .text),
+                to: roomID
+            )
+        }
+
+        let engine = StepExecutionEngine(
+            host: host, roomID: roomID, task: "테스트", policy: .standard
+        )
+        await engine.run()
+
+        // offset이 사전 메시지 수(3)로 설정되었는지 확인
+        let room = host.rooms[roomID]!
+        #expect(room.buildPhaseMessageOffset == 3)
+    }
 }
