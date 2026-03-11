@@ -757,6 +757,12 @@ extension RoomManager {
 
         let history = buildDiscussionHistory(roomID: roomID, currentAgentName: nil)
 
+        // 토론 전문을 아카이브에 기록 (브리핑 요약 전 원본 보존)
+        let fullLog = history.map { "[\($0.role)] \($0.content)" }.joined(separator: "\n\n")
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].discussion.fullDiscussionLog = fullLog
+        }
+
         // 산출물 목록도 포함
         let artifactList = room.discussion.artifacts.isEmpty ? "" :
             "\n\n산출물 목록:\n" + room.discussion.artifacts.map { "- [\($0.type.displayName)] \($0.title)" }.joined(separator: "\n")

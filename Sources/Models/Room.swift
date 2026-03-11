@@ -384,6 +384,8 @@ struct RoomPlan: Codable {
     var steps: [RoomStep]         // 단계별 작업
     var version: Int              // 계획 버전 (거부 시 +1)
     var stepJournal: [String]     // 완료된 단계의 요약 (인덱스 = 단계 번호, 300자 캡)
+    /// 단계 결과 전문 아카이브 — journal의 300자 캡 전 원본 (다음 단계에서 재참조용)
+    var stepResultsFull: [String]
 
     init(summary: String, estimatedSeconds: Int, steps: [RoomStep], version: Int = 1) {
         self.summary = summary
@@ -391,6 +393,7 @@ struct RoomPlan: Codable {
         self.steps = steps
         self.version = version
         self.stepJournal = []
+        self.stepResultsFull = []
     }
 
     init(from decoder: Decoder) throws {
@@ -400,6 +403,7 @@ struct RoomPlan: Codable {
         steps = try container.decode([RoomStep].self, forKey: .steps)
         version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
         stepJournal = try container.decodeIfPresent([String].self, forKey: .stepJournal) ?? []
+        stepResultsFull = try container.decodeIfPresent([String].self, forKey: .stepResultsFull) ?? []
     }
 }
 
@@ -861,7 +865,7 @@ struct Room: Identifiable, Codable {
         // ProjectContext
         case projectPaths, worktreePath, buildCommand, testCommand
         // DiscussionSession
-        case currentRound, isDiscussionCheckpoint, decisionLog, artifacts, briefing
+        case currentRound, isDiscussionCheckpoint, decisionLog, artifacts, briefing, fullDiscussionLog
         // BuildQAState
         case buildLoopStatus, buildRetryCount, maxBuildRetries, lastBuildResult
         case qaLoopStatus, qaRetryCount, maxQARetries, lastQAResult
@@ -939,7 +943,8 @@ struct Room: Identifiable, Codable {
             isCheckpoint: try container.decodeIfPresent(Bool.self, forKey: .isDiscussionCheckpoint) ?? false,
             decisionLog: try container.decodeIfPresent([DecisionEntry].self, forKey: .decisionLog) ?? [],
             artifacts: try container.decodeIfPresent([DiscussionArtifact].self, forKey: .artifacts) ?? [],
-            briefing: try container.decodeIfPresent(RoomBriefing.self, forKey: .briefing)
+            briefing: try container.decodeIfPresent(RoomBriefing.self, forKey: .briefing),
+            fullDiscussionLog: try container.decodeIfPresent(String.self, forKey: .fullDiscussionLog)
         )
 
         // BuildQAState
@@ -1009,6 +1014,7 @@ struct Room: Identifiable, Codable {
         if !discussion.decisionLog.isEmpty { try container.encode(discussion.decisionLog, forKey: .decisionLog) }
         if !discussion.artifacts.isEmpty { try container.encode(discussion.artifacts, forKey: .artifacts) }
         try container.encodeIfPresent(discussion.briefing, forKey: .briefing)
+        try container.encodeIfPresent(discussion.fullDiscussionLog, forKey: .fullDiscussionLog)
         // BuildQAState
         try container.encodeIfPresent(buildQA.buildLoopStatus, forKey: .buildLoopStatus)
         if buildQA.buildRetryCount > 0 { try container.encode(buildQA.buildRetryCount, forKey: .buildRetryCount) }

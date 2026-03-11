@@ -3182,17 +3182,32 @@ extension RoomManager {
         }
 
         // 브리핑 + 산출물 기반 컨텍스트 구성 (토큰 예산 제한)
+        // Context Archive 패턴: 토론 원문 아카이브 → 예산 내 활용 → 초과 시 briefing 폴백
         var briefingContext: String
-        if let briefing = room.discussion.briefing {
+        if let fullLog = room.discussion.fullDiscussionLog, !fullLog.isEmpty {
+            // 토론 원문 아카이브 사용 (축소 전 기록된 전문)
+            briefingContext = "[토론 원문]\n" + fullLog
+            // 예산 초과 시 단계적 축소: 원문 4000자 → 초과하면 briefing 폴백
+            if briefingContext.count > 4000 {
+                if let briefing = room.discussion.briefing {
+                    // briefing 요약 + 원문 핵심 부분 (앞뒤 각 1000자)
+                    let head = String(fullLog.prefix(1000))
+                    let tail = String(fullLog.suffix(1000))
+                    briefingContext = briefing.asContextString() + "\n\n[토론 원문 발췌]\n…\(head)\n…(중략)…\n\(tail)…"
+                } else {
+                    briefingContext = String(briefingContext.prefix(4000)) + "…(이하 생략)"
+                }
+            }
+        } else if let briefing = room.discussion.briefing {
             briefingContext = briefing.asContextString()
         } else {
             // 폴백: 기존 토론 히스토리에서 요약 생성
             let history = buildDiscussionHistory(roomID: roomID, currentAgentName: agent.name)
             briefingContext = history.map { "[\($0.role)] \($0.content)" }.suffix(10).joined(separator: "\n")
         }
-        // 브리핑 최대 2000자
-        if briefingContext.count > 2000 {
-            briefingContext = String(briefingContext.prefix(2000)) + "…(이하 생략)"
+        // 최종 안전장치: 최대 4000자
+        if briefingContext.count > 4000 {
+            briefingContext = String(briefingContext.prefix(4000)) + "…(이하 생략)"
         }
 
         var artifactContext: String
@@ -3262,7 +3277,9 @@ extension RoomManager {
         \(systemPrompt(for: agent, roomID: roomID))
         \(intakeContext)\(clarifyContext)\(projectPathsContext)\(docTemplateContext.isEmpty ? "" : "\n\(docTemplateContext)\n")
         현재 작업방에 배정되었습니다. 팀원들과의 토론이 완료되었습니다.
-        토론 내용을 바탕으로, 원래 사용자 요청 범위 안에서 실행 계획을 제출하세요:
+        **사용자의 원래 요청을 반드시 충족하는** 실행 계획을 제출하세요.
+        토론에서 우려사항이 나왔더라도, 사용자가 명시적으로 요청한 작업(구현, PR, 배포 등)은 계획에 포함해야 합니다.
+        토론 의견은 구현 방식의 참고 자료로만 활용하세요. 사용자 요청 범위를 축소하지 마세요.
 
         {"plan": {"summary": "전체 계획 요약", "estimated_minutes": 5, "steps": [{"text": "단계 설명", "agent": "담당 에이전트 이름", "working_directory": "/프로젝트/경로"}, ...]}}
 
@@ -3316,11 +3333,11 @@ extension RoomManager {
             }
         }
 
-        // Design 단계 결과가 있으면 해당 텍스트를 직접 구조화
-        let designContext = designOutput.map { "\n\n[Design 단계 결과]\n\($0)\n\n위 설계 결과를 JSON 형식의 실행 계획으로 변환하세요." } ?? ""
+        // Design 단계 결과가 있으면 참고 자료로 제공 (지시가 아닌 참고)
+        let designContext = designOutput.map { "\n\n[Design 단계 결과 — 참고용]\n\($0)\n\n위 토론 결과는 참고 사항입니다. 계획은 반드시 사용자의 원래 요청을 충족해야 합니다." } ?? ""
 
         let planMessages: [(role: String, content: String)] = [
-            ("user", "브리핑:\n\(briefingContext)\(artifactContext)\(playbookContext)\(attachmentContext)\(replanContext)\(designContext)\n\n실행 계획을 JSON으로 작성해주세요. 작업: \(task)")
+            ("user", "**[사용자 요청 — 최우선]**\n\(task)\n\n위 요청이 계획의 목표입니다. 사용자가 구현/PR/배포 등 구체적 작업을 요청했으면, 그 작업을 반드시 계획에 포함하세요. 토론에서 나온 우려사항은 참고하되, 사용자 요청 범위를 축소하지 마세요.\n\n브리핑:\n\(briefingContext)\(artifactContext)\(playbookContext)\(attachmentContext)\(replanContext)\(designContext)\n\n실행 계획을 JSON으로 작성해주세요.")
         ]
 
         speakingAgentIDByRoom[roomID] = firstAgentID
@@ -3579,16 +3596,37 @@ extension RoomManager {
             ))
         }
 
-        // 4. Step Journal (이전 단계 요약) — buildRoomHistory + artifacts 대체
-        if let journal = room?.plan?.stepJournal, !journal.isEmpty {
-            let journalEntries = journal.enumerated()
-                .filter { !$1.isEmpty }
-                .map { "Step \($0 + 1): \($1)" }
-                .joined(separator: "\n")
-            if !journalEntries.isEmpty {
-                let capped = journalEntries.count > 3000
-                    ? String(journalEntries.prefix(3000)) + "…"
-                    : journalEntries
+        // 4. Step Journal — Context Archive 패턴: 직전 단계 전문 + 나머지 요약
+        if let plan = room?.plan {
+            let fullResults = plan.stepResultsFull
+            let journal = plan.stepJournal
+            var parts: [String] = []
+
+            // 이전 단계들 (0 ~ stepIndex-2): journal 요약 (300자)
+            for i in 0..<max(0, stepIndex - 1) {
+                if i < journal.count, !journal[i].isEmpty {
+                    parts.append("Step \(i + 1): \(journal[i])")
+                }
+            }
+
+            // 직전 단계 (stepIndex-1): 전문 아카이브 사용 (최대 3000자)
+            let prevIndex = stepIndex - 1
+            if prevIndex >= 0 {
+                if prevIndex < fullResults.count, !fullResults[prevIndex].isEmpty {
+                    let full = fullResults[prevIndex]
+                    let capped = full.count > 3000 ? String(full.prefix(3000)) + "…" : full
+                    parts.append("Step \(prevIndex + 1) (직전 단계 상세):\n\(capped)")
+                } else if prevIndex < journal.count, !journal[prevIndex].isEmpty {
+                    // 전문 없으면 journal 폴백
+                    parts.append("Step \(prevIndex + 1): \(journal[prevIndex])")
+                }
+            }
+
+            if !parts.isEmpty {
+                let combined = parts.joined(separator: "\n")
+                let capped = combined.count > 5000
+                    ? String(combined.prefix(5000)) + "…"
+                    : combined
                 history.append(ConversationMessage.user("[이전 단계 진행 상황]\n\(capped)"))
             }
         }
