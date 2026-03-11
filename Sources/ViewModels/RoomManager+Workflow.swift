@@ -957,13 +957,13 @@ extension RoomManager {
             enrichedTask += " " + briefGoal
         }
         let taskLowered = enrichedTask.lowercased()
-        // 한글 조사 제거 ("프론트가" → "프론트", "백엔드를" → "백엔드")
-        let koreanParticles = ["가", "이", "를", "을", "는", "은", "도", "에", "와", "과", "로", "으로", "의", "에서", "까지", "부터", "만", "랑", "이랑"]
+        // 한글 조사/어미 제거 ("프론트보고" → "프론트", "백엔드를" → "백엔드", "프론트한테" → "프론트")
+        // AgentMatcher.koreanStripSuffixes 공용 리스트 사용 (중복 제거)
         let taskWords = taskLowered
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { $0.count >= 2 }
             .map { word -> String in
-                for particle in koreanParticles.sorted(by: { $0.count > $1.count }) {
+                for particle in AgentMatcher.koreanStripSuffixes {
                     if word.hasSuffix(particle) && word.count > particle.count + 1 {
                         return String(word.dropLast(particle.count))
                     }
