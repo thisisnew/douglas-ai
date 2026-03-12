@@ -408,15 +408,18 @@ FollowUpClassifier가 newTask를 반환하거나 매칭하지 못한 경우, 기
 
 **흐름**:
 1. 프롬프트 입력
-2. 토론 intent 판별
+2. 토론 intent 판별 + IntentModifier 추출 (adversarial/breakdown 등)
 3. 방 생성
 4. 에이전트 매칭
 5. 필요 시 사용자에게 에이전트 확인
 6. 단일 에이전트면 심화 질의응답처럼 진행
-7. 복수 에이전트면 라운드 기반 토론 시작
-8. 각 라운드마다 사용자 개입 가능
-9. 종료 조건 충족 시 토론 종료
-10. DOUGLAS가 결론, 대안, 미해결 쟁점 정리
+7. 복수 에이전트면 **DebateClassifier**가 토론 모드 결정 (§10 참조):
+   - 역할 겹침도 + 주제 키워드 + IntentModifier → dialectic/collaborative/coordination
+   - `room.discussion.debateMode`에 저장
+8. **Turn 1**: 각 전문가 병렬 의견 제시 → 사용자 체크포인트 (의견 추가 가능)
+9. **Turn 2**: `debateMode.strategy.turn2Prompt()`으로 모드별 피드백 프롬프트 생성 → 사용자 체크포인트
+10. `ConsensusDetector.detect()`로 모드별 합의 기준 적용 → 종료 조건 충족 시 토론 종료
+11. DOUGLAS가 결론, 대안, 미해결 쟁점 정리 (dialectic: 쟁점 추출 포함)
 11. 결과 응답
 12. 후속처리 가능 상태로 전환
 
@@ -424,6 +427,10 @@ FollowUpClassifier가 newTask를 반환하거나 매칭하지 못한 경우, 기
 - 각 라운드는 명확한 주제를 가진다.
 - 같은 주장 반복만 발생하면 종료를 고려한다.
 - 대립이 지속되면 사용자 선택을 요청한다.
+- 합의 감지는 `ConsensusDetector`가 `debateMode` 기반으로 판단:
+  - dialectic: 명시적 [합의]/[전면 동의] 태그만 인정
+  - collaborative: 약한 동의 + 근거 제시 시 인정
+  - coordination: 약한 동의도 합의로 인정
 
 **상호 피드백(Turn 2) 발언 순서 결정**:
 - Turn 1(병렬 의견 수렴) 후, DOUGLAS가 light model로 Turn 2 발언 순서를 결정한다.
@@ -669,7 +676,7 @@ RECEIVED
 실질적으로 심화 질의응답에 가까운 토론. 단일 전문가가 논리적으로 답변과 검토를 수행.
 
 ### 케이스 C: 복수 에이전트 토론
-복수 전문가가 라운드 기반으로 토론. 사용자는 각 라운드마다 개입 가능. 종료 시 결론과 대안을 정리.
+복수 전문가가 라운드 기반으로 토론. DebateClassifier가 3모드(dialectic/collaborative/coordination) 중 하나를 자동 선택. 사용자는 Turn 1/Turn 2 후 체크포인트에서 개입 가능. 종료 시 결론과 대안을 정리.
 
 ### 케이스 D: 단일 에이전트 구현
 계획 수립 → 승인 → 작업 → 최종 승인 → 완료
@@ -681,7 +688,7 @@ RECEIVED
 기존 방의 내용을 문서화하거나, 처음부터 조사 후 문서 생성. 최종 문서화는 문서 생성 전문가가 담당.
 
 ### 케이스 G: 후속처리
-완료 후에도 같은 방에서 질의응답, 토론, 구현, 문서화로 확장 가능.
+완료 후에도 같은 방에서 질의응답, 토론, 구현, 문서화로 확장 가능. FollowUpClassifier가 9가지 후속 의도를 결정론적으로 분류하고 ContextCarryoverPolicy로 컨텍스트 유지/리셋 (§9.1 참조).
 
 ### 케이스 H: 요건 불명확
 재질문 후 명확해질 때까지 실행 보류.

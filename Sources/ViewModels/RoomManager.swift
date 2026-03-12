@@ -1400,37 +1400,6 @@ class RoomManager: ObservableObject, WorkflowHost {
 
     // MARK: - 유틸리티
 
-    /// [합의: 내용] 태그에서 내용 추출
-    /// 퍼지 합의 감지: [합의] 태그 우선, 없으면 한국어 합의 표현 탐지
-    static func detectConsensus(in response: String) -> Bool {
-        // 1) 명시적 태그 — 가장 신뢰도 높음
-        if response.contains("[합의") { return true }
-
-        // 2) 명시적 반대/계속 태그 — 확실한 비합의
-        if response.contains("[계속]") { return false }
-
-        // 3) 퍼지: 합의 표현 vs 반대 표현 비교
-        let lower = response.lowercased()
-        let agreePhrases = [
-            "동의합니다", "합의합니다", "찬성합니다",
-            "이의 없습니다", "이의없습니다",
-            "좋은 계획", "좋은 방향", "좋은 접근",
-            "이 방향으로 진행", "이대로 진행",
-            "agree", "consensus", "lgtm",
-        ]
-        let disagreePhrases = [
-            "반대합니다", "다른 의견", "다른 접근",
-            "재고해", "재검토", "우려가 있", "우려됩니다",
-            "수정이 필요", "보완이 필요", "disagree",
-        ]
-
-        let hasAgree = agreePhrases.contains { lower.contains($0) }
-        let hasDisagree = disagreePhrases.contains { lower.contains($0) }
-
-        // 합의 표현이 있고 반대 표현이 없으면 합의
-        return hasAgree && !hasDisagree
-    }
-
     static func parseDecisionContent(from text: String) -> String? {
         // [합의: 내용] 형태
         if let range = text.range(of: "\\[합의:\\s*([^\\]]+)\\]", options: .regularExpression) {
@@ -1763,22 +1732,6 @@ class RoomManager: ObservableObject, WorkflowHost {
     // MARK: - 대화 히스토리
 
     /// 간단한 (role, content) 튜플 히스토리 (토론/요약 등 내부 호출용)
-    private func buildSimpleHistory(roomID: UUID) -> [(role: String, content: String)] {
-        guard let room = rooms.first(where: { $0.id == roomID }) else { return [] }
-        return room.messages
-            .filter { $0.messageType == .text }
-            .suffix(20)
-            .map { msg in
-                let role: String
-                switch msg.role {
-                case .user:      role = "user"
-                case .assistant: role = "assistant"
-                case .system:    role = "user"
-                }
-                return (role: role, content: msg.content)
-            }
-    }
-
     /// ConversationMessage 히스토리 (이미지 첨부 포함, smartSend용)
     func buildRoomHistory(roomID: UUID, limit: Int = 20, afterIndex: Int? = nil) -> [ConversationMessage] {
         guard let room = rooms.first(where: { $0.id == roomID }) else { return [] }

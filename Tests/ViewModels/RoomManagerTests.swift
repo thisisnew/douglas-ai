@@ -525,43 +525,6 @@ struct RoomManagerTests {
         #expect(completed.first?.title == "Second")
     }
 
-    // MARK: - detectConsensus 퍼지 매칭
-
-    @Test("detectConsensus - 명시적 [합의] 태그")
-    func detectConsensus_explicitTag() {
-        #expect(RoomManager.detectConsensus(in: "좋은 방향이네요 [합의]") == true)
-        #expect(RoomManager.detectConsensus(in: "[합의: JWT 기반으로 구현]") == true)
-    }
-
-    @Test("detectConsensus - 명시적 [계속] 태그")
-    func detectConsensus_continueTag() {
-        #expect(RoomManager.detectConsensus(in: "더 논의가 필요합니다 [계속]") == false)
-    }
-
-    @Test("detectConsensus - 퍼지: 합의 표현")
-    func detectConsensus_fuzzyAgree() {
-        #expect(RoomManager.detectConsensus(in: "동의합니다. 이 방향이 좋겠습니다.") == true)
-        #expect(RoomManager.detectConsensus(in: "이의 없습니다") == true)
-        #expect(RoomManager.detectConsensus(in: "좋은 계획이라고 생각합니다") == true)
-        #expect(RoomManager.detectConsensus(in: "이대로 진행하면 될 것 같습니다") == true)
-    }
-
-    @Test("detectConsensus - 퍼지: 반대 표현")
-    func detectConsensus_fuzzyDisagree() {
-        #expect(RoomManager.detectConsensus(in: "다른 접근이 필요합니다") == false)
-        #expect(RoomManager.detectConsensus(in: "우려가 있습니다. 재검토가 필요합니다.") == false)
-    }
-
-    @Test("detectConsensus - 태그 없고 합의/반대 표현 없음")
-    func detectConsensus_neutral() {
-        #expect(RoomManager.detectConsensus(in: "API 설계는 REST로 하겠습니다.") == false)
-    }
-
-    @Test("detectConsensus - 합의 + 반대 동시 → 비합의")
-    func detectConsensus_mixed() {
-        #expect(RoomManager.detectConsensus(in: "동의합니다만 수정이 필요합니다") == false)
-    }
-
     // MARK: - parsePlan: workingDirectory
 
     @Test("parsePlan - working_directory 추출")

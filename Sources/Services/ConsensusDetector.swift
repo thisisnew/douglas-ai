@@ -1,7 +1,6 @@
 import Foundation
 
 /// 합의 감지 서비스 — DebateStrategy에 위임하여 모드별 엄격도 적용
-/// RoomManager.detectConsensus에서 추출한 독립 서비스
 struct ConsensusDetector {
 
     /// Strategy 기반 합의 감지 (신규)
@@ -13,7 +12,7 @@ struct ConsensusDetector {
         strategy.isConsensus(response: response)
     }
 
-    /// 레거시 호환 — debateMode 없을 때 기존 퍼지 매칭 (RoomManager.detectConsensus와 동일)
+    /// 레거시 호환 — debateMode 없을 때 기존 퍼지 매칭
     static func detectLegacy(in response: String) -> Bool {
         // 1) 명시적 태그 — 가장 신뢰도 높음
         if response.contains("[합의") { return true }
