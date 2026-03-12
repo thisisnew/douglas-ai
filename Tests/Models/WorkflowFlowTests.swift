@@ -96,7 +96,7 @@ struct WorkflowFlowTests {
 
     // =========================================================================
     // MARK: - Case 4: 구현 1개 에이전트
-    // 구현 판단 → 에이전트 매칭 → 실행 계획 → 승인 무한 반복 → 실행 → 마지막 단계 승인 → 롤백
+    // 구현 판단 → 에이전트 매칭 → 실행 계획 → 승인 → 자동 실행 → 완료
     // =========================================================================
 
     @Test("Case 4: task requiredPhases = understand → assemble → design → build → review → deliver")
@@ -131,43 +131,19 @@ struct WorkflowFlowTests {
         #expect(IntentClassifier.quickClassify("이 코드 리팩토링해줘") == .task)
     }
 
-    @Test("Case 4: 마지막 단계 승인 — high-risk는 Deliver에서 처리하므로 스킵")
-    func case4LastStepHighRiskSkip() {
-        // high-risk 마지막 단계는 이중 승인 방지를 위해 마지막 단계 확인 스킵
+    @Test("Case 4: high-risk 단계는 계획 승인 시 경고 표시")
+    func case4HighRiskWarning() {
         let highStep = RoomStep(text: "배포", riskLevel: .high)
         let lowStep = RoomStep(text: "코드 작성", riskLevel: .low)
-        let mediumStep = RoomStep(text: "PR 생성", riskLevel: .medium)
-
-        // 마지막 단계 확인 조건: stepIndex == count-1 && count > 1 && riskLevel != .high
-        let steps = [lowStep, mediumStep, highStep]
-        let lastIndex = steps.count - 1
-        let lastStep = steps[lastIndex]
-        let shouldConfirmLast = lastIndex == steps.count - 1
-            && steps.count > 1
-            && lastStep.riskLevel != .high
-        #expect(shouldConfirmLast == false, "high-risk 마지막 단계는 승인 스킵 (Deliver에서 처리)")
-
-        // low-risk 마지막 단계는 확인 필요
-        let stepsLow = [lowStep, mediumStep, lowStep]
-        let lastStepLow = stepsLow[stepsLow.count - 1]
-        let shouldConfirmLow = stepsLow.count - 1 == stepsLow.count - 1
-            && stepsLow.count > 1
-            && lastStepLow.riskLevel != .high
-        #expect(shouldConfirmLow == true, "low-risk 마지막 단계는 확인 필요")
-    }
-
-    @Test("Case 4: 단일 step이면 마지막 단계 확인 불필요")
-    func case4SingleStepNoConfirm() {
-        let steps = [RoomStep(text: "단일 작업")]
-        let shouldConfirm = 0 == steps.count - 1
-            && steps.count > 1
-            && steps[0].riskLevel != .high
-        #expect(shouldConfirm == false, "1단계 plan은 마지막 확인 불필요")
+        let steps = [lowStep, highStep]
+        let highRiskSteps = steps.filter { $0.riskLevel != .low }
+        #expect(highRiskSteps.count == 1, "high-risk 단계가 1개 감지되어야 함")
+        #expect(highRiskSteps[0].text == "배포")
     }
 
     // =========================================================================
     // MARK: - Case 5: 구현 복수 에이전트
-    // 토론(라운드마다 사용자 의견) → 실행 계획 → 승인 무한 반복 → 실행 → 마지막 단계 승인
+    // 토론(라운드마다 사용자 의견) → 실행 계획 → 승인 → 자동 실행 → 완료
     // =========================================================================
 
     @Test("Case 5: task는 discussion과 같은 design phase 포함 (토론 후 계획)")

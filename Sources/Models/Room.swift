@@ -89,43 +89,6 @@ struct TaskBrief: Codable, Equatable {
     }
 }
 
-// MARK: - Plan C: DeferredAction (Build에서 Deliver로 넘기는 작업)
-
-struct DeferredAction: Codable, Identifiable, Equatable {
-    let id: UUID
-    let toolName: String           // "shell_exec", 미래의 "email_send" 등
-    let arguments: [String: ToolArgumentValue]
-    let description: String        // "고객에게 사과 메일 전송"
-    let riskLevel: RiskLevel       // .high
-    let previewContent: String?    // Draft 프리뷰용 텍스트
-    var status: DeferredStatus
-
-    enum DeferredStatus: String, Codable {
-        case pending    // 사용자 승인 대기
-        case approved   // 승인됨 → 실행 예정
-        case executed   // 실행 완료
-        case cancelled  // 취소됨
-    }
-
-    init(
-        id: UUID = UUID(),
-        toolName: String,
-        arguments: [String: ToolArgumentValue],
-        description: String,
-        riskLevel: RiskLevel = .high,
-        previewContent: String? = nil,
-        status: DeferredStatus = .pending
-    ) {
-        self.id = id
-        self.toolName = toolName
-        self.arguments = arguments
-        self.description = description
-        self.riskLevel = riskLevel
-        self.previewContent = previewContent
-        self.status = status
-    }
-}
-
 // MARK: - 위임 정보 (Clarify → Assemble 전달)
 
 /// clarify 단계에서 LLM이 판단한 에이전트 위임 정보
@@ -508,7 +471,6 @@ struct Room: Identifiable, Codable {
     // Plan C: 새 워크플로우 필드
     var taskBrief: TaskBrief?
     var agentRoles: [String: RuntimeRole]       // agentID.uuidString → RuntimeRole
-    var deferredActions: [DeferredAction]
     // Phase 1: 승인 기록 + 대기 유형
     var approvalHistory: [ApprovalRecord]
     var awaitingType: AwaitingType?
@@ -836,7 +798,6 @@ struct Room: Identifiable, Codable {
         self.workLog = nil
         self.taskBrief = nil
         self.agentRoles = [:]
-        self.deferredActions = []
         self.approvalHistory = []
         self.awaitingType = nil
         self.workflowState = WorkflowState()
@@ -854,7 +815,7 @@ struct Room: Identifiable, Codable {
         case id, title, assignedAgentIDs, messages, status, mode, plan
         case timerStartedAt, timerDurationSeconds, buildPhaseMessageOffset, createdAt, completedAt, createdBy
         case currentStepIndex, pendingApprovalStepIndex, pendingAgentSuggestions
-        case workLog, taskBrief, agentRoles, deferredActions
+        case workLog, taskBrief, agentRoles
         case approvalHistory, awaitingType, pendingAgentConfirmationID
         case requests, followUpActions
         // WorkflowState (개별 키 유지 — JSON 호환)
@@ -892,7 +853,6 @@ struct Room: Identifiable, Codable {
         workLog = try container.decodeIfPresent(WorkLog.self, forKey: .workLog)
         taskBrief = try container.decodeIfPresent(TaskBrief.self, forKey: .taskBrief)
         agentRoles = try container.decodeIfPresent([String: RuntimeRole].self, forKey: .agentRoles) ?? [:]
-        deferredActions = try container.decodeIfPresent([DeferredAction].self, forKey: .deferredActions) ?? []
         approvalHistory = try container.decodeIfPresent([ApprovalRecord].self, forKey: .approvalHistory) ?? []
         awaitingType = try container.decodeIfPresent(AwaitingType.self, forKey: .awaitingType)
         pendingAgentConfirmationID = try container.decodeIfPresent(UUID.self, forKey: .pendingAgentConfirmationID)
@@ -981,7 +941,6 @@ struct Room: Identifiable, Codable {
         try container.encodeIfPresent(workLog, forKey: .workLog)
         try container.encodeIfPresent(taskBrief, forKey: .taskBrief)
         if !agentRoles.isEmpty { try container.encode(agentRoles, forKey: .agentRoles) }
-        if !deferredActions.isEmpty { try container.encode(deferredActions, forKey: .deferredActions) }
         if !approvalHistory.isEmpty { try container.encode(approvalHistory, forKey: .approvalHistory) }
         try container.encodeIfPresent(awaitingType, forKey: .awaitingType)
         try container.encodeIfPresent(pendingAgentConfirmationID, forKey: .pendingAgentConfirmationID)

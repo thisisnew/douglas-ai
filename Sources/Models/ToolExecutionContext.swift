@@ -21,9 +21,6 @@ struct ToolExecutionContext: Sendable {
     // 워크플로우 (Phase E)
     let askUser: @Sendable (String, String?, [String]?) async -> String  // 사용자에게 질문
     let currentPhase: WorkflowPhase?      // 현재 워크플로우 단계
-    let deferHighRiskTools: Bool          // Plan C: external 도구를 DeferredAction으로 수집
-    let collectDeferred: @Sendable (DeferredAction) -> Void  // deferred 수집 콜백
-
     // Build 중 사용자 메시지 실시간 반영
     let fetchPendingUserMessages: (@Sendable () async -> [ConversationMessage])?
 
@@ -44,8 +41,6 @@ struct ToolExecutionContext: Sendable {
         fileWriteTracker: FileWriteTracker? = nil,
         askUser: @escaping @Sendable (String, String?, [String]?) async -> String = { _, _, _ in "" },
         currentPhase: WorkflowPhase? = nil,
-        deferHighRiskTools: Bool = false,
-        collectDeferred: @escaping @Sendable (DeferredAction) -> Void = { _ in },
         fetchPendingUserMessages: (@Sendable () async -> [ConversationMessage])? = nil,
         dispatchPluginEvent: @escaping @Sendable (PluginEvent) -> Void = { _ in },
         interceptTool: @escaping @Sendable (String, [String: String]) async -> ToolInterceptResult = { _, _ in .passthrough }
@@ -62,8 +57,6 @@ struct ToolExecutionContext: Sendable {
         self.fileWriteTracker = fileWriteTracker
         self.askUser = askUser
         self.currentPhase = currentPhase
-        self.deferHighRiskTools = deferHighRiskTools
-        self.collectDeferred = collectDeferred
         self.fetchPendingUserMessages = fetchPendingUserMessages
         self.dispatchPluginEvent = dispatchPluginEvent
         self.interceptTool = interceptTool

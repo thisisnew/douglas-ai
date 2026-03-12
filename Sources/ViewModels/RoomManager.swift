@@ -174,8 +174,6 @@ class RoomManager: ObservableObject, WorkflowHost {
     var teamConfirmationContinuations: [UUID: CheckedContinuation<Set<UUID>?, Never>] = [:]
     /// 이전 사이클 완료 시점의 에이전트 수 (후속 사이클에서 에이전트 변동 감지용)
     var previousCycleAgentCount: [UUID: Int] = [:]
-    /// 단계 롤백 요청 (PlanCard 클릭 시 설정, StepExecutionEngine이 소비)
-    var stepRollbackTargets: [UUID: Int] = [:]
     /// ask_user 도구의 선택지 (방 ID → 옵션 목록) — UserInputCard에서 버튼으로 표시
     @Published var pendingQuestionOptions: [UUID: [String]] = [:]
 
@@ -981,8 +979,6 @@ class RoomManager: ObservableObject, WorkflowHost {
         roomID: UUID,
         currentAgentID: UUID? = nil,
         fileWriteTracker: FileWriteTracker? = nil,
-        deferHighRiskTools: Bool = false,
-        collectDeferred: ((DeferredAction) -> Void)? = nil,
         workingDirectoryOverride: String? = nil
     ) -> ToolExecutionContext {
         guard let store = agentStore else { return .empty }
@@ -1060,10 +1056,6 @@ class RoomManager: ObservableObject, WorkflowHost {
                 return answer
             },
             currentPhase: room?.workflowState.currentPhase,
-            deferHighRiskTools: deferHighRiskTools,
-            collectDeferred: collectDeferred.map { callback in
-                { @Sendable deferred in callback(deferred) }
-            } ?? { _ in },
             fetchPendingUserMessages: {
                 // 컨텍스트 생성 시점의 메시지 수를 기준점으로 캡처
                 let baselineCount = room?.messages.count ?? 0

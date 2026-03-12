@@ -112,8 +112,6 @@ protocol WorkflowHost: AnyObject {
         stepIndex: Int, totalSteps: Int,
         fileWriteTracker: FileWriteTracker?,
         progressGroupID: UUID?,
-        deferHighRiskTools: Bool,
-        collectDeferred: ((DeferredAction) -> Void)?,
         workingDirectoryOverride: String?
     ) async -> Bool
 

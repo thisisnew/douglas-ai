@@ -3454,8 +3454,6 @@ extension RoomManager {
         totalSteps: Int,
         fileWriteTracker: FileWriteTracker? = nil,
         progressGroupID: UUID? = nil,
-        deferHighRiskTools: Bool = false,
-        collectDeferred: ((DeferredAction) -> Void)? = nil,
         workingDirectoryOverride: String? = nil
     ) async -> Bool {
         guard let baseAgent = agentStore?.agents.first(where: { $0.id == agentID }) else { return false }
@@ -3582,7 +3580,7 @@ extension RoomManager {
         // catch에서도 접근 필요한 변수들을 do 블록 밖에 선언
         let streamPlaceholderID = UUID()
         let buffer = StreamBuffer()
-        let context = makeToolContext(roomID: roomID, currentAgentID: agentID, fileWriteTracker: fileWriteTracker, deferHighRiskTools: deferHighRiskTools, collectDeferred: collectDeferred, workingDirectoryOverride: workingDirectoryOverride)
+        let context = makeToolContext(roomID: roomID, currentAgentID: agentID, fileWriteTracker: fileWriteTracker, workingDirectoryOverride: workingDirectoryOverride)
 
         do {
             agentStore?.updateStatus(agentID: agentID, status: .working)

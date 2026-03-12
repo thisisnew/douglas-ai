@@ -172,8 +172,6 @@ final class StepExecutionEngine {
                         totalSteps: plan.steps.count,
                         fileWriteTracker: self.tracker,
                         progressGroupID: progressMsg.id,
-                        deferHighRiskTools: false,
-                        collectDeferred: { _ in },
                         workingDirectoryOverride: step.workingDirectory
                     )
                     return (agentID, success)
@@ -197,8 +195,6 @@ final class StepExecutionEngine {
                     totalSteps: plan.steps.count,
                     fileWriteTracker: tracker,
                     progressGroupID: progressMsg.id,
-                    deferHighRiskTools: false,
-                    collectDeferred: { _ in },
                     workingDirectoryOverride: step.workingDirectory
                 )
                 if !success { stillFailed.append(agentID) }

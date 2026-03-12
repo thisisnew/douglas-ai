@@ -222,69 +222,6 @@ struct DomainEnumTests {
         #expect(artifact.type == .testPlan)
     }
 
-    // MARK: - DeferredStatus
-
-    @Test("DeferredStatus - 4케이스 rawValue 왕복")
-    func deferredStatusRawValueRoundtrip() {
-        let allCases: [DeferredAction.DeferredStatus] = [.pending, .approved, .executed, .cancelled]
-        #expect(allCases.count == 4)
-        for status in allCases {
-            let raw = status.rawValue
-            #expect(DeferredAction.DeferredStatus(rawValue: raw) == status)
-        }
-    }
-
-    @Test("DeferredStatus - Codable 왕복")
-    func deferredStatusCodableRoundtrip() throws {
-        for status in [DeferredAction.DeferredStatus.pending, .approved, .executed, .cancelled] {
-            let data = try JSONEncoder().encode(status)
-            let decoded = try JSONDecoder().decode(DeferredAction.DeferredStatus.self, from: data)
-            #expect(decoded == status)
-        }
-    }
-
-    // MARK: - DeferredAction
-
-    @Test("DeferredAction - init + 기본값")
-    func deferredActionInit() {
-        let action = DeferredAction(
-            toolName: "shell_exec",
-            arguments: ["command": .string("echo hello")],
-            description: "테스트 명령 실행"
-        )
-        #expect(action.toolName == "shell_exec")
-        #expect(action.riskLevel == .high)
-        #expect(action.status == .pending)
-        #expect(action.previewContent == nil)
-    }
-
-    @Test("DeferredAction - Codable 왕복")
-    func deferredActionCodableRoundtrip() throws {
-        let action = DeferredAction(
-            toolName: "email_send",
-            arguments: [
-                "to": .string("user@example.com"),
-                "subject": .string("제목"),
-                "draft": .boolean(true)
-            ],
-            description: "이메일 전송",
-            riskLevel: .high,
-            previewContent: "미리보기 내용",
-            status: .approved
-        )
-        let data = try JSONEncoder().encode(action)
-        let decoded = try JSONDecoder().decode(DeferredAction.self, from: data)
-
-        #expect(decoded.id == action.id)
-        #expect(decoded.toolName == "email_send")
-        #expect(decoded.arguments["to"] == .string("user@example.com"))
-        #expect(decoded.arguments["draft"] == .boolean(true))
-        #expect(decoded.description == "이메일 전송")
-        #expect(decoded.riskLevel == .high)
-        #expect(decoded.previewContent == "미리보기 내용")
-        #expect(decoded.status == .approved)
-    }
-
     // MARK: - TaskBrief
 
     @Test("TaskBrief - 기본값 확인")

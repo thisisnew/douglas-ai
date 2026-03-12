@@ -377,27 +377,6 @@ enum ToolExecutor {
 
         // Layer 2 (제거됨): restrictions는 actionPermissions로 통합 — workModes에서 자동 추론
 
-        // Layer 3: Plan C — high-risk 도구 지연 실행 (Build 단계에서 external 도구 defer)
-        if context.deferHighRiskTools,
-           let tool = ToolRegistry.allTools.first(where: { $0.id == call.toolName }),
-           tool.risk == .external {
-            let deferred = DeferredAction(
-                id: UUID(),
-                toolName: call.toolName,
-                arguments: argStrings.mapValues { ToolArgumentValue.string($0) },
-                description: "\(call.toolName): \(argStrings.values.joined(separator: ", ").prefix(100))",
-                riskLevel: .high,
-                previewContent: argStrings.map { "\($0.key): \($0.value)" }.joined(separator: "\n"),
-                status: .pending
-            )
-            context.collectDeferred(deferred)
-            return ToolResult(
-                callID: call.id,
-                content: "⏸ 이 작업은 high-risk로 분류되어 Deliver 단계에서 승인 후 실행됩니다: \(call.toolName)",
-                isError: false
-            )
-        }
-
         // 도구 실행 시작 이벤트
         context.dispatchPluginEvent(.toolExecutionStarted(
             roomID: context.roomID,

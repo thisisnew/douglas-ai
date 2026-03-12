@@ -74,7 +74,7 @@ DOUGLAS/
 │   │   ├── PluginTemplate.swift     # 플러그인 빌더 모델 (PluginActionType, HandlerConfig, ScriptGenerator, PluginSlug)
 │   │   ├── ShellEnvironment.swift   # 셸 환경 캐싱 (NVM 경로 1회 스캔, PATH 병합, 실행 파일 탐색)
 │   │   ├── ProcessRunner.swift      # 테스트 가능한 프로세스 실행기 (DI seam)
-│   │   ├── Room.swift               # 프로젝트 방 모델 (+ Plan C: TaskBrief, agentRoles, deferredActions, RiskLevel, OutputType, RuntimeRole)
+│   │   ├── Room.swift               # 프로젝트 방 모델 (+ Plan C: TaskBrief, agentRoles, RiskLevel, OutputType, RuntimeRole)
 │   │   ├── ApprovalRecord.swift     # 승인 기록 모델 (ApprovalType, AwaitingType, ApprovalRecord)
 │   │   ├── WorkflowState.swift     # 워크플로우 진행 상태 값 객체 (intent, phase 추적, activeRuleIDs)
 │   │   ├── ClarifyContext.swift    # 복명복창 컨텍스트 값 객체 (intake, summary, delegation)
@@ -1269,7 +1269,7 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
 
 **레거시 호환**: 기존 6단계(intake→intent→clarify→assemble→plan→execute)도 그대로 동작.
 `room.intent == nil` → `.quickAnswer` 폴백. 레거시 brainstorm → `.discussion`, 그 외 레거시 intent → `.task` 자동 마이그레이션.
-모든 새 필드(`taskBrief`, `agentRoles`, `deferredActions`, Agent 5종 메타데이터)는 `decodeIfPresent` + 빈 기본값.
+모든 새 필드(`taskBrief`, `agentRoles`, Agent 5종 메타데이터)는 `decodeIfPresent` + 빈 기본값.
 
 **에이전트 카드 (Plan C)**:
 - `skillTags: [String]` — 매칭 시 가장 강한 신호 (Tier 1: weight 5)
