@@ -57,13 +57,15 @@ DOUGLAS/
 │   │   ├── WorkflowIntent.swift    # 워크플로우 의도 (WorkflowPhase, WorkflowIntent 6종: quickAnswer/task/discussion/research/documentation/complex)
 │   │   ├── DocumentType.swift     # 문서 유형 (6종 + 섹션 템플릿, 문서화 요청 시 사용)
 │   │   ├── DocumentRequestDetector.swift # 문서화 요청 감지 (NLTokenizer + LLM 폴백) + 포맷 변환 판별
-│   │   ├── IntentClassifier.swift # Intent 분류기 (PreIntentRoute + 규칙 기반 + LLM 폴백 + negative keywords + bigram + modifier 추출)
+│   │   ├── IntentClassifier.swift # Intent 분류기 (PreIntentRoute + IntentVocabulary 위임 + LLM 폴백 + modifier 추출)
+│   │   ├── IntentVocabulary.swift # 의도별 어휘 Value Object (키워드·가중치·threshold 캡슐화, IntentClassifier에서 분리)
 │   │   ├── IntentModifier.swift   # Intent 수식자 (adversarial/outputOnly/withExecution/breakdown) + ClassificationResult
 │   │   ├── DecisionLog.swift      # 토론 결정 로그 (DecisionEntry + concerns 필드)
 │   │   ├── DebateMode.swift       # 토론 3모드 (dialectic/collaborative/coordination)
 │   │   ├── DebateStrategy.swift   # 토론 Strategy 패턴 (protocol + 3개 구현체: Dialectic/Collaborative/Coordination)
 │   │   ├── ActionItem.swift       # 토론 도출 작업 항목 (후속 구현 사이클 기초)
 │   │   ├── FollowUpIntent.swift   # 후속 의도 (9종) + ContextCarryoverPolicy + FollowUpDecision
+│   │   ├── FollowUpVocabulary.swift # 후속 의도별 어휘 Value Object (FollowUpClassifier에서 키워드 관리 책임 분리)
 │   │   ├── WorkflowAssumption.swift # 가정 선언 (RiskLevel: low/medium/high) + UserAnswer
 │   │   ├── ProjectPlaybook.swift   # 프로젝트 플레이북 (브랜치 전략, 테스트 정책, 프리셋 3종)
 │   │   ├── IntakeData.swift        # Intake 입력 데이터 (InputSourceType, JiraTicketSummary, asClarifyContextString 중립 컨텍스트)
@@ -93,9 +95,10 @@ DOUGLAS/
 │   │   Protocol:
 │   │   └── WorkflowHost.swift       # 워크플로우 실행기 프로토콜 (RoomManager 추상화, 테스트 mock 가능)
 │   ├── Services/                     # 도메인 서비스 레이어 (DDD — 단일 책임 원칙)
-│   │   ├── DebateClassifier.swift    # 토론 주제+역할 → DebateMode 분류 (역할 겹침도 + 키워드)
+│   │   ├── AmbiguityDetector.swift   # 모호성 감지 Domain Service (대명사+범용동사 조합, URL-only 감지)
+│   │   ├── DebateClassifier.swift    # 토론 주제+역할 → DebateMode 분류 (역할 겹침도 + 키워드, low+dialectic→collaborative)
 │   │   ├── ConsensusDetector.swift   # Strategy 위임 합의 감지 (레거시 호환 포함)
-│   │   ├── FollowUpClassifier.swift  # 후속 의도 결정론적 분류 (9가지 분기 + 캐리오버 정책)
+│   │   ├── FollowUpClassifier.swift  # 후속 의도 결정론적 분류 (FollowUpVocabulary 위임 + 캐리오버 정책)
 │   │   ├── PhaseContextSummarizer.swift # 페이즈 완료 시 요약 생성 + 다음 페이즈 컨텍스트 조합 (토큰 최적화)
 │   │   ├── ActionItemGenerator.swift # briefing JSON → ActionItems 파싱
 │   │   ├── AgentAssigner.swift       # ActionItem → 에이전트 ID 매핑 (3단 우선순위)
@@ -1320,13 +1323,20 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
 **서비스 레이어 (Sources/Services/)** — DDD 단일 책임 원칙:
 | 서비스 | 책임 |
 |--------|------|
-| DebateClassifier | 주제+역할 → DebateMode (dialectic/collaborative/coordination) |
+| AmbiguityDetector | 모호성 감지 (대명사+범용동사, URL-only) — IntentClassifier에서 분리 |
+| DebateClassifier | 주제+역할 → DebateMode (low+dialectic→collaborative 규칙) |
 | ConsensusDetector | Strategy 위임 합의 감지 (레거시 호환) |
-| FollowUpClassifier | 후속 의도 결정론적 분류 (9분기 + 캐리오버) |
+| FollowUpClassifier | 후속 의도 결정론적 분류 (FollowUpVocabulary 위임 + 캐리오버) |
 | PhaseContextSummarizer | 페이즈 완료 시 요약 생성 + 다음 페이즈 컨텍스트 조합 (토큰 최적화) |
 | ActionItemGenerator | briefing JSON → ActionItems 파싱 |
 | AgentAssigner | ActionItem → 에이전트 ID 매핑 |
 | UserDesignationExtractor | 사용자 지명 에이전트 추출 |
+
+**도메인 Value Object (DDD 어휘 캡슐화)**:
+| Value Object | 책임 |
+|--------|------|
+| IntentVocabulary | 의도별 어휘(키워드·가중치·threshold) 캡슐화 — IntentClassifier가 참조 |
+| FollowUpVocabulary | 후속 의도별 어휘 캡슐화 — FollowUpClassifier가 참조 |
 
 **ViewModel 통합 지점** (서비스 → 워크플로우 연결):
 - `executeDesignPhase` (RoomManager+Workflow): DebateClassifier.classify() → room.discussion.debateMode 설정 → executeDiscussionDesign 호출

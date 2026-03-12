@@ -87,113 +87,8 @@ enum IntentClassifier {
         return nil
     }
 
-    // MARK: - 키워드 사전 (어간 기반, 가중치 포함)
-
-    /// 키워드 → 가중치. 어간(stem) 기반으로 정의하여 한국어 어미 변형을 prefix 매칭으로 커버
-    /// 예: "요약" → "요약해줘", "요약해서", "요약해봐" 모두 매칭
-    private struct ScoredKeywords {
-        /// (어간, 가중치) 배열. 가중치가 높을수록 해당 intent에 강한 신호
-        let stems: [(stem: String, weight: Int)]
-        /// 부정 키워드 — 이 intent에서 감점하는 신호 (개선안 A)
-        let negatives: [(stem: String, weight: Int)]
-        /// 이 intent의 최소 점수 임계값
-        let threshold: Int
-
-        init(stems: [(stem: String, weight: Int)], negatives: [(stem: String, weight: Int)] = [], threshold: Int) {
-            self.stems = stems
-            self.negatives = negatives
-            self.threshold = threshold
-        }
-    }
-
-    /// intent별 키워드 사전 (WORKFLOW_SPEC §4.1: 5-카테고리 + complex는 LLM에서만 판별)
-    private static let intentKeywords: [(intent: WorkflowIntent, keywords: ScoredKeywords)] = [
-        // quickAnswer: 단순 질문 / 정보 확인 (짧은 텍스트에서만 유효)
-        (.quickAnswer, ScoredKeywords(stems: [
-            // 의문사
-            ("뭐", 3), ("뭘", 3), ("뭔", 3), ("무슨", 3),
-            ("몇", 2), ("어디", 2), ("언제", 2), ("누가", 2), ("왜", 2),
-            ("어떻", 2), ("어떤", 2),
-            // 설명 요청
-            ("알려", 3), ("설명", 3),
-            // 의미/뜻
-            ("뜻", 3), ("의미", 3), ("차이", 2),
-        ], threshold: 3)),
-
-        // discussion: 의견 교환, 브레인스토밍, 관점 탐색
-        (.discussion, ScoredKeywords(stems: [
-            // 의견/생각 요청
-            ("어떻게 생각", 5), ("생각해", 4), ("의견", 3), ("관점", 3), ("견해", 3),
-            // 토론/브레인스토밍
-            ("토론", 4), ("브레인스토밍", 4), ("brainstorm", 4), ("아이디어", 3),
-            ("회의", 3),
-            // 비교/판단
-            ("장단점", 3), ("좋을까", 3), ("어떨까", 3), ("어떤 게 나을", 4),
-            // 전망/트렌드 — 의견 프레임
-            ("트렌드", 4), ("전망", 3), ("미래", 2),
-            // 지식 탐색
-            ("알고싶", 2),
-            // 작업 도출/분석 (시나리오 2)
-            ("작업도출", 6), ("할일정리", 6), ("태스크파악", 6),
-            ("무슨작업", 5), ("어떤작업", 5), ("작업목록", 5),
-            ("뭘해야", 5), ("해야할것", 5), ("해야할일", 5),
-        ], negatives: [
-            // discussion에서 구현/코딩 키워드는 감점 (개선안 A)
-            ("구현", -3), ("코딩", -3), ("배포", -3), ("커밋", -3),
-        ], threshold: 4)),
-
-        // research: 자료 수집, 검색, 비교, 정리 (WORKFLOW_SPEC §4.1)
-        (.research, ScoredKeywords(stems: [
-            ("조사", 5), ("리서치", 5), ("research", 5),
-            ("서베이", 4), ("survey", 4),
-        ], threshold: 4)),
-
-        // documentation: 문서 파일 작성 (WORKFLOW_SPEC §4.1)
-        (.documentation, ScoredKeywords(stems: [
-            ("기획서", 5), ("문서작성", 5), ("문서화", 5),
-            ("prd", 5), ("제안서", 5), ("보고서", 5),
-            ("스펙", 4),
-        ], threshold: 4)),
-
-        // task: 코딩, 구현, 수정, 배포 등 구현 작업
-        (.task, ScoredKeywords(stems: [
-            // 분석/비교
-            ("분석", 4), ("비교", 3), ("찾아", 2),
-            // 자문/상담
-            ("자문", 3), ("상담", 3), ("조언", 3), ("컨설팅", 3), ("consulting", 3),
-            ("궁금", 2),
-            // 요건/테스트/태스크
-            ("요건", 3), ("요구사항", 3), ("requirements", 3),
-            ("테스트", 3), ("테스트계획", 4), ("테스트케이스", 4), ("test plan", 4), ("tc", 3),
-            ("설계", 4), ("전략", 3), ("아키텍처", 4), ("architecture", 4),
-            ("작업분해", 3), ("task breakdown", 3), ("쪼개", 2),
-            // 정리/작성 (범용)
-            ("정리", 3), ("작성", 3),
-            // 번역
-            ("번역", 4), ("translate", 4), ("翻訳", 4),
-            // 요약
-            ("요약", 4), ("summarize", 4), ("summary", 4),
-            // 변환/포맷
-            ("바꿔", 3), ("변환", 4), ("convert", 4), ("컨버트", 4),
-            // 문서 포맷
-            ("pdf", 5), ("워드", 4), ("엑셀", 4),
-            ("word", 4), ("excel", 4), ("한글", 3), ("hwp", 4),
-            ("markdown", 3), ("마크다운", 3),
-            // 코딩/개발/빌드
-            ("구현", 4), ("개발", 3), ("코딩", 5), ("coding", 5),
-            ("만들어", 3), ("빌드", 4), ("build", 4),
-            ("수정", 3), ("버그", 5), ("bug", 5),
-            ("리팩토", 4), ("refactor", 4),
-            ("배포", 4), ("deploy", 4),
-            ("fix", 5), ("implement", 4),
-            ("커밋", 3), ("commit", 3), ("pr ", 2), ("push", 2),
-        ], negatives: [
-            // task에서 토론/의견 키워드는 감점 (개선안 A)
-            ("토론", -3), ("의견", -2), ("브레인스토밍", -3), ("어떻게생각", -3),
-        ], threshold: 3)),
-    ]
-
     // MARK: - NLTokenizer 기반 분류
+    // 키워드 사전은 IntentVocabulary (Value Object)로 분리됨
 
     /// NLTokenizer + 가중치 점수 기반 즉시 분류. 판별 불가 시 nil 반환
     static func quickClassify(_ task: String) -> WorkflowIntent? {
@@ -246,40 +141,18 @@ enum IntentClassifier {
         // 인접 토큰 결합 (개선안 B: bigram 매칭)
         let bigrams = makeBigrams(tokens)
 
-        // 각 intent별 점수 계산
+        // IntentVocabulary에 위임하여 점수 계산
         var scores: [(intent: WorkflowIntent, score: Int)] = []
 
-        for entry in intentKeywords {
-            var score = 0
+        for vocab in IntentVocabulary.all {
+            let rawScore = vocab.score(tokens: tokens, fullText: text, bigrams: bigrams)
 
             // quickAnswer는 긴 텍스트에서 약화 (100자 이상이면 점수 반감)
-            let lengthPenalty = (entry.intent == .quickAnswer && task.count >= 100) ? 0.5 : 1.0
+            let lengthPenalty = (vocab.intent == .quickAnswer && task.count >= 100) ? 0.5 : 1.0
+            let adjustedScore = Int(Double(rawScore) * lengthPenalty)
 
-            for keyword in entry.keywords.stems {
-                // 어간 prefix 매칭: 토큰이 keyword.stem으로 시작하거나, 전체 텍스트에 keyword.stem 포함
-                let matched = tokens.contains { token in
-                    token.hasPrefix(keyword.stem) || token == keyword.stem
-                } || text.contains(keyword.stem)
-                // bigram 매칭 (개선안 B): "작업" + "분해" → "작업분해" 매칭
-                || bigrams.contains(where: { $0.hasPrefix(keyword.stem) || $0 == keyword.stem })
-
-                if matched {
-                    score += keyword.weight
-                }
-            }
-
-            // 부정 키워드 감점 (개선안 A)
-            for negative in entry.keywords.negatives {
-                let negMatched = tokens.contains { $0.hasPrefix(negative.stem) || $0 == negative.stem }
-                    || text.contains(negative.stem)
-                if negMatched {
-                    score += negative.weight  // weight는 이미 음수
-                }
-            }
-
-            let adjustedScore = Int(Double(score) * lengthPenalty)
-            if adjustedScore >= entry.keywords.threshold {
-                scores.append((entry.intent, adjustedScore))
+            if adjustedScore >= vocab.threshold {
+                scores.append((vocab.intent, adjustedScore))
             }
         }
 
@@ -574,22 +447,8 @@ enum IntentClassifier {
         return patterns.contains(where: { text.contains($0) })
     }
 
-    /// 사용자가 URL 외에 명시적 의도를 작성했는지 (ex: "이거 구현해", "분석해줘")
+    /// 사용자가 URL 외에 명시적 의도를 작성했는지 — AmbiguityDetector에 위임
     static func hasExplicitUserIntent(_ text: String) -> Bool {
-        // Jira 첨부 데이터(--- Jira 티켓 내용 ... --- 끝 ---) 제거 후 사용자 입력만 확인
-        let userText: String
-        if let jiraStart = text.range(of: "--- jira") {
-            userText = String(text[text.startIndex..<jiraStart.lowerBound])
-        } else {
-            userText = text
-        }
-        let trimmed = userText.trimmingCharacters(in: .whitespacesAndNewlines)
-        // URL만 있고 다른 텍스트가 거의 없으면 명시적 의도 없음
-        let withoutURLs = trimmed.replacingOccurrences(
-            of: "https?://[^\\s]+",
-            with: "",
-            options: .regularExpression
-        ).trimmingCharacters(in: .whitespacesAndNewlines)
-        return withoutURLs.count > 2
+        !AmbiguityDetector.detect(text: text, hasAttachments: false).isAmbiguous
     }
 }

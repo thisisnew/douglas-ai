@@ -48,22 +48,31 @@ struct DebateClassifierTests {
 
     // MARK: - 주제 키워드 기반
 
-    @Test("비교/선택 주제 → dialectic")
-    func comparisonTopic() {
+    @Test("비교/선택 주제 + 보완적 역할 → collaborative (관점 결합이 대립보다 유용)")
+    func comparisonTopicComplementary() {
         let mode = DebateClassifier.classify(
             topic: "REST vs GraphQL 어떤 게 나을까",
             agentRoles: ["백엔드", "프론트엔드"]
         )
+        #expect(mode == .collaborative)
+    }
+
+    @Test("비교/선택 주제 + 겹치는 역할 → dialectic")
+    func comparisonTopicOverlapping() {
+        let mode = DebateClassifier.classify(
+            topic: "REST vs GraphQL 어떤 게 나을까",
+            agentRoles: ["백엔드 개발자", "서버 엔지니어", "API 설계자"]
+        )
         #expect(mode == .dialectic)
     }
 
-    @Test("아키텍처 주제 → dialectic")
-    func architectureTopic() {
+    @Test("아키텍처 주제 + 보완적 역할 → collaborative")
+    func architectureTopicComplementary() {
         let mode = DebateClassifier.classify(
             topic: "아키텍처 설계 방향",
             agentRoles: ["백엔드", "프론트엔드"]
         )
-        #expect(mode == .dialectic)
+        #expect(mode == .collaborative)
     }
 
     @Test("분담/일정 주제 → coordination")
@@ -123,13 +132,13 @@ struct DebateClassifierTests {
 
     // MARK: - 엣지 케이스
 
-    @Test("빈 역할 목록 → 주제 기반으로만 판단")
+    @Test("빈 역할 목록 → 보완적(low) + dialectic 주제 → collaborative")
     func emptyRoles() {
         let mode = DebateClassifier.classify(
             topic: "아키텍처 선택",
             agentRoles: []
         )
-        #expect(mode == .dialectic)  // 주제가 dialectic 신호
+        #expect(mode == .collaborative)  // 역할 low + dialectic → collaborative
     }
 
     @Test("빈 주제 + 보완 역할 → collaborative")

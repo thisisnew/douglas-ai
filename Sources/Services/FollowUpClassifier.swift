@@ -54,8 +54,7 @@ struct FollowUpClassifier {
 
         // 1. 재시도 패턴 (실패 상태에서 최우선)
         if previousState == .failed {
-            let retryKeywords = ["다시 해", "다시해", "재시도", "retry", "다시 시작", "재실행"]
-            if retryKeywords.contains(where: { lower.contains($0) }) {
+            if FollowUpVocabulary.retry.matches(lower) {
                 return .retryExecution
             }
             let changeKeywords = ["접근을 바꿔", "다른 방법", "다른 접근", "방향을 바꿔"]
@@ -64,12 +63,8 @@ struct FollowUpClassifier {
             }
         }
 
-        // 2. 구현 패턴
-        let implementKeywords = ["구현하자", "시작하자", "만들자", "개발하자", "진행하자",
-                                  "구현해줘", "시작해줘", "만들어줘", "개발해줘", "진행해줘",
-                                  "이제 구현", "이제 개발", "이제 만들"]
-        if implementKeywords.contains(where: { lower.contains($0) }) {
-            // 부분 구현 체크: "1번이랑 3번만", "첫 번째만"
+        // 2. 구현 패턴 — FollowUpVocabulary에 위임
+        if FollowUpVocabulary.implement.matches(lower) {
             if let indices = parseItemIndices(from: lower) {
                 return .implementPartial(indices)
             }
@@ -84,39 +79,34 @@ struct FollowUpClassifier {
             }
         }
 
-        // 4. 토론 계속/재시작 패턴
-        let continueKeywords = ["더 논의", "더 토론", "추가 논의", "이어서 논의", "계속 토론"]
-        if continueKeywords.contains(where: { lower.contains($0) }) {
+        // 4. 토론 계속/재시작 — FollowUpVocabulary에 위임
+        if FollowUpVocabulary.continueDiscussion.matches(lower) {
             return .continueDiscussion
         }
 
-        let restartKeywords = ["다시 논의", "다시 토론", "처음부터", "리셋", "새로"]
-        if restartKeywords.contains(where: { lower.contains($0) }) {
+        if FollowUpVocabulary.restart.matches(lower) {
             return .restartDiscussion
         }
 
-        // 5. 방향 변경 패턴: "N번 방향을 바꿔"
-        let modifyPatterns = ["방향을 바꿔", "방향 바꿔", "다르게", "수정해서", "변경해서"]
-        if modifyPatterns.contains(where: { lower.contains($0) }) {
+        // 5. 방향 변경 패턴
+        if FollowUpVocabulary.modify.matches(lower) {
             return .modifyAndDiscuss(message)
         }
 
         // 6. 검토 패턴
-        let reviewKeywords = ["검토해", "리뷰해", "확인해", "잘된 건지", "체크해"]
-        if reviewKeywords.contains(where: { lower.contains($0) }) {
+        if FollowUpVocabulary.review.matches(lower) {
             return .reviewResult
         }
 
-        // 7. 문서화 패턴
-        let docKeywords = ["정리해", "문서화", "문서로", "보고서", "기획서"]
-        if docKeywords.contains(where: { lower.contains($0) }) {
+        // 7. 문서화 패턴 — "요약해" 키워드 추가됨
+        if FollowUpVocabulary.document.matches(lower) {
             return .documentResult
         }
 
         // 8. 기본값: 이전 상태에 따라
         switch previousState {
         case .discussionCompleted where hasActionItems:
-            return .implementAll  // actionItems가 있고 명확한 토론 키워드 없으면 구현 의도로 추정
+            return .implementAll
         case .failed:
             return .retryExecution
         default:

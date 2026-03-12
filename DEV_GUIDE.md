@@ -204,16 +204,21 @@ DOUGLAS/
 **DeferredAction** (`Room.deferredActions`): high-risk 도구 호출을 Deliver 단계까지 보류
 
 **서비스 레이어** (`Sources/Services/`): 도메인 로직 단일 책임 분리
-- `DebateClassifier`: 주제+역할 → DebateMode 결정 (역할 겹침도 + 주제 키워드 + IntentModifier)
+- `AmbiguityDetector`: 모호성 감지 Domain Service (대명사+범용동사, URL-only) — IntentClassifier에서 분리
+- `DebateClassifier`: 주제+역할 → DebateMode 결정 (low+dialectic→collaborative, 역할 겹침도 + 키워드)
 - `ConsensusDetector`: Strategy 위임 합의 감지 (레거시 호환)
-- `FollowUpClassifier`: 후속 의도 9분기 결정론적 분류 + ContextCarryoverPolicy
+- `FollowUpClassifier`: 후속 의도 9분기 결정론적 분류 (FollowUpVocabulary 위임 + ContextCarryoverPolicy)
 - `PhaseContextSummarizer`: 페이즈 완료 시 요약 생성 + 다음 페이즈 컨텍스트 조합 (토큰 최적화)
 - `ActionItemGenerator`: briefing JSON → ActionItem 파싱
 - `AgentAssigner`: ActionItem.suggestedAgent → 에이전트 UUID 매핑
 - `UserDesignationExtractor`: 사용자 지명 에이전트 추출 ("백엔드/프론트 관점에서")
 
+**도메인 Value Object** (DDD 어휘 캡슐화):
+- `IntentVocabulary`: 의도별 어휘(키워드·가중치·threshold) 캡슐화 — IntentClassifier가 참조
+- `FollowUpVocabulary`: 후속 의도별 어휘 캡슐화 — FollowUpClassifier가 참조
+
 **AgentMatcher 개선**: 동의어 사전(expandSynonyms) + TaskBrief.outputType 기반 동적 Tier 2 가중치
-**IntentClassifier 개선**: 네거티브 키워드 + 바이그램 매칭 + IntentModifier 추출 + LLM 폴백 few-shot 경계 사례
+**IntentClassifier 개선**: IntentVocabulary 위임 + IntentModifier 추출 + LLM 폴백 few-shot 경계 사례
 
 ---
 

@@ -30,8 +30,10 @@ struct DebateClassifier {
         switch (overlapScore, topicSignal) {
         case (.high, _):
             return .dialectic       // 역할 겹침 높음 → 대립
+        case (.low, .dialectic):
+            return .collaborative   // 역할 보완적 + 대안 탐색 → 관점 결합이 대립보다 유용
         case (_, .dialectic):
-            return .dialectic       // 주제가 대안 탐색 → 대립
+            return .dialectic       // 역할 겹침 medium/high + 대안 탐색 → 대립
         case (.low, .coordination):
             return .coordination    // 역할 보완적 + 조율 주제
         case (.low, _):
