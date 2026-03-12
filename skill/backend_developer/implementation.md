@@ -6,25 +6,16 @@ description: 구현 (브랜치 생성 + TDD + 코드 작성)
 
 > 브랜치 생성 + TDD + 구현 통합 (Plan Agent + 직접 수행)
 
-## 선행 조건 체크
-
-**반드시** `./analysis.md` 파일 확인
-
-없으면:
-```
-코드를 분석하여 analysis.md를 생성한다.
-```
-
 ---
 
 ## 동작
 
-### 1. 브랜치 생성 (자동)
+### 1. 반드시 브랜치 생성 (자동)
 
 ```bash
-# main에서 pr 브랜치 생성
-git checkout main
-git pull origin main
+# develop에서 pr 브랜치 생성
+git checkout develop
+git pull origin develop
 git checkout -b pr/IBS-{번호}
 
 # pr에서 feature 브랜치 생성

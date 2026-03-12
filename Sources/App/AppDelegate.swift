@@ -70,6 +70,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let roomManager = RoomManager()
     let themeManager = ThemeManager()
     let pluginManager = PluginManager()
+    let updateManager = UpdateManager()
     private var statusItem: NSStatusItem?
     private var sidebarHotkeyMonitor: Any?
     private var sidebarGlobalMonitor: Any?
@@ -147,6 +148,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         registerSidebarHotkey()
         // 사이드바 자동 표시
         showSidebar()
+
+        // 자동 업데이트 확인
+        if updateManager.autoCheckEnabled {
+            Task {
+                try? await updateManager.checkForUpdate()
+                if updateManager.isUpdateAvailable {
+                    await showUpdateAlert()
+                }
+            }
+        }
     }
 
     private func setupNotifications() {
@@ -210,12 +221,65 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showStatusMenu() {
         let menu = NSMenu()
+
+        // 업데이트 확인 메뉴
+        let updateItem = NSMenuItem(
+            title: "업데이트 확인...",
+            action: #selector(checkForUpdateFromMenu),
+            keyEquivalent: ""
+        )
+        updateItem.target = self
+        menu.addItem(updateItem)
+
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+
         statusItem?.menu = menu
         statusItem?.button?.performClick(nil)
         DispatchQueue.main.async { [weak self] in
             self?.statusItem?.menu = nil
         }
+    }
+
+    @objc private func checkForUpdateFromMenu() {
+        Task {
+            try? await updateManager.checkForUpdate()
+            if updateManager.isUpdateAvailable {
+                await showUpdateAlert()
+            } else {
+                // 업데이트 없음 알림
+                let alert = NSAlert()
+                alert.messageText = "최신 버전입니다"
+                alert.informativeText = "현재 DOUGLAS의 최신 버전을 사용 중입니다."
+                alert.alertStyle = .informational
+                alert.addButton(withTitle: "확인")
+                alert.runModal()
+            }
+        }
+    }
+
+    /// 업데이트 알림 윈도우 표시
+    private func showUpdateAlert() async {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "소프트웨어 업데이트"
+        window.center()
+
+        let updateView = UpdateAlertView(onDismiss: { [weak window] in
+            window?.close()
+        })
+        .environmentObject(updateManager)
+        .environmentObject(themeManager)
+        .environment(\.colorPalette, themeManager.currentPalette)
+
+        window.contentView = NSHostingView(rootView: updateView)
+        window.level = .floating
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     // MARK: - 사이드바 핫키 (Cmd+Shift+E)
@@ -445,6 +509,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .environmentObject(roomManager)
             .environmentObject(themeManager)
             .environmentObject(pluginManager)
+            .environmentObject(updateManager)
 
         let hostingView = ClickThroughHostingView(rootView: sidebarView)
         sidebarPanel.contentView = hostingView

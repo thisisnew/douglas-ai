@@ -658,6 +658,8 @@ struct PlanCard: View {
     @State private var popoverText: String = ""
     @State private var popoverIsNew: Bool = false // true면 신규 추가 모드
     @State private var popoverInsertAfter: Int = 0 // 신규 추가 시 삽입 위치
+    // 진행 중 단계 애니메이션
+    @State private var isPulsing = false
 
     private var isEditing: Bool {
         if case .editing = mode { return true }
@@ -763,6 +765,22 @@ struct PlanCard: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(stepRowBackground(step: step))
         )
+        .overlay(alignment: .leading) {
+            // 진행 중 단계 좌측 강조 바
+            if step.status == .inProgress {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(
+                        LinearGradient(
+                            colors: [.orange.opacity(0.9), .orange.opacity(0.5)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .frame(width: 3)
+                    .padding(.vertical, 2)
+                    .shadow(color: .orange.opacity(0.4), radius: 3, x: 0, y: 0)
+            }
+        }
         .contentShape(Rectangle())
         .onTapGesture {
             handleStepTap(index: index, step: step)
@@ -931,7 +949,7 @@ struct PlanCard: View {
     }
 
     private func stepRowBackground(step: RoomStep) -> Color {
-        return step.status == .inProgress ? Color.purple.opacity(0.06) : Color.clear
+        return step.status == .inProgress ? Color.orange.opacity(0.12) : Color.clear
     }
 
     private var completedStepCount: Int {
@@ -954,7 +972,12 @@ struct PlanCard: View {
         case .inProgress:
             Image(systemName: "play.circle.fill")
                 .font(.system(size: 11))
-                .foregroundColor(.orange.opacity(0.7))
+                .foregroundColor(.orange)
+                .scaleEffect(isPulsing ? 1.15 : 1.0)
+                .opacity(isPulsing ? 1.0 : 0.7)
+                .shadow(color: .orange.opacity(isPulsing ? 0.6 : 0), radius: isPulsing ? 4 : 0)
+                .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
+                .onAppear { isPulsing = true }
         case .failed:
             Image(systemName: "xmark.circle.fill")
                 .font(.system(size: 11))
@@ -994,6 +1017,7 @@ struct DiscussionProgressBar: View {
     let room: Room
     @EnvironmentObject var roomManager: RoomManager
     @EnvironmentObject var agentStore: AgentStore
+    @State private var isPulsing = false
 
     /// 표시할 단계 (intake/intent 제외, needsPlan이면 .plan 동적 삽입)
     private var visiblePhases: [WorkflowPhase] {
@@ -1086,7 +1110,12 @@ struct DiscussionProgressBar: View {
         } else if phase == room.workflowState.currentPhase {
             Image(systemName: "play.circle.fill")
                 .font(.system(size: 9))
-                .foregroundColor(.orange.opacity(0.7))
+                .foregroundColor(.orange)
+                .scaleEffect(isPulsing ? 1.2 : 1.0)
+                .opacity(isPulsing ? 1.0 : 0.7)
+                .shadow(color: .orange.opacity(isPulsing ? 0.5 : 0), radius: isPulsing ? 3 : 0)
+                .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
+                .onAppear { isPulsing = true }
         } else {
             Image(systemName: "circle")
                 .font(.system(size: 9))

@@ -13,9 +13,9 @@ description: 구현 (브랜치 생성 + 코드 작성)
 ### 1. 브랜치 생성 (자동)
 
 ```bash
-# main에서 pr 브랜치 생성
-git checkout main
-git pull origin main
+# develop에서 pr 브랜치 생성
+git checkout develop
+git pull origin develop
 git checkout -b pr/IBS-{번호}
 
 # pr에서 feature 브랜치 생성

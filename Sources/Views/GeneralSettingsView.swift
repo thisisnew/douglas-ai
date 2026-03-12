@@ -1,12 +1,15 @@
 import SwiftUI
 import AppKit
 
-/// 일반 설정 — 문서 저장 경로 등
+/// 일반 설정 — 문서 저장 경로, 업데이트 등
 struct GeneralSettingsView: View {
     var isEmbedded = false
 
     @Environment(\.colorPalette) private var palette
+    @EnvironmentObject private var updateManager: UpdateManager
     @State private var documentSavePath: String = UserDefaults.standard.string(forKey: "documentSaveDirectory") ?? ""
+    @State private var showingUpdateAlert = false
+    @State private var showNoUpdateToast = false
 
     var body: some View {
         ScrollView {
@@ -19,10 +22,28 @@ struct GeneralSettingsView: View {
 
                 // 문서 저장 경로
                 documentSaveSection
+
+                // 소프트웨어 업데이트
+                updateSection
             }
             .padding(isEmbedded ? 24 : 16)
         }
         .frame(maxWidth: isEmbedded ? .infinity : nil, maxHeight: isEmbedded ? .infinity : nil)
+        .sheet(isPresented: $showingUpdateAlert) {
+            UpdateAlertView(onDismiss: { showingUpdateAlert = false })
+                .environmentObject(updateManager)
+        }
+        .overlay(alignment: .top) {
+            if showNoUpdateToast {
+                noUpdateToast
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            withAnimation { showNoUpdateToast = false }
+                        }
+                    }
+            }
+        }
     }
 
     // MARK: - 문서 저장 경로
@@ -134,5 +155,81 @@ struct GeneralSettingsView: View {
         ) {
             UserDefaults.standard.set(bookmarkData, forKey: "documentSaveDirectoryBookmark")
         }
+    }
+
+    // MARK: - 소프트웨어 업데이트
+
+    private var updateSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("소프트웨어 업데이트", systemImage: "arrow.triangle.2.circlepath.circle.fill")
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundColor(palette.textPrimary)
+
+            Toggle("앱 시작 시 자동으로 업데이트 확인", isOn: $updateManager.autoCheckEnabled)
+                .font(.system(size: 12))
+                .foregroundColor(palette.textPrimary)
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
+            HStack(spacing: 8) {
+                Button {
+                    Task {
+                        try? await updateManager.checkForUpdate()
+                        if updateManager.isUpdateAvailable {
+                            showingUpdateAlert = true
+                        } else if updateManager.lastError == nil {
+                            withAnimation { showNoUpdateToast = true }
+                        }
+                    }
+                } label: {
+                    if updateManager.isChecking {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Label("지금 확인", systemImage: "arrow.clockwise")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(updateManager.isChecking)
+
+                if let error = updateManager.lastError {
+                    Text(error)
+                        .font(.system(size: 11))
+                        .foregroundColor(.red)
+                        .lineLimit(1)
+                }
+            }
+
+            Text("현재 버전: \(updateManager.appVersion)")
+                .font(.system(size: 11))
+                .foregroundColor(palette.textSecondary)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(palette.surfaceSecondary.opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1)
+        )
+    }
+
+    private var noUpdateToast: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundColor(.green)
+            Text("최신 버전입니다")
+                .font(.system(size: 13, weight: .medium))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(
+            Capsule()
+                .fill(palette.background)
+                .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+        )
+        .padding(.top, 8)
     }
 }

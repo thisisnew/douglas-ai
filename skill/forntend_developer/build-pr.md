@@ -19,10 +19,6 @@ npm run serve
 ```bash
 git add .
 git commit -m "{prefix}: [IBS-{번호}] {설명}
-
-Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>"
 ```
 
 ### 3. PR 생성 (자동)
@@ -45,7 +41,6 @@ gh pr create \
 - [ ] 단위 테스트 통과
 - [ ] 빌드 성공
 
-Generated with [Claude Code](https://claude.com/claude-code)
 EOF
 )"
 ```
@@ -66,8 +61,4 @@ EOF
 
 ```
 {prefix}: [IBS-{번호}] {설명}
-
-Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>
 ```
