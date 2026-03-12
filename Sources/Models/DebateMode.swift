@@ -8,4 +8,13 @@ enum DebateMode: String, Codable, CaseIterable {
     case dialectic      // 대립: 겹치는 영역에서 트레이드오프 탐색
     case collaborative  // 종합: 보완적 영역에서 연결점·갭 발견
     case coordination   // 조율: 구현 세부사항 정렬
+
+    /// 모드별 최대 토론 라운드 수 (WORKFLOW_SPEC §10.1)
+    var maxRounds: Int {
+        switch self {
+        case .dialectic:    return 3  // 대립은 빠르게 수렴해야
+        case .collaborative: return 2  // 종합은 1-2회면 충분
+        case .coordination:  return 2  // 조율은 간결해야
+        }
+    }
 }

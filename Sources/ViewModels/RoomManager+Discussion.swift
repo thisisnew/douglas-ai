@@ -266,8 +266,18 @@ extension RoomManager {
     func executeDiscussion(roomID: UUID, topic: String) async {
         guard rooms.first(where: { $0.id == roomID }) != nil else { return }
 
+        // maxRounds: DebateMode별 상한 적용 (WORKFLOW_SPEC §10.1)
+        let maxRounds: Int
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            let mode = rooms[i].discussion.debateMode
+            maxRounds = mode?.maxRounds ?? 2
+            rooms[i].discussion.maxRounds = maxRounds
+        } else {
+            maxRounds = 2
+        }
+
         var round = 0
-        while true {
+        while round < maxRounds {
             guard !Task.isCancelled,
                   rooms.first(where: { $0.id == roomID })?.isActive == true else { break }
 
@@ -287,8 +297,9 @@ extension RoomManager {
             let agentIDs = executingAgentIDs(in: roomID)
             guard !agentIDs.isEmpty else { break }
 
-            // 첫 라운드는 병렬 (히스토리 스냅샷 기준), 이후는 순차 (이전 발언 참고)
-            if round == 0 && agentIDs.count > 1 {
+            // 모든 라운드에서 에이전트 발언을 병렬 실행 (히스토리 스냅샷 기준)
+            // 같은 라운드 내 다른 에이전트의 발언을 참고할 필요 없으므로 병렬 안전
+            if agentIDs.count > 1 {
                 let frozenHistory = buildDiscussionHistory(roomID: roomID, currentAgentName: nil)
                     .map { msg in
                         ConversationMessage(role: msg.role, content: msg.content,
@@ -372,6 +383,14 @@ extension RoomManager {
 
             if feedback.isEmpty {
                 // "진행" → 토론 종료, 브리핑으로
+                break
+            } else if round + 1 >= maxRounds {
+                // 최대 라운드 도달 — 사용자 피드백은 브리핑에 반영되도록 저장
+                let maxRoundMsg = ChatMessage(
+                    role: .system,
+                    content: "최대 토론 라운드(\(maxRounds)회)에 도달했습니다. 종합 단계로 넘어갑니다."
+                )
+                appendMessage(maxRoundMsg, to: roomID)
                 break
             } else {
                 // 사용자 피드백 → answerUserQuestion에서 이미 appendMessage 됨
