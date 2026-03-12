@@ -11,11 +11,18 @@ extension RoomManager {
 
     /// 방의 활성 규칙 기반으로 에이전트 시스템 프롬프트 생성 (캐시 적용)
     func systemPrompt(for agent: Agent, roomID: UUID) -> String {
-        let activeRuleIDs = rooms.first(where: { $0.id == roomID })?.workflowState.activeRuleIDs
+        let room = rooms.first(where: { $0.id == roomID })
+        let activeRuleIDs = room?.workflowState.activeRuleIDs
         if let cached = systemPromptCache.get(agentID: agent.id, activeRuleIDs: activeRuleIDs) {
             return cached
         }
-        let prompt = agent.resolvedSystemPrompt(activeRuleIDs: activeRuleIDs)
+        var prompt = agent.resolvedSystemPrompt(activeRuleIDs: activeRuleIDs)
+
+        // WorkflowPosition 지시 주입
+        if let position = room?.agentPositions[agent.id.uuidString] {
+            prompt += "\n\n[포지션] 이번 작업에서 당신의 포지션: **\(position.displayName)** (\(position.rawValue)). 이 포지션에 맞는 관점과 전문성으로 발언하세요."
+        }
+
         systemPromptCache.set(prompt, agentID: agent.id, activeRuleIDs: activeRuleIDs)
         return prompt
     }
@@ -838,8 +845,10 @@ extension RoomManager {
             agentRoster = "(없음)"
         } else {
             agentRoster = subAgents.map { agent in
-                let tags = agent.skillTags.isEmpty ? "" : " (전문: \(agent.skillTags.joined(separator: ", ")))"
-                return "- \(agent.name)\(tags)"
+                let tags = agent.skillTags.isEmpty ? "" : " [전문: \(agent.skillTags.joined(separator: ", "))]"
+                let modes = agent.workModes.isEmpty ? "" : " [업무: \(agent.workModes.map(\.displayName).joined(separator: ", "))]"
+                let styles = agent.outputStyles.isEmpty ? "" : " [산출물: \(agent.outputStyles.map(\.displayName).joined(separator: ", "))]"
+                return "- \(agent.name)\(tags)\(modes)\(styles)"
             }.joined(separator: "\n")
         }
 
@@ -915,9 +924,11 @@ extension RoomManager {
         반드시 아래 형식으로 산출물을 생성하세요:
 
         ```artifact:role_requirements title="역할 요구사항"
-        - [필수] 역할이름: 이 역할이 필요한 이유
-        - [선택] 역할이름: 이 역할이 필요한 이유
+        - [필수] 역할이름 (position=implementer): 이 역할이 필요한 이유
+        - [선택] 역할이름 (position=reviewer): 이 역할이 필요한 이유
         ```
+
+        position은 다음 중 선택: architect, planner, implementer, writer, translator, reviewer, tester, auditor, researcher, analyst, coordinator, advisor
 
         주의:
         - 위 에이전트 목록에서 **작업과 직접 관련된** 에이전트가 있으면 그 이름을 정확히 사용하세요.
@@ -1113,6 +1124,13 @@ extension RoomManager {
                    let room = rooms.first(where: { $0.id == roomID }),
                    !room.assignedAgentIDs.contains(agentID) {
                     addAgent(agentID, to: roomID, silent: true)
+                }
+            }
+
+            // 3.2) 매칭된 에이전트의 WorkflowPosition 저장
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                for req in matched where req.matchedAgentID != nil && req.position != nil {
+                    rooms[i].agentPositions[req.matchedAgentID!.uuidString] = req.position!
                 }
             }
 

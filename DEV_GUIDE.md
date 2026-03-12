@@ -97,10 +97,23 @@ DOUGLAS/
 - 레거시 별칭: `template(for:)`에서 `"jira_analyst"` → `requirementsAnalyst`, `"qa_engineer"` → `qaTestAutomation` 매핑
 - 빌트인 9종: requirements_analyst, backend_dev, frontend_dev, qa_test_automation, qa_exploratory, qa_security, qa_code_review, tech_writer, devops_engineer
 
-### AgentMatcher 도메인 키워드 블록리스트
-- `AgentMatcher.domainKeywords`에 도메인 키워드 목록 관리 (백엔드, 프론트엔드, 인프라 등)
+### AgentMatcher 매칭 시스템
+- **3-tier 가중치**: Tier1(skillTags×5) + Tier2(workModes+OutputStyle+PositionBonus×2) + Tier3(keyword+semantic×3)
+- **containsWholeWord**: ≤3자 키워드("qa","ai")의 부분 문자열 false positive 방지 (Tier1, Tier3 양쪽 적용)
+- **동의어 30+그룹**: 기존 10 + 플랫폼/언어별(ios/android/react/python 등) + 비개발 직군(마케팅/법무/CS) + 기술 영역(아키텍처/성능)
+- **genericSuffixes 25+**: 기존 14 + 리더/시니어/주니어/컨설턴트/lead/senior 등
+- **empty skillTags 상한 0.75**: 태그 미등록 에이전트는 Tier2+3만으로 재계산 후 0.75 cap
+- **OutputStyle 보너스**: TaskBrief.outputType ↔ agent.outputStyles 교차 시 최종 confidence +0.03
+- **WorkflowPosition (12종)**: architect/planner/implementer/writer/translator/reviewer/tester/auditor/researcher/analyst/coordinator/advisor
+- **Agent.goodPositions**: workModes + persona 키워드에서 자동 추론 (computed property)
+- **PositionTemplate**: intent별 필요 포지션 슬롯 (task→implementer+reviewer, complex→architect+implementer+reviewer 등)
+- **position 보너스**: PositionTemplate 교차 시 Tier2 +0.25, LLM position 직접 매칭 시 +0.3
+- **agentRoster 확장**: `- 이름 [전문:tags] [업무:workModes] [산출물:outputStyles]`
+- **position 파싱**: LLM 출력 `(position=implementer)` → RoleRequirement.position → matchByTags 전달
+- **포지션 프롬프트 주입**: Room.agentPositions에 저장, systemPrompt에 포지션 지시 자동 주입
+- `AgentMatcher.domainKeywords`에 도메인 키워드 블록리스트 (백엔드, 프론트엔드, 인프라 등)
 - `room.documentType`이 설정되면 역할명에서 도메인 키워드를 제거하여 도메인 개발자 대신 문서 전문가 매칭
-- `DocumentType.preferredKeywords`로 문서 유형별 선호 키워드 보너스 (+2) 적용
+- `DocumentType.preferredKeywords`로 문서 유형별 선호 키워드 보너스 적용
 - `documentType == nil`이면 기존 동작 유지 (하위호환)
 
 ### 문서화 요청 감지 (DocumentRequestDetector)
@@ -159,9 +172,10 @@ DOUGLAS/
 ### Plan C: 에이전트 카드 + 6단계 워크플로우
 
 **에이전트 카드 필드** (`Agent.swift`):
-- `skillTags: [String]` — 매칭 시 가장 강한 키워드 신호 (AgentMatcher weight 4)
-- `workModes: Set<WorkMode>` — plan/create/execute/review/research
-- `outputStyles: Set<OutputStyle>` — code/document/data/communication/review/translation/plan
+- `skillTags: [String]` — 매칭 시 가장 강한 키워드 신호 (Tier 1: weight 5)
+- `workModes: Set<WorkMode>` — plan/create/execute/review/research (Tier 2: weight 2)
+- `outputStyles: Set<OutputStyle>` — code/document/data/communication/review/translation/plan (Tier 2 보너스 +0.03)
+- `goodPositions: Set<WorkflowPosition>` — workModes + persona 키워드에서 자동 추론 (12종, computed property)
 - `actionPermissions: Set<ActionScope>` — 7종 (비어있으면 모두 허용 — 역호환)
 - `restrictions: Set<AgentRestriction>` — 7종 (draftOnly, noCodeExec, noExternalSend 등)
 

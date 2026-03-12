@@ -26,7 +26,8 @@ enum AgentMatcher {
                 excluding: usedAgentIDs,
                 intent: intent,
                 documentType: documentType,
-                taskBrief: taskBrief
+                taskBrief: taskBrief,
+                position: results[i].position
             )
 
             results[i].confidence = confidence
@@ -87,11 +88,24 @@ enum AgentMatcher {
             let remaining = String(trimmed[bracketEnd.upperBound...])
 
             let parts = remaining.split(separator: ":", maxSplits: 1)
-            let roleName = String(parts.first ?? "").trimmingCharacters(in: .whitespaces)
+            var roleNameRaw = String(parts.first ?? "").trimmingCharacters(in: .whitespaces)
             let reason = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespaces) : ""
 
-            guard !roleName.isEmpty else { return nil }
-            return RoleRequirement(roleName: roleName, reason: reason, priority: priority)
+            // position 파싱: "역할이름 (position=implementer)" → position 추출 + 역할이름에서 제거
+            var position: WorkflowPosition?
+            if let posRange = roleNameRaw.range(of: #"\s*\(position=(\w+)\)"#, options: .regularExpression) {
+                let posMatch = roleNameRaw[posRange]
+                if let eqRange = posMatch.range(of: "="),
+                   let closeRange = posMatch.range(of: ")") {
+                    let posValue = String(posMatch[eqRange.upperBound..<closeRange.lowerBound])
+                    position = WorkflowPosition(rawValue: posValue)
+                }
+                roleNameRaw = roleNameRaw.replacingCharacters(in: posRange, with: "")
+                    .trimmingCharacters(in: .whitespaces)
+            }
+
+            guard !roleNameRaw.isEmpty else { return nil }
+            return RoleRequirement(roleName: roleNameRaw, reason: reason, priority: priority, position: position)
         }
     }
 
@@ -99,16 +113,39 @@ enum AgentMatcher {
 
     /// 약어/영문/한국어 동의어 그룹 — 같은 배열 내 키워드는 동의어
     private static let synonymGroups: [[String]] = [
+        // 기존 10그룹
         ["fe", "프론트엔드", "프론트", "frontend", "front-end"],
         ["be", "백엔드", "백앤드", "backend", "back-end", "서버"],
         ["devops", "인프라", "sre", "클라우드", "cloud", "배포"],
         ["qa", "테스트", "test", "품질", "quality"],
         ["pm", "기획", "기획자", "product", "프로덕트"],
         ["ux", "ui", "디자인", "design", "디자이너"],
-        ["ml", "ai", "머신러닝", "딥러닝", "데이터"],
+        ["ml", "머신러닝", "딥러닝", "데이터사이언스"],
         ["security", "보안", "인증", "auth"],
         ["dba", "데이터베이스", "db", "database"],
         ["문서", "docs", "documentation", "테크니컬라이팅"],
+        // 플랫폼/언어별
+        ["ios", "아이오에스", "swift", "swiftui", "uikit", "애플"],
+        ["android", "안드로이드", "kotlin", "코틀린"],
+        ["react", "리액트", "nextjs", "next.js"],
+        ["vue", "뷰", "vuejs", "nuxt"],
+        ["node", "nodejs", "노드", "express", "nestjs"],
+        ["python", "파이썬", "django", "flask", "fastapi"],
+        ["go", "golang", "고랭"],
+        ["rust", "러스트"],
+        ["java", "자바", "spring", "스프링", "springboot"],
+        // 비개발 직군
+        ["마케팅", "marketing", "growth", "그로스", "seo"],
+        ["법무", "법률", "legal", "컴플라이언스", "compliance"],
+        ["cs", "고객지원", "customer support", "고객"],
+        ["데이터분석", "analytics", "bi", "태블로", "tableau"],
+        ["콘텐츠", "content", "카피라이팅", "copywriting", "에디터"],
+        ["번역", "translation", "로컬라이제이션", "localization", "i18n"],
+        // 기술 영역
+        ["아키텍처", "architecture", "설계", "시스템설계"],
+        ["네트워크", "network", "tcp", "http"],
+        ["성능", "performance", "최적화", "optimization", "튜닝"],
+        ["테크니컬라이터", "technical writer", "기술문서", "api문서"],
     ]
 
     /// 키워드를 동의어로 확장 (원본 포함)
@@ -135,8 +172,21 @@ enum AgentMatcher {
     /// 매칭에서 제외할 범용 접미사 (false positive 방지)
     private static let genericSuffixes: Set<String> = [
         "전문가", "개발자", "엔지니어", "담당자", "관리자", "분석가", "설계자", "디자이너",
-        "expert", "developer", "engineer", "manager", "analyst", "designer"
+        "리더", "시니어", "주니어", "팀장", "책임자", "연구원", "컨설턴트",
+        "expert", "developer", "engineer", "manager", "analyst", "designer",
+        "lead", "senior", "junior", "consultant", "architect", "specialist",
     ]
+
+    /// 짧은 키워드(≤3자)의 부분 문자열 false positive 방지
+    private static func containsWholeWord(_ text: String, keyword: String) -> Bool {
+        if keyword.count <= 3 {
+            // 짧은 키워드: 정확 매칭 또는 단어 경계 체크
+            if text == keyword { return true }
+            let pattern = "(?:^|[^a-zA-Z가-힣])\(NSRegularExpression.escapedPattern(for: keyword))(?:$|[^a-zA-Z가-힣])"
+            return text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+        }
+        return text.contains(keyword) || keyword.contains(text)
+    }
 
     /// 도메인 키워드 (documentation intent에서 역할명 키워드에서 제외)
     private static let domainKeywords: Set<String> = [
@@ -153,7 +203,8 @@ enum AgentMatcher {
         excluding used: Set<UUID>,
         intent: WorkflowIntent? = nil,
         documentType: DocumentType? = nil,
-        taskBrief: TaskBrief? = nil
+        taskBrief: TaskBrief? = nil,
+        position: WorkflowPosition? = nil
     ) -> (Agent?, Double) {
         var keywords = roleName.lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
@@ -188,12 +239,12 @@ enum AgentMatcher {
                 let lowerTags = agent.skillTags.map { $0.lowercased() }
                 var tagHits = 0
                 for keyword in keywords {
-                    if lowerTags.contains(where: { $0.contains(keyword) || keyword.contains($0) }) {
+                    if lowerTags.contains(where: { containsWholeWord($0, keyword: keyword) }) {
                         tagHits += 1
                     }
                 }
                 for pkw in preferredKWs {
-                    if lowerTags.contains(where: { $0.contains(pkw.lowercased()) }) {
+                    if lowerTags.contains(where: { containsWholeWord($0, keyword: pkw.lowercased()) }) {
                         tagHits += 1
                     }
                 }
@@ -254,6 +305,22 @@ enum AgentMatcher {
                 }
             }
 
+            // PositionTemplate 보너스: intent별 필요 포지션과 agent.goodPositions 교차
+            if let intent = intent {
+                let neededPositions = PositionTemplate.slots(for: intent).map { $0.position }
+                let agentPositions = agent.goodPositions
+                let positionOverlap = neededPositions.filter { agentPositions.contains($0) }
+                if !positionOverlap.isEmpty {
+                    let positionBonus = Double(positionOverlap.count) / Double(max(neededPositions.count, 1)) * 0.25
+                    tier2Score = min(tier2Score + positionBonus, 1.0)
+                }
+            }
+
+            // position 직접 매칭 보너스: LLM이 지정한 position과 agent.goodPositions 교차
+            if let pos = position, agent.goodPositions.contains(pos) {
+                tier2Score = min(tier2Score + 0.3, 1.0)
+            }
+
             // --- Tier 3: 키워드 + 시맨틱 폴백 (가중치 2) ---
             var tier3Score: Double = 0
             if hasKeywords {
@@ -263,28 +330,31 @@ enum AgentMatcher {
 
                 var kwHits = 0
                 for keyword in keywords {
-                    if lowerName.contains(keyword) { kwHits += 2 }
-                    if lowerPersona.contains(keyword) { kwHits += 1 }
-                    if lowerRules.contains(keyword) { kwHits += 1 }
+                    if containsWholeWord(lowerName, keyword: keyword) { kwHits += 2 }
+                    if containsWholeWord(lowerPersona, keyword: keyword) { kwHits += 1 }
+                    if containsWholeWord(lowerRules, keyword: keyword) { kwHits += 1 }
                 }
                 for pkw in preferredKWs {
                     let lower = pkw.lowercased()
-                    if lowerName.contains(lower) { kwHits += 1 }
-                    if lowerPersona.contains(lower) { kwHits += 1 }
+                    if containsWholeWord(lowerName, keyword: lower) { kwHits += 1 }
+                    if containsWholeWord(lowerPersona, keyword: lower) { kwHits += 1 }
                 }
 
                 // 개선안 G: TaskBrief.goal 키워드 → 에이전트 매칭 보너스
-                // goal의 핵심 키워드가 에이전트 name/persona에 있으면 추가 점수
+                // goal의 핵심 키워드가 에이전트 name/persona에 있으면 추가 점수 (상한 5개)
+                var goalKeywordCount = 0
                 if let goal = taskBrief?.goal, !goal.isEmpty {
-                    let goalKeywords = extractSemanticKeywords(from: goal)
+                    let goalKeywords = Array(extractSemanticKeywords(from: goal)
                         .filter { $0.count >= 2 && !genericSuffixes.contains($0) }
+                        .prefix(5))
+                    goalKeywordCount = goalKeywords.count
                     for gkw in goalKeywords {
-                        if lowerName.contains(gkw) { kwHits += 1 }
-                        if lowerPersona.contains(gkw) { kwHits += 1 }
+                        if containsWholeWord(lowerName, keyword: gkw) { kwHits += 1 }
+                        if containsWholeWord(lowerPersona, keyword: gkw) { kwHits += 1 }
                     }
                 }
 
-                let maxKw = max((originalKeywordCount + preferredKWs.count) * 4, 1)
+                let maxKw = max((originalKeywordCount + preferredKWs.count) * 4 + goalKeywordCount * 2, 1)
                 let kwScore = min(Double(kwHits) / Double(maxKw), 1.0)
 
                 if useSemanticScoring {
@@ -307,13 +377,26 @@ enum AgentMatcher {
 
             // --- 가중 합산 → 0~1 정규화 ---
             let totalWeight = tier1Weight + tier2Weight + tier3Weight
-            let confidence = (tier1Score * tier1Weight + tier2Score * tier2Weight + tier3Score * tier3Weight) / totalWeight
+            var confidence = (tier1Score * tier1Weight + tier2Score * tier2Weight + tier3Score * tier3Weight) / totalWeight
+
+            // OutputStyle 보너스: TaskBrief.outputType과 agent.outputStyles 교차 시 최종 점수에 가산
+            if let outputType = taskBrief?.outputType, !agent.outputStyles.isEmpty {
+                let outputStyleMapping: [OutputType: OutputStyle] = [
+                    .code: .code, .document: .document, .data: .data,
+                    .message: .communication, .analysis: .data, .design: .plan,
+                ]
+                if let mappedStyle = outputStyleMapping[outputType],
+                   agent.outputStyles.contains(mappedStyle) {
+                    confidence = min(confidence + 0.03, 1.0)
+                }
+            }
 
             // skillTags가 비어있으면 Tier 1 무효 → Tier 2+3만으로 재계산
             let adjustedConfidence: Double
             if agent.skillTags.isEmpty {
                 let fallbackWeight = tier2Weight + tier3Weight
-                adjustedConfidence = (tier2Score * tier2Weight + tier3Score * tier3Weight) / fallbackWeight
+                let fallbackConfidence = (tier2Score * tier2Weight + tier3Score * tier3Weight) / fallbackWeight
+                adjustedConfidence = min(fallbackConfidence, 0.75)  // 태그 없는 에이전트 상한
             } else {
                 adjustedConfidence = confidence
             }

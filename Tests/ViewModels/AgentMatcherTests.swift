@@ -12,7 +12,8 @@ struct AgentMatcherTests {
         persona: String,
         workingRules: WorkingRulesSource? = nil,
         skillTags: [String] = [],
-        workModes: Set<WorkMode> = []
+        workModes: Set<WorkMode> = [],
+        outputStyles: Set<OutputStyle> = []
     ) -> Agent {
         var agent = Agent(
             name: name,
@@ -23,6 +24,7 @@ struct AgentMatcherTests {
             skillTags: skillTags
         )
         agent.workModes = workModes
+        agent.outputStyles = outputStyles
         return agent
     }
 
@@ -512,5 +514,315 @@ struct AgentMatcherTests {
             taskBrief: brief
         )
         #expect(matched?.id == researcher.id)
+    }
+
+    // MARK: - Phase 3: position 파싱
+
+    @Test("parseRoleRequirements — position 파싱")
+    func parseWithPosition() {
+        let content = """
+        - [필수] 백엔드 개발자 (position=implementer): API 서버 구축
+        - [선택] QA 엔지니어 (position=tester): 테스트 계획
+        """
+        let results = AgentMatcher.parseRoleRequirements(from: content)
+        #expect(results.count == 2)
+        #expect(results[0].roleName == "백엔드 개발자")
+        #expect(results[0].position == .implementer)
+        #expect(results[1].roleName == "QA 엔지니어")
+        #expect(results[1].position == .tester)
+    }
+
+    @Test("parseRoleRequirements — position 없으면 nil")
+    func parseWithoutPosition() {
+        let content = "- [필수] 백엔드 개발자: API 서버 구축"
+        let results = AgentMatcher.parseRoleRequirements(from: content)
+        #expect(results[0].position == nil)
+    }
+
+    @Test("parseRoleRequirements — 잘못된 position은 nil")
+    func parseInvalidPosition() {
+        let content = "- [필수] 백엔드 개발자 (position=unknown): API 서버 구축"
+        let results = AgentMatcher.parseRoleRequirements(from: content)
+        #expect(results[0].position == nil)
+        #expect(results[0].roleName == "백엔드 개발자")
+    }
+
+    @Test("matchByTags — position 파라미터로 직접 매칭 보너스")
+    func positionDirectBonus() {
+        // 같은 태그를 가진 두 에이전트 중 position 일치하는 쪽이 높은 점수
+        let implementer = makeAgent(
+            name: "백엔드 A",
+            persona: "서버 구현 전문",
+            skillTags: ["백엔드"],
+            workModes: [.create, .execute]  // goodPositions: implementer
+        )
+        let reviewer = makeAgent(
+            name: "백엔드 B",
+            persona: "코드 리뷰 전문",
+            skillTags: ["백엔드"],
+            workModes: [.review]  // goodPositions: reviewer
+        )
+        let (matchedImpl, confImpl) = AgentMatcher.matchByTags(
+            roleName: "백엔드",
+            agents: [implementer],
+            excluding: [],
+            position: .implementer
+        )
+        let (matchedRev, confRev) = AgentMatcher.matchByTags(
+            roleName: "백엔드",
+            agents: [reviewer],
+            excluding: [],
+            position: .implementer
+        )
+        #expect(confImpl > confRev)
+    }
+
+    // MARK: - Phase 1: 스코어링 보정 + 어휘 사전 확장
+
+    @Test("containsWholeWord — 'qa'가 'squad'에 매칭 안 됨")
+    func wholeWordQaNotInSquad() {
+        // "qa" 키워드로 "squad" 태그를 가진 에이전트가 false positive 매칭되면 안 됨
+        let agent = makeAgent(
+            name: "스쿼드 리더",
+            persona: "팀 조율",
+            skillTags: ["squad", "management"]
+        )
+        let (matched, confidence) = AgentMatcher.matchByTags(
+            roleName: "QA 전문가",
+            agents: [agent],
+            excluding: []
+        )
+        // "qa"가 "squad"에 부분 매칭되면 안 됨 → confidence가 0.5 미만이어야
+        #expect(confidence < 0.5)
+    }
+
+    @Test("containsWholeWord — 'ai'가 'main'에 매칭 안 됨")
+    func wholeWordAiNotInMain() {
+        let agent = makeAgent(
+            name: "메인 관리자",
+            persona: "메인 시스템 관리",
+            skillTags: ["main", "system"]
+        )
+        let (matched, confidence) = AgentMatcher.matchByTags(
+            roleName: "AI 전문가",
+            agents: [agent],
+            excluding: []
+        )
+        #expect(confidence < 0.5)
+    }
+
+    @Test("containsWholeWord — 정확 매칭은 여전히 동작")
+    func wholeWordExactMatch() {
+        let agent = makeAgent(
+            name: "QA 전문가",
+            persona: "품질 보증",
+            skillTags: ["qa", "테스트"]
+        )
+        let (matched, confidence) = AgentMatcher.matchByTags(
+            roleName: "QA",
+            agents: [agent],
+            excluding: []
+        )
+        #expect(matched?.id == agent.id)
+        #expect(confidence > 0.3)
+    }
+
+    @Test("empty skillTags — confidence 상한 0.75")
+    func emptySkillTagsCap() {
+        // skillTags 비어있는 에이전트는 0.75 이하여야 함
+        let agent = makeAgent(
+            name: "백엔드 개발자",
+            persona: "백엔드 서버 API 개발 전문",
+            skillTags: [],  // 빈 태그
+            workModes: [.create, .execute]
+        )
+        let (matched, confidence) = AgentMatcher.matchByTags(
+            roleName: "백엔드",
+            agents: [agent],
+            excluding: [],
+            intent: .task
+        )
+        #expect(matched?.id == agent.id)
+        #expect(confidence <= 0.75)
+    }
+
+    @Test("empty skillTags — 태그 있는 에이전트가 항상 우선")
+    func taggedAgentBeatsUntagged() {
+        let tagged = makeAgent(
+            name: "백엔드 개발자",
+            persona: "백엔드 서버 API 개발 전문",
+            skillTags: ["백엔드", "서버", "api"],
+            workModes: [.create, .execute]
+        )
+        let untagged = makeAgent(
+            name: "백엔드 엔지니어",
+            persona: "백엔드 시스템 전문가. 서버 API 설계와 구현.",
+            skillTags: [],
+            workModes: [.create, .execute]
+        )
+        let (matched, _) = AgentMatcher.matchByTags(
+            roleName: "백엔드",
+            agents: [untagged, tagged],  // untagged 먼저
+            excluding: [],
+            intent: .task
+        )
+        #expect(matched?.id == tagged.id)
+    }
+
+    @Test("goal 키워드 상한 — 5개 초과 goal에서 노이즈 제한")
+    func goalKeywordLimit() {
+        // 긴 goal이 있어도 점수가 터무니없이 높아지면 안 됨
+        let agent = makeAgent(
+            name: "백엔드 개발자",
+            persona: "서버 개발",
+            skillTags: ["백엔드", "서버"]
+        )
+        let longGoal = "백엔드 서버 API 개발 데이터베이스 설계 인프라 구축 배포 자동화 모니터링 시스템 보안 감사 성능 최적화 캐시 전략"
+        let brief = TaskBrief(
+            goal: longGoal, constraints: [], successCriteria: [],
+            nonGoals: [], overallRisk: .low, outputType: .code
+        )
+        let (_, confidence) = AgentMatcher.matchByTags(
+            roleName: "백엔드",
+            agents: [agent],
+            excluding: [],
+            intent: .task,
+            taskBrief: brief
+        )
+        // confidence는 여전히 합리적 범위 (1.0 이하)
+        #expect(confidence <= 1.0)
+        #expect(confidence > 0)
+    }
+
+    @Test("OutputStyle — TaskBrief.outputType=code + agent.outputStyles에 .code → 보너스")
+    func outputStyleCodeBonus() {
+        let withStyle = makeAgent(
+            name: "백엔드 A",
+            persona: "서버 개발",
+            skillTags: ["백엔드"],
+            workModes: [.create, .execute],
+            outputStyles: [.code]
+        )
+        let withoutStyle = makeAgent(
+            name: "백엔드 B",
+            persona: "서버 개발",
+            skillTags: ["백엔드"],
+            workModes: [.create, .execute],
+            outputStyles: [.document]  // code 아님
+        )
+        let brief = TaskBrief(
+            goal: "API 구현", constraints: [], successCriteria: [],
+            nonGoals: [], overallRisk: .low, outputType: .code
+        )
+        let (_, confA) = AgentMatcher.matchByTags(
+            roleName: "백엔드",
+            agents: [withStyle],
+            excluding: [],
+            intent: .task,
+            taskBrief: brief
+        )
+        let (_, confB) = AgentMatcher.matchByTags(
+            roleName: "백엔드",
+            agents: [withoutStyle],
+            excluding: [],
+            intent: .task,
+            taskBrief: brief
+        )
+        #expect(confA > confB)
+    }
+
+    @Test("OutputStyle — TaskBrief.outputType=document + agent.outputStyles에 .document → 보너스")
+    func outputStyleDocumentBonus() {
+        let docWriter = makeAgent(
+            name: "문서 작성자",
+            persona: "기술 문서 작성",
+            skillTags: ["문서"],
+            workModes: [.create],
+            outputStyles: [.document]
+        )
+        let coder = makeAgent(
+            name: "개발자",
+            persona: "코드 구현",
+            skillTags: ["문서"],  // 같은 태그로 Tier1 동일하게
+            workModes: [.create],
+            outputStyles: [.code]
+        )
+        let brief = TaskBrief(
+            goal: "기술 문서 작성", constraints: [], successCriteria: [],
+            nonGoals: [], overallRisk: .low, outputType: .document
+        )
+        let (_, confDoc) = AgentMatcher.matchByTags(
+            roleName: "문서",
+            agents: [docWriter],
+            excluding: [],
+            intent: .documentation,
+            taskBrief: brief
+        )
+        let (_, confCode) = AgentMatcher.matchByTags(
+            roleName: "문서",
+            agents: [coder],
+            excluding: [],
+            intent: .documentation,
+            taskBrief: brief
+        )
+        #expect(confDoc > confCode)
+    }
+
+    // MARK: - 동의어 사전 확장
+
+    @Test("expandSynonyms — 'ios' → 'swift', 'swiftui' 포함")
+    func synonymIOS() {
+        let expanded = AgentMatcher.expandSynonyms(["ios"])
+        #expect(expanded.contains("swift"))
+        #expect(expanded.contains("swiftui"))
+    }
+
+    @Test("expandSynonyms — 'react' → '리액트' 포함")
+    func synonymReact() {
+        let expanded = AgentMatcher.expandSynonyms(["react"])
+        #expect(expanded.contains("리액트"))
+    }
+
+    @Test("expandSynonyms — 'python' → '파이썬', 'django' 포함")
+    func synonymPython() {
+        let expanded = AgentMatcher.expandSynonyms(["python"])
+        #expect(expanded.contains("파이썬"))
+        #expect(expanded.contains("django"))
+    }
+
+    @Test("expandSynonyms — 'marketing' → '마케팅' 포함")
+    func synonymMarketing() {
+        let expanded = AgentMatcher.expandSynonyms(["marketing"])
+        #expect(expanded.contains("마케팅"))
+    }
+
+    @Test("expandSynonyms — 'legal' → '법무', '법률' 포함")
+    func synonymLegal() {
+        let expanded = AgentMatcher.expandSynonyms(["legal"])
+        #expect(expanded.contains("법무"))
+        #expect(expanded.contains("법률"))
+    }
+
+    @Test("expandSynonyms — 'android' → '안드로이드', 'kotlin' 포함")
+    func synonymAndroid() {
+        let expanded = AgentMatcher.expandSynonyms(["android"])
+        #expect(expanded.contains("안드로이드"))
+        #expect(expanded.contains("kotlin"))
+    }
+
+    // MARK: - genericSuffixes 확장
+
+    @Test("isGenericSuffix — 기존 + 확장 접미사 인식")
+    func genericSuffixExpanded() {
+        // 기존
+        #expect(AgentMatcher.isGenericSuffix("전문가"))
+        #expect(AgentMatcher.isGenericSuffix("developer"))
+        // 확장
+        #expect(AgentMatcher.isGenericSuffix("리더"))
+        #expect(AgentMatcher.isGenericSuffix("시니어"))
+        #expect(AgentMatcher.isGenericSuffix("컨설턴트"))
+        #expect(AgentMatcher.isGenericSuffix("lead"))
+        #expect(AgentMatcher.isGenericSuffix("senior"))
+        #expect(AgentMatcher.isGenericSuffix("specialist"))
     }
 }

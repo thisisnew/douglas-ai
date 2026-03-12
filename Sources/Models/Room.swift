@@ -471,6 +471,7 @@ struct Room: Identifiable, Codable {
     // Plan C: 새 워크플로우 필드
     var taskBrief: TaskBrief?
     var agentRoles: [String: RuntimeRole]       // agentID.uuidString → RuntimeRole
+    var agentPositions: [String: WorkflowPosition]  // agentID.uuidString → WorkflowPosition (매칭 시 배정)
     // Phase 1: 승인 기록 + 대기 유형
     var approvalHistory: [ApprovalRecord]
     var awaitingType: AwaitingType?
@@ -798,6 +799,7 @@ struct Room: Identifiable, Codable {
         self.workLog = nil
         self.taskBrief = nil
         self.agentRoles = [:]
+        self.agentPositions = [:]
         self.approvalHistory = []
         self.awaitingType = nil
         self.workflowState = WorkflowState()
@@ -815,7 +817,7 @@ struct Room: Identifiable, Codable {
         case id, title, assignedAgentIDs, messages, status, mode, plan
         case timerStartedAt, timerDurationSeconds, buildPhaseMessageOffset, createdAt, completedAt, createdBy
         case currentStepIndex, pendingApprovalStepIndex, pendingAgentSuggestions
-        case workLog, taskBrief, agentRoles
+        case workLog, taskBrief, agentRoles, agentPositions
         case approvalHistory, awaitingType, pendingAgentConfirmationID
         case requests, followUpActions
         // WorkflowState (개별 키 유지 — JSON 호환)
@@ -853,6 +855,7 @@ struct Room: Identifiable, Codable {
         workLog = try container.decodeIfPresent(WorkLog.self, forKey: .workLog)
         taskBrief = try container.decodeIfPresent(TaskBrief.self, forKey: .taskBrief)
         agentRoles = try container.decodeIfPresent([String: RuntimeRole].self, forKey: .agentRoles) ?? [:]
+        agentPositions = try container.decodeIfPresent([String: WorkflowPosition].self, forKey: .agentPositions) ?? [:]
         approvalHistory = try container.decodeIfPresent([ApprovalRecord].self, forKey: .approvalHistory) ?? []
         awaitingType = try container.decodeIfPresent(AwaitingType.self, forKey: .awaitingType)
         pendingAgentConfirmationID = try container.decodeIfPresent(UUID.self, forKey: .pendingAgentConfirmationID)
@@ -941,6 +944,7 @@ struct Room: Identifiable, Codable {
         try container.encodeIfPresent(workLog, forKey: .workLog)
         try container.encodeIfPresent(taskBrief, forKey: .taskBrief)
         if !agentRoles.isEmpty { try container.encode(agentRoles, forKey: .agentRoles) }
+        if !agentPositions.isEmpty { try container.encode(agentPositions, forKey: .agentPositions) }
         if !approvalHistory.isEmpty { try container.encode(approvalHistory, forKey: .approvalHistory) }
         try container.encodeIfPresent(awaitingType, forKey: .awaitingType)
         try container.encodeIfPresent(pendingAgentConfirmationID, forKey: .pendingAgentConfirmationID)

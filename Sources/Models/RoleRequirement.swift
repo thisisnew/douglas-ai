@@ -11,6 +11,7 @@ struct RoleRequirement: Identifiable, Codable {
     var matchedAgentID: UUID?       // 매칭된 에이전트 ID
     var status: MatchStatus
     var confidence: Double          // 매칭 신뢰도 (0.0~1.0) — Plan C
+    var position: WorkflowPosition? // LLM이 지정한 워크플로우 포지션
 
     enum Priority: String, Codable {
         case required    // 필수
@@ -31,7 +32,8 @@ struct RoleRequirement: Identifiable, Codable {
         priority: Priority = .required,
         matchedAgentID: UUID? = nil,
         status: MatchStatus = .pending,
-        confidence: Double = 0
+        confidence: Double = 0,
+        position: WorkflowPosition? = nil
     ) {
         self.id = id
         self.roleName = roleName
@@ -40,5 +42,6 @@ struct RoleRequirement: Identifiable, Codable {
         self.matchedAgentID = matchedAgentID
         self.status = status
         self.confidence = confidence
+        self.position = position
     }
 }

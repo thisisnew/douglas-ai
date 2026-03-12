@@ -70,7 +70,9 @@ DOUGLAS/
 │   │   ├── ProjectPlaybook.swift   # 프로젝트 플레이북 (브랜치 전략, 테스트 정책, 프리셋 3종)
 │   │   ├── IntakeData.swift        # Intake 입력 데이터 (InputSourceType, JiraTicketSummary, asClarifyContextString 중립 컨텍스트)
 │   │   ├── SemanticMatcher.swift  # NLEmbedding 기반 에이전트 의미 유사도 매칭 (한국어+영어 word embedding, 벡터 캐시)
-│   │   ├── RoleRequirement.swift   # Assemble 역할 요구사항 (Priority, MatchStatus)
+│   │   ├── RoleRequirement.swift   # Assemble 역할 요구사항 (Priority, MatchStatus, WorkflowPosition)
+│   │   ├── WorkflowPosition.swift  # 워크플로우 포지션 12종 (architect/planner/implementer/writer/translator/reviewer/tester/auditor/researcher/analyst/coordinator/advisor)
+│   │   ├── PositionTemplate.swift   # Intent별 필요 포지션 슬롯 (WorkflowIntent → [PositionSlot])
 │   │   ├── DependencyChecker.swift  # 의존성 체크 (Node.js, Git, Homebrew)
 │   │   ├── JiraConfig.swift          # Jira Cloud 연동 설정 (도메인, 이메일, API 토큰)
 │   │   ├── ColorPalette.swift       # 테마 색상 팔레트 (48+ 시맨틱 컬러, panelGradient computed property)
@@ -81,7 +83,7 @@ DOUGLAS/
 │   │   ├── PluginTemplate.swift     # 플러그인 빌더 모델 (PluginActionType, HandlerConfig, ScriptGenerator, PluginSlug)
 │   │   ├── ShellEnvironment.swift   # 셸 환경 캐싱 (NVM 경로 1회 스캔, PATH 병합, 실행 파일 탐색)
 │   │   ├── ProcessRunner.swift      # 테스트 가능한 프로세스 실행기 (DI seam)
-│   │   ├── Room.swift               # 프로젝트 방 모델 (+ Plan C: TaskBrief, agentRoles, RiskLevel, OutputType, RuntimeRole)
+│   │   ├── Room.swift               # 프로젝트 방 모델 (+ Plan C: TaskBrief, agentRoles/agentPositions, RiskLevel, OutputType, RuntimeRole, WorkflowPosition)
 │   │   ├── ApprovalRecord.swift     # 승인 기록 모델 (ApprovalType, AwaitingType, ApprovalRecord)
 │   │   ├── WorkflowState.swift     # 워크플로우 진행 상태 값 객체 (intent, phase 추적, activeRuleIDs)
 │   │   ├── ClarifyContext.swift    # 복명복창 컨텍스트 값 객체 (intake, summary, delegation)
@@ -119,7 +121,7 @@ DOUGLAS/
 │   │   ├── RoomManager+Discussion.swift # 빌드/QA 루프 + 토론 실행 (~949줄)
 │   │   ├── StepExecutionEngine.swift  # Build 단계 실행 엔진 (StepStatus 전이, Policy 기반 동작, 계획 승인 후 자동 실행)
 │   │   ├── StepContextBudget.swift    # executeStep context 토큰 예산 (30K 토큰, TokenEstimator 기반) — Step Journal 패턴 도입으로 역할 축소
-│   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (Plan C: 3-tier 가중치 — skillTags×5, workModes×2, keyword+semantic×3, 0-1 정규화 confidence, 임계값 0.7/0.5) + 동의어 사전(expandSynonyms) + TaskBrief.outputType 동적 Tier 2 + TaskBrief.goal 시맨틱 Tier 3 부스트
+│   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (3-tier 가중치 — skillTags×5, workModes×2, keyword+semantic×3) + containsWholeWord(짧은 키워드 false positive 방지) + 동의어 30+그룹 + OutputStyle Tier2 보너스 + WorkflowPosition 보너스(PositionTemplate+직접 매칭) + position 파싱
 │   │   ├── DocumentExporter.swift   # 문서 산출물 파일 저장 (에이전트 생성 파일 탐지 → 고정 경로 자동저장 / NSSavePanel 폴백)
 │   │   ├── ThemeManager.swift       # 테마 관리 (기본값: .cozyGame, UserDefaults 저장, 커스텀 팔레트)
 │   │   └── ToolExecutor.swift       # 도구 호출 루프 + smartSend + 경로 해석/충돌 추적 + 도구 결과 토큰 압축
@@ -1258,8 +1260,10 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
               intake를 의도 확인 전에 실행하여 Jira 데이터를 먼저 fetch
               파일만 업로드(빈 task) 시 작업 의도 질문 후 대기 (2분 타임아웃)
               bare URL(명시적 의도 없음) 시 의도 질문 + Jira 티켓 정보 포함
-② Assemble ── 3-tier 가중치 에이전트 매칭 (Tier1: skillTags×5, Tier2: workModes×2, Tier3: keyword+semantic×3)
-              confidence 0.7↑ 자동, 0.5~0.7 사용자확인, 0.5↓ 제외 + RuntimeRole 사전배정 + 팀 확정 메시지(Role 표시)
+② Assemble ── 3-tier 가중치 에이전트 매칭 (Tier1: skillTags×5, Tier2: workModes+OutputStyle+PositionBonus×2, Tier3: keyword+semantic×3)
+              containsWholeWord(≤3자 키워드 false positive 방지) + 동의어 30+그룹 + empty skillTags 상한 0.75
+              LLM에 agentRoster(name+skillTags+workModes+outputStyles) + position 지시 → `(position=implementer)` 파싱
+              confidence 0.7↑ 자동, 0.5~0.7 사용자확인, 0.5↓ 제외 + WorkflowPosition 저장(Room.agentPositions) + 팀 확정 메시지
 ③ Design ──── **통합 토론 프로토콜**: discussion/task 모두 동일한 토론 수행
               멀티에이전트: 병렬 의견 제시 → 사용자 체크포인트 → **LLM 발언 순서 결정** → 상호 피드백 → 사용자 체크포인트 → DOUGLAS 종합
               Turn 2 순서: `determineTurn2Order()` — light model로 안건·의견 분석 → 핵심 도메인 전문가 선행 (실패 시 원래 순서 폴백)
@@ -1363,7 +1367,8 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
 **에이전트 카드 (Plan C)**:
 - `skillTags: [String]` — 매칭 시 가장 강한 신호 (Tier 1: weight 5)
 - `workModes: Set<WorkMode>` — plan/create/execute/review/research (역할 배정 + 도구 권한 + 매칭 Tier 2)
-- `outputStyles: Set<OutputStyle>` — 레거시 (매칭에서 제거됨, UI 비노출, 모델 필드만 유지)
+- `outputStyles: Set<OutputStyle>` — Tier 2 보너스 (+0.03, TaskBrief.outputType 교차 시)
+- `goodPositions: Set<WorkflowPosition>` — workModes + persona 키워드에서 자동 추론 (computed property, 12종)
 - `actionPermissions: Set<ActionScope>` — workModes에서 자동 추론되는 computed property (비어있으면 모두 허용)
   - plan/research/review → readFiles, readWeb
   - create → + writeFiles
