@@ -25,6 +25,7 @@ final class UtilityWindowManager {
         roomManager: RoomManager? = nil,
         themeManager: ThemeManager? = nil,
         pluginManager: PluginManager? = nil,
+        updateManager: UpdateManager? = nil,
         @ViewBuilder content: () -> Content
     ) {
         // 같은 identifier의 윈도우가 이미 열려 있으면 포커스만
@@ -54,6 +55,9 @@ final class UtilityWindowManager {
         }
         if let pm = pluginManager {
             rootView = AnyView(rootView.environmentObject(pm))
+        }
+        if let um = updateManager {
+            rootView = AnyView(rootView.environmentObject(um))
         }
         if let tm = themeManager {
             rootView = AnyView(
@@ -264,6 +268,7 @@ struct FloatingSidebarView: View {
     @EnvironmentObject var roomManager: RoomManager
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var pluginManager: PluginManager
+    @EnvironmentObject var updateManager: UpdateManager
     @Environment(\.colorPalette) private var palette
 
     @State private var inputText = ""
@@ -1182,7 +1187,7 @@ struct FloatingSidebarView: View {
         UtilityWindowManager.shared.open(title: "설정", identifier: "UnifiedSettings",
             width: DesignTokens.WindowSize.settingsSheet.width, height: DesignTokens.WindowSize.settingsSheet.height,
             agentStore: agentStore, providerManager: providerManager, chatVM: chatVM,
-            themeManager: themeManager, pluginManager: pluginManager) {
+            themeManager: themeManager, pluginManager: pluginManager, updateManager: updateManager) {
             SettingsTabView()
         }
     }
