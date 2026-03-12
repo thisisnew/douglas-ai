@@ -252,4 +252,82 @@ struct DiscussionSpeedTests {
         #expect(result[0].role == "assistant")
         #expect(result[1].role == "user")
     }
+
+    // MARK: - Phase 3 개선 5: 라운드별 RoundSummary 생성
+
+    @Test("RoundSummaryGenerator — 에이전트 발언에서 stance 추출 (첫 문장)")
+    func generatorExtractsStance() {
+        let messages: [ChatMessage] = [
+            ChatMessage(role: .assistant, content: "REST API가 이 경우 적합합니다. 이유는 단순성과 캐싱입니다.", agentName: "백엔드", messageType: .discussion),
+            ChatMessage(role: .assistant, content: "GraphQL이 유연합니다. 클라이언트 요구에 맞춤 가능합니다.", agentName: "프론트", messageType: .discussion),
+        ]
+        let summary = RoundSummaryGenerator.generate(
+            round: 0,
+            messages: messages,
+            decisionLog: [],
+            userFeedback: nil
+        )
+        #expect(summary.agentPositions.count == 2)
+        #expect(summary.agentPositions[0].agentName == "백엔드")
+        #expect(summary.agentPositions[0].stance.contains("REST"))
+        #expect(summary.agentPositions[1].agentName == "프론트")
+        #expect(summary.agentPositions[1].stance.contains("GraphQL"))
+    }
+
+    @Test("RoundSummaryGenerator — DecisionLog에서 agreements 추출")
+    func generatorExtractsAgreements() {
+        let decisionLog = [
+            DecisionEntry(round: 0, decision: "기본 CRUD는 REST", supporters: ["백엔드", "프론트"]),
+            DecisionEntry(round: 1, decision: "다른 라운드 결정", supporters: ["백엔드"]),
+        ]
+        let summary = RoundSummaryGenerator.generate(
+            round: 0,
+            messages: [],
+            decisionLog: decisionLog,
+            userFeedback: nil
+        )
+        #expect(summary.agreements == ["기본 CRUD는 REST"])
+    }
+
+    @Test("RoundSummaryGenerator — [반대]/[우려] 태그에서 disagreements 추출")
+    func generatorExtractsDisagreements() {
+        let messages: [ChatMessage] = [
+            ChatMessage(role: .assistant, content: "성능이 좋습니다. [반대] 실시간 처리에서는 WebSocket이 필요합니다.", agentName: "백엔드", messageType: .discussion),
+            ChatMessage(role: .assistant, content: "[우려] 보안 측면에서 GraphQL은 쿼리 복잡성 공격에 취약합니다.", agentName: "보안", messageType: .discussion),
+        ]
+        let summary = RoundSummaryGenerator.generate(
+            round: 0,
+            messages: messages,
+            decisionLog: [],
+            userFeedback: nil
+        )
+        #expect(summary.disagreements.count == 2)
+        #expect(summary.disagreements[0].contains("WebSocket"))
+        #expect(summary.disagreements[1].contains("쿼리 복잡성"))
+    }
+
+    @Test("RoundSummaryGenerator — 사용자 피드백 포함")
+    func generatorIncludesUserFeedback() {
+        let summary = RoundSummaryGenerator.generate(
+            round: 0,
+            messages: [],
+            decisionLog: [],
+            userFeedback: "REST로 가자"
+        )
+        #expect(summary.userFeedback == "REST로 가자")
+    }
+
+    @Test("RoundSummaryGenerator — 빈 메시지 처리")
+    func generatorHandlesEmptyMessages() {
+        let summary = RoundSummaryGenerator.generate(
+            round: 0,
+            messages: [],
+            decisionLog: [],
+            userFeedback: nil
+        )
+        #expect(summary.agentPositions.isEmpty)
+        #expect(summary.agreements.isEmpty)
+        #expect(summary.disagreements.isEmpty)
+        #expect(summary.userFeedback == nil)
+    }
 }

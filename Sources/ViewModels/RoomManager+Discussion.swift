@@ -356,6 +356,23 @@ extension RoomManager {
                 }
             }
 
+            // 라운드별 구조화 요약 생성 (규칙 기반, LLM 호출 없음)
+            if let currentRoom = rooms.first(where: { $0.id == roomID }) {
+                let roundMessages = currentRoom.messages
+                    .filter { $0.messageType == .discussion }
+                    .suffix(agentIDs.count)
+                    .map { $0 }
+                let roundSummary = RoundSummaryGenerator.generate(
+                    round: round,
+                    messages: roundMessages,
+                    decisionLog: currentRoom.discussion.decisionLog,
+                    userFeedback: nil
+                )
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].discussion.roundSummaries.append(roundSummary)
+                }
+            }
+
             // 사용자 체크포인트
             let checkpointMsg = ChatMessage(
                 role: .system,
@@ -375,6 +392,21 @@ extension RoomManager {
             }
             userInputContinuations.removeValue(forKey: roomID)
             guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
+
+            // 사용자 피드백을 해당 라운드 요약에 반영
+            if !feedback.isEmpty,
+               let i = rooms.firstIndex(where: { $0.id == roomID }),
+               let lastIdx = rooms[i].discussion.roundSummaries.indices.last,
+               rooms[i].discussion.roundSummaries[lastIdx].round == round {
+                let existing = rooms[i].discussion.roundSummaries[lastIdx]
+                rooms[i].discussion.roundSummaries[lastIdx] = RoundSummary(
+                    round: existing.round,
+                    agentPositions: existing.agentPositions,
+                    agreements: existing.agreements,
+                    disagreements: existing.disagreements,
+                    userFeedback: feedback
+                )
+            }
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].discussion.isCheckpoint = false

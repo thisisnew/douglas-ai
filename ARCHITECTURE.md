@@ -103,6 +103,7 @@ DOUGLAS/
 │   │   ├── PhaseContextSummarizer.swift # 페이즈 완료 시 요약 생성 + 다음 페이즈 컨텍스트 조합 (토큰 최적화)
 │   │   ├── DiscussionHistoryFilter.swift # 토론 히스토리 필터 (.discussionRound 제외, suffix(20) 발언만 카운트)
 │   │   ├── DiscussionHistoryBuilder.swift # 토론 히스토리 빌드 (이전 라운드 RoundSummary 압축 + 현재 라운드 전문)
+│   │   ├── RoundSummaryGenerator.swift  # 라운드별 구조화 요약 생성 (규칙 기반, LLM 호출 없음)
 │   │   ├── ActionItemGenerator.swift # briefing JSON → ActionItems 파싱
 │   │   ├── AgentAssigner.swift       # ActionItem → 에이전트 ID 매핑 (3단 우선순위)
 │   │   └── UserDesignationExtractor.swift # 사용자 지명 에이전트 추출 (슬래시/쉼표 구분)
@@ -1295,6 +1296,7 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
 - **라운드별 구조화 요약**: RoundSummary(agentPositions, agreements, disagreements) → DiscussionSession.roundSummaries
 - **시스템 프롬프트 캐시**: SystemPromptCache(agentID+ruleIDs 키) → 같은 방+에이전트 조합의 반복 생성 방지
 - **토론 히스토리 압축**: DiscussionHistoryFilter(.discussionRound 제외) + DiscussionHistoryBuilder(이전 라운드 RoundSummary 기반 압축, 현재 라운드 전문)
+- **RoundSummary 자동 생성**: RoundSummaryGenerator — 라운드 종료 시 규칙 기반으로 stance(첫 문장)/agreements(DecisionLog)/disagreements([반대][우려] 태그) 추출. 사용자 피드백도 반영. LLM 호출 없음
 
 **IntentModifier 체계**: 6개 intent를 유지하면서 modifier 조합으로 행동 세밀 제어:
 - `.adversarial` → DebateClassifier가 dialectic 강제
