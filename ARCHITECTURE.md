@@ -83,7 +83,9 @@ DOUGLAS/
 │   │   ├── PluginTemplate.swift     # 플러그인 빌더 모델 (PluginActionType, HandlerConfig, ScriptGenerator, PluginSlug)
 │   │   ├── ShellEnvironment.swift   # 셸 환경 캐싱 (NVM 경로 1회 스캔, PATH 병합, 실행 파일 탐색)
 │   │   ├── ProcessRunner.swift      # 테스트 가능한 프로세스 실행기 (DI seam)
-│   │   ├── Room.swift               # 프로젝트 방 모델 (+ Plan C: TaskBrief, agentRoles/agentPositions, RiskLevel, OutputType, RuntimeRole, WorkflowPosition)
+│   │   ├── Room.swift               # 프로젝트 방 모델 (+ Plan C: TaskBrief, agentRoles/agentPositions[UUID:], RiskLevel, OutputType, RuntimeRole, WorkflowPosition)
+│   │   ├── MatchingVocabulary.swift # 매칭 어휘 사전 Value Object (동의어 30+그룹, genericSuffixes, domainKeywords, containsWholeWord)
+│   │   ├── MatchScoringConfig.swift # 매칭 스코어링 설정 Value Object (tier 가중치, 임계값, 보너스 상수)
 │   │   ├── ApprovalRecord.swift     # 승인 기록 모델 (ApprovalType, AwaitingType, ApprovalRecord)
 │   │   ├── WorkflowState.swift     # 워크플로우 진행 상태 값 객체 (intent, phase 추적, activeRuleIDs)
 │   │   ├── ClarifyContext.swift    # 복명복창 컨텍스트 값 객체 (intake, summary, delegation)
@@ -108,7 +110,8 @@ DOUGLAS/
 │   │   ├── RoundSummaryGenerator.swift  # 라운드별 구조화 요약 생성 (규칙 기반, LLM 호출 없음)
 │   │   ├── ActionItemGenerator.swift # briefing JSON → ActionItems 파싱
 │   │   ├── AgentAssigner.swift       # ActionItem → 에이전트 ID 매핑 (3단 우선순위)
-│   │   └── UserDesignationExtractor.swift # 사용자 지명 에이전트 추출 (슬래시/쉼표 구분)
+│   │   ├── UserDesignationExtractor.swift # 사용자 지명 에이전트 추출 (슬래시/쉼표 구분)
+│   │   └── PositionInferenceService.swift # WorkflowPosition 추론 서비스 (workModes+persona → goodPositions, Agent에서 위임)
 │   ├── ViewModels/
 │   │   ├── AgentStore.swift         # 에이전트 CRUD, 마스터 생명주기
 │   │   ├── AgentPorter.swift        # 에이전트 매니페스트 Export/Import (NSSavePanel/NSOpenPanel)
@@ -121,12 +124,13 @@ DOUGLAS/
 │   │   ├── RoomManager+Discussion.swift # 빌드/QA 루프 + 토론 실행 (~949줄)
 │   │   ├── StepExecutionEngine.swift  # Build 단계 실행 엔진 (StepStatus 전이, Policy 기반 동작, 계획 승인 후 자동 실행)
 │   │   ├── StepContextBudget.swift    # executeStep context 토큰 예산 (30K 토큰, TokenEstimator 기반) — Step Journal 패턴 도입으로 역할 축소
-│   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (3-tier 가중치 — skillTags×5, workModes×2, keyword+semantic×3) + containsWholeWord(짧은 키워드 false positive 방지) + 동의어 30+그룹 + OutputStyle Tier2 보너스 + WorkflowPosition 보너스(PositionTemplate+직접 매칭) + position 파싱
+│   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 Facade (3-tier 스코어링 + 파싱/검색/제안 — 어휘→MatchingVocabulary, 설정→MatchScoringConfig, NLP→KoreanTextUtils, 포지션→PositionInferenceService 위임)
 │   │   ├── DocumentExporter.swift   # 문서 산출물 파일 저장 (에이전트 생성 파일 탐지 → 고정 경로 자동저장 / NSSavePanel 폴백)
 │   │   ├── ThemeManager.swift       # 테마 관리 (기본값: .cozyGame, UserDefaults 저장, 커스텀 팔레트)
 │   │   └── ToolExecutor.swift       # 도구 호출 루프 + smartSend + 경로 해석/충돌 추적 + 도구 결과 토큰 압축
 │   ├── Utilities/
-│   │   └── TokenEstimator.swift     # CJK 인지 토큰 수 추정 (한국어 ~2자/토큰, ASCII ~4자/토큰)
+│   │   ├── TokenEstimator.swift     # CJK 인지 토큰 수 추정 (한국어 ~2자/토큰, ASCII ~4자/토큰)
+│   │   └── KoreanTextUtils.swift    # 한국어 NLP 경량 유틸리티 (조사 제거, 스크립트 경계 분리, 의미 키워드 추출)
 │   ├── Providers/
 │   │   ├── AIProvider.swift         # AIProvider 프로토콜 + 공통 인증 + Tool Use 확장
 │   │   ├── ToolFormatConverter.swift # 프로바이더별 도구 형식 변환 + Vision 이미지 블록 빌더
@@ -1368,7 +1372,7 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
 - `skillTags: [String]` — 매칭 시 가장 강한 신호 (Tier 1: weight 5)
 - `workModes: Set<WorkMode>` — plan/create/execute/review/research (역할 배정 + 도구 권한 + 매칭 Tier 2)
 - `outputStyles: Set<OutputStyle>` — Tier 2 보너스 (+0.03, TaskBrief.outputType 교차 시)
-- `goodPositions: Set<WorkflowPosition>` — workModes + persona 키워드에서 자동 추론 (computed property, 12종)
+- `goodPositions: Set<WorkflowPosition>` — PositionInferenceService 위임 (workModes + persona 키워드 → 12종 포지션 추론)
 - `actionPermissions: Set<ActionScope>` — workModes에서 자동 추론되는 computed property (비어있으면 모두 허용)
   - plan/research/review → readFiles, readWeb
   - create → + writeFiles

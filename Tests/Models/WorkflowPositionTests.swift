@@ -232,10 +232,10 @@ struct WorkflowPositionTests {
     func roomPositionsRoundtrip() throws {
         var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
         let agentID = UUID()
-        room.agentPositions[agentID.uuidString] = .implementer
+        room.agentPositions[agentID] = .implementer
         let data = try JSONEncoder().encode(room)
         let decoded = try JSONDecoder().decode(Room.self, from: data)
-        #expect(decoded.agentPositions[agentID.uuidString] == .implementer)
+        #expect(decoded.agentPositions[agentID] == .implementer)
     }
 
     // MARK: - Tier2 포지션 보너스

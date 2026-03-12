@@ -397,7 +397,7 @@ struct AgentMatcherTests {
 
     @Test("expandSynonyms — 'FE' → '프론트엔드' 포함")
     func synonymFE() {
-        let expanded = AgentMatcher.expandSynonyms(["fe"])
+        let expanded = MatchingVocabulary.default.expandSynonyms(["fe"])
         #expect(expanded.contains("프론트엔드"))
         #expect(expanded.contains("frontend"))
         #expect(expanded.contains("fe"))  // 원본 유지
@@ -405,20 +405,20 @@ struct AgentMatcherTests {
 
     @Test("expandSynonyms — 'BE' → '백엔드' 포함")
     func synonymBE() {
-        let expanded = AgentMatcher.expandSynonyms(["be"])
+        let expanded = MatchingVocabulary.default.expandSynonyms(["be"])
         #expect(expanded.contains("백엔드"))
         #expect(expanded.contains("backend"))
     }
 
     @Test("expandSynonyms — 'devops' → '인프라', 'sre' 포함")
     func synonymDevOps() {
-        let expanded = AgentMatcher.expandSynonyms(["devops"])
+        let expanded = MatchingVocabulary.default.expandSynonyms(["devops"])
         #expect(expanded.contains("인프라"))
     }
 
     @Test("expandSynonyms — 매칭 없는 키워드는 그대로 유지")
     func synonymNoMatch() {
-        let expanded = AgentMatcher.expandSynonyms(["xyzzy"])
+        let expanded = MatchingVocabulary.default.expandSynonyms(["xyzzy"])
         #expect(expanded == ["xyzzy"])
     }
 
@@ -772,40 +772,40 @@ struct AgentMatcherTests {
 
     @Test("expandSynonyms — 'ios' → 'swift', 'swiftui' 포함")
     func synonymIOS() {
-        let expanded = AgentMatcher.expandSynonyms(["ios"])
+        let expanded = MatchingVocabulary.default.expandSynonyms(["ios"])
         #expect(expanded.contains("swift"))
         #expect(expanded.contains("swiftui"))
     }
 
     @Test("expandSynonyms — 'react' → '리액트' 포함")
     func synonymReact() {
-        let expanded = AgentMatcher.expandSynonyms(["react"])
+        let expanded = MatchingVocabulary.default.expandSynonyms(["react"])
         #expect(expanded.contains("리액트"))
     }
 
     @Test("expandSynonyms — 'python' → '파이썬', 'django' 포함")
     func synonymPython() {
-        let expanded = AgentMatcher.expandSynonyms(["python"])
+        let expanded = MatchingVocabulary.default.expandSynonyms(["python"])
         #expect(expanded.contains("파이썬"))
         #expect(expanded.contains("django"))
     }
 
     @Test("expandSynonyms — 'marketing' → '마케팅' 포함")
     func synonymMarketing() {
-        let expanded = AgentMatcher.expandSynonyms(["marketing"])
+        let expanded = MatchingVocabulary.default.expandSynonyms(["marketing"])
         #expect(expanded.contains("마케팅"))
     }
 
     @Test("expandSynonyms — 'legal' → '법무', '법률' 포함")
     func synonymLegal() {
-        let expanded = AgentMatcher.expandSynonyms(["legal"])
+        let expanded = MatchingVocabulary.default.expandSynonyms(["legal"])
         #expect(expanded.contains("법무"))
         #expect(expanded.contains("법률"))
     }
 
     @Test("expandSynonyms — 'android' → '안드로이드', 'kotlin' 포함")
     func synonymAndroid() {
-        let expanded = AgentMatcher.expandSynonyms(["android"])
+        let expanded = MatchingVocabulary.default.expandSynonyms(["android"])
         #expect(expanded.contains("안드로이드"))
         #expect(expanded.contains("kotlin"))
     }

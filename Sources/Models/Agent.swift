@@ -128,26 +128,7 @@ struct Agent: Identifiable, Codable, Hashable {
 
     /// workModes + persona 키워드에서 적합한 WorkflowPosition 자동 추론
     var goodPositions: Set<WorkflowPosition> {
-        var positions: Set<WorkflowPosition> = []
-
-        // workModes 기반
-        if workModes.contains(.plan) { positions.formUnion([.planner, .architect]) }
-        if workModes.contains(.create) { positions.formUnion([.implementer, .writer]) }
-        if workModes.contains(.execute) { positions.insert(.implementer) }
-        if workModes.contains(.review) { positions.formUnion([.reviewer, .auditor]) }
-        if workModes.contains(.research) { positions.formUnion([.researcher, .analyst]) }
-
-        // persona 키워드 보정
-        let lower = persona.lowercased()
-        if lower.contains("번역") || lower.contains("translat") { positions.insert(.translator) }
-        if lower.contains("qa") || lower.contains("테스트") || lower.contains("test") { positions.insert(.tester) }
-        if lower.contains("법") || lower.contains("legal") || lower.contains("컴플라이언스") { positions.insert(.auditor) }
-        if lower.contains("pm") || lower.contains("기획") || lower.contains("관리") { positions.insert(.coordinator) }
-        if lower.contains("아키텍") || lower.contains("architect") || lower.contains("설계") { positions.insert(.architect) }
-        if lower.contains("데이터") || lower.contains("분석") || lower.contains("analy") { positions.insert(.analyst) }
-        if lower.contains("콘텐츠") || lower.contains("content") || lower.contains("문서") { positions.insert(.writer) }
-
-        return positions
+        PositionInferenceService.inferPositions(workModes: workModes, persona: persona)
     }
 
     /// workModes에서 자동 추론되는 도구 권한

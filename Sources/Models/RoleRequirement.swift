@@ -44,4 +44,33 @@ struct RoleRequirement: Identifiable, Codable {
         self.confidence = confidence
         self.position = position
     }
+
+    // MARK: - 상태 전이 (Rich Model)
+
+    /// 매칭 결과 적용 (상태 전이 로직 캡슐화)
+    mutating func applyMatch(agent: Agent, confidence: Double, config: MatchScoringConfig = .default) {
+        self.confidence = confidence
+        self.matchedAgentID = agent.id
+
+        if confidence >= config.autoMatchThreshold {
+            self.status = .matched
+        } else if confidence >= config.suggestThreshold {
+            self.status = .suggested
+        } else {
+            self.status = .unmatched
+            self.matchedAgentID = nil
+        }
+    }
+
+    /// 매칭 실패 시 상태 초기화
+    mutating func markUnmatched() {
+        self.status = .unmatched
+        self.matchedAgentID = nil
+        self.confidence = 0
+    }
+
+    /// 매칭 성공 여부 (usedAgentIDs에 추가할지 판단)
+    var isEffectivelyMatched: Bool {
+        status == .matched || status == .suggested
+    }
 }

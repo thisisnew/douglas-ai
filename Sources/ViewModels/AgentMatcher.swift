@@ -14,7 +14,8 @@ enum AgentMatcher {
         agents: [Agent],
         intent: WorkflowIntent? = nil,
         documentType: DocumentType? = nil,
-        taskBrief: TaskBrief? = nil
+        taskBrief: TaskBrief? = nil,
+        config: MatchScoringConfig = .default
     ) -> [RoleRequirement] {
         var results = requirements
         var usedAgentIDs: Set<UUID> = []
@@ -27,26 +28,17 @@ enum AgentMatcher {
                 intent: intent,
                 documentType: documentType,
                 taskBrief: taskBrief,
-                position: results[i].position
+                position: results[i].position,
+                config: config
             )
 
-            results[i].confidence = confidence
-
             if let agent {
-                results[i].matchedAgentID = agent.id
-                if confidence >= 0.7 {
-                    results[i].status = .matched       // 자동 선택
-                } else if confidence >= 0.5 {
-                    results[i].status = .suggested      // 사용자 확인 필요
-                } else {
-                    results[i].status = .unmatched      // 제외
-                    results[i].matchedAgentID = nil
-                }
-                if results[i].status == .matched || results[i].status == .suggested {
+                results[i].applyMatch(agent: agent, confidence: confidence, config: config)
+                if results[i].isEffectivelyMatched {
                     usedAgentIDs.insert(agent.id)
                 }
             } else {
-                results[i].status = .unmatched
+                results[i].markUnmatched()
             }
         }
 
@@ -109,91 +101,14 @@ enum AgentMatcher {
         }
     }
 
-    // MARK: - 동의어 사전 (개선안 E)
+    // MARK: - 어휘 사전 (MatchingVocabulary 위임)
 
-    /// 약어/영문/한국어 동의어 그룹 — 같은 배열 내 키워드는 동의어
-    private static let synonymGroups: [[String]] = [
-        // 기존 10그룹
-        ["fe", "프론트엔드", "프론트", "frontend", "front-end"],
-        ["be", "백엔드", "백앤드", "backend", "back-end", "서버"],
-        ["devops", "인프라", "sre", "클라우드", "cloud", "배포"],
-        ["qa", "테스트", "test", "품질", "quality"],
-        ["pm", "기획", "기획자", "product", "프로덕트"],
-        ["ux", "ui", "디자인", "design", "디자이너"],
-        ["ml", "머신러닝", "딥러닝", "데이터사이언스"],
-        ["security", "보안", "인증", "auth"],
-        ["dba", "데이터베이스", "db", "database"],
-        ["문서", "docs", "documentation", "테크니컬라이팅"],
-        // 플랫폼/언어별
-        ["ios", "아이오에스", "swift", "swiftui", "uikit", "애플"],
-        ["android", "안드로이드", "kotlin", "코틀린"],
-        ["react", "리액트", "nextjs", "next.js"],
-        ["vue", "뷰", "vuejs", "nuxt"],
-        ["node", "nodejs", "노드", "express", "nestjs"],
-        ["python", "파이썬", "django", "flask", "fastapi"],
-        ["go", "golang", "고랭"],
-        ["rust", "러스트"],
-        ["java", "자바", "spring", "스프링", "springboot"],
-        // 비개발 직군
-        ["마케팅", "marketing", "growth", "그로스", "seo"],
-        ["법무", "법률", "legal", "컴플라이언스", "compliance"],
-        ["cs", "고객지원", "customer support", "고객"],
-        ["데이터분석", "analytics", "bi", "태블로", "tableau"],
-        ["콘텐츠", "content", "카피라이팅", "copywriting", "에디터"],
-        ["번역", "translation", "로컬라이제이션", "localization", "i18n"],
-        // 기술 영역
-        ["아키텍처", "architecture", "설계", "시스템설계"],
-        ["네트워크", "network", "tcp", "http"],
-        ["성능", "performance", "최적화", "optimization", "튜닝"],
-        ["테크니컬라이터", "technical writer", "기술문서", "api문서"],
-    ]
-
-    /// 키워드를 동의어로 확장 (원본 포함)
-    static func expandSynonyms(_ keywords: [String]) -> [String] {
-        var expanded = Set(keywords)
-        for kw in keywords {
-            let lower = kw.lowercased()
-            for group in synonymGroups {
-                if group.contains(where: { $0 == lower }) {
-                    expanded.formUnion(group)
-                }
-            }
-        }
-        return Array(expanded)
-    }
-
-    // MARK: - 키워드 필터
+    private static let vocabulary = MatchingVocabulary.default
 
     /// 범용 접미사 여부 확인 (외부에서 사전 매칭 시 사용)
     static func isGenericSuffix(_ keyword: String) -> Bool {
-        genericSuffixes.contains(keyword)
+        vocabulary.isGenericSuffix(keyword)
     }
-
-    /// 매칭에서 제외할 범용 접미사 (false positive 방지)
-    private static let genericSuffixes: Set<String> = [
-        "전문가", "개발자", "엔지니어", "담당자", "관리자", "분석가", "설계자", "디자이너",
-        "리더", "시니어", "주니어", "팀장", "책임자", "연구원", "컨설턴트",
-        "expert", "developer", "engineer", "manager", "analyst", "designer",
-        "lead", "senior", "junior", "consultant", "architect", "specialist",
-    ]
-
-    /// 짧은 키워드(≤3자)의 부분 문자열 false positive 방지
-    private static func containsWholeWord(_ text: String, keyword: String) -> Bool {
-        if keyword.count <= 3 {
-            // 짧은 키워드: 정확 매칭 또는 단어 경계 체크
-            if text == keyword { return true }
-            let pattern = "(?:^|[^a-zA-Z가-힣])\(NSRegularExpression.escapedPattern(for: keyword))(?:$|[^a-zA-Z가-힣])"
-            return text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
-        }
-        return text.contains(keyword) || keyword.contains(text)
-    }
-
-    /// 도메인 키워드 (documentation intent에서 역할명 키워드에서 제외)
-    private static let domainKeywords: Set<String> = [
-        "백엔드", "프론트엔드", "프론트", "인프라", "데이터", "모바일",
-        "ios", "android", "웹", "backend", "frontend", "mobile", "devops",
-        "서버", "클라이언트", "db", "database", "cloud", "클라우드"
-    ]
 
     /// Plan C: 3단 가중치 태그 매칭 + 0-1 정규화 신뢰도
     /// 반환: (최고 매칭 에이전트, 신뢰도 0.0~1.0)
@@ -204,19 +119,20 @@ enum AgentMatcher {
         intent: WorkflowIntent? = nil,
         documentType: DocumentType? = nil,
         taskBrief: TaskBrief? = nil,
-        position: WorkflowPosition? = nil
+        position: WorkflowPosition? = nil,
+        config: MatchScoringConfig = .default
     ) -> (Agent?, Double) {
         var keywords = roleName.lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { $0.count >= 2 && !genericSuffixes.contains($0) }
+            .filter { $0.count >= 2 && !vocabulary.isGenericSuffix($0) }
 
         // 동의어 확장 (개선안 E): "FE" → ["fe", "프론트엔드", "frontend", ...]
         // 정규화 기준은 원본 키워드 수 (확장으로 분모가 커지는 것 방지)
         let originalKeywordCount = keywords.count
-        keywords = expandSynonyms(keywords).filter { $0.count >= 2 && !genericSuffixes.contains($0) }
+        keywords = vocabulary.expandSynonyms(keywords).filter { $0.count >= 2 && !vocabulary.isGenericSuffix($0) }
 
         if documentType != nil {
-            keywords = keywords.filter { !domainKeywords.contains($0) }
+            keywords = keywords.filter { !vocabulary.domainKeywords.contains($0) }
         }
 
         let hasKeywords = !keywords.isEmpty
@@ -225,10 +141,9 @@ enum AgentMatcher {
 
         guard hasKeywords || useSemanticScoring else { return (nil, 0) }
 
-        // 가중치 상수 (Plan C: 5/2/3)
-        let tier1Weight: Double = 5.0  // skillTags 직접 매칭
-        let tier2Weight: Double = 2.0  // workModes
-        let tier3Weight: Double = 3.0  // 키워드 + 시맨틱 폴백
+        let tier1Weight = config.tier1Weight
+        let tier2Weight = config.tier2Weight
+        let tier3Weight = config.tier3Weight
 
         var bestMatch: (agent: Agent, confidence: Double)?
 
@@ -239,12 +154,12 @@ enum AgentMatcher {
                 let lowerTags = agent.skillTags.map { $0.lowercased() }
                 var tagHits = 0
                 for keyword in keywords {
-                    if lowerTags.contains(where: { containsWholeWord($0, keyword: keyword) }) {
+                    if lowerTags.contains(where: { vocabulary.containsWholeWord($0, keyword: keyword) }) {
                         tagHits += 1
                     }
                 }
                 for pkw in preferredKWs {
-                    if lowerTags.contains(where: { containsWholeWord($0, keyword: pkw.lowercased()) }) {
+                    if lowerTags.contains(where: { vocabulary.containsWholeWord($0, keyword: pkw.lowercased()) }) {
                         tagHits += 1
                     }
                 }
@@ -311,14 +226,14 @@ enum AgentMatcher {
                 let agentPositions = agent.goodPositions
                 let positionOverlap = neededPositions.filter { agentPositions.contains($0) }
                 if !positionOverlap.isEmpty {
-                    let positionBonus = Double(positionOverlap.count) / Double(max(neededPositions.count, 1)) * 0.25
+                    let positionBonus = Double(positionOverlap.count) / Double(max(neededPositions.count, 1)) * config.positionTemplateMaxBonus
                     tier2Score = min(tier2Score + positionBonus, 1.0)
                 }
             }
 
             // position 직접 매칭 보너스: LLM이 지정한 position과 agent.goodPositions 교차
             if let pos = position, agent.goodPositions.contains(pos) {
-                tier2Score = min(tier2Score + 0.3, 1.0)
+                tier2Score = min(tier2Score + config.positionDirectBonus, 1.0)
             }
 
             // --- Tier 3: 키워드 + 시맨틱 폴백 (가중치 2) ---
@@ -330,14 +245,14 @@ enum AgentMatcher {
 
                 var kwHits = 0
                 for keyword in keywords {
-                    if containsWholeWord(lowerName, keyword: keyword) { kwHits += 2 }
-                    if containsWholeWord(lowerPersona, keyword: keyword) { kwHits += 1 }
-                    if containsWholeWord(lowerRules, keyword: keyword) { kwHits += 1 }
+                    if vocabulary.containsWholeWord(lowerName, keyword: keyword) { kwHits += 2 }
+                    if vocabulary.containsWholeWord(lowerPersona, keyword: keyword) { kwHits += 1 }
+                    if vocabulary.containsWholeWord(lowerRules, keyword: keyword) { kwHits += 1 }
                 }
                 for pkw in preferredKWs {
                     let lower = pkw.lowercased()
-                    if containsWholeWord(lowerName, keyword: lower) { kwHits += 1 }
-                    if containsWholeWord(lowerPersona, keyword: lower) { kwHits += 1 }
+                    if vocabulary.containsWholeWord(lowerName, keyword: lower) { kwHits += 1 }
+                    if vocabulary.containsWholeWord(lowerPersona, keyword: lower) { kwHits += 1 }
                 }
 
                 // 개선안 G: TaskBrief.goal 키워드 → 에이전트 매칭 보너스
@@ -345,12 +260,12 @@ enum AgentMatcher {
                 var goalKeywordCount = 0
                 if let goal = taskBrief?.goal, !goal.isEmpty {
                     let goalKeywords = Array(extractSemanticKeywords(from: goal)
-                        .filter { $0.count >= 2 && !genericSuffixes.contains($0) }
-                        .prefix(5))
+                        .filter { $0.count >= 2 && !vocabulary.isGenericSuffix($0) }
+                        .prefix(config.goalKeywordLimit))
                     goalKeywordCount = goalKeywords.count
                     for gkw in goalKeywords {
-                        if containsWholeWord(lowerName, keyword: gkw) { kwHits += 1 }
-                        if containsWholeWord(lowerPersona, keyword: gkw) { kwHits += 1 }
+                        if vocabulary.containsWholeWord(lowerName, keyword: gkw) { kwHits += 1 }
+                        if vocabulary.containsWholeWord(lowerPersona, keyword: gkw) { kwHits += 1 }
                     }
                 }
 
@@ -387,7 +302,7 @@ enum AgentMatcher {
                 ]
                 if let mappedStyle = outputStyleMapping[outputType],
                    agent.outputStyles.contains(mappedStyle) {
-                    confidence = min(confidence + 0.03, 1.0)
+                    confidence = min(confidence + config.outputStyleBonus, 1.0)
                 }
             }
 
@@ -396,7 +311,7 @@ enum AgentMatcher {
             if agent.skillTags.isEmpty {
                 let fallbackWeight = tier2Weight + tier3Weight
                 let fallbackConfidence = (tier2Score * tier2Weight + tier3Score * tier3Weight) / fallbackWeight
-                adjustedConfidence = min(fallbackConfidence, 0.75)  // 태그 없는 에이전트 상한
+                adjustedConfidence = min(fallbackConfidence, config.emptyTagsCap)
             } else {
                 adjustedConfidence = confidence
             }
@@ -407,21 +322,6 @@ enum AgentMatcher {
         }
 
         return (bestMatch?.agent, bestMatch?.confidence ?? 0)
-    }
-
-    /// 레거시 호환: 기존 findByKeyword → matchByTags 위임
-    private static func findByKeyword(
-        roleName: String,
-        agents: [Agent],
-        excluding used: Set<UUID>,
-        intent: WorkflowIntent? = nil,
-        documentType: DocumentType? = nil
-    ) -> Agent? {
-        let (agent, confidence) = matchByTags(
-            roleName: roleName, agents: agents, excluding: used,
-            intent: intent, documentType: documentType
-        )
-        return confidence >= 0.3 ? agent : nil
     }
 
     // MARK: - Fallback 매칭 (LLM 역할 분석 실패 시)
@@ -532,83 +432,10 @@ enum AgentMatcher {
         }
     }
 
-    // MARK: - 의미 키워드 추출 (한국어 지원)
+    // MARK: - 의미 키워드 추출 (KoreanTextUtils 위임)
 
     /// 한국어 조사 제거 + 스크립트 경계 분리로 의미 키워드 추출
     static func extractSemanticKeywords(from text: String) -> [String] {
-        let tokens = text.lowercased()
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-
-        var keywords: Set<String> = []
-
-        for token in tokens {
-            let parts = splitByScript(token)
-            for part in parts {
-                let subparts = part.components(separatedBy: CharacterSet.alphanumerics.inverted)
-                    .filter { $0.count >= 2 }
-                for sub in subparts {
-                    let stemmed = stripKoreanSuffix(sub)
-                    if stemmed.count >= 2 && !genericSuffixes.contains(stemmed) {
-                        keywords.insert(stemmed)
-                    }
-                    // 원형도 보존 (접미사 제거 전 — 정확 매칭용)
-                    if sub.count >= 2 && sub != stemmed && !genericSuffixes.contains(sub) {
-                        keywords.insert(sub)
-                    }
-                }
-            }
-        }
-
-        return Array(keywords)
+        KoreanTextUtils.extractSemanticKeywords(from: text, excluding: vocabulary.genericSuffixes)
     }
-
-    /// 한글↔라틴 스크립트 경계에서 분리 (예: "react와" → ["react", "와"])
-    private static func splitByScript(_ token: String) -> [String] {
-        guard !token.isEmpty else { return [] }
-        var result: [String] = []
-        var current = ""
-        var prevIsKorean: Bool?
-
-        for char in token {
-            let korean = isKoreanCharacter(char)
-            if let prev = prevIsKorean, prev != korean, !current.isEmpty {
-                result.append(current)
-                current = ""
-            }
-            current.append(char)
-            prevIsKorean = korean
-        }
-        if !current.isEmpty { result.append(current) }
-        return result
-    }
-
-    private static func isKoreanCharacter(_ char: Character) -> Bool {
-        char.unicodeScalars.contains {
-            (0xAC00...0xD7A3).contains($0.value) ||  // 완성형 한글
-            (0x3131...0x3163).contains($0.value)      // 한글 자모
-        }
-    }
-
-    /// 한국어 조사/어미 제거 (형태소 분석 경량 대체)
-    private static func stripKoreanSuffix(_ word: String) -> String {
-        for suffix in koreanStripSuffixes {
-            if word.hasSuffix(suffix) {
-                let stem = String(word.dropLast(suffix.count))
-                if stem.count >= 2 { return stem }
-            }
-        }
-        return word
-    }
-
-    /// 한국어 조사/접미사 리스트 (긴 접미사부터 — greedy 매칭)
-    /// RoomManager+Workflow의 direct matching에서도 사용
-    static let koreanStripSuffixes: [String] = [
-        "입니다", "습니다", "합니다", "됩니다",
-        "으로서", "으로써", "에서의", "한테서", "에게서",
-        "에서", "까지", "부터", "으로", "께서", "이랑",
-        "하는", "하고", "이며", "에게", "한테", "더러", "보고",
-        "을", "를", "이", "가", "은", "는",
-        "에", "의", "와", "과", "로", "도", "만", "께", "랑",
-    ]
 }
