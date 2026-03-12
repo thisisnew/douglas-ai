@@ -1493,6 +1493,17 @@ extension RoomManager {
 
         // --- 멀티에이전트: 통합 토론 프로토콜 ---
         // discussion/task 모두 동일한 토론 (의견 → 상호 피드백 → DOUGLAS 종합)
+
+        // DebateMode 결정: 에이전트 역할 겹침 + 주제 키워드 + IntentModifier 기반
+        let agentRoles = specialists.compactMap { id in
+            agentStore?.agents.first(where: { $0.id == id })?.name
+        }
+        let modifiers = IntentClassifier.extractModifiers(from: task)
+        let debateMode = DebateClassifier.classify(topic: task, agentRoles: agentRoles, modifiers: modifiers)
+        if let idx = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[idx].discussion.debateMode = debateMode
+        }
+
         await executeDiscussionDesign(roomID: roomID, task: task, briefContext: briefContext, specialists: specialists)
 
         // task intent: 토론 결과를 바탕으로 실행 계획 생성 + 승인
@@ -1800,17 +1811,39 @@ extension RoomManager {
             let priorFeedbackText = feedbacks.isEmpty ? "" :
                 "\n\n--- 이미 나온 피드백 ---\n" + feedbacks.map { "[\($0.name)]\n\($0.content)" }.joined(separator: "\n\n")
 
-            let prompt = """
-            \(systemPrompt(for: info.agent, roomID: roomID))
+            // debateMode 기반 Turn 2 프롬프트 (Strategy 패턴)
+            let currentDebateMode = rooms.first(where: { $0.id == roomID })?.discussion.debateMode
+            let strategyPrompt = currentDebateMode?.strategy.turn2Prompt(
+                agentRole: info.agent.name,
+                otherOpinions: othersText + priorFeedbackText
+            )
 
-            다른 전문가의 의견을 읽고, 당신의 전문 영역에서 빈틈이나 보완점을 짚어주세요.
+            let prompt: String
+            if let strategyPrompt {
+                prompt = """
+                \(systemPrompt(for: info.agent, roomID: roomID))
 
-            \(discussionTone)
-            추가 규칙:
-            - 동의만 하지 마세요. 반드시 보완, 반론, 또는 조건부 동의를 2-3문장으로 제시하세요. 절대 3문장을 초과하지 마세요.
-            - "좋은 의견입니다", "동의합니다"로 시작하는 것을 금지합니다. 바로 논점으로 진입하세요.
-            - 이미 나온 의견을 반복하지 마세요.
-            """
+                \(strategyPrompt)
+
+                \(discussionTone)
+                추가 규칙:
+                - 절대 3문장을 초과하지 마세요.
+                - 이미 나온 의견을 반복하지 마세요.
+                """
+            } else {
+                // debateMode 미설정 시 기존 프롬프트 폴백
+                prompt = """
+                \(systemPrompt(for: info.agent, roomID: roomID))
+
+                다른 전문가의 의견을 읽고, 당신의 전문 영역에서 빈틈이나 보완점을 짚어주세요.
+
+                \(discussionTone)
+                추가 규칙:
+                - 동의만 하지 마세요. 반드시 보완, 반론, 또는 조건부 동의를 2-3문장으로 제시하세요. 절대 3문장을 초과하지 마세요.
+                - "좋은 의견입니다", "동의합니다"로 시작하는 것을 금지합니다. 바로 논점으로 진입하세요.
+                - 이미 나온 의견을 반복하지 마세요.
+                """
+            }
 
             let placeholderID = UUID()
             speakingAgentIDByRoom[roomID] = info.id

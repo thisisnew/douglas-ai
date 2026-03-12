@@ -95,6 +95,36 @@ enum AgentMatcher {
         }
     }
 
+    // MARK: - 동의어 사전 (개선안 E)
+
+    /// 약어/영문/한국어 동의어 그룹 — 같은 배열 내 키워드는 동의어
+    private static let synonymGroups: [[String]] = [
+        ["fe", "프론트엔드", "프론트", "frontend", "front-end"],
+        ["be", "백엔드", "백앤드", "backend", "back-end", "서버"],
+        ["devops", "인프라", "sre", "클라우드", "cloud", "배포"],
+        ["qa", "테스트", "test", "품질", "quality"],
+        ["pm", "기획", "기획자", "product", "프로덕트"],
+        ["ux", "ui", "디자인", "design", "디자이너"],
+        ["ml", "ai", "머신러닝", "딥러닝", "데이터"],
+        ["security", "보안", "인증", "auth"],
+        ["dba", "데이터베이스", "db", "database"],
+        ["문서", "docs", "documentation", "테크니컬라이팅"],
+    ]
+
+    /// 키워드를 동의어로 확장 (원본 포함)
+    static func expandSynonyms(_ keywords: [String]) -> [String] {
+        var expanded = Set(keywords)
+        for kw in keywords {
+            let lower = kw.lowercased()
+            for group in synonymGroups {
+                if group.contains(where: { $0 == lower }) {
+                    expanded.formUnion(group)
+                }
+            }
+        }
+        return Array(expanded)
+    }
+
     // MARK: - 키워드 필터
 
     /// 범용 접미사 여부 확인 (외부에서 사전 매칭 시 사용)
@@ -129,6 +159,11 @@ enum AgentMatcher {
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { $0.count >= 2 && !genericSuffixes.contains($0) }
 
+        // 동의어 확장 (개선안 E): "FE" → ["fe", "프론트엔드", "frontend", ...]
+        // 정규화 기준은 원본 키워드 수 (확장으로 분모가 커지는 것 방지)
+        let originalKeywordCount = keywords.count
+        keywords = expandSynonyms(keywords).filter { $0.count >= 2 && !genericSuffixes.contains($0) }
+
         if documentType != nil {
             keywords = keywords.filter { !domainKeywords.contains($0) }
         }
@@ -162,35 +197,59 @@ enum AgentMatcher {
                         tagHits += 1
                     }
                 }
-                let maxPossible = max(keywords.count + preferredKWs.count, 1)
-                tier1Score = Double(tagHits) / Double(maxPossible)  // 0~1
+                let maxPossible = max(originalKeywordCount + preferredKWs.count, 1)
+                tier1Score = min(Double(tagHits) / Double(maxPossible), 1.0)  // 0~1
             }
 
             // --- Tier 2: workModes 매칭 (가중치 2) ---
+            // TaskBrief.outputType이 있으면 동적 가중치 (개선안 F)
             var tier2Score: Double = 0
-            if !agent.workModes.isEmpty, let intent = intent {
-                switch intent {
-                case .task, .complex:
-                    if agent.workModes.contains(.create) || agent.workModes.contains(.execute) {
-                        tier2Score = 1.0
-                    } else if agent.workModes.contains(.research) || agent.workModes.contains(.review) {
-                        tier2Score = 0.5
+            if !agent.workModes.isEmpty {
+                if let outputType = taskBrief?.outputType {
+                    // TaskBrief 기반 동적 workMode 가중치
+                    switch outputType {
+                    case .code:
+                        if agent.workModes.contains(.execute) { tier2Score = 1.0 }
+                        else if agent.workModes.contains(.create) { tier2Score = 0.9 }
+                        else if agent.workModes.contains(.review) { tier2Score = 0.4 }
+                    case .document, .message:
+                        if agent.workModes.contains(.create) { tier2Score = 1.0 }
+                        else if agent.workModes.contains(.review) || agent.workModes.contains(.research) { tier2Score = 0.5 }
+                    case .analysis, .data:
+                        if agent.workModes.contains(.research) { tier2Score = 1.0 }
+                        else if agent.workModes.contains(.review) { tier2Score = 0.7 }
+                        else if agent.workModes.contains(.create) { tier2Score = 0.3 }
+                    case .design:
+                        if agent.workModes.contains(.create) { tier2Score = 1.0 }
+                        else if agent.workModes.contains(.review) { tier2Score = 0.5 }
+                    case .answer:
+                        if agent.workModes.contains(.research) || agent.workModes.contains(.review) { tier2Score = 1.0 }
                     }
-                case .research:
-                    if agent.workModes.contains(.research) {
-                        tier2Score = 1.0
-                    } else if agent.workModes.contains(.review) {
-                        tier2Score = 0.5
-                    }
-                case .documentation:
-                    if agent.workModes.contains(.create) {
-                        tier2Score = 1.0
-                    } else if agent.workModes.contains(.review) || agent.workModes.contains(.research) {
-                        tier2Score = 0.5
-                    }
-                case .quickAnswer, .discussion:
-                    if agent.workModes.contains(.research) || agent.workModes.contains(.review) {
-                        tier2Score = 1.0
+                } else if let intent = intent {
+                    // 기존 intent 기반 폴백
+                    switch intent {
+                    case .task, .complex:
+                        if agent.workModes.contains(.create) || agent.workModes.contains(.execute) {
+                            tier2Score = 1.0
+                        } else if agent.workModes.contains(.research) || agent.workModes.contains(.review) {
+                            tier2Score = 0.5
+                        }
+                    case .research:
+                        if agent.workModes.contains(.research) {
+                            tier2Score = 1.0
+                        } else if agent.workModes.contains(.review) {
+                            tier2Score = 0.5
+                        }
+                    case .documentation:
+                        if agent.workModes.contains(.create) {
+                            tier2Score = 1.0
+                        } else if agent.workModes.contains(.review) || agent.workModes.contains(.research) {
+                            tier2Score = 0.5
+                        }
+                    case .quickAnswer, .discussion:
+                        if agent.workModes.contains(.research) || agent.workModes.contains(.review) {
+                            tier2Score = 1.0
+                        }
                     }
                 }
             }
@@ -213,7 +272,7 @@ enum AgentMatcher {
                     if lowerName.contains(lower) { kwHits += 1 }
                     if lowerPersona.contains(lower) { kwHits += 1 }
                 }
-                let maxKw = max((keywords.count + preferredKWs.count) * 4, 1)
+                let maxKw = max((originalKeywordCount + preferredKWs.count) * 4, 1)
                 let kwScore = min(Double(kwHits) / Double(maxKw), 1.0)
 
                 if useSemanticScoring {

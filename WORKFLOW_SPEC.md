@@ -262,19 +262,69 @@ DOUGLAS는 요청에 따라 가장 적합한 에이전트를 자동 매칭한다
 
 **실행 중**: 계획 승인 후 자동 실행 중에는 사용자 입력이 반영되지 않는다. 취소만 가능.
 
-**완료 후**: 후속 사이클(follow-up cycle)에서 추가 요청을 처리한다.
+**완료 후**: 후속 사이클(follow-up cycle)에서 FollowUpClassifier가 결정론적으로 의도를 분류하고 컨텍스트 정책을 적용한다.
+
+### 9.1 후속 의도 분류 (FollowUpClassifier)
+
+| 이전 상태 | 사용자 메시지 예시 | 후속 의도 | 매핑 intent | 컨텍스트 정책 |
+|-----------|-------------------|----------|-------------|-------------|
+| 토론 완료 | "구현하자" | implementAll | task | briefing/actionItems/agents 유지 |
+| 토론 완료 | "1번이랑 3번만 하자" | implementPartial([0,2]) | task | briefing/actionItems 유지 (필터링) |
+| 토론 완료 | "더 논의하자" | continueDiscussion | discussion | briefing/decisionLog 유지 |
+| 토론 완료 | "다시 논의하자" | restartDiscussion | discussion | briefing/actionItems/decisionLog 리셋 |
+| 토론 완료 | "1번 방향 바꿔서" | modifyAndDiscuss | discussion | briefing 유지, 수정 대상만 변경 |
+| 구현 완료 | "검토해줘" | reviewResult | discussion | workLog/stepResults 유지 |
+| 구현 완료 | "결과 정리해줘" | documentResult | documentation | workLog/stepResults 유지 |
+| 실패 | "다시 해줘" | retryExecution | task | 기존 계획 재사용 (design 스킵) |
+| 실패 | "접근 바꿔서" | restartDiscussion | discussion | 전체 리셋 |
+| 모든 상태 | 이전 맥락 무관한 새 요청 | newTask | 기존 로직 폴백 | agents/briefing/actionItems 리셋 |
+
+### 9.2 컨텍스트 캐리오버 정책 (ContextCarryoverPolicy)
+
+후속 사이클에서 유지/리셋할 컨텍스트를 7개 필드로 결정론적으로 관리한다:
+- keepIntakeData: 원본 입력 데이터
+- keepAgents: 배정된 에이전트 목록
+- keepBriefing: 토론 요약 (RoomBriefing)
+- keepActionItems: 토론에서 도출된 작업 항목
+- keepDecisionLog: 결정 로그
+- keepWorkLog: 작업 일지
+- keepStepResults: 단계별 실행 결과
+
+### 9.3 기존 후속 처리 동작 (폴백)
+FollowUpClassifier가 newTask를 반환하거나 매칭하지 못한 경우, 기존 로직으로 폴백한다:
 - 미세 조정: 후속 사이클에서 즉시 반영
 - 계획 재수립: 후속 사이클에서 새 계획 수립
 - 재작업: 후속 사이클에서 처음부터 재실행
 
 **토론 중**: 토론 단계에서는 체크포인트마다 사용자 입력을 반영한다.
 
-## 10. 토론 종료 규칙
+## 10. 토론 3모드 (Strategy 패턴)
+
+복수 에이전트 토론은 에이전트 역할 겹침도와 주제 키워드에 따라 3가지 모드 중 하나로 자동 분류된다.
+
+| 모드 | 조건 | Turn 2 프롬프트 | 합의 기준 | 최소 턴 |
+|------|------|----------------|----------|---------|
+| **dialectic** (대립) | 같은 도메인 에이전트 3명, 또는 adversarial modifier, 또는 "vs"/"비교"/"선택" 주제 | 빈틈·리스크·대안 지적 요구 | 엄격: 명시적 [합의]/[전면 동의] 태그만 인정, 약한 동의 거부 | 2 |
+| **collaborative** (종합) | 다른 도메인 에이전트 (백엔드+프론트 등), 중간 겹침 | 연결 지점·회색 지대·영향 명확화 요구 | 중간: 약한 동의 + 근거 제시 시 인정 | 1 |
+| **coordination** (조율) | 보완적 역할 + "분담"/"일정"/"확정" 주제 | 보완점·조율 지점 짚기, 동의 허용 | 느슨: 약한 동의도 합의로 인정 | 1 |
+
+**분류 우선순위**: IntentModifier.adversarial → 역할 겹침도 → 주제 키워드 → 기본값(collaborative)
+
+**IntentModifier 체계**: Intent 분류 시 부가 수식어를 동시 추출하여 워크플로우 행동을 조정한다.
+
+| modifier | 조건 | 효과 |
+|----------|------|------|
+| adversarial | "반박해", "논쟁해" 등 대립 키워드 | 토론 모드를 dialectic으로 강제 |
+| outputOnly | "~만 알려줘", "코드만" 등 출력 제한 | 결과물 범위 제한 |
+| withExecution | "바로 실행", "적용까지" 등 실행 포함 | discussion → task 전환 포인트 |
+| breakdown | "작업 분해", "할일 도출" 등 | 토론 후 ActionItem 생성 강화 |
+
+## 10.1 토론 종료 규칙
 
 복수 에이전트 토론은 무한히 지속되지 않는다.
 아래 조건 중 하나를 만족하면 종료한다.
 
-- 명시적 합의 도달
+- 명시적 합의 도달 (모드별 합의 기준 적용)
 - 결론 후보들이 충분히 정리됨
 - 최대 라운드 수 도달
 - 사용자 개입 요청 필요
@@ -283,9 +333,9 @@ DOUGLAS는 요청에 따라 가장 적합한 에이전트를 자동 매칭한다
 토론 종료 시 DOUGLAS는 반드시 아래 형태로 정리한다.
 - 결론
 - 대안
-- 미해결 쟁점
+- 미해결 쟁점 (dialectic 모드: extractConcerns로 추출된 우려/리스크 포함)
 - 추천안
-- 다음 액션
+- 다음 액션 (ActionItem으로 구조화)
 
 ## 11. 완료 기준 정의
 

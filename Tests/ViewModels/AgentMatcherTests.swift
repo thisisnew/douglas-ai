@@ -11,9 +11,10 @@ struct AgentMatcherTests {
         name: String,
         persona: String,
         workingRules: WorkingRulesSource? = nil,
-        skillTags: [String] = []
+        skillTags: [String] = [],
+        workModes: Set<WorkMode> = []
     ) -> Agent {
-        Agent(
+        var agent = Agent(
             name: name,
             persona: persona,
             providerName: "TestProvider",
@@ -21,6 +22,8 @@ struct AgentMatcherTests {
             workingRules: workingRules,
             skillTags: skillTags
         )
+        agent.workModes = workModes
+        return agent
     }
 
     // MARK: - matchRoles
@@ -386,5 +389,90 @@ struct AgentMatcherTests {
         )
         // "프론트엔드"가 도메인 키워드로 필터링 → 키워드 없음 → unmatched
         #expect(results[0].status == .unmatched)
+    }
+
+    // MARK: - 동의어 사전 (개선안 E)
+
+    @Test("expandSynonyms — 'FE' → '프론트엔드' 포함")
+    func synonymFE() {
+        let expanded = AgentMatcher.expandSynonyms(["fe"])
+        #expect(expanded.contains("프론트엔드"))
+        #expect(expanded.contains("frontend"))
+        #expect(expanded.contains("fe"))  // 원본 유지
+    }
+
+    @Test("expandSynonyms — 'BE' → '백엔드' 포함")
+    func synonymBE() {
+        let expanded = AgentMatcher.expandSynonyms(["be"])
+        #expect(expanded.contains("백엔드"))
+        #expect(expanded.contains("backend"))
+    }
+
+    @Test("expandSynonyms — 'devops' → '인프라', 'sre' 포함")
+    func synonymDevOps() {
+        let expanded = AgentMatcher.expandSynonyms(["devops"])
+        #expect(expanded.contains("인프라"))
+    }
+
+    @Test("expandSynonyms — 매칭 없는 키워드는 그대로 유지")
+    func synonymNoMatch() {
+        let expanded = AgentMatcher.expandSynonyms(["xyzzy"])
+        #expect(expanded == ["xyzzy"])
+    }
+
+    @Test("matchByTags — 동의어 확장으로 'FE 개발자' → 프론트엔드 에이전트 매칭")
+    func matchByTagsWithSynonym() {
+        let agent = makeAgent(
+            name: "프론트엔드 개발자",
+            persona: "React UI 개발 전문",
+            skillTags: ["프론트엔드", "react", "ui"]
+        )
+        let (matched, confidence) = AgentMatcher.matchByTags(
+            roleName: "FE 개발자",
+            agents: [agent],
+            excluding: []
+        )
+        #expect(matched?.id == agent.id)
+        #expect(confidence > 0.3)
+    }
+
+    // MARK: - TaskBrief 기반 동적 가중치 (개선안 F)
+
+    @Test("matchByTags — TaskBrief.outputType=code → create/execute workMode 우선")
+    func taskBriefCodeWeighting() {
+        let creator = makeAgent(name: "백엔드 A", persona: "서버 개발", skillTags: ["백엔드"], workModes: [.create, .execute])
+        let reviewer = makeAgent(name: "백엔드 B", persona: "서버 리뷰", skillTags: ["백엔드"], workModes: [.review])
+
+        let brief = TaskBrief(
+            goal: "API 구현", constraints: [], successCriteria: [],
+            nonGoals: [], overallRisk: .medium, outputType: .code
+        )
+        let (matched, _) = AgentMatcher.matchByTags(
+            roleName: "백엔드",
+            agents: [reviewer, creator],
+            excluding: [],
+            intent: .task,
+            taskBrief: brief
+        )
+        #expect(matched?.id == creator.id)
+    }
+
+    @Test("matchByTags — TaskBrief.outputType=analysis → research workMode 우선")
+    func taskBriefAnalysisWeighting() {
+        let researcher = makeAgent(name: "리서치 전문가", persona: "조사 분석", skillTags: ["리서치"], workModes: [.research])
+        let creator = makeAgent(name: "문서 작성자", persona: "문서화", skillTags: ["문서"], workModes: [.create])
+
+        let brief = TaskBrief(
+            goal: "시장 조사", constraints: [], successCriteria: [],
+            nonGoals: [], overallRisk: .low, outputType: .analysis
+        )
+        let (matched, _) = AgentMatcher.matchByTags(
+            roleName: "리서치",
+            agents: [creator, researcher],
+            excluding: [],
+            intent: .research,
+            taskBrief: brief
+        )
+        #expect(matched?.id == researcher.id)
     }
 }

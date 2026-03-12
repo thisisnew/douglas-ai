@@ -847,14 +847,67 @@ class RoomManager: ObservableObject, WorkflowHost {
             }
         }
 
+        // --- FollowUpClassifier: 결정론적 후속 의도 분류 ---
+        let previousIntent = rooms[idx].workflowState.intent
+        let previousStatus = rooms[idx].status
+        let previousState: FollowUpClassifier.PreviousState = {
+            if previousStatus == .failed { return .failed }
+            if previousIntent == .discussion || previousIntent == .research { return .discussionCompleted }
+            return .implementCompleted
+        }()
+        let hasActionItems = rooms[idx].discussion.actionItems?.isEmpty == false
+        let hasBriefing = rooms[idx].discussion.briefing != nil
+        let hasWorkLog = rooms[idx].workLog != nil
+
+        let followUpDecision = FollowUpClassifier.classify(
+            message: task,
+            previousState: previousState,
+            hasActionItems: hasActionItems,
+            hasBriefing: hasBriefing,
+            hasWorkLog: hasWorkLog
+        )
+
+        // ContextCarryoverPolicy 적용: 리셋 대상 컨텍스트 정리
+        let carryover = followUpDecision.contextPolicy
+        if !carryover.keepBriefing, let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].discussion.briefing = nil
+        }
+        if !carryover.keepActionItems, let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].discussion.actionItems = nil
+        }
+        if !carryover.keepDecisionLog, let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].discussion.decisionLog = []
+        }
+        if !carryover.keepWorkLog, let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].workLog = nil
+        }
+
         // Intent 재분류 (후속 사이클 특화)
-        // 짧은 후속 메시지(< 60자)는 즉답으로 처리 (기존 컨텍스트 내 빠른 액션)
+        // FollowUpClassifier 결과를 우선 사용, 기존 로직으로 폴백
         let ruleBasedIntent = IntentClassifier.quickClassify(task)
-        var resolvedIntent = ruleBasedIntent
+        var resolvedIntent: WorkflowIntent?
+
+        // FollowUpClassifier가 명확한 의도를 결정한 경우 우선 적용
+        switch followUpDecision.intent {
+        case .implementAll, .implementPartial, .retryExecution:
+            resolvedIntent = followUpDecision.resolvedWorkflowIntent  // .task
+        case .continueDiscussion, .modifyAndDiscuss, .restartDiscussion:
+            resolvedIntent = followUpDecision.resolvedWorkflowIntent  // .discussion
+        case .reviewResult:
+            resolvedIntent = followUpDecision.resolvedWorkflowIntent  // .discussion
+        case .documentResult:
+            resolvedIntent = followUpDecision.resolvedWorkflowIntent  // .documentation
+        case .newTask:
+            resolvedIntent = nil  // 기존 로직으로 폴백
+        }
+
+        // FollowUpClassifier가 newTask이거나 기존 quickClassify가 더 구체적인 경우 폴백
+        if resolvedIntent == nil {
+            resolvedIntent = ruleBasedIntent
+        }
         if resolvedIntent == nil {
             if task.count < 60 && detectedDocType == nil {
-                // 후속 짧은 메시지: LLM 분류 없이 quickAnswer (pr해, 커밋해, 수정해줘 등)
-                // 단, 문서 요청이 감지됐으면 quickAnswer로 단락하지 않음
+                // 짧은 후속 메시지: LLM 분류 없이 quickAnswer (pr해, 커밋해, 수정해줘 등)
                 resolvedIntent = .quickAnswer
             } else if let firstAgentID = rooms[idx].assignedAgentIDs.first,
                let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
@@ -877,9 +930,12 @@ class RoomManager: ObservableObject, WorkflowHost {
         syncAgentStatuses()
 
         // 후속 사이클 스킵 범위 결정:
-        // - quickAnswer + 에이전트 변동 없음 + 문서 요청 아님 → assemble 스킵
-        // - 문서 요청 → clarify 스킵 (의도 명확) + assemble 실행 (적합 에이전트 확인)
+        // FollowUpClassifier의 skipPhases를 기반으로 하되, 기존 로직도 보완
         var completedPhases: Set<WorkflowPhase> = [.intake, .intent]
+
+        // FollowUpClassifier의 skipPhases 적용
+        completedPhases.formUnion(followUpDecision.skipPhases)
+
         // 후속 메시지에 새 외부 참조(URL/Jira 키)가 없고 기존 intakeData가 있으면
         // understand 스킵 (intakeData 덮어쓰기 + TaskBrief 유실 방지)
         if rooms[idx].clarifyContext.intakeData != nil

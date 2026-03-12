@@ -111,7 +111,7 @@ DOUGLAS/
 │   │   ├── RoomManager+Discussion.swift # 빌드/QA 루프 + 토론 실행 (~949줄)
 │   │   ├── StepExecutionEngine.swift  # Build 단계 실행 엔진 (StepStatus 전이, Policy 기반 동작, 계획 승인 후 자동 실행)
 │   │   ├── StepContextBudget.swift    # executeStep context 토큰 예산 (30K 토큰, TokenEstimator 기반) — Step Journal 패턴 도입으로 역할 축소
-│   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (Plan C: 3-tier 가중치 — skillTags×5, workModes×2, keyword+semantic×3, 0-1 정규화 confidence, 임계값 0.7/0.5)
+│   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (Plan C: 3-tier 가중치 — skillTags×5, workModes×2, keyword+semantic×3, 0-1 정규화 confidence, 임계값 0.7/0.5) + 동의어 사전(expandSynonyms) + TaskBrief.outputType 기반 동적 Tier 2 가중치
 │   │   ├── DocumentExporter.swift   # 문서 산출물 파일 저장 (에이전트 생성 파일 탐지 → 고정 경로 자동저장 / NSSavePanel 폴백)
 │   │   ├── ThemeManager.swift       # 테마 관리 (기본값: .cozyGame, UserDefaults 저장, 커스텀 팔레트)
 │   │   └── ToolExecutor.swift       # 도구 호출 루프 + smartSend + 경로 해석/충돌 추적 + 도구 결과 토큰 압축
@@ -1325,6 +1325,11 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
 | ActionItemGenerator | briefing JSON → ActionItems 파싱 |
 | AgentAssigner | ActionItem → 에이전트 ID 매핑 |
 | UserDesignationExtractor | 사용자 지명 에이전트 추출 |
+
+**ViewModel 통합 지점** (서비스 → 워크플로우 연결):
+- `executeDesignPhase` (RoomManager+Workflow): DebateClassifier.classify() → room.discussion.debateMode 설정 → executeDiscussionDesign 호출
+- `executeDiscussionDesign` Turn 2 (RoomManager+Workflow): debateMode?.strategy.turn2Prompt() → 모드별 피드백 프롬프트 (폴백: 기존 하드코딩 프롬프트)
+- `launchFollowUpCycle` (RoomManager): FollowUpClassifier.classify() → resolvedWorkflowIntent/skipPhases/ContextCarryoverPolicy 적용 → 기존 IntentClassifier 폴백
 
 **레거시 호환**: 기존 6단계(intake→intent→clarify→assemble→plan→execute)도 그대로 동작.
 `room.intent == nil` → `.quickAnswer` 폴백. 레거시 brainstorm → `.discussion`, 그 외 레거시 intent → `.task` 자동 마이그레이션.
