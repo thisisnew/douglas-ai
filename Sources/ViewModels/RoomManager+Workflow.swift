@@ -150,6 +150,11 @@ extension RoomManager {
             completedPhases.insert(nextPhase)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].workflowState.completedPhases = completedPhases
+                // 페이즈 완료 시 요약 저장 — 다음 페이즈에서 전체 히스토리 대신 참조 (토큰 최적화)
+                let summary = PhaseContextSummarizer.summarize(phase: nextPhase, room: rooms[i])
+                if !summary.isEmpty {
+                    rooms[i].workflowState.phaseSummaries[nextPhase] = summary
+                }
             }
             workflowStart = Date() // 단계 완료 후 타이머 리셋 (사용자 대기 시간으로 인한 타임아웃 방지)
         }
@@ -2310,6 +2315,9 @@ extension RoomManager {
             briefContext = room.clarifyContext.clarifySummary ?? task
         }
 
+        // 이전 페이즈 요약 컨텍스트 (토큰 최적화)
+        let phaseContext = PhaseContextSummarizer.buildContextForPhase(.review, room: room)
+
         let maxRetries = 2
         var retryCount = 0
 
@@ -2333,7 +2341,7 @@ extension RoomManager {
             당신은 Review 단계의 Reviewer입니다.
             Build 결과물이 작업 목표와 성공기준을 충족하는지 검토하세요.
 
-            \(briefContext)
+            \(briefContext)\(phaseContext.isEmpty ? "" : "\n\n[이전 페이즈 요약]\n\(phaseContext)")
 
             검토 후 반드시 첫 줄에 판정을 작성하세요:
             - PASS: 결과물이 기준을 충족함
@@ -3508,6 +3516,14 @@ extension RoomManager {
             let ctx = briefing.asContextString()
             let capped = ctx.count > 2000 ? String(ctx.prefix(2000)) + "…" : ctx
             history.append(ConversationMessage.user("작업 브리핑:\n\(capped)"))
+        }
+
+        // 2.5. 페이즈 요약 컨텍스트 — 이전 페이즈 산출물 참조 (토큰 최적화)
+        if let room = room {
+            let phaseContext = PhaseContextSummarizer.buildContextForPhase(.build, room: room)
+            if !phaseContext.isEmpty {
+                history.append(ConversationMessage.user("[이전 페이즈 요약]\n\(phaseContext)"))
+            }
         }
 
         // 3. 첫 사용자 메시지(이미지 첨부 포함)를 항상 포함

@@ -96,6 +96,7 @@ DOUGLAS/
 │   │   ├── DebateClassifier.swift    # 토론 주제+역할 → DebateMode 분류 (역할 겹침도 + 키워드)
 │   │   ├── ConsensusDetector.swift   # Strategy 위임 합의 감지 (레거시 호환 포함)
 │   │   ├── FollowUpClassifier.swift  # 후속 의도 결정론적 분류 (9가지 분기 + 캐리오버 정책)
+│   │   ├── PhaseContextSummarizer.swift # 페이즈 완료 시 요약 생성 + 다음 페이즈 컨텍스트 조합 (토큰 최적화)
 │   │   ├── ActionItemGenerator.swift # briefing JSON → ActionItems 파싱
 │   │   ├── AgentAssigner.swift       # ActionItem → 에이전트 ID 매핑 (3단 우선순위)
 │   │   └── UserDesignationExtractor.swift # 사용자 지명 에이전트 추출 (슬래시/쉼표 구분)
@@ -1322,6 +1323,7 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
 | DebateClassifier | 주제+역할 → DebateMode (dialectic/collaborative/coordination) |
 | ConsensusDetector | Strategy 위임 합의 감지 (레거시 호환) |
 | FollowUpClassifier | 후속 의도 결정론적 분류 (9분기 + 캐리오버) |
+| PhaseContextSummarizer | 페이즈 완료 시 요약 생성 + 다음 페이즈 컨텍스트 조합 (토큰 최적화) |
 | ActionItemGenerator | briefing JSON → ActionItems 파싱 |
 | AgentAssigner | ActionItem → 에이전트 ID 매핑 |
 | UserDesignationExtractor | 사용자 지명 에이전트 추출 |
@@ -1330,6 +1332,9 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
 - `executeDesignPhase` (RoomManager+Workflow): DebateClassifier.classify() → room.discussion.debateMode 설정 → executeDiscussionDesign 호출
 - `executeDiscussionDesign` Turn 2 (RoomManager+Workflow): debateMode?.strategy.turn2Prompt() → 모드별 피드백 프롬프트 (폴백: 기존 하드코딩 프롬프트)
 - `launchFollowUpCycle` (RoomManager): FollowUpClassifier.classify() → resolvedWorkflowIntent/skipPhases/ContextCarryoverPolicy 적용 → 기존 IntentClassifier 폴백
+- 워크플로우 루프 (RoomManager+Workflow): 페이즈 완료 시 PhaseContextSummarizer.summarize() → phaseSummaries 저장
+- `executeStep` (RoomManager+Workflow): PhaseContextSummarizer.buildContextForPhase(.build) → 이전 페이즈 요약을 step 프롬프트에 주입
+- `executeReviewPhase` (RoomManager+Workflow): PhaseContextSummarizer.buildContextForPhase(.review) → 리뷰 프롬프트에 이전 페이즈 요약 주입
 
 **레거시 호환**: 기존 6단계(intake→intent→clarify→assemble→plan→execute)도 그대로 동작.
 `room.intent == nil` → `.quickAnswer` 폴백. 레거시 brainstorm → `.discussion`, 그 외 레거시 intent → `.task` 자동 마이그레이션.

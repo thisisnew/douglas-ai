@@ -10,6 +10,8 @@ struct WorkflowState: Equatable {
     var completedPhases: Set<WorkflowPhase>
     var activeRuleIDs: Set<UUID>?   // nil = 전체 규칙, Set = 매칭된 규칙만
     var phaseTransitions: [PhaseTransition]  // 단계 전이 감사 기록
+    /// 각 페이즈 완료 시 요약 — 다음 페이즈에서 전체 히스토리 대신 참조 (토큰 최적화)
+    var phaseSummaries: [WorkflowPhase: String]
 
     init(
         intent: WorkflowIntent? = nil,
@@ -19,7 +21,8 @@ struct WorkflowState: Equatable {
         currentPhase: WorkflowPhase? = nil,
         completedPhases: Set<WorkflowPhase> = [],
         activeRuleIDs: Set<UUID>? = nil,
-        phaseTransitions: [PhaseTransition] = []
+        phaseTransitions: [PhaseTransition] = [],
+        phaseSummaries: [WorkflowPhase: String] = [:]
     ) {
         self.intent = intent
         self.documentType = documentType
@@ -29,6 +32,7 @@ struct WorkflowState: Equatable {
         self.completedPhases = completedPhases
         self.activeRuleIDs = activeRuleIDs
         self.phaseTransitions = phaseTransitions
+        self.phaseSummaries = phaseSummaries
     }
 }
 
@@ -45,5 +49,6 @@ extension WorkflowState: Codable {
         completedPhases = try container.decodeIfPresent(Set<WorkflowPhase>.self, forKey: .completedPhases) ?? []
         activeRuleIDs = try container.decodeIfPresent(Set<UUID>.self, forKey: .activeRuleIDs)
         phaseTransitions = try container.decodeIfPresent([PhaseTransition].self, forKey: .phaseTransitions) ?? []
+        phaseSummaries = try container.decodeIfPresent([WorkflowPhase: String].self, forKey: .phaseSummaries) ?? [:]
     }
 }

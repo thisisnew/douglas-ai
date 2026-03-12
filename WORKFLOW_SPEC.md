@@ -467,6 +467,16 @@ FollowUpClassifier가 newTask를 반환하거나 매칭하지 못한 경우, 기
 계획 승인 시 high-risk 단계가 포함되면 반드시 경고를 표시한다.
 예: "⚠️ 이 계획에는 외부 영향 작업이 포함되어 있습니다: 단계 3: PR 생성. 승인 시 끝까지 자동으로 실행됩니다."
 
+**페이즈 간 토큰 최적화 (PhaseContextSummarizer)**:
+각 페이즈 완료 시 `PhaseContextSummarizer.summarize(phase:room:)`가 해당 페이즈의 핵심 산출물을 구조화된 요약으로 생성하고 `WorkflowState.phaseSummaries`에 저장한다.
+다음 페이즈 실행 시 `PhaseContextSummarizer.buildContextForPhase(_:room:)`가 이전 완료 페이즈의 요약을 조합하여 프롬프트 컨텍스트로 주입한다.
+- **Understand 요약**: 목표, 제약, 성공기준, 산출물 유형, 위험도
+- **Assemble 요약**: 에이전트 역할 배정
+- **Design 요약**: 토론 브리핑 또는 계획 요약
+- **Build 요약**: 단계 완료 현황 (N단계 중 M단계 완료)
+- 이전 페이즈 전체 메시지 히스토리 대신 요약을 참조하므로 토큰 소비를 대폭 절감
+- Step 실행(Build)과 Review 프롬프트에 `[이전 페이즈 요약]` 블록으로 주입
+
 ### 12.5 조사 워크플로우
 
 **적용 조건**: 정보 수집, 비교 정리, 사례 조사, 레퍼런스 탐색

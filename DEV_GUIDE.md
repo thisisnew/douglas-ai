@@ -207,6 +207,7 @@ DOUGLAS/
 - `DebateClassifier`: 주제+역할 → DebateMode 결정 (역할 겹침도 + 주제 키워드 + IntentModifier)
 - `ConsensusDetector`: Strategy 위임 합의 감지 (레거시 호환)
 - `FollowUpClassifier`: 후속 의도 9분기 결정론적 분류 + ContextCarryoverPolicy
+- `PhaseContextSummarizer`: 페이즈 완료 시 요약 생성 + 다음 페이즈 컨텍스트 조합 (토큰 최적화)
 - `ActionItemGenerator`: briefing JSON → ActionItem 파싱
 - `AgentAssigner`: ActionItem.suggestedAgent → 에이전트 UUID 매핑
 - `UserDesignationExtractor`: 사용자 지명 에이전트 추출 ("백엔드/프론트 관점에서")
