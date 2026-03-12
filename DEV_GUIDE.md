@@ -194,7 +194,7 @@ DOUGLAS/
 **6단계 워크플로우** (WorkflowPhase):
 1. **Understand**: intake+intent+clarify 통합 + TaskBrief 생성 (`IntentClassifier.generateTaskBrief()`)
 2. **Assemble**: skillTags 가중 매칭 + RuntimeRole 할당 (creator/reviewer)
-3. **Design**: task=3턴 프로토콜 (Propose→Critique→Revise) / discussion=토론 3모드 (DebateClassifier → dialectic/collaborative/coordination Strategy 패턴, 라운드 상한: dialectic=3/collaborative=2/coordination=2, 모든 라운드 병렬 실행)
+3. **Design**: task=3턴 프로토콜 (Propose→Critique→Revise) / discussion=토론 3모드 (DebateClassifier → dialectic/collaborative/coordination Strategy 패턴, 라운드 상한: dialectic=3/collaborative=2/coordination=2, 모든 라운드 병렬 실행, SystemPromptCache + DiscussionHistoryFilter/Builder 히스토리 압축)
 4. **Build**: Creator 단계별 실행, ToolRisk + ActionScope 2-layer 권한 검사
 5. **Review**: Reviewer가 성공기준 기반 결과물 검토
 6. **Deliver**: DeferredAction 프리뷰 + 명시 승인 (high risk)

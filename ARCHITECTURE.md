@@ -86,6 +86,7 @@ DOUGLAS/
 │   │   ├── WorkflowState.swift     # 워크플로우 진행 상태 값 객체 (intent, phase 추적, activeRuleIDs)
 │   │   ├── ClarifyContext.swift    # 복명복창 컨텍스트 값 객체 (intake, summary, delegation)
 │   │   ├── ProjectContext.swift    # 프로젝트 연동 컨텍스트 값 객체 (경로, 빌드/테스트 명령)
+│   │   ├── SystemPromptCache.swift # 시스템 프롬프트 캐시 (agentID+ruleIDs 키, 반복 생성 방지)
 │   │   ├── DiscussionSession.swift # 토론 세션 값 객체 (라운드, 산출물, 브리핑, 결정 로그, debateMode, actionItems, maxRounds, roundSummaries)
 │   │   ├── BuildQAState.swift      # 빌드/QA 루프 상태 값 객체 (8개 프로퍼티 그룹핑)
 │   │   └── KeychainHelper.swift     # 파일 기반 API 키 저장 (Keychain 레거시 마이그레이션)
@@ -100,6 +101,8 @@ DOUGLAS/
 │   │   ├── ConsensusDetector.swift   # Strategy 위임 합의 감지 (레거시 호환 포함)
 │   │   ├── FollowUpClassifier.swift  # 후속 의도 결정론적 분류 (FollowUpVocabulary 위임 + 캐리오버 정책)
 │   │   ├── PhaseContextSummarizer.swift # 페이즈 완료 시 요약 생성 + 다음 페이즈 컨텍스트 조합 (토큰 최적화)
+│   │   ├── DiscussionHistoryFilter.swift # 토론 히스토리 필터 (.discussionRound 제외, suffix(20) 발언만 카운트)
+│   │   ├── DiscussionHistoryBuilder.swift # 토론 히스토리 빌드 (이전 라운드 RoundSummary 압축 + 현재 라운드 전문)
 │   │   ├── ActionItemGenerator.swift # briefing JSON → ActionItems 파싱
 │   │   ├── AgentAssigner.swift       # ActionItem → 에이전트 ID 매핑 (3단 우선순위)
 │   │   └── UserDesignationExtractor.swift # 사용자 지명 에이전트 추출 (슬래시/쉼표 구분)
@@ -1290,6 +1293,8 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
 - **라운드 상한**: DebateMode.maxRounds (dialectic:3, collaborative:2, coordination:2). 최대 라운드 도달 시 자동 종합
 - **라운드별 병렬화**: 모든 라운드에서 에이전트 발언을 히스토리 스냅샷 기반으로 병렬 실행 (withTaskGroup)
 - **라운드별 구조화 요약**: RoundSummary(agentPositions, agreements, disagreements) → DiscussionSession.roundSummaries
+- **시스템 프롬프트 캐시**: SystemPromptCache(agentID+ruleIDs 키) → 같은 방+에이전트 조합의 반복 생성 방지
+- **토론 히스토리 압축**: DiscussionHistoryFilter(.discussionRound 제외) + DiscussionHistoryBuilder(이전 라운드 RoundSummary 기반 압축, 현재 라운드 전문)
 
 **IntentModifier 체계**: 6개 intent를 유지하면서 modifier 조합으로 행동 세밀 제어:
 - `.adversarial` → DebateClassifier가 dialectic 강제

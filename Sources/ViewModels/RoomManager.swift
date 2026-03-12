@@ -158,6 +158,8 @@ class RoomManager: ObservableObject, WorkflowHost {
     private var saveTask: Task<Void, Never>?
     /// 방별 워크플로우 태스크 (취소 가능)
     private var roomTasks: [UUID: Task<Void, Never>] = [:]
+    /// 시스템 프롬프트 캐시 — 같은 에이전트+규칙 조합의 반복 생성 방지
+    var systemPromptCache = SystemPromptCache()
     /// 승인 게이트 대기 중인 continuation (방 ID → continuation)
     var approvalContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
     /// 리뷰 게이트 자동 승인 타이머 태스크 (취소용) — internal for extension access

@@ -896,11 +896,32 @@ extension RoomManager {
     }
 
     /// 토론용 히스토리 빌드 (에이전트 이름을 명시하여 누가 말했는지 구분)
+    /// - Phase 2 개선: .discussionRound 제외 + RoundSummary 기반 이전 라운드 압축
     func buildDiscussionHistory(roomID: UUID, currentAgentName: String?) -> [(role: String, content: String)] {
         guard let room = rooms.first(where: { $0.id == roomID }) else { return [] }
-        return room.messages
-            .filter { $0.messageType == .text || $0.messageType == .discussion || $0.messageType == .discussionRound }
-            .suffix(20)
+
+        let currentRound = room.discussion.currentRound
+        let summaries = room.discussion.roundSummaries
+
+        // RoundSummary가 있으면 이전 라운드 압축 + 현재 라운드 전문
+        if !summaries.isEmpty, summaries.contains(where: { $0.round < currentRound }) {
+            // 현재 라운드 메시지만 필터 (suffix에서 이전 라운드 발언 제외)
+            let filteredAll = DiscussionHistoryFilter.filterForHistory(room.messages)
+            // 현재 라운드 = discussion.currentRound 이후에 추가된 메시지
+            // 라운드 마커 기준으로 분리하기 어려우므로, 마지막 N개를 현재 라운드로 간주
+            // (에이전트 수 × 1 = 라운드당 발언 수의 상한)
+            let agentCount = max(room.assignedAgentIDs.count, 1)
+            let currentRoundMessages = Array(filteredAll.suffix(agentCount))
+            return DiscussionHistoryBuilder.build(
+                currentRound: currentRound,
+                roundSummaries: summaries,
+                currentRoundMessages: currentRoundMessages,
+                currentAgentName: currentAgentName
+            )
+        }
+
+        // RoundSummary 없으면 기존 로직 (DiscussionHistoryFilter 적용)
+        return DiscussionHistoryFilter.filterForHistory(room.messages)
             .map { msg in
                 let role: String
                 var content: String
@@ -909,7 +930,6 @@ extension RoomManager {
                     role = "user"
                     content = msg.content
                 case .assistant:
-                    // 자신의 발언은 assistant, 다른 에이전트 발언은 user로 (컨텍스트 구분)
                     if let agentName = msg.agentName, agentName == currentAgentName {
                         role = "assistant"
                         content = msg.content
@@ -921,7 +941,6 @@ extension RoomManager {
                     role = "user"
                     content = "[시스템]: \(msg.content)"
                 }
-                // 토큰 절감: 메시지당 최대 800자
                 if content.count > 800 {
                     content = String(content.prefix(800)) + "…"
                 }

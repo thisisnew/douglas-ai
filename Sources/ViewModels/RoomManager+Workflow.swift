@@ -9,10 +9,15 @@ extension RoomManager {
 
     // MARK: - 규칙 기반 시스템 프롬프트
 
-    /// 방의 활성 규칙 기반으로 에이전트 시스템 프롬프트 생성
+    /// 방의 활성 규칙 기반으로 에이전트 시스템 프롬프트 생성 (캐시 적용)
     func systemPrompt(for agent: Agent, roomID: UUID) -> String {
         let activeRuleIDs = rooms.first(where: { $0.id == roomID })?.workflowState.activeRuleIDs
-        return agent.resolvedSystemPrompt(activeRuleIDs: activeRuleIDs)
+        if let cached = systemPromptCache.get(agentID: agent.id, activeRuleIDs: activeRuleIDs) {
+            return cached
+        }
+        let prompt = agent.resolvedSystemPrompt(activeRuleIDs: activeRuleIDs)
+        systemPromptCache.set(prompt, agentID: agent.id, activeRuleIDs: activeRuleIDs)
+        return prompt
     }
 
     // MARK: - 방 워크플로우

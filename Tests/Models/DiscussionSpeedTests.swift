@@ -120,4 +120,136 @@ struct DiscussionSpeedTests {
         #expect(text.contains("쟁점: 실시간 처리 방식"))
         #expect(text.contains("피드백: REST 기반으로 가자"))
     }
+
+    // MARK: - Phase 2 개선 3a: 시스템 프롬프트 캐시
+
+    @Test("SystemPromptCache — 같은 키는 캐시 hit")
+    func systemPromptCacheHit() {
+        var cache = SystemPromptCache()
+        let agentID = UUID()
+        let ruleIDs: Set<UUID> = [UUID(), UUID()]
+        cache.set("프롬프트 A", agentID: agentID, activeRuleIDs: ruleIDs)
+        let result = cache.get(agentID: agentID, activeRuleIDs: ruleIDs)
+        #expect(result == "프롬프트 A")
+    }
+
+    @Test("SystemPromptCache — 다른 ruleIDs는 캐시 miss")
+    func systemPromptCacheMiss() {
+        var cache = SystemPromptCache()
+        let agentID = UUID()
+        cache.set("프롬프트 A", agentID: agentID, activeRuleIDs: [UUID()])
+        let result = cache.get(agentID: agentID, activeRuleIDs: [UUID()])
+        #expect(result == nil)
+    }
+
+    @Test("SystemPromptCache — nil ruleIDs 지원")
+    func systemPromptCacheNilRules() {
+        var cache = SystemPromptCache()
+        let agentID = UUID()
+        cache.set("프롬프트 B", agentID: agentID, activeRuleIDs: nil)
+        let result = cache.get(agentID: agentID, activeRuleIDs: nil)
+        #expect(result == "프롬프트 B")
+    }
+
+    @Test("SystemPromptCache — invalidate 시 전부 제거")
+    func systemPromptCacheInvalidate() {
+        var cache = SystemPromptCache()
+        let agentID = UUID()
+        cache.set("프롬프트", agentID: agentID, activeRuleIDs: nil)
+        cache.invalidateAll()
+        #expect(cache.get(agentID: agentID, activeRuleIDs: nil) == nil)
+    }
+
+    // MARK: - Phase 2 개선 4: 토론 문맥 압축
+
+    @Test("DiscussionHistoryFilter — .discussionRound 제외")
+    func historyFilterExcludesRoundMarkers() {
+        let messages: [ChatMessage] = [
+            ChatMessage(role: .system, content: "── 토론 라운드 1 ──", messageType: .discussionRound),
+            ChatMessage(role: .assistant, content: "백엔드 의견", agentName: "백엔드", messageType: .discussion),
+            ChatMessage(role: .assistant, content: "프론트 의견", agentName: "프론트", messageType: .discussion),
+            ChatMessage(role: .system, content: "── 토론 라운드 2 ──", messageType: .discussionRound),
+            ChatMessage(role: .assistant, content: "백엔드 추가", agentName: "백엔드", messageType: .discussion),
+        ]
+        let filtered = DiscussionHistoryFilter.filterForHistory(messages)
+        #expect(filtered.count == 3)
+        #expect(filtered.allSatisfy { $0.messageType != .discussionRound })
+    }
+
+    @Test("DiscussionHistoryFilter — suffix(20) 계산 시 토론 발언만 카운트")
+    func historyFilterSuffixCountsOnlyDiscussion() {
+        // 25개 메시지: 5개 .discussionRound + 20개 .discussion
+        var messages: [ChatMessage] = []
+        for round in 0..<5 {
+            messages.append(ChatMessage(role: .system, content: "라운드 \(round)", messageType: .discussionRound))
+            for i in 0..<4 {
+                messages.append(ChatMessage(role: .assistant, content: "발언 \(round)-\(i)", agentName: "에이전트\(i)", messageType: .discussion))
+            }
+        }
+        let filtered = DiscussionHistoryFilter.filterForHistory(messages)
+        // .discussionRound 5개 제외, .discussion 20개 → suffix(20) = 20개
+        #expect(filtered.count == 20)
+        #expect(filtered.allSatisfy { $0.messageType == .discussion || $0.messageType == .text })
+    }
+
+    @Test("DiscussionHistoryFilter — .text(사용자 입력)는 포함")
+    func historyFilterIncludesUserText() {
+        let messages: [ChatMessage] = [
+            ChatMessage(role: .user, content: "사용자 질문", messageType: .text),
+            ChatMessage(role: .assistant, content: "에이전트 답변", agentName: "백엔드", messageType: .discussion),
+        ]
+        let filtered = DiscussionHistoryFilter.filterForHistory(messages)
+        #expect(filtered.count == 2)
+        #expect(filtered[0].content == "사용자 질문")
+    }
+
+    @Test("DiscussionHistoryBuilder — 이전 라운드를 RoundSummary로 압축")
+    func historyBuilderCompressesPreviousRounds() {
+        let roundSummaries = [
+            RoundSummary(
+                round: 0,
+                agentPositions: [
+                    AgentPosition(agentName: "백엔드", stance: "REST 선호"),
+                    AgentPosition(agentName: "프론트", stance: "GraphQL 선호"),
+                ],
+                agreements: ["기본 CRUD는 REST"],
+                disagreements: ["실시간 처리"],
+                userFeedback: nil
+            )
+        ]
+        let currentRound = 1
+        let currentRoundMessages: [ChatMessage] = [
+            ChatMessage(role: .assistant, content: "라운드2 발언", agentName: "백엔드", messageType: .discussion),
+        ]
+
+        let result = DiscussionHistoryBuilder.build(
+            currentRound: currentRound,
+            roundSummaries: roundSummaries,
+            currentRoundMessages: currentRoundMessages,
+            currentAgentName: nil
+        )
+        // 이전 라운드 요약 1개 + 현재 라운드 발언 1개 = 2개
+        #expect(result.count == 2)
+        #expect(result[0].content.contains("라운드 1 요약"))
+        #expect(result[0].content.contains("REST 선호"))
+        #expect(result[1].content.contains("라운드2 발언"))
+    }
+
+    @Test("DiscussionHistoryBuilder — 요약 없으면 전체 메시지 사용")
+    func historyBuilderNoSummaries() {
+        let messages: [ChatMessage] = [
+            ChatMessage(role: .assistant, content: "발언1", agentName: "A", messageType: .discussion),
+            ChatMessage(role: .assistant, content: "발언2", agentName: "B", messageType: .discussion),
+        ]
+        let result = DiscussionHistoryBuilder.build(
+            currentRound: 0,
+            roundSummaries: [],
+            currentRoundMessages: messages,
+            currentAgentName: "A"
+        )
+        #expect(result.count == 2)
+        // A의 발언은 assistant, B의 발언은 user
+        #expect(result[0].role == "assistant")
+        #expect(result[1].role == "user")
+    }
 }
