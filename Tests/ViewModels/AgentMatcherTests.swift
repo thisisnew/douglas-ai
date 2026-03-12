@@ -457,6 +457,44 @@ struct AgentMatcherTests {
         #expect(matched?.id == creator.id)
     }
 
+    // MARK: - 목표 시맨틱 매칭 (개선안 G)
+
+    @Test("matchByTags — TaskBrief.goal이 시맨틱 매칭에 반영됨")
+    func taskBriefGoalSemanticBoost() {
+        // goal에 "보안 감사" 키워드 → 보안 에이전트가 매칭 유리
+        let securityAgent = makeAgent(name: "보안 전문가", persona: "보안 감사 및 취약점 분석 전문", skillTags: ["보안", "감사"])
+        let devAgent = makeAgent(name: "백엔드 개발자", persona: "서버 개발 전문", skillTags: ["백엔드", "서버"])
+
+        let brief = TaskBrief(
+            goal: "보안 감사 실시 및 취약점 리포트 작성",
+            constraints: [], successCriteria: [],
+            nonGoals: [], overallRisk: .high, outputType: .analysis
+        )
+        // roleName이 모호할 때 goal이 매칭을 도와줌
+        let (matched, _) = AgentMatcher.matchByTags(
+            roleName: "감사 전문가",
+            agents: [devAgent, securityAgent],
+            excluding: [],
+            intent: .task,
+            taskBrief: brief
+        )
+        #expect(matched?.id == securityAgent.id)
+    }
+
+    @Test("matchByTags — TaskBrief.goal이 없으면 기존 동작 유지")
+    func taskBriefNoGoalFallback() {
+        let agent = makeAgent(name: "백엔드 개발자", persona: "서버 개발", skillTags: ["백엔드", "서버"])
+        let (matched, confidence) = AgentMatcher.matchByTags(
+            roleName: "백엔드",
+            agents: [agent],
+            excluding: [],
+            intent: .task,
+            taskBrief: nil
+        )
+        #expect(matched?.id == agent.id)
+        #expect(confidence > 0.3)
+    }
+
     @Test("matchByTags — TaskBrief.outputType=analysis → research workMode 우선")
     func taskBriefAnalysisWeighting() {
         let researcher = makeAgent(name: "리서치 전문가", persona: "조사 분석", skillTags: ["리서치"], workModes: [.research])

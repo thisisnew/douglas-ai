@@ -272,13 +272,31 @@ enum AgentMatcher {
                     if lowerName.contains(lower) { kwHits += 1 }
                     if lowerPersona.contains(lower) { kwHits += 1 }
                 }
+
+                // 개선안 G: TaskBrief.goal 키워드 → 에이전트 매칭 보너스
+                // goal의 핵심 키워드가 에이전트 name/persona에 있으면 추가 점수
+                if let goal = taskBrief?.goal, !goal.isEmpty {
+                    let goalKeywords = extractSemanticKeywords(from: goal)
+                        .filter { $0.count >= 2 && !genericSuffixes.contains($0) }
+                    for gkw in goalKeywords {
+                        if lowerName.contains(gkw) { kwHits += 1 }
+                        if lowerPersona.contains(gkw) { kwHits += 1 }
+                    }
+                }
+
                 let maxKw = max((originalKeywordCount + preferredKWs.count) * 4, 1)
                 let kwScore = min(Double(kwHits) / Double(maxKw), 1.0)
 
                 if useSemanticScoring {
                     let rawSim = semanticMatcher.similarity(roleName: roleName, agent: agent)
                     let semScore = max(0, rawSim)  // 0~1
-                    tier3Score = kwScore * 0.5 + semScore * 0.5
+                    // 개선안 G: TaskBrief.goal도 시맨틱 매칭에 반영
+                    var goalSemScore: Double = 0
+                    if let goal = taskBrief?.goal, !goal.isEmpty {
+                        goalSemScore = max(0, semanticMatcher.similarity(roleName: goal, agent: agent))
+                    }
+                    let combinedSem = goalSemScore > 0 ? semScore * 0.6 + goalSemScore * 0.4 : semScore
+                    tier3Score = kwScore * 0.5 + combinedSem * 0.5
                 } else {
                     tier3Score = kwScore
                 }

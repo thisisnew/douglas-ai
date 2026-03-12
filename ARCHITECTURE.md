@@ -111,7 +111,7 @@ DOUGLAS/
 │   │   ├── RoomManager+Discussion.swift # 빌드/QA 루프 + 토론 실행 (~949줄)
 │   │   ├── StepExecutionEngine.swift  # Build 단계 실행 엔진 (StepStatus 전이, Policy 기반 동작, 계획 승인 후 자동 실행)
 │   │   ├── StepContextBudget.swift    # executeStep context 토큰 예산 (30K 토큰, TokenEstimator 기반) — Step Journal 패턴 도입으로 역할 축소
-│   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (Plan C: 3-tier 가중치 — skillTags×5, workModes×2, keyword+semantic×3, 0-1 정규화 confidence, 임계값 0.7/0.5) + 동의어 사전(expandSynonyms) + TaskBrief.outputType 기반 동적 Tier 2 가중치
+│   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 (Plan C: 3-tier 가중치 — skillTags×5, workModes×2, keyword+semantic×3, 0-1 정규화 confidence, 임계값 0.7/0.5) + 동의어 사전(expandSynonyms) + TaskBrief.outputType 동적 Tier 2 + TaskBrief.goal 시맨틱 Tier 3 부스트
 │   │   ├── DocumentExporter.swift   # 문서 산출물 파일 저장 (에이전트 생성 파일 탐지 → 고정 경로 자동저장 / NSSavePanel 폴백)
 │   │   ├── ThemeManager.swift       # 테마 관리 (기본값: .cozyGame, UserDefaults 저장, 커스텀 팔레트)
 │   │   └── ToolExecutor.swift       # 도구 호출 루프 + smartSend + 경로 해석/충돌 추적 + 도구 결과 토큰 압축
