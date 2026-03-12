@@ -94,8 +94,16 @@ enum IntentClassifier {
     private struct ScoredKeywords {
         /// (어간, 가중치) 배열. 가중치가 높을수록 해당 intent에 강한 신호
         let stems: [(stem: String, weight: Int)]
+        /// 부정 키워드 — 이 intent에서 감점하는 신호 (개선안 A)
+        let negatives: [(stem: String, weight: Int)]
         /// 이 intent의 최소 점수 임계값
         let threshold: Int
+
+        init(stems: [(stem: String, weight: Int)], negatives: [(stem: String, weight: Int)] = [], threshold: Int) {
+            self.stems = stems
+            self.negatives = negatives
+            self.threshold = threshold
+        }
     }
 
     /// intent별 키워드 사전 (WORKFLOW_SPEC §4.1: 5-카테고리 + complex는 LLM에서만 판별)
@@ -125,6 +133,13 @@ enum IntentClassifier {
             ("트렌드", 4), ("전망", 3), ("미래", 2),
             // 지식 탐색
             ("알고싶", 2),
+            // 작업 도출/분석 (시나리오 2)
+            ("작업도출", 6), ("할일정리", 6), ("태스크파악", 6),
+            ("무슨작업", 5), ("어떤작업", 5), ("작업목록", 5),
+            ("뭘해야", 5), ("해야할것", 5), ("해야할일", 5),
+        ], negatives: [
+            // discussion에서 구현/코딩 키워드는 감점 (개선안 A)
+            ("구현", -3), ("코딩", -3), ("배포", -3), ("커밋", -3),
         ], threshold: 4)),
 
         // research: 자료 수집, 검색, 비교, 정리 (WORKFLOW_SPEC §4.1)
@@ -172,6 +187,9 @@ enum IntentClassifier {
             ("배포", 4), ("deploy", 4),
             ("fix", 5), ("implement", 4),
             ("커밋", 3), ("commit", 3), ("pr ", 2), ("push", 2),
+        ], negatives: [
+            // task에서 토론/의견 키워드는 감점 (개선안 A)
+            ("토론", -3), ("의견", -2), ("브레인스토밍", -3), ("어떻게생각", -3),
         ], threshold: 3)),
     ]
 
@@ -201,6 +219,14 @@ enum IntentClassifier {
             return nil
         }
 
+        // Jira URL + 분석/도출 키워드 → discussion (시나리오 2)
+        if containsTicketURL(text) {
+            let analysisKeywords = ["도출", "파악", "정리", "뭘해야", "어떤작업", "할일", "작업목록"]
+            if analysisKeywords.contains(where: { text.contains($0) }) {
+                return .discussion
+            }
+        }
+
         // 짧은 단순 변환 요청 (< 30자): 번역/요약/추출 등은 quickAnswer — 6단계 불필요
         // 단, 복합 지표(pdf, 파일 생성 등)가 있으면 task로 유지
         if task.count < 30 {
@@ -217,6 +243,9 @@ enum IntentClassifier {
         let tokens = tokenize(text)
         guard !tokens.isEmpty else { return nil }
 
+        // 인접 토큰 결합 (개선안 B: bigram 매칭)
+        let bigrams = makeBigrams(tokens)
+
         // 각 intent별 점수 계산
         var scores: [(intent: WorkflowIntent, score: Int)] = []
 
@@ -231,9 +260,20 @@ enum IntentClassifier {
                 let matched = tokens.contains { token in
                     token.hasPrefix(keyword.stem) || token == keyword.stem
                 } || text.contains(keyword.stem)
+                // bigram 매칭 (개선안 B): "작업" + "분해" → "작업분해" 매칭
+                || bigrams.contains(where: { $0.hasPrefix(keyword.stem) || $0 == keyword.stem })
 
                 if matched {
                     score += keyword.weight
+                }
+            }
+
+            // 부정 키워드 감점 (개선안 A)
+            for negative in entry.keywords.negatives {
+                let negMatched = tokens.contains { $0.hasPrefix(negative.stem) || $0 == negative.stem }
+                    || text.contains(negative.stem)
+                if negMatched {
+                    score += negative.weight  // weight는 이미 음수
                 }
             }
 
@@ -277,6 +317,61 @@ enum IntentClassifier {
             return true
         }
         return tokens
+    }
+
+    /// 인접 토큰 결합으로 복합어 매칭 (개선안 B)
+    /// "작업" + "분해" → "작업분해", "할" + "일" → "할일" 등
+    private static func makeBigrams(_ tokens: [String]) -> [String] {
+        guard tokens.count >= 2 else { return [] }
+        return zip(tokens, tokens.dropFirst()).map { "\($0)\($1)" }
+    }
+
+    // MARK: - Modifier 추출 (개선안 C)
+
+    /// 사용자 입력에서 IntentModifier 추출
+    static func extractModifiers(from text: String) -> Set<IntentModifier> {
+        let lower = text.lowercased()
+        var modifiers = Set<IntentModifier>()
+
+        // adversarial: 날카롭게, 반박, 비판적, devil's advocate
+        let adversarialKeywords = ["날카롭게", "반박", "비판적", "비판해", "devil", "advocate",
+                                    "첨예하게", "공격적으로", "까다롭게"]
+        if adversarialKeywords.contains(where: { lower.contains($0) }) {
+            modifiers.insert(.adversarial)
+        }
+
+        // outputOnly: ~만 해줘, 결과만, 정리만, 분석만
+        let outputOnlyPatterns = ["만 해줘", "만 해봐", "결과만", "정리만", "분석만",
+                                   "만해줘", "만해봐", "만 보여"]
+        if outputOnlyPatterns.contains(where: { lower.contains($0) }) {
+            modifiers.insert(.outputOnly)
+        }
+
+        // withExecution: ~하고 구현해줘, 실행까지, 구현까지
+        let executionPatterns = ["구현해줘", "구현까지", "실행까지", "개발해줘", "만들어줘",
+                                  "코딩해줘", "하고 구현", "하고 개발", "하고 만들"]
+        if executionPatterns.contains(where: { lower.contains($0) }) {
+            modifiers.insert(.withExecution)
+        }
+
+        // breakdown: 분해, 쪼개, 나눠, 도출
+        let breakdownKeywords = ["분해", "쪼개", "나눠", "도출", "작업목록", "할일",
+                                  "task breakdown"]
+        if breakdownKeywords.contains(where: { lower.contains($0) }) {
+            modifiers.insert(.breakdown)
+        }
+
+        return modifiers
+    }
+
+    /// intent + modifier 통합 분류 결과 반환
+    static func classifyWithModifiers(_ task: String) -> ClassificationResult {
+        let intent = quickClassify(task)
+        let modifiers = extractModifiers(from: task)
+        return ClassificationResult(
+            intent: intent ?? .task,
+            modifiers: modifiers
+        )
     }
 
     // MARK: - LLM 기반 분류

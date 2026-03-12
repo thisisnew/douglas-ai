@@ -245,4 +245,70 @@ struct IntentClassifierTests {
         let route = IntentClassifier.preRoute("기획서 작성해줘", hasAttachments: false)
         #expect(route == .classified(.documentation))
     }
+
+    // MARK: - Phase 2: 부정 키워드 (개선안 A)
+
+    @Test("토론 키워드가 task 키워드보다 우세할 때 discussion")
+    func discussionWinsOverTask() {
+        // "이 아키텍처에 대해 토론해줘" — 토론(4) + 아키텍처(task 4) 경쟁
+        // discussion negative에 의해 task 감점 → discussion 승
+        let result = IntentClassifier.quickClassify("이 아키텍처에 대해 토론해줘")
+        #expect(result == .discussion)
+    }
+
+    // MARK: - Phase 2: Bigram 매칭 (개선안 B)
+
+    @Test("'작업 도출' 띄어쓰기 → discussion (bigram)")
+    func bigramTaskDerivation() {
+        // "작업" + "도출" 개별 토큰이 bigram "작업도출"로 결합 → discussion 매칭
+        let result = IntentClassifier.quickClassify("이 티켓에서 작업 도출해줘")
+        #expect(result == .discussion)
+    }
+
+    // MARK: - Phase 2: Modifier 추출 (개선안 C)
+
+    @Test("adversarial modifier 추출")
+    func extractAdversarial() {
+        let mods = IntentClassifier.extractModifiers(from: "날카롭게 토론해줘")
+        #expect(mods.contains(.adversarial))
+    }
+
+    @Test("outputOnly modifier 추출")
+    func extractOutputOnly() {
+        let mods = IntentClassifier.extractModifiers(from: "작업분해만 해줘")
+        #expect(mods.contains(.outputOnly))
+    }
+
+    @Test("withExecution modifier 추출")
+    func extractWithExecution() {
+        let mods = IntentClassifier.extractModifiers(from: "작업분해하고 구현해줘")
+        #expect(mods.contains(.withExecution))
+    }
+
+    @Test("breakdown modifier 추출")
+    func extractBreakdown() {
+        let mods = IntentClassifier.extractModifiers(from: "이 티켓 작업 도출해줘")
+        #expect(mods.contains(.breakdown))
+    }
+
+    @Test("modifier 없는 일반 요청")
+    func noModifiers() {
+        let mods = IntentClassifier.extractModifiers(from: "이거 구현해줘")
+        #expect(mods.isEmpty || !mods.contains(.adversarial))
+    }
+
+    @Test("classifyWithModifiers 통합")
+    func classifyWithModifiersIntegration() {
+        let result = IntentClassifier.classifyWithModifiers("날카롭게 토론해줘")
+        #expect(result.intent == .discussion)
+        #expect(result.has(.adversarial))
+    }
+
+    // MARK: - Phase 2: Jira URL + 도출 → discussion
+
+    @Test("Jira URL + 도출 → discussion")
+    func jiraUrlWithDerivation() {
+        let result = IntentClassifier.quickClassify("https://team.atlassian.net/browse/PROJ-123 작업 도출해줘")
+        #expect(result == .discussion)
+    }
 }

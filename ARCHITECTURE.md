@@ -57,8 +57,13 @@ DOUGLAS/
 │   │   ├── WorkflowIntent.swift    # 워크플로우 의도 (WorkflowPhase, WorkflowIntent 6종: quickAnswer/task/discussion/research/documentation/complex)
 │   │   ├── DocumentType.swift     # 문서 유형 (6종 + 섹션 템플릿, 문서화 요청 시 사용)
 │   │   ├── DocumentRequestDetector.swift # 문서화 요청 감지 (NLTokenizer + LLM 폴백) + 포맷 변환 판별
-│   │   ├── IntentClassifier.swift # Intent 분류기 (PreIntentRoute + 규칙 기반 + LLM 폴백)
-│   │   ├── DecisionLog.swift      # 토론 결정 로그 (DecisionEntry)
+│   │   ├── IntentClassifier.swift # Intent 분류기 (PreIntentRoute + 규칙 기반 + LLM 폴백 + negative keywords + bigram + modifier 추출)
+│   │   ├── IntentModifier.swift   # Intent 수식자 (adversarial/outputOnly/withExecution/breakdown) + ClassificationResult
+│   │   ├── DecisionLog.swift      # 토론 결정 로그 (DecisionEntry + concerns 필드)
+│   │   ├── DebateMode.swift       # 토론 3모드 (dialectic/collaborative/coordination)
+│   │   ├── DebateStrategy.swift   # 토론 Strategy 패턴 (protocol + 3개 구현체: Dialectic/Collaborative/Coordination)
+│   │   ├── ActionItem.swift       # 토론 도출 작업 항목 (후속 구현 사이클 기초)
+│   │   ├── FollowUpIntent.swift   # 후속 의도 (9종) + ContextCarryoverPolicy + FollowUpDecision
 │   │   ├── WorkflowAssumption.swift # 가정 선언 (RiskLevel: low/medium/high) + UserAnswer
 │   │   ├── ProjectPlaybook.swift   # 프로젝트 플레이북 (브랜치 전략, 테스트 정책, 프리셋 3종)
 │   │   ├── IntakeData.swift        # Intake 입력 데이터 (InputSourceType, JiraTicketSummary, asClarifyContextString 중립 컨텍스트)
@@ -79,7 +84,7 @@ DOUGLAS/
 │   │   ├── WorkflowState.swift     # 워크플로우 진행 상태 값 객체 (intent, phase 추적, activeRuleIDs)
 │   │   ├── ClarifyContext.swift    # 복명복창 컨텍스트 값 객체 (intake, summary, delegation)
 │   │   ├── ProjectContext.swift    # 프로젝트 연동 컨텍스트 값 객체 (경로, 빌드/테스트 명령)
-│   │   ├── DiscussionSession.swift # 토론 세션 값 객체 (라운드, 산출물, 브리핑, 결정 로그)
+│   │   ├── DiscussionSession.swift # 토론 세션 값 객체 (라운드, 산출물, 브리핑, 결정 로그, debateMode, actionItems)
 │   │   ├── BuildQAState.swift      # 빌드/QA 루프 상태 값 객체 (8개 프로퍼티 그룹핑)
 │   │   └── KeychainHelper.swift     # 파일 기반 API 키 저장 (Keychain 레거시 마이그레이션)
 │   │   ├── DouglasRequest.swift     # 사용자 요청 생명주기 모델 (IntentClassification, InputType, ConfidenceLevel)
@@ -87,6 +92,13 @@ DOUGLAS/
 │   │
 │   │   Protocol:
 │   │   └── WorkflowHost.swift       # 워크플로우 실행기 프로토콜 (RoomManager 추상화, 테스트 mock 가능)
+│   ├── Services/                     # 도메인 서비스 레이어 (DDD — 단일 책임 원칙)
+│   │   ├── DebateClassifier.swift    # 토론 주제+역할 → DebateMode 분류 (역할 겹침도 + 키워드)
+│   │   ├── ConsensusDetector.swift   # Strategy 위임 합의 감지 (레거시 호환 포함)
+│   │   ├── FollowUpClassifier.swift  # 후속 의도 결정론적 분류 (9가지 분기 + 캐리오버 정책)
+│   │   ├── ActionItemGenerator.swift # briefing JSON → ActionItems 파싱
+│   │   ├── AgentAssigner.swift       # ActionItem → 에이전트 ID 매핑 (3단 우선순위)
+│   │   └── UserDesignationExtractor.swift # 사용자 지명 에이전트 추출 (슬래시/쉼표 구분)
 │   ├── ViewModels/
 │   │   ├── AgentStore.swift         # 에이전트 CRUD, 마스터 생명주기
 │   │   ├── AgentPorter.swift        # 에이전트 매니페스트 Export/Import (NSSavePanel/NSOpenPanel)
@@ -282,6 +294,24 @@ DOUGLAS/
 - `ensureDefaultProviders()`: 3개 기본 프로바이더 보장, 비활성 프로바이더 (Ollama, LM Studio 등) 자동 제거
 - `createProvider(from:)`: ProviderType에 따른 팩토리 메서드
 - **인스턴스 캐싱**: `provider(named:)`가 `providerCache` 딕셔너리에 인스턴스 캐싱. `updateConfig()` 시 해당 캐시 invalidate. Provider는 stateless(대화 상태 미보유)이므로 방 간 간섭 없음.
+
+### 5. UpdateManager (`ViewModels/UpdateManager.swift`)
+
+Public Gist 기반 자동 업데이트 알림 시스템. Apple Developer ID 없이 무료로 동작한다.
+
+**주요 기능**:
+- `checkForUpdate()`: Gist에서 `version.json` 읽어 최신 버전 확인
+- `isNewerVersion(_:than:)`: SemVer 비교 (v 접두사 자동 처리)
+- `skipVersion(_:)`: 특정 버전 알림 건너뛰기
+- `openDownloadPage()`: 다운로드 URL 브라우저에서 열기
+- `autoCheckEnabled`: 앱 시작 시 자동 확인 설정 (UserDefaults)
+
+**연동**:
+- `AppDelegate.startNormalFlow()`: 앱 시작 시 자동 확인
+- `showStatusMenu()`: "업데이트 확인..." 메뉴 항목
+- `GeneralSettingsView`: 설정 → 일반 → 소프트웨어 업데이트 섹션
+
+**버전 정보 소스**: `UpdateManager.versionURL` (Public Gist Raw URL)
 
 ---
 
@@ -1248,6 +1278,18 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
 
 **discussion/research 워크플로우**: Design 단계 내에서 전문가 의견 수렴(병렬) → 상호 피드백(순차) → DOUGLAS 진행자 종합까지 완결. Build/Review 불필요.
 
+**토론 Strategy 패턴 (3모드)**: Design 단계 내부에서 DebateClassifier가 토론 유형을 분류하고, DebateStrategy가 Turn 2 프롬프트·합의 기준·쟁점 추출을 캡슐화:
+- **dialectic** (대립): 같은 도메인 에이전트, 트레이드오프 탐색 → 빈틈·대안 지적 요구, 엄격한 합의 기준
+- **collaborative** (종합): 다른 도메인 에이전트, 연결점·갭 발견 → 인터페이스·회색 지대 중심, 보통 합의 기준
+- **coordination** (조율): 구현 세부사항 정렬 → 보완·확인 중심, 느슨한 합의 기준
+- 분류 기준: IntentModifier(.adversarial) → dialectic 강제, 그 외 에이전트 역할 겹침도 + 주제 키워드
+
+**IntentModifier 체계**: 6개 intent를 유지하면서 modifier 조합으로 행동 세밀 제어:
+- `.adversarial` → DebateClassifier가 dialectic 강제
+- `.breakdown` → actionItems 생성 보장
+- `.outputOnly` → Build phase 스킵
+- `.withExecution` → 전체 6페이즈 실행
+
 **Design 단계 컨텍스트 주입**: Design 단계의 모든 경로(멀티에이전트 토론, 솔로 설계, 솔로 토론)에서 intakeData(Jira 티켓 등)와 프로젝트 경로가 에이전트 프롬프트에 포함됨. `requestPlan`에도 프로젝트 경로가 주입됨.
 
 **documentation 워크플로우**: Design(구조 설계) → Build(문서 작성) → Deliver. 문서 전문가가 직접 최종화 — Review 불필요 (WORKFLOW_SPEC §12.6).
@@ -1264,8 +1306,25 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
 | D. 단일 에이전트 구현 | 계획 → 승인(무한 루프) → 자동 실행 → 완료 |
 | E. 복수 에이전트 구현 | 사전 토론 → 계획 → 승인 → 실행 → 최종 승인 → 완료 |
 | F. 문서 생성 | 문서 전문가 최종 책임. "완료되었습니다." + 경로만 표시 |
-| G. 후속처리 | 완료 후 같은 방에서 질의응답/토론/구현/문서화로 확장 가능 |
+| G. 후속처리 | 완료 후 같은 방에서 질의응답/토론/구현/문서화로 확장 가능. FollowUpClassifier가 9가지 분기를 결정론적으로 분류 |
 | H. 요건 불명확 | 재질문 후 명확해질 때까지 실행 보류 |
+
+**후속처리 결정성 (FollowUpClassifier)**:
+방 완료 후 사용자 후속 메시지 → FollowUpClassifier가 결정론적으로 분류:
+- 9가지 FollowUpIntent: implementAll/implementPartial/retryExecution/continueDiscussion/modifyAndDiscuss/restartDiscussion/reviewResult/documentResult/newTask
+- 각 intent별 ContextCarryoverPolicy: intake/agents/briefing/actionItems/decisionLog/workLog/stepResults 유지/리셋 규칙
+- FollowUpDecision: resolvedWorkflowIntent(기존 6개 매핑) + contextPolicy + skipPhases + needsPlan
+- 인덱스 파싱: "1번이랑 3번만 하자" → implementPartial([0, 2])
+
+**서비스 레이어 (Sources/Services/)** — DDD 단일 책임 원칙:
+| 서비스 | 책임 |
+|--------|------|
+| DebateClassifier | 주제+역할 → DebateMode (dialectic/collaborative/coordination) |
+| ConsensusDetector | Strategy 위임 합의 감지 (레거시 호환) |
+| FollowUpClassifier | 후속 의도 결정론적 분류 (9분기 + 캐리오버) |
+| ActionItemGenerator | briefing JSON → ActionItems 파싱 |
+| AgentAssigner | ActionItem → 에이전트 ID 매핑 |
+| UserDesignationExtractor | 사용자 지명 에이전트 추출 |
 
 **레거시 호환**: 기존 6단계(intake→intent→clarify→assemble→plan→execute)도 그대로 동작.
 `room.intent == nil` → `.quickAnswer` 폴백. 레거시 brainstorm → `.discussion`, 그 외 레거시 intent → `.task` 자동 마이그레이션.

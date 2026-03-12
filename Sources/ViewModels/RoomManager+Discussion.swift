@@ -540,14 +540,18 @@ extension RoomManager {
 
             speakingAgentIDByRoom.removeValue(forKey: roomID)
 
-            // 합의 감지 (퍼지 매칭 포함) 후 DecisionLog 기록
-            let agreed = Self.detectConsensus(in: response)
+            // 합의 감지 — DebateMode가 있으면 Strategy 기반, 없으면 레거시 퍼지 매칭
+            let currentDebateMode = rooms.first(where: { $0.id == roomID })?.discussion.debateMode
+            let agreed = ConsensusDetector.detect(in: response, debateMode: currentDebateMode)
             if agreed, let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 let decision = Self.parseDecisionContent(from: response) ?? "합의 도달"
+                let strategy = currentDebateMode?.strategy
+                let concerns = strategy?.extractConcerns(from: response)
                 let entry = DecisionEntry(
                     round: round,
                     decision: decision,
-                    supporters: [agent.name]
+                    supporters: [agent.name],
+                    concerns: concerns?.isEmpty == false ? concerns : nil
                 )
                 rooms[i].discussion.decisionLog.append(entry)
             }
@@ -703,7 +707,8 @@ extension RoomManager {
 
             agentStore?.updateStatus(agentID: agentID, status: .idle)
 
-            let agreed = Self.detectConsensus(in: response)
+            let currentDebateMode2 = rooms.first(where: { $0.id == roomID })?.discussion.debateMode
+            let agreed = ConsensusDetector.detect(in: response, debateMode: currentDebateMode2)
             let cleanResponse = response
                 .replacingOccurrences(of: "\\[합의(?::[^\\]]*)?\\]", with: "", options: .regularExpression)
                 .replacingOccurrences(of: "[계속]", with: "")
