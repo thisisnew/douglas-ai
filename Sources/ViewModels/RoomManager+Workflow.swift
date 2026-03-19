@@ -407,6 +407,30 @@ extension RoomManager {
             // 각 Jira URL에서 티켓 요약 fetch (최대 10건)
             jiraDataList = await fetchJiraTicketSummaries(urls: Array(jiraURLs.prefix(10)))
             intakeLogger.info("Jira fetch 완료: \(jiraDataList.count)/\(jiraURLs.prefix(10).count) 건 성공")
+
+            // Jira 자동 할당: 첫 번째 티켓에 내 계정을 작업자로 설정
+            if let firstKey = jiraKeys.first {
+                Task {
+                    var config = JiraConfig.shared
+                    guard config.isConfigured else { return }
+                    do {
+                        let accountId = try await config.fetchMyAccountId()
+                        JiraConfig.shared = config
+                        // PUT /rest/api/3/issue/{key}/assignee
+                        let body = try JSONSerialization.data(withJSONObject: ["accountId": accountId])
+                        let url = URL(string: "\(config.baseURL)/rest/api/3/issue/\(firstKey)/assignee")!
+                        var req = URLRequest(url: url)
+                        req.httpMethod = "PUT"
+                        req.httpBody = body
+                        req.addValue("application/json", forHTTPHeaderField: "Content-Type")
+                        if let auth = config.authHeader() { req.addValue(auth, forHTTPHeaderField: "Authorization") }
+                        _ = try? await URLSession.shared.data(for: req)
+                        intakeLogger.info("Jira \(firstKey, privacy: .public) 작업자 자동 할당 완료")
+                    } catch {
+                        intakeLogger.warning("Jira 자동 할당 실패: \(error.localizedDescription, privacy: .public)")
+                    }
+                }
+            }
         } else if !urls.isEmpty {
             sourceType = .url
         } else if !jiraKeys.isEmpty, !jiraConfig.isConfigured {

@@ -669,15 +669,26 @@ extension RoomManager {
                 return
             }
 
-            // 2) 시스템 매칭 (Plan C: 3단 가중치 + 신뢰도 임계값)
+            // 2) 시스템 매칭 (Plan C: 3단 가중치 + 신뢰도 임계값 + 플러그인 태그)
             let subAgents = agentStore?.subAgents ?? []
             let taskBrief = rooms.first(where: { $0.id == roomID })?.taskBrief
+
+            // 플러그인 주입 태그 사전 계산
+            var pluginSkillTags: [UUID: [String]] = [:]
+            if let provider = pluginSkillTagsProvider {
+                for agent in subAgents where !agent.equippedPluginIDs.isEmpty {
+                    let tags = provider(agent)
+                    if !tags.isEmpty { pluginSkillTags[agent.id] = tags }
+                }
+            }
+
             let matched = AgentMatcher.matchRoles(
                 requirements: requirements,
                 agents: subAgents,
                 intent: intent,
                 documentType: rooms.first(where: { $0.id == roomID })?.workflowState.documentType,
-                taskBrief: taskBrief
+                taskBrief: taskBrief,
+                pluginSkillTags: pluginSkillTags
             )
 
             // 3) [필수] matched(0.7+) 에이전트 자동 초대

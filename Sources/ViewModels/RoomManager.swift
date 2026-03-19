@@ -183,6 +183,9 @@ class RoomManager: ObservableObject, WorkflowHost {
     /// 플러그인 도구 인터셉트 (PluginManager가 설정)
     var pluginInterceptToolDelegate: ((String, [String: String]) async -> ToolInterceptResult)?
 
+    /// 플러그인 주입 skillTags 조회 (PluginManager가 설정)
+    var pluginSkillTagsProvider: ((_ agent: Agent) -> [String])?
+
     deinit {
         timerTask?.cancel()
         saveTask?.cancel()

@@ -13,6 +13,18 @@ final class SlackPlugin: DougPlugin {
         iconSystemName: "bubble.left.and.bubble.right"
     )
 
+    var agentCapabilities: PluginAgentCapabilities {
+        PluginAgentCapabilities(
+            providedSkillTags: ["slack", "실시간 알림", "메시지 모니터링", "채널"],
+            providedTools: registeredTools(),
+            providedRules: [
+                "슬랙 메시지를 수신하면 해당 스레드에 분석 결과를 답장하세요.",
+                "슬랙 메시지의 맥락(채널, 스레드)을 항상 보존하세요."
+            ],
+            providedWorkModes: [.execute, .research]
+        )
+    }
+
     private(set) var isActive = false
     private var context: PluginContext?
     private var socketConnection: SlackSocketConnection?

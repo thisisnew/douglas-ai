@@ -15,7 +15,8 @@ enum AgentMatcher {
         intent: WorkflowIntent? = nil,
         documentType: DocumentType? = nil,
         taskBrief: TaskBrief? = nil,
-        config: MatchScoringConfig = .default
+        config: MatchScoringConfig = .default,
+        pluginSkillTags: [UUID: [String]] = [:]
     ) -> [RoleRequirement] {
         var results = requirements
         var usedAgentIDs: Set<UUID> = []
@@ -29,7 +30,8 @@ enum AgentMatcher {
                 documentType: documentType,
                 taskBrief: taskBrief,
                 position: results[i].position,
-                config: config
+                config: config,
+                pluginSkillTags: pluginSkillTags
             )
 
             if let agent {
@@ -120,7 +122,8 @@ enum AgentMatcher {
         documentType: DocumentType? = nil,
         taskBrief: TaskBrief? = nil,
         position: WorkflowPosition? = nil,
-        config: MatchScoringConfig = .default
+        config: MatchScoringConfig = .default,
+        pluginSkillTags: [UUID: [String]] = [:]  // 플러그인 주입 태그 (agent.id → tags)
     ) -> (Agent?, Double) {
         var keywords = roleName.lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
@@ -166,8 +169,10 @@ enum AgentMatcher {
         for agent in candidates {
             // --- Tier 1: skillTags 직접 매칭 (가중치 5) ---
             var tier1Score: Double = 0
-            if hasKeywords, !agent.skillTags.isEmpty {
-                let lowerTags = agent.skillTags.map { $0.lowercased() }
+            // 플러그인 주입 태그 합산
+            let allSkillTags = agent.skillTags + (pluginSkillTags[agent.id] ?? [])
+            if hasKeywords, !allSkillTags.isEmpty {
+                let lowerTags = allSkillTags.map { $0.lowercased() }
                 var tagHits = 0
                 for keyword in keywords {
                     if lowerTags.contains(where: { vocabulary.containsWholeWord($0, keyword: keyword) }) {
@@ -318,7 +323,7 @@ enum AgentMatcher {
 
             // skillTags가 비어있으면 Tier 1 무효 → Tier 2+3만으로 재계산
             let adjustedConfidence: Double
-            if agent.skillTags.isEmpty {
+            if allSkillTags.isEmpty {
                 let fallbackWeight = tier2Weight + tier3Weight
                 let fallbackConfidence = (tier2Score * tier2Weight + tier3Score * tier3Weight) / fallbackWeight
                 adjustedConfidence = min(fallbackConfidence, config.emptyTagsCap)
@@ -342,7 +347,8 @@ enum AgentMatcher {
     static func findBestFallbackMatch(
         task: String,
         agents: [Agent],
-        intent: WorkflowIntent?
+        intent: WorkflowIntent?,
+        pluginSkillTags: [UUID: [String]] = [:]
     ) -> Agent? {
         let taskKeywords = extractSemanticKeywords(from: task)
         let isQuickAnswer = intent == .quickAnswer
@@ -359,7 +365,7 @@ enum AgentMatcher {
             if candidate.isDeveloperAgent && isQuickAnswer { continue }
 
             var score = 0
-            let tags = candidate.skillTags.map { $0.lowercased() }
+            let tags = (candidate.skillTags + (pluginSkillTags[candidate.id] ?? [])).map { $0.lowercased() }
             for kw in taskKeywords {
                 if tags.contains(where: { $0.contains(kw) || kw.contains($0) }) { score += 3 }
                 if candidate.name.lowercased().contains(kw) { score += 2 }

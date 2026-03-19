@@ -16,8 +16,11 @@ enum PromptCompositionService {
         persona: String,
         workRules: [WorkRule],
         legacyRules: WorkingRulesSource?,
-        activeRuleIDs: Set<UUID>?
+        activeRuleIDs: Set<UUID>?,
+        pluginRules: [String] = []  // 플러그인 주입 규칙
     ) -> String {
+        var base: String
+
         // 신규 workRules 우선
         if !workRules.isEmpty {
             let activeRules: [WorkRule]
@@ -32,11 +35,27 @@ enum PromptCompositionService {
                 return text.isEmpty ? nil : text
             }
 
-            guard !resolvedTexts.isEmpty else { return persona }
+            if resolvedTexts.isEmpty {
+                base = persona
+            } else {
+                let combined = resolvedTexts.joined(separator: "\n\n")
+                let langSuffix = koreanSuffix(combined)
+                base = """
+                \(persona)
 
-            let combined = resolvedTexts.joined(separator: "\n\n")
-            let langSuffix = koreanSuffix(combined)
-            return """
+                ## 작업 규칙 (최우선 준수)
+                아래 규칙은 이 에이전트의 핵심 업무 지침입니다. 모든 단계에서 반드시 준수하세요.
+                규칙에 산출물 형식(타입, 완성도, 포맷)이 명시되어 있으면 해당 형식을 따르세요.
+                작업 규칙과 다른 지시가 충돌하면, 작업 규칙을 우선합니다.
+
+                \(combined)\(langSuffix)
+                """
+            }
+        } else if let rules = legacyRules, !rules.isEmpty {
+            // 레거시 폴백
+            let resolvedRules = rules.resolveWithPriority()
+            let langSuffix = koreanSuffix(resolvedRules)
+            base = """
             \(persona)
 
             ## 작업 규칙 (최우선 준수)
@@ -44,26 +63,19 @@ enum PromptCompositionService {
             규칙에 산출물 형식(타입, 완성도, 포맷)이 명시되어 있으면 해당 형식을 따르세요.
             작업 규칙과 다른 지시가 충돌하면, 작업 규칙을 우선합니다.
 
-            \(combined)\(langSuffix)
+            \(resolvedRules)\(langSuffix)
             """
+        } else {
+            base = persona
         }
 
-        // 레거시 폴백
-        guard let rules = legacyRules, !rules.isEmpty else {
-            return persona
+        // 플러그인 주입 규칙 추가
+        if !pluginRules.isEmpty {
+            let pluginBlock = pluginRules.joined(separator: "\n")
+            base += "\n\n## 플러그인 규칙\n\(pluginBlock)"
         }
-        let resolvedRules = rules.resolveWithPriority()
-        let langSuffix = koreanSuffix(resolvedRules)
-        return """
-        \(persona)
 
-        ## 작업 규칙 (최우선 준수)
-        아래 규칙은 이 에이전트의 핵심 업무 지침입니다. 모든 단계에서 반드시 준수하세요.
-        규칙에 산출물 형식(타입, 완성도, 포맷)이 명시되어 있으면 해당 형식을 따르세요.
-        작업 규칙과 다른 지시가 충돌하면, 작업 규칙을 우선합니다.
-
-        \(resolvedRules)\(langSuffix)
-        """
+        return base
     }
 
     /// 전체 규칙 포함 편의 메서드
