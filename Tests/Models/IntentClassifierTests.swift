@@ -312,6 +312,24 @@ struct IntentClassifierTests {
         #expect(result == .discussion)
     }
 
+    @Test("Jira URL + 분석 → discussion")
+    func jiraUrlWithAnalysis() {
+        let result = IntentClassifier.quickClassify("https://team.atlassian.net/browse/IBS-3328 분석하라그래")
+        #expect(result == .discussion)
+    }
+
+    @Test("Jira URL + 검토 → discussion")
+    func jiraUrlWithReview() {
+        let result = IntentClassifier.quickClassify("https://team.atlassian.net/browse/PROJ-123 검토해줘")
+        #expect(result == .discussion)
+    }
+
+    @Test("Jira URL + 리뷰 → discussion")
+    func jiraUrlWithCodeReview() {
+        let result = IntentClassifier.quickClassify("https://team.atlassian.net/browse/PROJ-456 리뷰해줘")
+        #expect(result == .discussion)
+    }
+
     // MARK: - Phase 1 개선: complex 결정론적 분류
 
     @Test("조사+문서화 복합 → complex")

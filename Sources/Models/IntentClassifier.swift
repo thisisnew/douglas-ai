@@ -48,7 +48,7 @@ enum IntentClassifier {
         // 4) 분류 불가 → task가 기본값
         //    단, 짧은 입력(15자 미만)이면서 작업 키워드가 없으면 quickAnswer
         if trimmed.count < 15 {
-            let taskKeywords = ["해줘", "해봐", "만들", "고쳐", "수정", "추가", "삭제", "변경", "작성", "개발", "구현", "분석", "조사"]
+            let taskKeywords = ["해줘", "해봐", "만들", "고쳐", "수정", "추가", "삭제", "변경", "작성", "개발", "구현"]
             let hasTaskKeyword = taskKeywords.contains(where: { trimmed.contains($0) })
             if !hasTaskKeyword {
                 return .classified(.quickAnswer)
@@ -116,7 +116,7 @@ enum IntentClassifier {
 
         // Jira URL + 분석/도출 키워드 → discussion (시나리오 2)
         if containsTicketURL(text) {
-            let analysisKeywords = ["도출", "파악", "정리", "뭘해야", "어떤작업", "할일", "작업목록"]
+            let analysisKeywords = ["분석", "도출", "파악", "정리", "뭘해야", "어떤작업", "할일", "작업목록", "검토", "리뷰"]
             if analysisKeywords.contains(where: { text.contains($0) }) {
                 return .discussion
             }
