@@ -58,9 +58,6 @@ extension RoomManager {
 
     /// 새 워크플로우: intent.requiredPhases 동적 순회
     /// intent 단계에서 LLM 재분류 후 남은 단계가 자동으로 재계산됨
-    /// 워크플로우 전체 타임아웃 (초)
-    private static let workflowTimeoutSeconds: TimeInterval = 600 // 10분
-
     private func executePhaseWorkflow(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
@@ -77,8 +74,8 @@ extension RoomManager {
                   let currentRoom = rooms.first(where: { $0.id == roomID }),
                   currentRoom.isActive else { break }
 
-            // 타임아웃 체크
-            if Date().timeIntervalSince(workflowStart) > Self.workflowTimeoutSeconds {
+            // 타임아웃 체크 (PhaseRouter 위임)
+            if PhaseRouter.isTimedOut(since: workflowStart) {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                     rooms[i].transitionTo(.failed)
                     rooms[i].completedAt = Date()
@@ -95,9 +92,12 @@ extension RoomManager {
             }
 
             let currentIntent = currentRoom.workflowState.intent ?? .quickAnswer
-            // 현재 intent + modifier 기준으로 다음 미완료 phase 찾기
-            let phases = currentIntent.requiredPhases(with: currentRoom.workflowState.modifiers)
-            guard let nextPhase = phases.first(where: { !completedPhases.contains($0) }) else { break }
+            // 다음 미완료 phase 결정 (PhaseRouter 위임)
+            guard let nextPhase = PhaseRouter.nextPhase(
+                intent: currentIntent,
+                modifiers: currentRoom.workflowState.modifiers,
+                completedPhases: completedPhases
+            ) else { break }
 
             // 현재 단계 기록 + 전이 감사 기록 (내부 상태만, UI 메시지 없음)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
