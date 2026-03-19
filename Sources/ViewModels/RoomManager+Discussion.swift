@@ -11,18 +11,14 @@ extension RoomManager {
     func executeDiscussion(roomID: UUID, topic: String) async {
         guard rooms.first(where: { $0.id == roomID }) != nil else { return }
 
-        // maxRounds: DebateMode별 상한 적용 (WORKFLOW_SPEC §10.1)
-        let maxRounds: Int
-        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            let mode = rooms[i].discussion.debateMode
-            maxRounds = mode?.maxRounds ?? 2
-            rooms[i].discussion.maxRounds = maxRounds
-        } else {
-            maxRounds = 2
+        // maxRounds: selectDebateMode에서 이미 설정됨. 미설정 시 기본값 2 적용
+        if let i = rooms.firstIndex(where: { $0.id == roomID }),
+           rooms[i].discussion.debateMode == nil {
+            rooms[i].discussion.maxRounds = 2
         }
 
         var round = 0
-        while round < maxRounds {
+        while rooms.first(where: { $0.id == roomID })?.discussion.canContinue ?? false {
             guard !Task.isCancelled,
                   rooms.first(where: { $0.id == roomID })?.isActive == true else { break }
 
@@ -158,11 +154,12 @@ extension RoomManager {
             if feedback.isEmpty {
                 // "진행" → 토론 종료, 브리핑으로
                 break
-            } else if round + 1 >= maxRounds {
+            } else if !(rooms.first(where: { $0.id == roomID })?.discussion.canContinue ?? false) {
                 // 최대 라운드 도달 — 사용자 피드백은 브리핑에 반영되도록 저장
+                let currentMaxRounds = rooms.first(where: { $0.id == roomID })?.discussion.maxRounds ?? 2
                 let maxRoundMsg = ChatMessage(
                     role: .system,
-                    content: "최대 토론 라운드(\(maxRounds)회)에 도달했습니다. 종합 단계로 넘어갑니다."
+                    content: "최대 토론 라운드(\(currentMaxRounds)회)에 도달했습니다. 종합 단계로 넘어갑니다."
                 )
                 appendMessage(maxRoundMsg, to: roomID)
                 break

@@ -1511,9 +1511,8 @@ extension RoomManager {
             agentStore?.agents.first(where: { $0.id == id })?.name
         }
         let modifiers = IntentClassifier.extractModifiers(from: task)
-        let debateMode = DebateClassifier.classify(topic: task, agentRoles: agentRoles, modifiers: modifiers)
         if let idx = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[idx].discussion.debateMode = debateMode
+            rooms[idx].discussion.selectDebateMode(topic: task, agentRoles: agentRoles, modifiers: modifiers)
         }
 
         await executeDiscussionDesign(roomID: roomID, task: task, briefContext: briefContext, specialists: specialists)
