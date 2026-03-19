@@ -165,7 +165,7 @@ struct WorkflowFlowTests {
     @Test("Case 6: Room 기본 생성 시 intent nil (나중에 설정)")
     func case6RoomCreation() {
         let room = Room(title: "테스트", assignedAgentIDs: [UUID()], createdBy: .user)
-        #expect(room.intent == nil)
+        #expect(room.workflowState.intent == nil)
         #expect(room.status == .planning)
     }
 

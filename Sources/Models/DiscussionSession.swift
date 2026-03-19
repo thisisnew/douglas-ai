@@ -55,6 +55,75 @@ struct DiscussionSession: Codable {
     /// 라운드별 구조화 요약 — 이전 라운드 압축 + 후속 처리 재참조
     var roundSummaries: [RoundSummary]
 
+    // MARK: - 도메인 메서드 (불변식 보호)
+
+    /// 추가 라운드 진행 가능 여부
+    var canContinue: Bool {
+        currentRound < maxRounds
+    }
+
+    /// 토론이 완료되었는지 (briefing이 생성됨)
+    var isCompleted: Bool {
+        briefing != nil
+    }
+
+    /// 토론 모드 선택 — DebateClassifier에 위임 + 결과를 세션에 저장
+    mutating func selectDebateMode(
+        topic: String,
+        agentRoles: [String],
+        modifiers: Set<IntentModifier>
+    ) {
+        let mode = DebateClassifier.classify(topic: topic, agentRoles: agentRoles, modifiers: modifiers)
+        self.debateMode = mode
+        self.maxRounds = mode.maxRounds
+    }
+
+    /// 라운드 완료 — 요약 기록 + 다음 라운드 전진 (마지막이면 전진 안 함)
+    mutating func completeRound(summary: RoundSummary) {
+        roundSummaries.append(summary)
+        if currentRound < maxRounds - 1 {
+            currentRound = currentRound + 1
+        }
+    }
+
+    /// 라운드 전진 — 음수 방지
+    mutating func advanceRound(to round: Int) {
+        guard round >= 0 else { return }
+        currentRound = round
+    }
+
+    /// 체크포인트 설정 (사용자 피드백 대기)
+    mutating func setCheckpoint() {
+        isCheckpoint = true
+    }
+
+    /// 체크포인트 해제
+    mutating func clearCheckpoint() {
+        isCheckpoint = false
+    }
+
+    /// 결정 기록 추가
+    mutating func addDecision(_ entry: DecisionEntry) {
+        decisionLog.append(entry)
+    }
+
+    /// 라운드 요약 추가
+    mutating func addRoundSummary(_ summary: RoundSummary) {
+        roundSummaries.append(summary)
+    }
+
+    /// 기존 라운드 요약 교체 (피드백 반영 시)
+    mutating func updateRoundSummary(at index: Int, with summary: RoundSummary) {
+        guard index >= 0, index < roundSummaries.count else { return }
+        roundSummaries[index] = summary
+    }
+
+    /// 토론 종결 — briefing + 전문 아카이브 설정
+    mutating func conclude(briefing: RoomBriefing, fullLog: String) {
+        self.briefing = briefing
+        self.fullDiscussionLog = fullLog
+    }
+
     init(
         currentRound: Int = 0,
         isCheckpoint: Bool = false,

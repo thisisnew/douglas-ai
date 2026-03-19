@@ -114,7 +114,7 @@ struct RoomCompletionTests {
 
         // continuation 등록 + 바로 completeRoom 호출
         let result: String = await withCheckedContinuation { (cont: CheckedContinuation<String, Never>) in
-            manager.userInputContinuations[roomID] = cont
+            manager.approvalGates.userInputContinuations[roomID] = cont
             manager.completeRoom(roomID)
         }
 

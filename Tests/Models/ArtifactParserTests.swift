@@ -211,7 +211,7 @@ struct ArtifactParserTests {
     @Test("Room - artifacts 기본값 빈 배열")
     func roomArtifactsDefault() {
         let room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
-        #expect(room.artifacts.isEmpty)
+        #expect(room.discussion.artifacts.isEmpty)
     }
 
     @Test("Room - artifacts 레거시 JSON 호환")
@@ -222,6 +222,6 @@ struct ArtifactParserTests {
         """
         let data = json.data(using: .utf8)!
         let decoded = try JSONDecoder().decode(Room.self, from: data)
-        #expect(decoded.artifacts.isEmpty)
+        #expect(decoded.discussion.artifacts.isEmpty)
     }
 }

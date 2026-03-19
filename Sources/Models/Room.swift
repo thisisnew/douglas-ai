@@ -456,8 +456,6 @@ struct Room: Identifiable, Codable {
     var plan: RoomPlan?
     var timerStartedAt: Date?
     var timerDurationSeconds: Int?
-    /// Build 단계 시작 시점의 메시지 인덱스 (이전 메시지는 executeStep history에서 제외)
-    var buildPhaseMessageOffset: Int?
     let createdAt: Date
     var completedAt: Date?
     let createdBy: RoomCreator
@@ -622,138 +620,6 @@ struct Room: Identifiable, Codable {
         }
     }
 
-    // MARK: - 호환 접근자 (Phase 7: 값 객체 도입 후 점진 제거 예정)
-
-    // WorkflowState
-    var intent: WorkflowIntent? {
-        get { workflowState.intent }
-        set { workflowState.intent = newValue }
-    }
-    var documentType: DocumentType? {
-        get { workflowState.documentType }
-        set { workflowState.documentType = newValue }
-    }
-    var autoDocOutput: Bool {
-        get { workflowState.autoDocOutput }
-        set { workflowState.autoDocOutput = newValue }
-    }
-    var needsPlan: Bool {
-        get { workflowState.needsPlan }
-        set { workflowState.needsPlan = newValue }
-    }
-    var currentPhase: WorkflowPhase? {
-        get { workflowState.currentPhase }
-        set { workflowState.currentPhase = newValue }
-    }
-    var completedPhases: Set<WorkflowPhase> {
-        get { workflowState.completedPhases }
-        set { workflowState.completedPhases = newValue }
-    }
-
-    // ClarifyContext
-    var intakeData: IntakeData? {
-        get { clarifyContext.intakeData }
-        set { clarifyContext.intakeData = newValue }
-    }
-    var clarifySummary: String? {
-        get { clarifyContext.clarifySummary }
-        set { clarifyContext.clarifySummary = newValue }
-    }
-    var clarifyQuestionCount: Int {
-        get { clarifyContext.clarifyQuestionCount }
-        set { clarifyContext.clarifyQuestionCount = newValue }
-    }
-    var assumptions: [WorkflowAssumption]? {
-        get { clarifyContext.assumptions }
-        set { clarifyContext.assumptions = newValue }
-    }
-    var userAnswers: [UserAnswer]? {
-        get { clarifyContext.userAnswers }
-        set { clarifyContext.userAnswers = newValue }
-    }
-    var delegationInfo: DelegationInfo? {
-        get { clarifyContext.delegationInfo }
-        set { clarifyContext.delegationInfo = newValue }
-    }
-    var playbook: ProjectPlaybook? {
-        get { clarifyContext.playbook }
-        set { clarifyContext.playbook = newValue }
-    }
-
-    // ProjectContext
-    var projectPaths: [String] {
-        get { projectContext.projectPaths }
-        set { projectContext.projectPaths = newValue }
-    }
-    var worktreePath: String? {
-        get { projectContext.worktreePath }
-        set { projectContext.worktreePath = newValue }
-    }
-    var buildCommand: String? {
-        get { projectContext.buildCommand }
-        set { projectContext.buildCommand = newValue }
-    }
-    var testCommand: String? {
-        get { projectContext.testCommand }
-        set { projectContext.testCommand = newValue }
-    }
-
-    // DiscussionSession
-    var currentRound: Int {
-        get { discussion.currentRound }
-        set { discussion.currentRound = newValue }
-    }
-    var isDiscussionCheckpoint: Bool {
-        get { discussion.isCheckpoint }
-        set { discussion.isCheckpoint = newValue }
-    }
-    var decisionLog: [DecisionEntry] {
-        get { discussion.decisionLog }
-        set { discussion.decisionLog = newValue }
-    }
-    var artifacts: [DiscussionArtifact] {
-        get { discussion.artifacts }
-        set { discussion.artifacts = newValue }
-    }
-    var briefing: RoomBriefing? {
-        get { discussion.briefing }
-        set { discussion.briefing = newValue }
-    }
-
-    // BuildQAState
-    var buildLoopStatus: BuildLoopStatus? {
-        get { buildQA.buildLoopStatus }
-        set { buildQA.buildLoopStatus = newValue }
-    }
-    var buildRetryCount: Int {
-        get { buildQA.buildRetryCount }
-        set { buildQA.buildRetryCount = newValue }
-    }
-    var maxBuildRetries: Int {
-        get { buildQA.maxBuildRetries }
-        set { buildQA.maxBuildRetries = newValue }
-    }
-    var lastBuildResult: BuildResult? {
-        get { buildQA.lastBuildResult }
-        set { buildQA.lastBuildResult = newValue }
-    }
-    var qaLoopStatus: QALoopStatus? {
-        get { buildQA.qaLoopStatus }
-        set { buildQA.qaLoopStatus = newValue }
-    }
-    var qaRetryCount: Int {
-        get { buildQA.qaRetryCount }
-        set { buildQA.qaRetryCount = newValue }
-    }
-    var maxQARetries: Int {
-        get { buildQA.maxQARetries }
-        set { buildQA.maxQARetries = newValue }
-    }
-    var lastQAResult: QAResult? {
-        get { buildQA.lastQAResult }
-        set { buildQA.lastQAResult = newValue }
-    }
-
     /// 검증된 상태 전이. 유효하지 않으면 false 반환
     @discardableResult
     mutating func transitionTo(_ newStatus: RoomStatus) -> Bool {
@@ -766,6 +632,38 @@ struct Room: Identifiable, Codable {
     mutating func setCurrentStep(_ index: Int) {
         let maxIndex = max(0, (plan?.steps.count ?? 1) - 1)
         currentStepIndex = max(0, min(index, maxIndex))
+    }
+
+    // MARK: - 에이전트 관리 도메인 메서드
+
+    /// 에이전트를 방에 추가 (중복 방지)
+    mutating func addAgent(_ agentID: UUID) {
+        guard !assignedAgentIDs.contains(agentID) else { return }
+        assignedAgentIDs.append(agentID)
+    }
+
+    /// 에이전트를 방에서 제거
+    mutating func removeAgent(_ agentID: UUID) {
+        assignedAgentIDs.removeAll(where: { $0 == agentID })
+        agentRoles.removeValue(forKey: agentID.uuidString)
+        agentPositions.removeValue(forKey: agentID)
+    }
+
+    /// 에이전트에 런타임 역할 배정
+    mutating func assignRole(_ role: RuntimeRole, to agentName: String) {
+        agentRoles[agentName] = role
+    }
+
+    /// 에이전트에 워크플로우 포지션 배정
+    mutating func assignPosition(_ position: WorkflowPosition, to agentID: UUID) {
+        agentPositions[agentID] = position
+    }
+
+    /// 워크플로우 완료 처리
+    mutating func complete() {
+        workflowState.clearCurrentPhase()
+        status = .completed
+        completedAt = Date()
     }
 
     init(
@@ -789,7 +687,6 @@ struct Room: Identifiable, Codable {
         self.plan = nil
         self.timerStartedAt = nil
         self.timerDurationSeconds = nil
-        self.buildPhaseMessageOffset = nil
         self.createdAt = createdAt
         self.completedAt = nil
         self.createdBy = createdBy
@@ -815,7 +712,7 @@ struct Room: Identifiable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case id, title, assignedAgentIDs, messages, status, mode, plan
-        case timerStartedAt, timerDurationSeconds, buildPhaseMessageOffset, createdAt, completedAt, createdBy
+        case timerStartedAt, timerDurationSeconds, createdAt, completedAt, createdBy
         case currentStepIndex, pendingApprovalStepIndex, pendingAgentSuggestions
         case workLog, taskBrief, agentRoles, agentPositions
         case approvalHistory, awaitingType, pendingAgentConfirmationID
@@ -845,7 +742,6 @@ struct Room: Identifiable, Codable {
         plan = try container.decodeIfPresent(RoomPlan.self, forKey: .plan)
         timerStartedAt = try container.decodeIfPresent(Date.self, forKey: .timerStartedAt)
         timerDurationSeconds = try container.decodeIfPresent(Int.self, forKey: .timerDurationSeconds)
-        buildPhaseMessageOffset = try container.decodeIfPresent(Int.self, forKey: .buildPhaseMessageOffset)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
         createdBy = try container.decode(RoomCreator.self, forKey: .createdBy)
@@ -943,7 +839,6 @@ struct Room: Identifiable, Codable {
         try container.encodeIfPresent(plan, forKey: .plan)
         try container.encodeIfPresent(timerStartedAt, forKey: .timerStartedAt)
         try container.encodeIfPresent(timerDurationSeconds, forKey: .timerDurationSeconds)
-        try container.encodeIfPresent(buildPhaseMessageOffset, forKey: .buildPhaseMessageOffset)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encodeIfPresent(completedAt, forKey: .completedAt)
         try container.encode(createdBy, forKey: .createdBy)

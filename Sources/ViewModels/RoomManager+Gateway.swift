@@ -36,8 +36,8 @@ extension RoomManager {
             rooms[idx].awaitingType = nil
         }
 
-        if let cont = approvalContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: true)
+        if approvalGates.hasPendingApproval(for: roomID) {
+            approvalGates.approve(roomID: roomID)
         } else {
             // 워크플로우 없음 (예전 방/앱 재시작) → 워크플로우 재시작
             guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
@@ -67,11 +67,11 @@ extension RoomManager {
             rooms[idx].awaitingType = nil
         }
 
-        if let cont = approvalContinuations.removeValue(forKey: roomID) {
+        if approvalGates.hasPendingApproval(for: roomID) {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].transitionTo(.planning)
             }
-            cont.resume(returning: false)
+            approvalGates.reject(roomID: roomID)
         } else {
             // 워크플로우 없음 (앱 재시작 등) → 워크플로우 재시작
             guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
@@ -175,11 +175,11 @@ extension RoomManager {
         let msg = ChatMessage(role: .user, content: "\(intent.displayName) 선택")
         appendMessage(msg, to: roomID)
 
-        if let cont = intentContinuations.removeValue(forKey: roomID) {
+        if approvalGates.intentContinuations[roomID] != nil {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].transitionTo(.planning)
             }
-            cont.resume(returning: intent)
+            approvalGates.provideIntent(roomID: roomID, intent: intent)
         } else {
             // 워크플로우 없음 (앱 재시작 등) → intent 설정 후 워크플로우 재시작
             guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
@@ -197,11 +197,11 @@ extension RoomManager {
         let msg = ChatMessage(role: .user, content: "\(docType.displayName) 선택")
         appendMessage(msg, to: roomID)
 
-        if let cont = docTypeContinuations.removeValue(forKey: roomID) {
+        if approvalGates.docTypeContinuations[roomID] != nil {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].transitionTo(.planning)
             }
-            cont.resume(returning: docType)
+            approvalGates.provideDocType(roomID: roomID, docType: docType)
         } else {
             guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
             rooms[idx].workflowState.documentType = docType
@@ -217,9 +217,7 @@ extension RoomManager {
         guard let state = pendingTeamConfirmation[roomID] else { return }
         let finalIDs = state.selectedAgentIDs
         pendingTeamConfirmation.removeValue(forKey: roomID)
-        if let cont = teamConfirmationContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: finalIDs)
-        }
+        approvalGates.confirmTeam(roomID: roomID, selectedIDs: finalIDs)
         scheduleSave()
     }
 
@@ -244,9 +242,7 @@ extension RoomManager {
         guard let state = pendingTeamConfirmation[roomID] else { return }
         let finalIDs = state.selectedAgentIDs
         pendingTeamConfirmation.removeValue(forKey: roomID)
-        if let cont = teamConfirmationContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: finalIDs)
-        }
+        approvalGates.confirmTeam(roomID: roomID, selectedIDs: finalIDs)
         scheduleSave()
     }
 
@@ -255,9 +251,7 @@ extension RoomManager {
         pendingTeamConfirmation.removeValue(forKey: roomID)
         let msg = ChatMessage(role: .system, content: "전문가 배정이 취소되었습니다.")
         appendMessage(msg, to: roomID)
-        if let cont = teamConfirmationContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: nil)
-        }
+        approvalGates.skipTeamConfirmation(roomID: roomID)
         scheduleSave()
     }
 
@@ -275,8 +269,8 @@ extension RoomManager {
             rooms[idx].clarifyContext.userAnswers?.append(userAnswer)
         }
 
-        if let cont = userInputContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: answer)
+        if approvalGates.hasPendingUserInput(for: roomID) {
+            approvalGates.provideUserInput(roomID: roomID, input: answer)
         } else {
             // 워크플로우 없음 (앱 재시작 등) → 워크플로우 재시작
             guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
@@ -288,8 +282,6 @@ extension RoomManager {
 
     /// 토론 체크포인트에서 "진행" 선택 — 피드백 없이 다음 단계로
     func proceedDiscussion(roomID: UUID) {
-        if let cont = userInputContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: "")
-        }
+        approvalGates.provideUserInput(roomID: roomID, input: "")
     }
 }

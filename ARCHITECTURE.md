@@ -63,7 +63,7 @@ DOUGLAS/
 │   │   ├── DecisionLog.swift      # 토론 결정 로그 (DecisionEntry + concerns 필드)
 │   │   ├── DebateMode.swift       # 토론 3모드 (dialectic/collaborative/coordination) + maxRounds 상한
 │   │   ├── DebateStrategy.swift   # 토론 Strategy 패턴 (protocol + 3개 구현체: Dialectic/Collaborative/Coordination)
-│   │   ├── ActionItem.swift       # 토론 도출 작업 항목 (후속 구현 사이클 기초)
+│   │   ├── ActionItem.swift       # 토론 도출 작업 항목 (후속 구현 사이클 기초) + ActionItemCompletionStatus(pending/inProgress/completed)
 │   │   ├── FollowUpIntent.swift   # 후속 의도 (9종) + ContextCarryoverPolicy + FollowUpDecision
 │   │   ├── FollowUpVocabulary.swift # 후속 의도별 어휘 Value Object (FollowUpClassifier에서 키워드 관리 책임 분리)
 │   │   ├── WorkflowAssumption.swift # 가정 선언 (RiskLevel: low/medium/high) + UserAnswer
@@ -83,15 +83,16 @@ DOUGLAS/
 │   │   ├── PluginTemplate.swift     # 플러그인 빌더 모델 (PluginActionType, HandlerConfig, ScriptGenerator, PluginSlug)
 │   │   ├── ShellEnvironment.swift   # 셸 환경 캐싱 (NVM 경로 1회 스캔, PATH 병합, 실행 파일 탐색)
 │   │   ├── ProcessRunner.swift      # 테스트 가능한 프로세스 실행기 (DI seam)
-│   │   ├── Room.swift               # 프로젝트 방 모델 (+ Plan C: TaskBrief, agentRoles/agentPositions[UUID:], RiskLevel, OutputType, RuntimeRole, WorkflowPosition)
+│   │   ├── Room.swift               # 프로젝트 방 모델 (+ Plan C: TaskBrief, agentRoles/agentPositions[UUID:], RiskLevel, OutputType, RuntimeRole, WorkflowPosition) — Rich Domain Model: transitionTo, addAgent, removeAgent, assignRole, assignPosition, complete
 │   │   ├── MatchingVocabulary.swift # 매칭 어휘 사전 Value Object (동의어 30+그룹, genericSuffixes, domainKeywords, containsWholeWord)
 │   │   ├── MatchScoringConfig.swift # 매칭 스코어링 설정 Value Object (tier 가중치, 임계값, 보너스 상수)
 │   │   ├── ApprovalRecord.swift     # 승인 기록 모델 (ApprovalType, AwaitingType, ApprovalRecord)
-│   │   ├── WorkflowState.swift     # 워크플로우 진행 상태 값 객체 (intent, phase 추적, activeRuleIDs)
+│   │   ├── WorkflowState.swift     # 워크플로우 진행 상태 값 객체 (intent, phase 추적, activeRuleIDs) — 도메인 메서드: advanceToPhase, completePhase, clearCurrentPhase, recordPhaseSummary
+│   │   ├── WorkflowError.swift    # 워크플로우 도메인 에러 (agentUnmatchable, approvalTimeout, phaseTransitionInvalid, llmFailure 등)
 │   │   ├── ClarifyContext.swift    # 복명복창 컨텍스트 값 객체 (intake, summary, delegation)
 │   │   ├── ProjectContext.swift    # 프로젝트 연동 컨텍스트 값 객체 (경로, 빌드/테스트 명령)
 │   │   ├── SystemPromptCache.swift # 시스템 프롬프트 캐시 (agentID+ruleIDs 키, 반복 생성 방지)
-│   │   ├── DiscussionSession.swift # 토론 세션 값 객체 (라운드, 산출물, 브리핑, 결정 로그, debateMode, actionItems, maxRounds, roundSummaries)
+│   │   ├── DiscussionSession.swift # 토론 세션 값 객체 (라운드, 산출물, 브리핑, 결정 로그, debateMode, actionItems, maxRounds, roundSummaries) — 도메인 메서드: advanceRound, setCheckpoint, clearCheckpoint, addDecision, addRoundSummary, updateRoundSummary, conclude
 │   │   ├── BuildQAState.swift      # 빌드/QA 루프 상태 값 객체 (8개 프로퍼티 그룹핑)
 │   │   └── KeychainHelper.swift     # 파일 기반 API 키 저장 (Keychain 레거시 마이그레이션)
 │   │   ├── DouglasRequest.swift     # 사용자 요청 생명주기 모델 (IntentClassification, InputType, ConfidenceLevel)
@@ -111,7 +112,8 @@ DOUGLAS/
 │   │   ├── ActionItemGenerator.swift # briefing JSON → ActionItems 파싱
 │   │   ├── AgentAssigner.swift       # ActionItem → 에이전트 ID 매핑 (3단 우선순위)
 │   │   ├── UserDesignationExtractor.swift # 사용자 지명 에이전트 추출 (슬래시/쉼표 구분)
-│   │   └── PositionInferenceService.swift # WorkflowPosition 추론 서비스 (workModes+persona → goodPositions, Agent에서 위임)
+│   │   ├── PositionInferenceService.swift # WorkflowPosition 추론 서비스 (workModes+persona → 포지션 추론, 호출부에서 직접 사용)
+│   │   └── PromptCompositionService.swift # 시스템 프롬프트 조합 서비스 (persona + workRules/legacyRules → 시스템 프롬프트, Agent에서 위임)
 │   ├── ViewModels/
 │   │   ├── AgentStore.swift         # 에이전트 CRUD, 마스터 생명주기
 │   │   ├── AgentPorter.swift        # 에이전트 매니페스트 Export/Import (NSSavePanel/NSOpenPanel)
@@ -119,9 +121,11 @@ DOUGLAS/
 │   │   ├── OnboardingViewModel.swift # 첫 실행 온보딩 (의존성 체크 + Claude 설정 + 프로바이더 선택)
 │   │   ├── ProviderManager.swift    # 프로바이더 설정 관리
 │   │   ├── BuildLoopRunner.swift     # 빌드/테스트 실행 + 수정 프롬프트 생성 엔진
-│   │   ├── RoomManager.swift          # 프로젝트 방 생명주기, CRUD, 승인/입력 게이트, 상태 관리 (~2092줄)
+│   │   ├── RoomManager.swift          # 프로젝트 방 생명주기, CRUD, 상태 관리 (승인 게이트는 ApprovalGateManager로 위임)
 │   │   ├── RoomManager+Workflow.swift # 워크플로우 Phase 실행 메서드 (startRoomWorkflow, executePhaseWorkflow 등)
-│   │   ├── RoomManager+Discussion.swift # 빌드/QA 루프 + 토론 실행 (~949줄)
+│   │   ├── RoomManager+Discussion.swift # 토론 실행 (라운드, 합의 감지, 브리핑 생성)
+│   │   ├── RoomManager+BuildQA.swift  # 빌드/QA 루프 (빌드→수정→재빌드, 테스트→수정→재테스트)
+│   │   ├── ApprovalGateManager.swift  # 승인/입력 게이트 관리 — 7종 continuation 소유, wait/provide 쌍 제공
 │   │   ├── StepExecutionEngine.swift  # Build 단계 실행 엔진 (StepStatus 전이, Policy 기반 동작, 계획 승인 후 자동 실행)
 │   │   ├── StepContextBudget.swift    # executeStep context 토큰 예산 (30K 토큰, TokenEstimator 기반) — Step Journal 패턴 도입으로 역할 축소
 │   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 Facade (3-tier 스코어링 + 파싱/검색/제안 — 어휘→MatchingVocabulary, 설정→MatchScoringConfig, NLP→KoreanTextUtils, 포지션→PositionInferenceService 위임)
@@ -429,6 +433,9 @@ struct Agent: Identifiable, Codable, Hashable {
 - Hashable: id만 사용
 - `createMaster()`: 기본 마스터 에이전트 팩토리 (Claude Code + 위임 페르소나)
 - 이미지: `~/Library/Application Support/DOUGLAS/avatars/{id}.png`에 저장 (static save/load/delete)
+- **DDD 원칙**: Agent는 데이터만 보유, 로직은 서비스에 위임
+  - 포지션 추론: `PositionInferenceService.inferPositions(workModes:persona:)` 직접 호출 (Agent에서 computed property 제거)
+  - 프롬프트 조합: `PromptCompositionService.compose(...)` 위임 (`resolvedSystemPrompt`는 호환 래퍼)
 
 ### AgentManifest (`Models/AgentManifest.swift`)
 
@@ -1113,7 +1120,7 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
 - `.empty`: 텍스트+파일 없음 → 무시
 - `.fileOnly`: 파일만 업로드 → intent=nil로 방 생성, 빈 task로 워크플로우 시작 → Understand 단계에서 사용자에게 작업 의도 질문 (2분 타임아웃)
 - `.command(.summonAgent)`: "에이전트 불러와" 등 시스템 명령 → 안내 메시지 표시
-- `.classified(intent)`: quickAnswer, task, discussion, research, documentation 확정 → 정상 워크플로우 (complex는 LLM에서만 판별)
+- `.classified(intent)`: quickAnswer, task, discussion, research, documentation, complex 확정 → 정상 워크플로우. complex는 결정론적 판별 추가: positive-only score ≥ 4인 intent가 2개 이상이고 normal score에서도 2개 이상 threshold 통과 시 complex 반환
 - `.ambiguous`: 분류 불가 → intent=nil로 방 생성 (사용자 선택 UI)
 
 **범용 워크플로우 (Intent 기반 적응형)**:
@@ -1309,8 +1316,9 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
 **IntentModifier 체계**: 6개 intent를 유지하면서 modifier 조합으로 행동 세밀 제어:
 - `.adversarial` → DebateClassifier가 dialectic 강제
 - `.breakdown` → actionItems 생성 보장
-- `.outputOnly` → Build phase 스킵
-- `.withExecution` → 전체 6페이즈 실행
+- `.outputOnly` → requiredPhases에서 Build/Review 제거
+- `.withExecution` → requiredPhases에 Build/Review 추가 (discussion/research에도 실행 단계 부여)
+- modifier는 `WorkflowState.modifiers`에 저장, `intent.requiredPhases(with: modifiers)`로 페이즈 동적 결정
 
 **Design 단계 컨텍스트 주입**: Design 단계의 모든 경로(멀티에이전트 토론, 솔로 설계, 솔로 토론)에서 intakeData(Jira 티켓 등)와 프로젝트 경로가 에이전트 프롬프트에 포함됨. `requestPlan`에도 프로젝트 경로가 주입됨.
 
@@ -1337,6 +1345,8 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
 - 각 intent별 ContextCarryoverPolicy: intake/agents/briefing/actionItems/decisionLog/workLog/stepResults 유지/리셋 규칙
 - FollowUpDecision: resolvedWorkflowIntent(기존 6개 매핑) + contextPolicy + skipPhases + needsPlan
 - 인덱스 파싱: "1번이랑 3번만 하자" → implementPartial([0, 2])
+- **에이전트 재평가**: 토론→구현(implementAll/Partial + discussionCompleted) 시 assemble 스킵 안 함 → 구현에 적합한 에이전트로 재매칭. keepAgents=false로 기존 에이전트 유지 강제 안 함
+- **ActionItem 완료 추적**: completionStatus(pending/inProgress/completed) 필드로 부분 구현 후 후속 토론에서 완료/미완료 구분
 
 **서비스 레이어 (Sources/Services/)** — DDD 단일 책임 원칙:
 | 서비스 | 책임 |
@@ -1372,7 +1382,7 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
 - `skillTags: [String]` — 매칭 시 가장 강한 신호 (Tier 1: weight 5)
 - `workModes: Set<WorkMode>` — plan/create/execute/review/research (역할 배정 + 도구 권한 + 매칭 Tier 2)
 - `outputStyles: Set<OutputStyle>` — Tier 2 보너스 (+0.03, TaskBrief.outputType 교차 시)
-- `goodPositions: Set<WorkflowPosition>` — PositionInferenceService 위임 (workModes + persona 키워드 → 12종 포지션 추론)
+- 포지션 추론: `PositionInferenceService.inferPositions(workModes:persona:)` 호출부(AgentMatcher)에서 직접 사용 (Agent에 computed property 없음)
 - `actionPermissions: Set<ActionScope>` — workModes에서 자동 추론되는 computed property (비어있으면 모두 허용)
   - plan/research/review → readFiles, readWeb
   - create → + writeFiles

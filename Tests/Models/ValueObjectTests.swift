@@ -62,6 +62,125 @@ struct ValueObjectTests {
         #expect(a != b)
     }
 
+    // MARK: - WorkflowState 도메인 메서드
+
+    @Test("advanceToPhase — 전이 기록 + currentPhase 갱신")
+    func advanceToPhase() {
+        var state = WorkflowState(currentPhase: .intake)
+        state.advanceToPhase(.intent)
+        #expect(state.currentPhase == .intent)
+        #expect(state.phaseTransitions.count == 1)
+        #expect(state.phaseTransitions[0].from == .intake)
+        #expect(state.phaseTransitions[0].to == .intent)
+    }
+
+    @Test("advanceToPhase — nil에서 시작")
+    func advanceFromNil() {
+        var state = WorkflowState()
+        state.advanceToPhase(.intake)
+        #expect(state.currentPhase == .intake)
+        #expect(state.phaseTransitions.count == 1)
+        #expect(state.phaseTransitions[0].from == nil)
+    }
+
+    @Test("completePhase — completedPhases에 추가")
+    func completePhase() {
+        var state = WorkflowState(currentPhase: .intake)
+        state.completePhase(.intake)
+        #expect(state.completedPhases.contains(.intake))
+    }
+
+    @Test("completePhase — 중복 추가 무해")
+    func completePhaseIdempotent() {
+        var state = WorkflowState(completedPhases: [.intake])
+        state.completePhase(.intake)
+        #expect(state.completedPhases.count == 1)
+    }
+
+    @Test("clearCurrentPhase — nil로 설정")
+    func clearCurrentPhase() {
+        var state = WorkflowState(currentPhase: .build)
+        state.clearCurrentPhase()
+        #expect(state.currentPhase == nil)
+    }
+
+    @Test("recordPhaseSummary — 요약 저장")
+    func recordPhaseSummary() {
+        var state = WorkflowState()
+        state.recordPhaseSummary(phase: .intake, summary: "요약 텍스트")
+        #expect(state.phaseSummaries[.intake] == "요약 텍스트")
+    }
+
+    // MARK: - DiscussionSession 도메인 메서드
+
+    @Test("advanceRound — 라운드 증가")
+    func advanceRound() {
+        var session = DiscussionSession()
+        session.advanceRound(to: 1)
+        #expect(session.currentRound == 1)
+    }
+
+    @Test("advanceRound — 음수 무시")
+    func advanceRoundNegative() {
+        var session = DiscussionSession(currentRound: 2)
+        session.advanceRound(to: -1)
+        #expect(session.currentRound == 2)
+    }
+
+    @Test("setCheckpoint/clearCheckpoint")
+    func checkpointToggle() {
+        var session = DiscussionSession()
+        session.setCheckpoint()
+        #expect(session.isCheckpoint == true)
+        session.clearCheckpoint()
+        #expect(session.isCheckpoint == false)
+    }
+
+    @Test("addDecision — decisionLog에 추가")
+    func addDecision() {
+        var session = DiscussionSession()
+        let entry = DecisionEntry(round: 0, decision: "동의함", supporters: ["A"])
+        session.addDecision(entry)
+        #expect(session.decisionLog.count == 1)
+        #expect(session.decisionLog[0].decision == "동의함")
+    }
+
+    @Test("addRoundSummary — 라운드 요약 추가")
+    func addRoundSummary() {
+        var session = DiscussionSession()
+        let summary = RoundSummary(round: 0, agentPositions: [], agreements: ["합의"], disagreements: [], userFeedback: nil)
+        session.addRoundSummary(summary)
+        #expect(session.roundSummaries.count == 1)
+        #expect(session.roundSummaries[0].agreements == ["합의"])
+    }
+
+    @Test("updateRoundSummary — 기존 요약 교체")
+    func updateRoundSummary() {
+        var session = DiscussionSession()
+        let original = RoundSummary(round: 0, agentPositions: [], agreements: [], disagreements: [], userFeedback: nil)
+        session.addRoundSummary(original)
+        let updated = RoundSummary(round: 0, agentPositions: [], agreements: [], disagreements: [], userFeedback: "피드백")
+        session.updateRoundSummary(at: 0, with: updated)
+        #expect(session.roundSummaries[0].userFeedback == "피드백")
+    }
+
+    @Test("updateRoundSummary — 범위 밖 인덱스 무시")
+    func updateRoundSummaryOutOfBounds() {
+        var session = DiscussionSession()
+        let summary = RoundSummary(round: 0, agentPositions: [], agreements: [], disagreements: [], userFeedback: nil)
+        session.updateRoundSummary(at: 5, with: summary)
+        #expect(session.roundSummaries.isEmpty)
+    }
+
+    @Test("conclude — briefing + fullLog 설정")
+    func conclude() {
+        var session = DiscussionSession()
+        let briefing = RoomBriefing(summary: "요약", keyDecisions: [], agentResponsibilities: [:], openIssues: [])
+        session.conclude(briefing: briefing, fullLog: "전문")
+        #expect(session.briefing?.summary == "요약")
+        #expect(session.fullDiscussionLog == "전문")
+    }
+
     // MARK: - ClarifyContext
 
     @Test("ClarifyContext - 기본값")
@@ -149,17 +268,17 @@ struct ValueObjectTests {
         #expect(room.workflowState.intent == nil)
 
         room.workflowState = WorkflowState(intent: .task, needsPlan: true, currentPhase: .plan)
-        #expect(room.intent == .task)
-        #expect(room.needsPlan == true)
-        #expect(room.currentPhase == WorkflowPhase.plan)
+        #expect(room.workflowState.intent == .task)
+        #expect(room.workflowState.needsPlan == true)
+        #expect(room.workflowState.currentPhase == WorkflowPhase.plan)
     }
 
     @Test("Room.workflowState - 개별 프로퍼티와 동기화")
     func roomWorkflowStateSync() {
         var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
-        room.intent = .discussion
-        room.currentPhase = .assemble
-        room.completedPhases = [.intake]
+        room.workflowState.intent = .discussion
+        room.workflowState.currentPhase = .assemble
+        room.workflowState.completedPhases = [.intake]
 
         let state = room.workflowState
         #expect(state.intent == .discussion)
@@ -174,8 +293,8 @@ struct ValueObjectTests {
             clarifySummary: "요약",
             clarifyQuestionCount: 5
         )
-        #expect(room.clarifySummary == "요약")
-        #expect(room.clarifyQuestionCount == 5)
+        #expect(room.clarifyContext.clarifySummary == "요약")
+        #expect(room.clarifyContext.clarifyQuestionCount == 5)
     }
 
     @Test("Room.projectContext - get/set 왕복")
@@ -185,14 +304,14 @@ struct ValueObjectTests {
             projectPaths: ["/new/path"],
             buildCommand: "swift build"
         )
-        #expect(room.projectPaths == ["/new/path"])
-        #expect(room.buildCommand == "swift build")
+        #expect(room.projectContext.projectPaths == ["/new/path"])
+        #expect(room.projectContext.buildCommand == "swift build")
     }
 
     @Test("Room.projectContext - 개별 프로퍼티 수정 후 동기화")
     func roomProjectContextIndividualSync() {
         var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user, projectPaths: ["/original"])
-        room.worktreePath = "/tmp/wt"
+        room.projectContext.worktreePath = "/tmp/wt"
 
         let ctx = room.projectContext
         #expect(ctx.projectPaths == ["/original"])
@@ -231,15 +350,15 @@ struct ValueObjectTests {
     func roomDiscussionAccessor() {
         var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
         room.discussion = DiscussionSession(currentRound: 5, isCheckpoint: true)
-        #expect(room.currentRound == 5)
-        #expect(room.isDiscussionCheckpoint == true)
+        #expect(room.discussion.currentRound == 5)
+        #expect(room.discussion.isCheckpoint == true)
     }
 
     @Test("Room.discussion - 개별 프로퍼티 수정 후 동기화")
     func roomDiscussionSync() {
         var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
-        room.currentRound = 3
-        room.isDiscussionCheckpoint = true
+        room.discussion.currentRound = 3
+        room.discussion.isCheckpoint = true
         let session = room.discussion
         #expect(session.currentRound == 3)
         #expect(session.isCheckpoint == true)
@@ -273,15 +392,15 @@ struct ValueObjectTests {
     func roomBuildQAAccessor() {
         var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
         room.buildQA = BuildQAState(buildRetryCount: 1, qaRetryCount: 2)
-        #expect(room.buildRetryCount == 1)
-        #expect(room.qaRetryCount == 2)
+        #expect(room.buildQA.buildRetryCount == 1)
+        #expect(room.buildQA.qaRetryCount == 2)
     }
 
     @Test("Room.buildQA - 개별 프로퍼티 동기화")
     func roomBuildQASync() {
         var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
-        room.buildRetryCount = 3
-        room.maxBuildRetries = 10
+        room.buildQA.buildRetryCount = 3
+        room.buildQA.maxBuildRetries = 10
         let state = room.buildQA
         #expect(state.buildRetryCount == 3)
         #expect(state.maxBuildRetries == 10)

@@ -58,7 +58,6 @@ final class StepExecutionEngine {
 
         // 초기화 — Build 시작 시점 기록
         host.updateRoom(id: roomID) { room in
-            room.buildPhaseMessageOffset = room.messages.count
             room.timerDurationSeconds = plan.estimatedSeconds
             room.timerStartedAt = Date()
             room.transitionTo(.inProgress)

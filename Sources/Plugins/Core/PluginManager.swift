@@ -239,23 +239,6 @@ final class PluginManager: ObservableObject {
         return .passthrough
     }
 
-    /// 에이전트 응답 후처리 — 모든 활성 플러그인이 순차적으로 응답을 변환
-    func postProcessResponse(agentName: String, response: String) async -> String {
-        var current = response
-        for plugin in plugins where plugin.isActive {
-            if let transformed = await plugin.postProcessResponse(agentName: agentName, response: current) {
-                current = transformed
-            }
-        }
-        return current
-    }
-
-    // MARK: - 도구 등록
-
-    var pluginTools: [AgentTool] {
-        plugins.filter { $0.isActive }.flatMap { $0.registeredTools() }
-    }
-
     // MARK: - Helpers
 
     private func ensureDirectory(_ url: URL) {

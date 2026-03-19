@@ -193,7 +193,7 @@ struct RoomTests {
     func roomDiscussionMode() {
         let room = Room(title: "토론", assignedAgentIDs: [], createdBy: .user, mode: .discussion)
         #expect(room.mode == .discussion)
-        #expect(room.currentRound == 0)
+        #expect(room.discussion.currentRound == 0)
     }
 
     // MARK: - timerDisplayText 추가 케이스
@@ -256,7 +256,7 @@ struct RoomTests {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let room = try decoder.decode(Room.self, from: data)
-        #expect(room.currentRound == 0) // 기본값
+        #expect(room.discussion.currentRound == 0) // 기본값
         #expect(room.currentStepIndex == 0) // 기본값
     }
 
@@ -268,13 +268,13 @@ struct RoomTests {
             createdBy: .user,
             mode: .discussion
         )
-        room.currentRound = 2
+        room.discussion.currentRound = 2
         room.status = .inProgress
 
         let data = try JSONEncoder().encode(room)
         let decoded = try JSONDecoder().decode(Room.self, from: data)
         #expect(decoded.mode == .discussion)
-        #expect(decoded.currentRound == 2)
+        #expect(decoded.discussion.currentRound == 2)
     }
 
     // MARK: - canTransition
@@ -465,13 +465,13 @@ struct RoomTests {
     @Test("projectPaths, buildCommand 기본값")
     func projectPathDefaults() {
         let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user)
-        #expect(room.projectPaths.isEmpty)
+        #expect(room.projectContext.projectPaths.isEmpty)
         #expect(room.primaryProjectPath == nil)
-        #expect(room.buildCommand == nil)
-        #expect(room.buildLoopStatus == nil)
-        #expect(room.buildRetryCount == 0)
-        #expect(room.maxBuildRetries == 3)
-        #expect(room.lastBuildResult == nil)
+        #expect(room.projectContext.buildCommand == nil)
+        #expect(room.buildQA.buildLoopStatus == nil)
+        #expect(room.buildQA.buildRetryCount == 0)
+        #expect(room.buildQA.maxBuildRetries == 3)
+        #expect(room.buildQA.lastBuildResult == nil)
     }
 
     @Test("projectPaths 명시적 설정")
@@ -483,9 +483,9 @@ struct RoomTests {
             projectPaths: ["/Users/test/project", "/Users/test/other"],
             buildCommand: "swift build"
         )
-        #expect(room.projectPaths == ["/Users/test/project", "/Users/test/other"])
+        #expect(room.projectContext.projectPaths == ["/Users/test/project", "/Users/test/other"])
         #expect(room.primaryProjectPath == "/Users/test/project")
-        #expect(room.buildCommand == "swift build")
+        #expect(room.projectContext.buildCommand == "swift build")
     }
 
     @Test("빌드 관련 필드 Codable 라운드트립")
@@ -497,22 +497,22 @@ struct RoomTests {
             projectPaths: ["/tmp/project"],
             buildCommand: "make"
         )
-        room.buildLoopStatus = .building
-        room.buildRetryCount = 2
-        room.maxBuildRetries = 5
-        room.lastBuildResult = BuildResult(success: false, output: "error", exitCode: 1)
+        room.buildQA.buildLoopStatus = .building
+        room.buildQA.buildRetryCount = 2
+        room.buildQA.maxBuildRetries = 5
+        room.buildQA.lastBuildResult = BuildResult(success: false, output: "error", exitCode: 1)
 
         let data = try JSONEncoder().encode(room)
         let decoded = try JSONDecoder().decode(Room.self, from: data)
 
-        #expect(decoded.projectPaths == ["/tmp/project"])
+        #expect(decoded.projectContext.projectPaths == ["/tmp/project"])
         #expect(decoded.primaryProjectPath == "/tmp/project")
-        #expect(decoded.buildCommand == "make")
-        #expect(decoded.buildLoopStatus == .building)
-        #expect(decoded.buildRetryCount == 2)
-        #expect(decoded.maxBuildRetries == 5)
-        #expect(decoded.lastBuildResult?.success == false)
-        #expect(decoded.lastBuildResult?.exitCode == 1)
+        #expect(decoded.projectContext.buildCommand == "make")
+        #expect(decoded.buildQA.buildLoopStatus == .building)
+        #expect(decoded.buildQA.buildRetryCount == 2)
+        #expect(decoded.buildQA.maxBuildRetries == 5)
+        #expect(decoded.buildQA.lastBuildResult?.success == false)
+        #expect(decoded.buildQA.lastBuildResult?.exitCode == 1)
     }
 
     @Test("빌드 필드 없는 기존 데이터 역호환")
@@ -531,13 +531,13 @@ struct RoomTests {
         let modifiedData = try JSONSerialization.data(withJSONObject: json)
 
         let decoded = try JSONDecoder().decode(Room.self, from: modifiedData)
-        #expect(decoded.projectPaths.isEmpty)
+        #expect(decoded.projectContext.projectPaths.isEmpty)
         #expect(decoded.primaryProjectPath == nil)
-        #expect(decoded.buildCommand == nil)
-        #expect(decoded.buildLoopStatus == nil)
-        #expect(decoded.buildRetryCount == 0)
-        #expect(decoded.maxBuildRetries == 3)
-        #expect(decoded.lastBuildResult == nil)
+        #expect(decoded.projectContext.buildCommand == nil)
+        #expect(decoded.buildQA.buildLoopStatus == nil)
+        #expect(decoded.buildQA.buildRetryCount == 0)
+        #expect(decoded.buildQA.maxBuildRetries == 3)
+        #expect(decoded.buildQA.lastBuildResult == nil)
     }
 
     @Test("기존 projectPath(단일) JSON → projectPaths 배열 하위 호환")
@@ -551,7 +551,7 @@ struct RoomTests {
         let modifiedData = try JSONSerialization.data(withJSONObject: json)
 
         let decoded = try JSONDecoder().decode(Room.self, from: modifiedData)
-        #expect(decoded.projectPaths == ["/old/single/path"])
+        #expect(decoded.projectContext.projectPaths == ["/old/single/path"])
         #expect(decoded.primaryProjectPath == "/old/single/path")
     }
 
@@ -622,11 +622,11 @@ struct RoomTests {
     @Test("testCommand 기본값 nil")
     func testCommandDefaults() {
         let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user)
-        #expect(room.testCommand == nil)
-        #expect(room.qaLoopStatus == nil)
-        #expect(room.qaRetryCount == 0)
-        #expect(room.maxQARetries == 3)
-        #expect(room.lastQAResult == nil)
+        #expect(room.projectContext.testCommand == nil)
+        #expect(room.buildQA.qaLoopStatus == nil)
+        #expect(room.buildQA.qaRetryCount == 0)
+        #expect(room.buildQA.maxQARetries == 3)
+        #expect(room.buildQA.lastQAResult == nil)
     }
 
     @Test("testCommand 명시적 설정")
@@ -637,7 +637,7 @@ struct RoomTests {
             createdBy: .user,
             testCommand: "swift test"
         )
-        #expect(room.testCommand == "swift test")
+        #expect(room.projectContext.testCommand == "swift test")
     }
 
     @Test("QA 필드 Codable 라운드트립")
@@ -648,20 +648,20 @@ struct RoomTests {
             createdBy: .user,
             testCommand: "npm test"
         )
-        room.qaLoopStatus = .testing
-        room.qaRetryCount = 1
-        room.maxQARetries = 5
-        room.lastQAResult = QAResult(success: false, output: "FAIL", exitCode: 1)
+        room.buildQA.qaLoopStatus = .testing
+        room.buildQA.qaRetryCount = 1
+        room.buildQA.maxQARetries = 5
+        room.buildQA.lastQAResult = QAResult(success: false, output: "FAIL", exitCode: 1)
 
         let data = try JSONEncoder().encode(room)
         let decoded = try JSONDecoder().decode(Room.self, from: data)
 
-        #expect(decoded.testCommand == "npm test")
-        #expect(decoded.qaLoopStatus == .testing)
-        #expect(decoded.qaRetryCount == 1)
-        #expect(decoded.maxQARetries == 5)
-        #expect(decoded.lastQAResult?.success == false)
-        #expect(decoded.lastQAResult?.exitCode == 1)
+        #expect(decoded.projectContext.testCommand == "npm test")
+        #expect(decoded.buildQA.qaLoopStatus == .testing)
+        #expect(decoded.buildQA.qaRetryCount == 1)
+        #expect(decoded.buildQA.maxQARetries == 5)
+        #expect(decoded.buildQA.lastQAResult?.success == false)
+        #expect(decoded.buildQA.lastQAResult?.exitCode == 1)
     }
 
     @Test("QA 필드 없는 기존 데이터 역호환")
@@ -678,11 +678,11 @@ struct RoomTests {
         let modifiedData = try JSONSerialization.data(withJSONObject: json)
 
         let decoded = try JSONDecoder().decode(Room.self, from: modifiedData)
-        #expect(decoded.testCommand == nil)
-        #expect(decoded.qaLoopStatus == nil)
-        #expect(decoded.qaRetryCount == 0)
-        #expect(decoded.maxQARetries == 3)
-        #expect(decoded.lastQAResult == nil)
+        #expect(decoded.projectContext.testCommand == nil)
+        #expect(decoded.buildQA.qaLoopStatus == nil)
+        #expect(decoded.buildQA.qaRetryCount == 0)
+        #expect(decoded.buildQA.maxQARetries == 3)
+        #expect(decoded.buildQA.lastQAResult == nil)
     }
 
     // MARK: - Phase D: RoomAgentSuggestion
@@ -809,42 +809,42 @@ struct RoomTests {
     @Test("Phase E 필드 기본값")
     func phaseEDefaults() {
         let room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user)
-        #expect(room.intent == nil)
-        #expect(room.currentPhase == nil)
-        #expect(room.assumptions == nil)
-        #expect(room.userAnswers == nil)
-        #expect(room.playbook == nil)
-        #expect(room.intakeData == nil)
-        #expect(room.clarifyQuestionCount == 0)
+        #expect(room.workflowState.intent == nil)
+        #expect(room.workflowState.currentPhase == nil)
+        #expect(room.clarifyContext.assumptions == nil)
+        #expect(room.clarifyContext.userAnswers == nil)
+        #expect(room.clarifyContext.playbook == nil)
+        #expect(room.clarifyContext.intakeData == nil)
+        #expect(room.clarifyContext.clarifyQuestionCount == 0)
     }
 
     @Test("Phase E 필드 Codable 라운드트립")
     func phaseEFieldsCodable() throws {
         var room = Room(title: "Workflow", assignedAgentIDs: [], createdBy: .user)
-        room.intent = WorkflowIntent.task
-        room.currentPhase = .clarify
-        room.assumptions = [
+        room.workflowState.intent = WorkflowIntent.task
+        room.workflowState.currentPhase = .clarify
+        room.clarifyContext.assumptions = [
             WorkflowAssumption(text: "Swift 5.9 사용", riskLevel: .low)
         ]
-        room.userAnswers = [
+        room.clarifyContext.userAnswers = [
             UserAnswer(question: "DB?", answer: "PostgreSQL")
         ]
-        room.playbook = ProjectPlaybook.team
-        room.intakeData = IntakeData(sourceType: .text, rawInput: "작업 내용")
-        room.clarifyQuestionCount = 3
+        room.clarifyContext.playbook = ProjectPlaybook.team
+        room.clarifyContext.intakeData = IntakeData(sourceType: .text, rawInput: "작업 내용")
+        room.clarifyContext.clarifyQuestionCount = 3
 
         let data = try JSONEncoder().encode(room)
         let decoded = try JSONDecoder().decode(Room.self, from: data)
 
-        #expect(decoded.intent == WorkflowIntent.task)
-        #expect(decoded.currentPhase == .clarify)
-        #expect(decoded.assumptions?.count == 1)
-        #expect(decoded.assumptions?[0].text == "Swift 5.9 사용")
-        #expect(decoded.userAnswers?.count == 1)
-        #expect(decoded.userAnswers?[0].answer == "PostgreSQL")
-        #expect(decoded.playbook?.baseBranch == "develop")
-        #expect(decoded.intakeData?.sourceType == .text)
-        #expect(decoded.clarifyQuestionCount == 3)
+        #expect(decoded.workflowState.intent == WorkflowIntent.task)
+        #expect(decoded.workflowState.currentPhase == .clarify)
+        #expect(decoded.clarifyContext.assumptions?.count == 1)
+        #expect(decoded.clarifyContext.assumptions?[0].text == "Swift 5.9 사용")
+        #expect(decoded.clarifyContext.userAnswers?.count == 1)
+        #expect(decoded.clarifyContext.userAnswers?[0].answer == "PostgreSQL")
+        #expect(decoded.clarifyContext.playbook?.baseBranch == "develop")
+        #expect(decoded.clarifyContext.intakeData?.sourceType == .text)
+        #expect(decoded.clarifyContext.clarifyQuestionCount == 3)
     }
 
     // MARK: - Phase DDD-2: RoomStatus.cancelled + RequestStatus
@@ -1014,13 +1014,13 @@ struct RoomTests {
         let modifiedData = try JSONSerialization.data(withJSONObject: json)
 
         let decoded = try JSONDecoder().decode(Room.self, from: modifiedData)
-        #expect(decoded.intent == nil)
-        #expect(decoded.currentPhase == nil)
-        #expect(decoded.assumptions == nil)
-        #expect(decoded.userAnswers == nil)
-        #expect(decoded.playbook == nil)
-        #expect(decoded.intakeData == nil)
-        #expect(decoded.clarifyQuestionCount == 0)
+        #expect(decoded.workflowState.intent == nil)
+        #expect(decoded.workflowState.currentPhase == nil)
+        #expect(decoded.clarifyContext.assumptions == nil)
+        #expect(decoded.clarifyContext.userAnswers == nil)
+        #expect(decoded.clarifyContext.playbook == nil)
+        #expect(decoded.clarifyContext.intakeData == nil)
+        #expect(decoded.clarifyContext.clarifyQuestionCount == 0)
     }
 
     // MARK: - RoomPlan stepJournal
@@ -1044,5 +1044,61 @@ struct RoomTests {
         let data = json.data(using: .utf8)!
         let decoded = try JSONDecoder().decode(RoomPlan.self, from: data)
         #expect(decoded.stepJournal.isEmpty)
+    }
+
+    // MARK: - Room 도메인 메서드
+
+    @Test("addAgent — 중복 방지")
+    func addAgentNoDuplicate() {
+        let agentID = UUID()
+        var room = Room(title: "T", assignedAgentIDs: [agentID], createdBy: .user)
+        room.addAgent(agentID)
+        #expect(room.assignedAgentIDs.count == 1)
+    }
+
+    @Test("addAgent — 새 에이전트 추가")
+    func addAgentNew() {
+        let a1 = UUID(), a2 = UUID()
+        var room = Room(title: "T", assignedAgentIDs: [a1], createdBy: .user)
+        room.addAgent(a2)
+        #expect(room.assignedAgentIDs.count == 2)
+        #expect(room.assignedAgentIDs.contains(a2))
+    }
+
+    @Test("removeAgent — 에이전트 제거 + 역할/포지션 정리")
+    func removeAgentCleanup() {
+        let agentID = UUID()
+        var room = Room(title: "T", assignedAgentIDs: [agentID], createdBy: .user)
+        room.agentRoles[agentID.uuidString] = .creator
+        room.agentPositions[agentID] = .implementer
+        room.removeAgent(agentID)
+        #expect(room.assignedAgentIDs.isEmpty)
+        #expect(room.agentRoles[agentID.uuidString] == nil)
+        #expect(room.agentPositions[agentID] == nil)
+    }
+
+    @Test("assignRole — 역할 배정")
+    func assignRole() {
+        var room = Room(title: "T", assignedAgentIDs: [], createdBy: .user)
+        room.assignRole(.reviewer, to: "검토자")
+        #expect(room.agentRoles["검토자"] == .reviewer)
+    }
+
+    @Test("assignPosition — 포지션 배정")
+    func assignPosition() {
+        let agentID = UUID()
+        var room = Room(title: "T", assignedAgentIDs: [agentID], createdBy: .user)
+        room.assignPosition(.implementer, to: agentID)
+        #expect(room.agentPositions[agentID] == .implementer)
+    }
+
+    @Test("complete — 상태 전이 + 시간 기록")
+    func completeRoom() {
+        var room = Room(title: "T", assignedAgentIDs: [], createdBy: .user)
+        room.workflowState.currentPhase = .build
+        room.complete()
+        #expect(room.status == .completed)
+        #expect(room.workflowState.currentPhase == nil)
+        #expect(room.completedAt != nil)
     }
 }

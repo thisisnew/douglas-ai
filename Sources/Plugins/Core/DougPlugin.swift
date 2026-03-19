@@ -109,11 +109,6 @@ protocol DougPlugin: AnyObject {
         arguments: [String: String]
     ) async -> ToolInterceptResult
 
-    /// 에이전트 응답 후처리 — 응답 텍스트를 변환할 수 있음 (nil이면 원본 유지)
-    func postProcessResponse(
-        agentName: String,
-        response: String
-    ) async -> String?
 }
 
 // MARK: - 기본 구현
@@ -121,5 +116,4 @@ protocol DougPlugin: AnyObject {
 extension DougPlugin {
     func registeredTools() -> [AgentTool] { [] }
     func interceptToolExecution(toolName: String, arguments: [String: String]) async -> ToolInterceptResult { .passthrough }
-    func postProcessResponse(agentName: String, response: String) async -> String? { nil }
 }

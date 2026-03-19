@@ -14,11 +14,7 @@ final class MockWorkflowHost: WorkflowHost {
 
     // WorkflowHost conformance
     var speakingAgentIDByRoom: [UUID: UUID] = [:]
-    var approvalContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
-    var userInputContinuations: [UUID: CheckedContinuation<String, Never>] = [:]
-    var intentContinuations: [UUID: CheckedContinuation<WorkflowIntent, Never>] = [:]
-    var docTypeContinuations: [UUID: CheckedContinuation<DocumentType, Never>] = [:]
-    var teamConfirmationContinuations: [UUID: CheckedContinuation<Set<UUID>?, Never>] = [:]
+    let approvalGates = ApprovalGateManager()
     var pendingQuestionOptions: [UUID: [String]] = [:]
     var pendingIntentSelection: [UUID: WorkflowIntent] = [:]
     var pendingDocTypeSelection: [UUID: Bool] = [:]
@@ -98,33 +94,6 @@ struct StepExecutionEngineTests {
         store.agents = [Agent(id: agentID, name: "테스터", persona: "테스트 에이전트", providerName: "test", modelName: "test")]
         host.agentStore = store
         return host
-    }
-
-    // MARK: - Build Phase Context Reset
-
-    @Test("run() 호출 시 buildPhaseMessageOffset 설정")
-    @MainActor
-    func runSetsBuildPhaseMessageOffset() async {
-        let roomID = UUID()
-        let agentID = UUID()
-        let host = Self.makeHost(roomID: roomID, agentID: agentID, stepCount: 1)
-
-        // 사전 메시지 3개 추가 (토론 단계 시뮬레이션)
-        for i in 0..<3 {
-            host.appendMessage(
-                ChatMessage(role: .assistant, content: "토론 \(i)", messageType: .text),
-                to: roomID
-            )
-        }
-
-        let engine = StepExecutionEngine(
-            host: host, roomID: roomID, task: "테스트", policy: .standard
-        )
-        await engine.run()
-
-        // offset이 사전 메시지 수(3)로 설정되었는지 확인
-        let room = host.rooms[roomID]!
-        #expect(room.buildPhaseMessageOffset == 3)
     }
 
     // MARK: - Step Journal

@@ -37,20 +37,8 @@ protocol WorkflowHost: AnyObject {
 
     // MARK: - 승인 게이트
 
-    /// 승인 대기 continuation 딕셔너리
-    var approvalContinuations: [UUID: CheckedContinuation<Bool, Never>] { get set }
-
-    /// 사용자 입력 대기 continuation
-    var userInputContinuations: [UUID: CheckedContinuation<String, Never>] { get set }
-
-    /// Intent 선택 대기 continuation
-    var intentContinuations: [UUID: CheckedContinuation<WorkflowIntent, Never>] { get set }
-
-    /// 문서 유형 선택 대기 continuation
-    var docTypeContinuations: [UUID: CheckedContinuation<DocumentType, Never>] { get set }
-
-    /// 팀 구성 확인 대기 continuation
-    var teamConfirmationContinuations: [UUID: CheckedContinuation<Set<UUID>?, Never>] { get set }
+    /// 승인/입력 게이트 관리자
+    var approvalGates: ApprovalGateManager { get }
 
     /// ask_user 선택지
     var pendingQuestionOptions: [UUID: [String]] { get set }

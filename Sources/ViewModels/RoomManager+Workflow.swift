@@ -37,6 +37,7 @@ extension RoomManager {
         // intent 미설정 → quickClassify 시도 (nil이면 executeIntentPhase에서 사용자 선택)
         if let idx = rooms.firstIndex(where: { $0.id == roomID }), rooms[idx].workflowState.intent == nil {
             rooms[idx].workflowState.intent = IntentClassifier.quickClassify(task)
+            rooms[idx].workflowState.modifiers = IntentClassifier.extractModifiers(from: task)
             // quickClassify 실패 시 nil 유지 → executeIntentPhase에서 처리
         }
         await executePhaseWorkflow(roomID: roomID, task: task)
@@ -94,17 +95,13 @@ extension RoomManager {
             }
 
             let currentIntent = currentRoom.workflowState.intent ?? .quickAnswer
-            // 현재 intent 기준으로 다음 미완료 phase 찾기
-            let phases = currentIntent.requiredPhases
+            // 현재 intent + modifier 기준으로 다음 미완료 phase 찾기
+            let phases = currentIntent.requiredPhases(with: currentRoom.workflowState.modifiers)
             guard let nextPhase = phases.first(where: { !completedPhases.contains($0) }) else { break }
 
             // 현재 단계 기록 + 전이 감사 기록 (내부 상태만, UI 메시지 없음)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                let previousPhase = rooms[i].workflowState.currentPhase
-                rooms[i].workflowState.currentPhase = nextPhase
-                rooms[i].workflowState.phaseTransitions.append(
-                    PhaseTransition(from: previousPhase, to: nextPhase)
-                )
+                rooms[i].workflowState.advanceToPhase(nextPhase)
             }
             scheduleSave()
 
@@ -161,11 +158,11 @@ extension RoomManager {
 
             completedPhases.insert(nextPhase)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].workflowState.completedPhases = completedPhases
+                rooms[i].workflowState.completePhase(nextPhase)
                 // 페이즈 완료 시 요약 저장 — 다음 페이즈에서 전체 히스토리 대신 참조 (토큰 최적화)
                 let summary = PhaseContextSummarizer.summarize(phase: nextPhase, room: rooms[i])
                 if !summary.isEmpty {
-                    rooms[i].workflowState.phaseSummaries[nextPhase] = summary
+                    rooms[i].workflowState.recordPhaseSummary(phase: nextPhase, summary: summary)
                 }
             }
             workflowStart = Date() // 단계 완료 후 타이머 리셋 (사용자 대기 시간으로 인한 타임아웃 방지)
@@ -175,7 +172,7 @@ extension RoomManager {
         // Task.isCancelled (completeRoom 등 외부 완료) 시 이미 completed 상태이므로 중복 처리 방지
         if let i = rooms.firstIndex(where: { $0.id == roomID }),
            rooms[i].status != .failed && rooms[i].status != .completed {
-            rooms[i].workflowState.currentPhase = nil
+            rooms[i].workflowState.clearCurrentPhase()
             rooms[i].status = .completed
             rooms[i].completedAt = Date()
             pluginEventDelegate?(.roomCompleted(roomID: roomID, title: rooms[i].title))
@@ -647,10 +644,7 @@ extension RoomManager {
             syncAgentStatuses()
             scheduleSave()
 
-            let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                approvalContinuations[roomID] = continuation
-            }
-            approvalContinuations.removeValue(forKey: roomID)
+            let approved = await approvalGates.waitForApproval(roomID: roomID)
             guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
             if approved {
@@ -686,9 +680,7 @@ extension RoomManager {
                 }
                 scheduleSave()
 
-                let _ = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
-                    userInputContinuations[roomID] = continuation
-                }
+                let _ = await approvalGates.waitForUserInput(roomID: roomID)
             }
 
             guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
@@ -800,7 +792,7 @@ extension RoomManager {
             if let solo = specialists.first,
                let soloName = agentStore?.agents.first(where: { $0.id == solo })?.name,
                let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].agentRoles[soloName] = .creator
+                rooms[i].assignRole(.creator, to: soloName)
             }
 
             // 참여 메시지 표시
@@ -1130,7 +1122,7 @@ extension RoomManager {
             // 3.2) 매칭된 에이전트의 WorkflowPosition 저장
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 for req in matched where req.matchedAgentID != nil && req.position != nil {
-                    rooms[i].agentPositions[req.matchedAgentID!] = req.position!
+                    rooms[i].assignPosition(req.position!, to: req.matchedAgentID!)
                 }
             }
 
@@ -1161,10 +1153,7 @@ extension RoomManager {
                 syncAgentStatuses()
                 scheduleSave()
 
-                let approved = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-                    approvalContinuations[roomID] = cont
-                }
-                approvalContinuations.removeValue(forKey: roomID)
+                let approved = await approvalGates.waitForApproval(roomID: roomID)
                 guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
                 if approved {
@@ -1208,16 +1197,16 @@ extension RoomManager {
                 if specialists.count >= 2 {
                     let (creatorID, reviewerID, plannerID) = assignDesignRoles(specialists: specialists)
                     if let creatorName = agentStore?.agents.first(where: { $0.id == creatorID })?.name {
-                        rooms[i].agentRoles[creatorName] = .creator
+                        rooms[i].assignRole(.creator, to: creatorName)
                     }
                     if let reviewerName = agentStore?.agents.first(where: { $0.id == reviewerID })?.name {
-                        rooms[i].agentRoles[reviewerName] = .reviewer
+                        rooms[i].assignRole(.reviewer, to: reviewerName)
                     }
                     if let plannerID, let plannerName = agentStore?.agents.first(where: { $0.id == plannerID })?.name {
-                        rooms[i].agentRoles[plannerName] = .planner
+                        rooms[i].assignRole(.planner, to: plannerName)
                     }
                 } else if let solo = specialists.first, let name = agentStore?.agents.first(where: { $0.id == solo })?.name {
-                    rooms[i].agentRoles[name] = .creator
+                    rooms[i].assignRole(.creator, to: name)
                 }
             }
 
@@ -1291,12 +1280,9 @@ extension RoomManager {
             scheduleSave()
 
             // 사용자 응답 대기 (타임아웃 없음 — awaitingUserInput 상태로 무한 대기)
-            let answer: String = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
-                self.userInputContinuations[roomID] = continuation
-            }
+            let answer: String = await approvalGates.waitForUserInput(roomID: roomID)
 
             guard !answer.isEmpty else {
-                userInputContinuations.removeValue(forKey: roomID)
                 return
             }
             let userAnswer = answer
@@ -1439,9 +1425,7 @@ extension RoomManager {
             scheduleSave()
 
             // 사용자 응답 대기 (타임아웃 없음 — awaitingUserInput 상태로 무한 대기)
-            let answer: String = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
-                self.userInputContinuations[roomID] = continuation
-            }
+            let answer: String = await approvalGates.waitForUserInput(roomID: roomID)
 
             guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
@@ -1801,9 +1785,7 @@ extension RoomManager {
         syncAgentStatuses()
         scheduleSave()
 
-        let userFeedback1: String = await withCheckedContinuation { (cont: CheckedContinuation<String, Never>) in
-            userInputContinuations[roomID] = cont
-        }
+        let userFeedback1: String = await approvalGates.waitForUserInput(roomID: roomID)
 
         guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
@@ -1922,9 +1904,7 @@ extension RoomManager {
         syncAgentStatuses()
         scheduleSave()
 
-        let userFeedback2: String = await withCheckedContinuation { (cont: CheckedContinuation<String, Never>) in
-            userInputContinuations[roomID] = cont
-        }
+        let userFeedback2: String = await approvalGates.waitForUserInput(roomID: roomID)
 
         guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
@@ -2036,10 +2016,7 @@ extension RoomManager {
             syncAgentStatuses()
             scheduleSave()
 
-            let approved = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-                approvalContinuations[roomID] = cont
-            }
-            approvalContinuations.removeValue(forKey: roomID)
+            let approved = await approvalGates.waitForApproval(roomID: roomID)
             guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return false }
 
             if approved {

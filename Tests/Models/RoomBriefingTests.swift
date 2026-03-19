@@ -142,7 +142,7 @@ struct RoomBriefingTests {
             assignedAgentIDs: [UUID()],
             createdBy: .user
         )
-        #expect(room.briefing == nil)
+        #expect(room.discussion.briefing == nil)
     }
 
     @Test("Room briefing 없는 JSON 디코딩 (역호환)")
@@ -156,7 +156,7 @@ struct RoomBriefingTests {
         let data = try JSONEncoder().encode(room)
         // briefing이 nil인 상태로 인코딩 → 디코딩 시 nil
         let decoded = try JSONDecoder().decode(Room.self, from: data)
-        #expect(decoded.briefing == nil)
+        #expect(decoded.discussion.briefing == nil)
         #expect(decoded.title == "구 데이터")
     }
 
@@ -167,7 +167,7 @@ struct RoomBriefingTests {
             assignedAgentIDs: [UUID()],
             createdBy: .user
         )
-        room.briefing = RoomBriefing(
+        room.discussion.briefing = RoomBriefing(
             summary: "테스트 요약",
             keyDecisions: ["결정A"],
             agentResponsibilities: ["에이전트": "역할"],
@@ -175,9 +175,9 @@ struct RoomBriefingTests {
         )
         let data = try JSONEncoder().encode(room)
         let decoded = try JSONDecoder().decode(Room.self, from: data)
-        #expect(decoded.briefing != nil)
-        #expect(decoded.briefing?.summary == "테스트 요약")
-        #expect(decoded.briefing?.keyDecisions == ["결정A"])
+        #expect(decoded.discussion.briefing != nil)
+        #expect(decoded.discussion.briefing?.summary == "테스트 요약")
+        #expect(decoded.discussion.briefing?.keyDecisions == ["결정A"])
     }
 
     @Test("Room briefing + artifacts 동시 Codable")
@@ -187,13 +187,13 @@ struct RoomBriefingTests {
             assignedAgentIDs: [UUID()],
             createdBy: .user
         )
-        room.briefing = RoomBriefing(
+        room.discussion.briefing = RoomBriefing(
             summary: "API 설계 완료",
             keyDecisions: ["REST API"],
             agentResponsibilities: [:],
             openIssues: []
         )
-        room.artifacts = [
+        room.discussion.artifacts = [
             DiscussionArtifact(
                 type: .apiSpec,
                 title: "인증 API",
@@ -203,8 +203,8 @@ struct RoomBriefingTests {
         ]
         let data = try JSONEncoder().encode(room)
         let decoded = try JSONDecoder().decode(Room.self, from: data)
-        #expect(decoded.briefing?.summary == "API 설계 완료")
-        #expect(decoded.artifacts.count == 1)
-        #expect(decoded.artifacts[0].title == "인증 API")
+        #expect(decoded.discussion.briefing?.summary == "API 설계 완료")
+        #expect(decoded.discussion.artifacts.count == 1)
+        #expect(decoded.discussion.artifacts[0].title == "인증 API")
     }
 }

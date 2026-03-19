@@ -115,13 +115,21 @@ func stripDelegationBlock(_ text: String) -> String {
     return result.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
-/// 스트리밍 청크 누적용 스레드-안전 버퍼
+/// 스트리밍 청크 누적용 스레드-안전 버퍼 (NSLock 동기화)
 final class StreamBuffer: @unchecked Sendable {
+    private let lock = NSLock()
     private var _value = ""
-    var current: String { _value }
-    func append(_ chunk: String) -> String {
-        _value += chunk
+    var current: String {
+        lock.lock()
+        defer { lock.unlock() }
         return _value
+    }
+    func append(_ chunk: String) -> String {
+        lock.lock()
+        _value += chunk
+        let result = _value
+        lock.unlock()
+        return result
     }
 }
 
@@ -160,20 +168,10 @@ class RoomManager: ObservableObject, WorkflowHost {
     private var roomTasks: [UUID: Task<Void, Never>] = [:]
     /// 시스템 프롬프트 캐시 — 같은 에이전트+규칙 조합의 반복 생성 방지
     var systemPromptCache = SystemPromptCache()
-    /// 승인 게이트 대기 중인 continuation (방 ID → continuation)
-    var approvalContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
+    /// 승인/입력 게이트 관리자 — 모든 continuation 소유
+    let approvalGates = ApprovalGateManager()
     /// 리뷰 게이트 자동 승인 타이머 태스크 (취소용) — internal for extension access
     var reviewAutoApprovalTasks: [UUID: Task<Void, Never>] = [:]
-    /// 사용자 입력 대기 중인 continuation (방 ID → continuation)
-    var userInputContinuations: [UUID: CheckedContinuation<String, Never>] = [:]
-    /// 에이전트 생성 제안 승인 대기 continuation (방 ID → continuation, Bool = 사용자 응답 여부)
-    private var suggestionContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
-    /// Intent 선택 대기 중인 continuation (방 ID → continuation)
-    var intentContinuations: [UUID: CheckedContinuation<WorkflowIntent, Never>] = [:]
-    /// 문서 유형 선택 대기 중인 continuation
-    var docTypeContinuations: [UUID: CheckedContinuation<DocumentType, Never>] = [:]
-    /// 팀 구성 확인 대기 중인 continuation (방 ID → continuation, Set<UUID>? = 최종 선택 또는 nil)
-    var teamConfirmationContinuations: [UUID: CheckedContinuation<Set<UUID>?, Never>] = [:]
     /// 이전 사이클 완료 시점의 에이전트 수 (후속 사이클에서 에이전트 변동 감지용)
     var previousCycleAgentCount: [UUID: Int] = [:]
     /// ask_user 도구의 선택지 (방 ID → 옵션 목록) — UserInputCard에서 버튼으로 표시
@@ -744,9 +742,7 @@ class RoomManager: ObservableObject, WorkflowHost {
 
         // 작업 진행 중: 워크플로우를 취소하지 않음 (승인 대기·입력 대기·실행 중 모두 포함)
         if room.isActive {
-            if let cont = userInputContinuations.removeValue(forKey: roomID) {
-                cont.resume(returning: text)
-            }
+            approvalGates.provideUserInput(roomID: roomID, input: text)
             scheduleSave()
             return
         }
@@ -831,7 +827,7 @@ class RoomManager: ObservableObject, WorkflowHost {
                 // handleDocumentOutput이 .completed를 설정하지 못한 경우 보완
                 if let i = rooms.firstIndex(where: { $0.id == roomID }),
                    rooms[i].status != .failed && rooms[i].status != .completed {
-                    rooms[i].workflowState.currentPhase = nil
+                    rooms[i].workflowState.clearCurrentPhase()
                     rooms[i].status = .completed
                     rooms[i].completedAt = Date()
                     pluginEventDelegate?(.roomCompleted(roomID: roomID, title: rooms[i].title))
@@ -958,7 +954,9 @@ class RoomManager: ObservableObject, WorkflowHost {
         }
         // Room에 동기화
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].workflowState.completedPhases = completedPhases
+            for phase in completedPhases {
+                rooms[i].workflowState.completePhase(phase)
+            }
         }
         // 현재 에이전트 수 기록 (다음 후속 사이클 비교용)
         previousCycleAgentCount[roomID] = specialists.count
@@ -973,7 +971,7 @@ class RoomManager: ObservableObject, WorkflowHost {
             guard let nextPhase = phases.first(where: { !completedPhases.contains($0) }) else { break }
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].workflowState.currentPhase = nextPhase
+                rooms[i].workflowState.advanceToPhase(nextPhase)
             }
             scheduleSave()
 
@@ -1004,14 +1002,14 @@ class RoomManager: ObservableObject, WorkflowHost {
 
             completedPhases.insert(nextPhase)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].workflowState.completedPhases = completedPhases
+                rooms[i].workflowState.completePhase(nextPhase)
             }
         }
 
         // 완료
         if let i = rooms.firstIndex(where: { $0.id == roomID }),
            rooms[i].status != .failed && rooms[i].status != .completed {
-            rooms[i].workflowState.currentPhase = nil
+            rooms[i].workflowState.clearCurrentPhase()
             rooms[i].status = .completed
             rooms[i].completedAt = Date()
             pluginEventDelegate?(.roomCompleted(roomID: roomID, title: rooms[i].title))
@@ -1098,12 +1096,9 @@ class RoomManager: ObservableObject, WorkflowHost {
                     }
                     self.scheduleSave()
                 }
-                // 2) 사용자 답변 대기 (continuation)
-                let answer: String = await withCheckedContinuation { continuation in
-                    Task { @MainActor [weak self] in
-                        self?.userInputContinuations[roomID] = continuation
-                    }
-                }
+                // 2) 사용자 답변 대기 (approvalGates)
+                guard let self else { return "" }
+                let answer: String = await self.approvalGates.waitForUserInput(roomID: roomID)
                 // 3) 상태 복귀 (MainActor) — 취소/완료된 방이면 무시
                 await MainActor.run { [weak self] in
                     if let self, let idx = self.rooms.firstIndex(where: { $0.id == roomID }),
@@ -1220,8 +1215,8 @@ class RoomManager: ObservableObject, WorkflowHost {
     func resumeSuggestionContinuationIfResolved(roomID: UUID) {
         guard let room = rooms.first(where: { $0.id == roomID }) else { return }
         let hasPending = room.pendingAgentSuggestions.contains { $0.status == .pending }
-        if !hasPending, let cont = suggestionContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: true)
+        if !hasPending {
+            approvalGates.approveSuggestion(roomID: roomID)
         }
     }
 
@@ -1232,9 +1227,7 @@ class RoomManager: ObservableObject, WorkflowHost {
             return
         }
 
-        let _ = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-            self.suggestionContinuations[roomID] = cont
-        }
+        let _ = await approvalGates.waitForSuggestionResponse(roomID: roomID)
     }
 
     /// 에이전트 제안 취소 후: 기존 에이전트 피커를 표시하거나, 후보가 없으면 워크플로우 완료
@@ -1249,7 +1242,7 @@ class RoomManager: ObservableObject, WorkflowHost {
         // 에이전트도 없고 후보도 없으면 → 워크플로우 완료
         if specialists.isEmpty && candidates.isEmpty {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].workflowState.currentPhase = nil
+                rooms[i].workflowState.clearCurrentPhase()
                 rooms[i].status = .completed
                 rooms[i].completedAt = Date()
             }
@@ -1299,9 +1292,7 @@ class RoomManager: ObservableObject, WorkflowHost {
             candidateAgentIDs: candidates
         )
 
-        let result = await withCheckedContinuation { (cont: CheckedContinuation<Set<UUID>?, Never>) in
-            self.teamConfirmationContinuations[roomID] = cont
-        }
+        let result = await approvalGates.waitForTeamConfirmation(roomID: roomID)
 
         guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
@@ -1309,7 +1300,7 @@ class RoomManager: ObservableObject, WorkflowHost {
         guard let finalIDs = result else {
             if executingAgentIDs(in: roomID).isEmpty {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].workflowState.currentPhase = nil
+                    rooms[i].workflowState.clearCurrentPhase()
                     rooms[i].status = .completed
                     rooms[i].completedAt = Date()
                 }
@@ -1326,7 +1317,7 @@ class RoomManager: ObservableObject, WorkflowHost {
 
         if let idx = rooms.firstIndex(where: { $0.id == roomID }) {
             for agentID in toRemove {
-                rooms[idx].assignedAgentIDs.removeAll(where: { $0 == agentID })
+                rooms[idx].removeAgent(agentID)
             }
         }
         for agentID in toAdd {
@@ -1355,9 +1346,7 @@ class RoomManager: ObservableObject, WorkflowHost {
         // 최종적으로 에이전트 없으면 완료
         if executingAgentIDs(in: roomID).isEmpty {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].workflowState.currentPhase = nil
-                rooms[i].status = .completed
-                rooms[i].completedAt = Date()
+                rooms[i].complete()
             }
             syncAgentStatuses()
             scheduleSave()
@@ -1369,7 +1358,7 @@ class RoomManager: ObservableObject, WorkflowHost {
     func addAgent(_ agentID: UUID, to roomID: UUID, silent: Bool = false) {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
         guard !rooms[idx].assignedAgentIDs.contains(agentID) else { return }
-        rooms[idx].assignedAgentIDs.append(agentID)
+        rooms[idx].addAgent(agentID)
 
         // 에이전트의 참조 프로젝트를 방에 병합
         if let agent = agentStore?.agents.first(where: { $0.id == agentID }) {
@@ -1551,24 +1540,7 @@ class RoomManager: ObservableObject, WorkflowHost {
         cleanupWorktree(roomID: roomID)
         speakingAgentIDByRoom.removeValue(forKey: roomID)
         // 대기 중인 continuation 해제
-        if let cont = approvalContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: false)
-        }
-        if let cont = userInputContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: "")
-        }
-        if let cont = suggestionContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: false)
-        }
-        if let cont = intentContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: .task)
-        }
-        if let cont = docTypeContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: .freeform)
-        }
-        if let cont = teamConfirmationContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: nil)
-        }
+        approvalGates.cancelAll(for: roomID)
         pendingTeamConfirmation.removeValue(forKey: roomID)
         pendingIntentSelection.removeValue(forKey: roomID)
         pendingDocTypeSelection.removeValue(forKey: roomID)
@@ -1594,24 +1566,7 @@ class RoomManager: ObservableObject, WorkflowHost {
         roomTasks.removeValue(forKey: roomID)
         cleanupWorktree(roomID: roomID)
         speakingAgentIDByRoom.removeValue(forKey: roomID)
-        if let cont = approvalContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: false)
-        }
-        if let cont = userInputContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: "")
-        }
-        if let cont = suggestionContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: false)
-        }
-        if let cont = intentContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: .task)
-        }
-        if let cont = docTypeContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: .freeform)
-        }
-        if let cont = teamConfirmationContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: nil)
-        }
+        approvalGates.cancelAll(for: roomID)
         pendingTeamConfirmation.removeValue(forKey: roomID)
         pendingIntentSelection.removeValue(forKey: roomID)
         pendingDocTypeSelection.removeValue(forKey: roomID)
@@ -1642,24 +1597,7 @@ class RoomManager: ObservableObject, WorkflowHost {
         cleanupWorktree(roomID: roomID)
         speakingAgentIDByRoom.removeValue(forKey: roomID)
         // 대기 중인 모든 continuation 해제 (누수 방지)
-        if let cont = approvalContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: false)
-        }
-        if let cont = userInputContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: "")
-        }
-        if let cont = suggestionContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: false)
-        }
-        if let cont = intentContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: .task)
-        }
-        if let cont = docTypeContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: .freeform)
-        }
-        if let cont = teamConfirmationContinuations.removeValue(forKey: roomID) {
-            cont.resume(returning: nil)
-        }
+        approvalGates.cancelAll(for: roomID)
         pendingTeamConfirmation.removeValue(forKey: roomID)
         pendingIntentSelection.removeValue(forKey: roomID)
         pendingDocTypeSelection.removeValue(forKey: roomID)

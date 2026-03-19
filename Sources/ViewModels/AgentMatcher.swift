@@ -145,9 +145,25 @@ enum AgentMatcher {
         let tier2Weight = config.tier2Weight
         let tier3Weight = config.tier3Weight
 
+        // 시맨틱 스코어를 배치 사전 계산 (roleName 벡터 1회만 계산)
+        let candidates = agents.filter { !used.contains($0.id) }
+        let roleSemanticScores: [UUID: Double]
+        let goalSemanticScores: [UUID: Double]
+        if useSemanticScoring {
+            roleSemanticScores = semanticMatcher.batchSimilarity(roleName: roleName, agents: candidates)
+            if let goal = taskBrief?.goal, !goal.isEmpty {
+                goalSemanticScores = semanticMatcher.batchSimilarity(roleName: goal, agents: candidates)
+            } else {
+                goalSemanticScores = [:]
+            }
+        } else {
+            roleSemanticScores = [:]
+            goalSemanticScores = [:]
+        }
+
         var bestMatch: (agent: Agent, confidence: Double)?
 
-        for agent in agents where !used.contains(agent.id) {
+        for agent in candidates {
             // --- Tier 1: skillTags 직접 매칭 (가중치 5) ---
             var tier1Score: Double = 0
             if hasKeywords, !agent.skillTags.isEmpty {
@@ -220,10 +236,10 @@ enum AgentMatcher {
                 }
             }
 
-            // PositionTemplate 보너스: intent별 필요 포지션과 agent.goodPositions 교차
+            // PositionTemplate 보너스: intent별 필요 포지션과 에이전트 추론 포지션 교차
             if let intent = intent {
                 let neededPositions = PositionTemplate.slots(for: intent).map { $0.position }
-                let agentPositions = agent.goodPositions
+                let agentPositions = PositionInferenceService.inferPositions(workModes: agent.workModes, persona: agent.persona)
                 let positionOverlap = neededPositions.filter { agentPositions.contains($0) }
                 if !positionOverlap.isEmpty {
                     let positionBonus = Double(positionOverlap.count) / Double(max(neededPositions.count, 1)) * config.positionTemplateMaxBonus
@@ -231,8 +247,8 @@ enum AgentMatcher {
                 }
             }
 
-            // position 직접 매칭 보너스: LLM이 지정한 position과 agent.goodPositions 교차
-            if let pos = position, agent.goodPositions.contains(pos) {
+            // position 직접 매칭 보너스: LLM이 지정한 position과 에이전트 추론 포지션 교차
+            if let pos = position, PositionInferenceService.inferPositions(workModes: agent.workModes, persona: agent.persona).contains(pos) {
                 tier2Score = min(tier2Score + config.positionDirectBonus, 1.0)
             }
 
@@ -273,21 +289,15 @@ enum AgentMatcher {
                 let kwScore = min(Double(kwHits) / Double(maxKw), 1.0)
 
                 if useSemanticScoring {
-                    let rawSim = semanticMatcher.similarity(roleName: roleName, agent: agent)
-                    let semScore = max(0, rawSim)  // 0~1
-                    // 개선안 G: TaskBrief.goal도 시맨틱 매칭에 반영
-                    var goalSemScore: Double = 0
-                    if let goal = taskBrief?.goal, !goal.isEmpty {
-                        goalSemScore = max(0, semanticMatcher.similarity(roleName: goal, agent: agent))
-                    }
+                    let semScore = max(0, roleSemanticScores[agent.id] ?? 0)
+                    let goalSemScore = max(0, goalSemanticScores[agent.id] ?? 0)
                     let combinedSem = goalSemScore > 0 ? semScore * 0.6 + goalSemScore * 0.4 : semScore
                     tier3Score = kwScore * 0.5 + combinedSem * 0.5
                 } else {
                     tier3Score = kwScore
                 }
             } else if useSemanticScoring {
-                let rawSim = semanticMatcher.similarity(roleName: roleName, agent: agent)
-                tier3Score = max(0, rawSim)
+                tier3Score = max(0, roleSemanticScores[agent.id] ?? 0)
             }
 
             // --- 가중 합산 → 0~1 정규화 ---
@@ -437,5 +447,29 @@ enum AgentMatcher {
     /// 한국어 조사 제거 + 스크립트 경계 분리로 의미 키워드 추출
     static func extractSemanticKeywords(from text: String) -> [String] {
         KoreanTextUtils.extractSemanticKeywords(from: text, excluding: vocabulary.genericSuffixes)
+    }
+
+    // MARK: - Jira issueType 기반 에이전트 보너스
+
+    /// Jira 이슈 타입에 따른 에이전트 적합도 보너스 (0.0~0.15)
+    /// Bug → reviewer/tester 우선, Story/Task → implementer 우선
+    static func jiraIssueTypeBonus(issueType: String, agent: Agent) -> Double {
+        let type = issueType.lowercased()
+        let modes = agent.workModes
+
+        switch type {
+        case "bug", "버그":
+            if modes.contains(.review) { return 0.15 }
+            if agent.name.lowercased().contains("qa") || agent.persona.lowercased().contains("qa") { return 0.12 }
+            return 0
+        case "story", "스토리", "task", "작업":
+            if modes.contains(.execute) || modes.contains(.create) { return 0.12 }
+            return 0
+        case "epic", "에픽":
+            if modes.contains(.plan) { return 0.10 }
+            return 0
+        default:
+            return 0
+        }
     }
 }
