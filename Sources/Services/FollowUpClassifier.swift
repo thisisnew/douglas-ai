@@ -29,7 +29,7 @@ struct FollowUpClassifier {
 
         let resolvedIntent = mapToWorkflowIntent(followUpIntent)
         let policy = ContextCarryoverPolicy.policy(for: followUpIntent)
-        let skipPhases = determineSkipPhases(followUpIntent)
+        let skipPhases = determineSkipPhases(followUpIntent, previousState: previousState)
         let needsPlan = determineNeedsPlan(followUpIntent)
 
         return FollowUpDecision(
@@ -131,10 +131,14 @@ struct FollowUpClassifier {
     }
 
     /// 스킵할 phase 결정
-    private static func determineSkipPhases(_ intent: FollowUpIntent) -> Set<WorkflowPhase> {
+    private static func determineSkipPhases(_ intent: FollowUpIntent, previousState: PreviousState) -> Set<WorkflowPhase> {
         switch intent {
         case .implementAll, .implementPartial:
-            return [.understand, .assemble]  // 기존 컨텍스트 유지
+            // 토론→구현 전환 시 assemble을 스킵하지 않음: 토론 에이전트가 구현을 담당하는 것을 방지
+            if previousState == .discussionCompleted {
+                return [.understand]
+            }
+            return [.understand, .assemble]  // 이미 구현 에이전트이면 유지
         case .retryExecution:
             return [.understand, .assemble, .design]  // 같은 계획으로 재실행
         case .continueDiscussion:

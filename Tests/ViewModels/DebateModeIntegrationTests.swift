@@ -108,9 +108,9 @@ struct DebateModeIntegrationTests {
             hasBriefing: true,
             hasWorkLog: false
         )
-        // implementAll은 understand + assemble 스킵
+        // discussionCompleted → implementAll: understand만 스킵, assemble은 에이전트 재평가 위해 유지
         #expect(decision.skipPhases.contains(.understand))
-        #expect(decision.skipPhases.contains(.assemble))
+        #expect(!decision.skipPhases.contains(.assemble))
         // design은 스킵하지 않음 (계획 생성 필요)
         #expect(!decision.skipPhases.contains(.design))
     }

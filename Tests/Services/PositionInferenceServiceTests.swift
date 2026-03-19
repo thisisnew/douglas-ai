@@ -85,13 +85,14 @@ struct PositionInferenceServiceTests {
         #expect(positions.contains(.analyst))
     }
 
-    // MARK: - Agent.goodPositions 위임 확인
+    // MARK: - Agent에서 직접 호출 확인
 
-    @Test("Agent.goodPositions는 PositionInferenceService 결과와 동일")
-    func agentDelegation() {
+    @Test("Agent의 workModes/persona로 PositionInferenceService 직접 호출")
+    func agentDirectCall() {
         var agent = Agent(name: "테스트", persona: "QA 테스트", providerName: "P", modelName: "M")
         agent.workModes = [.review]
-        let direct = PositionInferenceService.inferPositions(workModes: agent.workModes, persona: agent.persona)
-        #expect(agent.goodPositions == direct)
+        let positions = PositionInferenceService.inferPositions(workModes: agent.workModes, persona: agent.persona)
+        #expect(positions.contains(.reviewer))
+        #expect(positions.contains(.tester))
     }
 }

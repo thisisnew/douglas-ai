@@ -68,6 +68,29 @@ enum WorkflowIntent: String, CaseIterable {
         }
     }
 
+    /// modifier를 반영한 requiredPhases — withExecution은 build/review 추가, outputOnly는 build/review 제거
+    func requiredPhases(with modifiers: Set<IntentModifier>) -> [WorkflowPhase] {
+        var phases = requiredPhases
+
+        // withExecution: discussion/research에 build+review 추가
+        if modifiers.contains(.withExecution) {
+            if !phases.contains(.build) {
+                // deliver 바로 앞에 build 삽입
+                if let deliverIdx = phases.firstIndex(of: .deliver) {
+                    phases.insert(.review, at: deliverIdx)
+                    phases.insert(.build, at: deliverIdx)
+                }
+            }
+        }
+
+        // outputOnly: build/review 제거
+        if modifiers.contains(.outputOnly) {
+            phases.removeAll(where: { $0 == .build || $0 == .review })
+        }
+
+        return phases
+    }
+
     /// 사용자에게 보여줄 한 줄 설명
     var subtitle: String {
         switch self {

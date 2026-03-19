@@ -142,9 +142,9 @@ struct IntentClassifierTests {
         #expect(result == WorkflowIntent.task)
     }
 
-    @Test("번역 + 문서화 복합 → documentation (문서화가 최종 동사)")
+    @Test("번역 + 문서화 복합 → complex (번역=task + 문서화=documentation)")
     func longTranslation() {
-        #expect(IntentClassifier.quickClassify("이 프로젝트의 README를 한국어로 번역하고 기술 용어집도 포함해서 문서화해줘") == .documentation)
+        #expect(IntentClassifier.quickClassify("이 프로젝트의 README를 한국어로 번역하고 기술 용어집도 포함해서 문서화해줘") == .complex)
     }
 
     // MARK: - nil 반환 케이스
@@ -310,5 +310,106 @@ struct IntentClassifierTests {
     func jiraUrlWithDerivation() {
         let result = IntentClassifier.quickClassify("https://team.atlassian.net/browse/PROJ-123 작업 도출해줘")
         #expect(result == .discussion)
+    }
+
+    // MARK: - Phase 1 개선: complex 결정론적 분류
+
+    @Test("조사+문서화 복합 → complex")
+    func complexResearchAndDoc() {
+        let result = IntentClassifier.quickClassify("React 현황 조사해서 기획서 만들어줘")
+        #expect(result == .complex)
+    }
+
+    @Test("비교 조사+문서 정리 → complex")
+    func complexCompareAndDoc() {
+        let result = IntentClassifier.quickClassify("경쟁사 비교 조사하고 보고서로 정리해줘")
+        #expect(result == .complex)
+    }
+
+    @Test("조사+구현 복합 → complex")
+    func complexResearchAndTask() {
+        let result = IntentClassifier.quickClassify("이 주제를 조사하고 코드로 구현해줘")
+        #expect(result == .complex)
+    }
+
+    @Test("단일 인텐트는 complex 아님")
+    func singleIntentNotComplex() {
+        // 단일 intent만 threshold를 넘으면 complex가 아님
+        #expect(IntentClassifier.quickClassify("이 주제 조사해줘") == .research)
+        #expect(IntentClassifier.quickClassify("기획서 작성해줘") == .documentation)
+        #expect(IntentClassifier.quickClassify("코딩해줘") == .task)
+    }
+
+    // MARK: - Phase 1 개선: discussion 키워드 보강
+
+    @Test("'뭐가 나을까' → discussion")
+    func discussionBetterChoice() {
+        let result = IntentClassifier.quickClassify("React hooks vs Redux 뭐가 나을까")
+        #expect(result == .discussion)
+    }
+
+    @Test("'고민' → discussion")
+    func discussionWorry() {
+        let result = IntentClassifier.quickClassify("이 방식에 대해 고민이 돼")
+        #expect(result == .discussion)
+    }
+
+    @Test("'낫지' → discussion")
+    func discussionWhichBetter() {
+        let result = IntentClassifier.quickClassify("어떤 게 낫지?")
+        #expect(result == .discussion)
+    }
+
+    @Test("'괜찮을까' → discussion")
+    func discussionIsItOk() {
+        let result = IntentClassifier.quickClassify("이렇게 하면 괜찮을까 의견 좀 줘")
+        #expect(result == .discussion)
+    }
+
+    // MARK: - Phase 1 개선: research 우선순위
+
+    @Test("비교+정리 → research (task에 밀리지 않음)")
+    func researchCompareOrganize() {
+        let result = IntentClassifier.quickClassify("React 라이브러리들 비교해서 정리해줘")
+        #expect(result == .research)
+    }
+
+    @Test("비교 분석 → research")
+    func researchCompareAnalysis() {
+        let result = IntentClassifier.quickClassify("프레임워크 비교 분석해줘")
+        #expect(result == .research)
+    }
+
+    // MARK: - Phase 1 개선: withExecution modifier가 requiredPhases에 반영
+
+    @Test("withExecution modifier → discussion에 build/review 추가")
+    func withExecutionAddsPhases() {
+        let basePhases = WorkflowIntent.discussion.requiredPhases
+        #expect(!basePhases.contains(.build))
+        #expect(!basePhases.contains(.review))
+
+        let extendedPhases = WorkflowIntent.discussion.requiredPhases(with: [.withExecution])
+        #expect(extendedPhases.contains(.build))
+        #expect(extendedPhases.contains(.review))
+    }
+
+    @Test("withExecution modifier → research에 build/review 추가")
+    func withExecutionResearch() {
+        let extendedPhases = WorkflowIntent.research.requiredPhases(with: [.withExecution])
+        #expect(extendedPhases.contains(.build))
+        #expect(extendedPhases.contains(.review))
+    }
+
+    @Test("outputOnly modifier → task에서 build 제거")
+    func outputOnlyRemovesBuild() {
+        let phases = WorkflowIntent.task.requiredPhases(with: [.outputOnly])
+        #expect(!phases.contains(.build))
+        #expect(!phases.contains(.review))
+    }
+
+    @Test("modifier 없으면 기본 phases 유지")
+    func noModifierKeepsDefault() {
+        let phases = WorkflowIntent.discussion.requiredPhases(with: [])
+        #expect(phases == WorkflowIntent.discussion.requiredPhases)
     }
 }

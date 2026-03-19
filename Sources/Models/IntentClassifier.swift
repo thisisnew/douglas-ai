@@ -156,6 +156,23 @@ enum IntentClassifier {
             }
         }
 
+        // complex 감지:
+        // 1단계: positive-only score ≥ 4인 intent가 2개 이상 → complex 후보
+        //   (negatives 무시 — 상호 부정 키워드가 genuine complex를 억제하지 않도록)
+        // 2단계: normal score(negatives 포함)에서도 2개 이상 threshold 통과 → 확정
+        //   (1개만 통과하면 나머지는 토픽 키워드일 뿐 → not complex)
+        let complexMinScore = 4
+        let complexCandidateCount = IntentVocabulary.all.filter { vocab in
+            guard vocab.intent != .quickAnswer else { return false }
+            return vocab.positiveOnlyScore(tokens: tokens, fullText: text, bigrams: bigrams) >= complexMinScore
+        }.count
+        if complexCandidateCount >= 2 {
+            let normalSubstantiveCount = scores.filter { $0.intent != .quickAnswer }.count
+            if normalSubstantiveCount >= 2 {
+                return .complex
+            }
+        }
+
         // 최고 점수 intent 반환 (동점이면 task > quickAnswer 우선)
         guard !scores.isEmpty else { return nil }
         let maxScore = scores.max(by: { a, b in

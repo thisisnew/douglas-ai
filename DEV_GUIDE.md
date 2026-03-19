@@ -106,7 +106,8 @@ DOUGLAS/
 | `MatchingVocabulary` | `Models/MatchingVocabulary.swift` | 동의어 30+그룹, genericSuffixes 25+, domainKeywords, containsWholeWord, expandSynonyms |
 | `MatchScoringConfig` | `Models/MatchScoringConfig.swift` | tier 가중치(5/2/3), 임계값(0.7/0.5), 보너스(0.03/0.3/0.25), 상한(0.75), goalKeywordLimit(5) |
 | `KoreanTextUtils` | `Utilities/KoreanTextUtils.swift` | 한국어 조사 제거, 스크립트 경계 분리, 의미 키워드 추출 |
-| `PositionInferenceService` | `Services/PositionInferenceService.swift` | workModes+persona → WorkflowPosition 추론 (Agent.goodPositions 위임) |
+| `PositionInferenceService` | `Services/PositionInferenceService.swift` | workModes+persona → WorkflowPosition 추론 (호출부에서 직접 사용) |
+| `PromptCompositionService` | `Services/PromptCompositionService.swift` | persona + workRules → 시스템 프롬프트 조합 (Agent에서 위임) |
 | `RoleRequirement.applyMatch` | `Models/RoleRequirement.swift` | 매칭 결과 상태 전이 (matched/suggested/unmatched) 캡슐화 |
 
 **3-tier 가중치**: Tier1(skillTags×5) + Tier2(workModes+OutputStyle+PositionBonus×2) + Tier3(keyword+semantic×3)
@@ -182,7 +183,7 @@ DOUGLAS/
 - `skillTags: [String]` — 매칭 시 가장 강한 키워드 신호 (Tier 1: weight 5)
 - `workModes: Set<WorkMode>` — plan/create/execute/review/research (Tier 2: weight 2)
 - `outputStyles: Set<OutputStyle>` — code/document/data/communication/review/translation/plan (Tier 2 보너스 +0.03)
-- `goodPositions: Set<WorkflowPosition>` — PositionInferenceService 위임 (workModes+persona → 12종 추론, computed property)
+- 포지션 추론: `PositionInferenceService.inferPositions(workModes:persona:)` — 호출부(AgentMatcher)에서 직접 사용 (Agent에 computed property 없음)
 - `actionPermissions: Set<ActionScope>` — 7종 (비어있으면 모두 허용 — 역호환)
 - `restrictions: Set<AgentRestriction>` — 7종 (draftOnly, noCodeExec, noExternalSend 등)
 

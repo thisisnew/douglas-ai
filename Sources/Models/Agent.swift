@@ -126,11 +126,6 @@ struct Agent: Identifiable, Codable, Hashable {
     var workModes: Set<WorkMode>                   // 업무형태: [.create, .execute, .review]
     var outputStyles: Set<OutputStyle>             // 산출물 유형: [.code, .document]
 
-    /// workModes + persona 키워드에서 적합한 WorkflowPosition 자동 추론
-    var goodPositions: Set<WorkflowPosition> {
-        PositionInferenceService.inferPositions(workModes: workModes, persona: persona)
-    }
-
     /// workModes에서 자동 추론되는 도구 권한
     var actionPermissions: Set<ActionScope> {
         guard !workModes.isEmpty else { return [] }  // 비어있으면 전체 허용 (역호환)
@@ -152,7 +147,7 @@ struct Agent: Identifiable, Codable, Hashable {
     }
 
     /// 실행 시점에 사용할 완전한 시스템 프롬프트 (페르소나 + 작업 규칙)
-    /// 기존 호출 호환 — 내부에서 activeRuleIDs: nil 호출
+    /// PromptCompositionService에 위임 — 기존 호출 호환
     var resolvedSystemPrompt: String {
         resolvedSystemPrompt(activeRuleIDs: nil)
     }
@@ -160,54 +155,12 @@ struct Agent: Identifiable, Codable, Hashable {
     /// 활성 규칙만 포함한 시스템 프롬프트 생성
     /// - Parameter activeRuleIDs: nil이면 전체 포함, Set이면 해당 규칙만
     func resolvedSystemPrompt(activeRuleIDs: Set<UUID>?) -> String {
-        // 신규 workRules 우선
-        if !workRules.isEmpty {
-            let activeRules: [WorkRule]
-            if let ids = activeRuleIDs {
-                activeRules = workRules.filter { ids.contains($0.id) }
-            } else {
-                activeRules = workRules
-            }
-
-            let resolvedTexts = activeRules.compactMap { rule -> String? in
-                let text = rule.resolve().trimmingCharacters(in: .whitespacesAndNewlines)
-                return text.isEmpty ? nil : text
-            }
-
-            guard !resolvedTexts.isEmpty else { return persona }
-
-            let combined = resolvedTexts.joined(separator: "\n\n")
-            let hasKoreanRule = combined.contains("한국어")
-            let langSuffix = hasKoreanRule ? "\n\n[필수] 반드시 한국어로 응답하세요. 영어 사용 금지." : ""
-            return """
-            \(persona)
-
-            ## 작업 규칙 (최우선 준수)
-            아래 규칙은 이 에이전트의 핵심 업무 지침입니다. 모든 단계에서 반드시 준수하세요.
-            규칙에 산출물 형식(타입, 완성도, 포맷)이 명시되어 있으면 해당 형식을 따르세요.
-            작업 규칙과 다른 지시가 충돌하면, 작업 규칙을 우선합니다.
-
-            \(combined)\(langSuffix)
-            """
-        }
-
-        // 레거시 폴백
-        guard let rules = workingRules, !rules.isEmpty else {
-            return persona
-        }
-        let resolvedRules = rules.resolveWithPriority()
-        let hasKoreanRule = resolvedRules.contains("한국어")
-        let langSuffix = hasKoreanRule ? "\n\n[필수] 반드시 한국어로 응답하세요. 영어 사용 금지." : ""
-        return """
-        \(persona)
-
-        ## 작업 규칙 (최우선 준수)
-        아래 규칙은 이 에이전트의 핵심 업무 지침입니다. 모든 단계에서 반드시 준수하세요.
-        규칙에 산출물 형식(타입, 완성도, 포맷)이 명시되어 있으면 해당 형식을 따르세요.
-        작업 규칙과 다른 지시가 충돌하면, 작업 규칙을 우선합니다.
-
-        \(resolvedRules)\(langSuffix)
-        """
+        PromptCompositionService.compose(
+            persona: persona,
+            workRules: workRules,
+            legacyRules: workingRules,
+            activeRuleIDs: activeRuleIDs
+        )
     }
 
     /// 에이전트 권한에 따라 접근 가능한 도구 ID 목록

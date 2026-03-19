@@ -37,13 +37,13 @@ struct ContextCarryoverPolicy: Equatable {
         switch intent {
         case .implementAll:
             return ContextCarryoverPolicy(
-                keepIntakeData: true, keepAgents: true, keepBriefing: true,
+                keepIntakeData: true, keepAgents: false, keepBriefing: true,
                 keepActionItems: true, keepDecisionLog: true,
                 keepWorkLog: false, keepStepResults: false
             )
         case .implementPartial:
             return ContextCarryoverPolicy(
-                keepIntakeData: true, keepAgents: true, keepBriefing: true,
+                keepIntakeData: true, keepAgents: false, keepBriefing: true,
                 keepActionItems: true,  // 필터링은 별도 처리
                 keepDecisionLog: true,
                 keepWorkLog: false, keepStepResults: false

@@ -24,12 +24,7 @@ struct IntentVocabulary: Equatable {
         var total = 0
 
         for keyword in positives {
-            let matched = tokens.contains { token in
-                token.hasPrefix(keyword.stem) || token == keyword.stem
-            } || fullText.contains(keyword.stem)
-            || bigrams.contains(where: { $0.hasPrefix(keyword.stem) || $0 == keyword.stem })
-
-            if matched {
+            if stemMatches(keyword.stem, tokens: tokens, fullText: fullText, bigrams: bigrams) {
                 total += keyword.weight
             }
         }
@@ -43,6 +38,25 @@ struct IntentVocabulary: Equatable {
         }
 
         return total
+    }
+
+    /// positive 키워드만 합산한 점수 (complex 감지용 — negatives 무시)
+    func positiveOnlyScore(tokens: [String], fullText: String, bigrams: [String]) -> Int {
+        var total = 0
+        for keyword in positives {
+            if stemMatches(keyword.stem, tokens: tokens, fullText: fullText, bigrams: bigrams) {
+                total += keyword.weight
+            }
+        }
+        return total
+    }
+
+    /// 어간 매칭 공통 로직
+    private func stemMatches(_ stem: String, tokens: [String], fullText: String, bigrams: [String]) -> Bool {
+        tokens.contains { token in
+            token.hasPrefix(stem) || token == stem
+        } || fullText.contains(stem)
+        || bigrams.contains(where: { $0.hasPrefix(stem) || $0 == stem })
     }
 
     /// threshold 충족 여부
@@ -98,6 +112,9 @@ extension IntentVocabulary {
             // 비교/판단
             .init(stem: "장단점", weight: 3), .init(stem: "좋을까", weight: 3),
             .init(stem: "어떨까", weight: 3), .init(stem: "어떤 게 나을", weight: 4),
+            .init(stem: "나을까", weight: 4), .init(stem: "낫지", weight: 4),
+            .init(stem: "뭐가 나을", weight: 4), .init(stem: "뭐가 좋", weight: 4),
+            .init(stem: "괜찮을까", weight: 4), .init(stem: "고민", weight: 4),
             // 전망/트렌드
             .init(stem: "트렌드", weight: 4), .init(stem: "전망", weight: 3),
             .init(stem: "미래", weight: 2),
@@ -128,8 +145,10 @@ extension IntentVocabulary {
             .init(stem: "research", weight: 5),
             .init(stem: "서베이", weight: 4), .init(stem: "survey", weight: 4),
             // 신규 (시나리오 5: "비교해서 정리해줘")
-            .init(stem: "비교", weight: 4), .init(stem: "사례", weight: 3),
+            .init(stem: "비교", weight: 5), .init(stem: "사례", weight: 3),
             .init(stem: "레퍼런스", weight: 4), .init(stem: "벤치마크", weight: 4),
+            // 조사 맥락의 정리
+            .init(stem: "알아봐", weight: 4), .init(stem: "찾아봐", weight: 3),
         ],
         negatives: [],
         threshold: 4
@@ -162,7 +181,7 @@ extension IntentVocabulary {
         intent: .task,
         positives: [
             // 분석/비교
-            .init(stem: "분석", weight: 4), .init(stem: "찾아", weight: 2),
+            .init(stem: "분석", weight: 3), .init(stem: "찾아", weight: 2),
             // 자문/상담
             .init(stem: "자문", weight: 3), .init(stem: "상담", weight: 3),
             .init(stem: "조언", weight: 3), .init(stem: "컨설팅", weight: 3),

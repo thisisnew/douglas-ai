@@ -10,6 +10,12 @@ final class SemanticMatcher {
     /// 에이전트별 문서 벡터 캐시 [agentID: vector]
     private var agentVectorCache: [UUID: [Double]] = [:]
 
+    /// 역할명별 문서 벡터 캐시 [roleName: vector] — matchByTags에서 같은 roleName을 N개 에이전트에 반복 비교할 때 재계산 방지
+    private var roleVectorCache: [String: [Double]] = [:]
+
+    /// 역할명 캐시 크기 (테스트용)
+    var roleVectorCacheCount: Int { roleVectorCache.count }
+
     /// NLEmbedding 인스턴스 (nil이면 시스템에 해당 언어 모델 없음)
     private let koreanEmbedding: NLEmbedding?
     private let englishEmbedding: NLEmbedding?
@@ -43,6 +49,11 @@ final class SemanticMatcher {
         agentVectorCache.removeValue(forKey: agentID)
     }
 
+    /// 역할명 벡터 캐시 초기화 (매칭 완료 후 또는 테스트용)
+    func clearRoleVectorCache() {
+        roleVectorCache.removeAll()
+    }
+
     /// 전체 캐시 재구축
     func rebuildCache(agents: [Agent]) {
         agentVectorCache.removeAll()
@@ -73,15 +84,42 @@ final class SemanticMatcher {
         .sorted { $0.1 > $1.1 }
     }
 
-    /// 단일 역할명과 에이전트 간 유사도 (AgentMatcher.findByKeyword 통합용)
+    /// 단일 역할명과 에이전트 간 유사도 (캐시된 역할 벡터 사용)
     func similarity(roleName: String, agent: Agent) -> Double {
-        let roleVector = computeDocumentVector(roleName)
+        let roleVector = cachedRoleVector(for: roleName)
         guard !roleVector.isEmpty,
               let agentVector = agentVectorCache[agent.id],
               !agentVector.isEmpty,
               roleVector.count == agentVector.count else { return 0 }
 
         return cosineSimilarity(roleVector, agentVector)
+    }
+
+    /// 여러 에이전트에 대해 같은 roleName으로 일괄 유사도 계산 (벡터 1회 계산)
+    func batchSimilarity(roleName: String, agents: [Agent]) -> [UUID: Double] {
+        let roleVector = cachedRoleVector(for: roleName)
+        guard !roleVector.isEmpty else { return [:] }
+
+        var results: [UUID: Double] = [:]
+        for agent in agents {
+            guard let agentVector = agentVectorCache[agent.id],
+                  !agentVector.isEmpty,
+                  roleVector.count == agentVector.count else { continue }
+            results[agent.id] = cosineSimilarity(roleVector, agentVector)
+        }
+        return results
+    }
+
+    /// 역할명 벡터를 캐시에서 조회하거나 계산하여 캐시
+    private func cachedRoleVector(for roleName: String) -> [Double] {
+        if let cached = roleVectorCache[roleName] {
+            return cached
+        }
+        let vector = computeDocumentVector(roleName)
+        if !vector.isEmpty {
+            roleVectorCache[roleName] = vector
+        }
+        return vector
     }
 
     // MARK: - 벡터 연산

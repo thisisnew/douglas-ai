@@ -20,7 +20,8 @@ struct FollowUpClassifierTests {
         #expect(decision.resolvedWorkflowIntent == .task)
         #expect(decision.needsPlan == true)
         #expect(decision.skipPhases.contains(.understand))
-        #expect(decision.skipPhases.contains(.assemble))
+        // discussionCompleted → assemble 스킵 안 함 (에이전트 재평가 필요)
+        #expect(!decision.skipPhases.contains(.assemble))
     }
 
     @Test("1번이랑 3번만 하자 → implementPartial")
@@ -136,11 +137,11 @@ struct FollowUpClassifierTests {
 
     // MARK: - 캐리오버 정책
 
-    @Test("implementAll 정책: briefing/agents/actionItems 유지")
+    @Test("implementAll 정책: briefing/actionItems 유지, agents 재평가")
     func implementAllPolicy() {
         let policy = ContextCarryoverPolicy.policy(for: .implementAll)
         #expect(policy.keepIntakeData == true)
-        #expect(policy.keepAgents == true)
+        #expect(policy.keepAgents == false)  // 토론→구현 전환 시 에이전트 재매칭
         #expect(policy.keepBriefing == true)
         #expect(policy.keepActionItems == true)
         #expect(policy.keepWorkLog == false)

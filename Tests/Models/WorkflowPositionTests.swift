@@ -55,7 +55,7 @@ struct WorkflowPositionTests {
         }
     }
 
-    // MARK: - Agent.goodPositions
+    // MARK: - PositionInferenceService (Agent 데이터로 호출)
 
     @Test("goodPositions — create+execute → implementer, writer")
     func goodPositionsCreateExecute() {
@@ -64,8 +64,8 @@ struct WorkflowPositionTests {
             persona: "서버 개발 전문",
             workModes: [.create, .execute]
         )
-        #expect(agent.goodPositions.contains(.implementer))
-        #expect(agent.goodPositions.contains(.writer))
+        #expect(PositionInferenceService.inferPositions(workModes: agent.workModes, persona: agent.persona).contains(.implementer))
+        #expect(PositionInferenceService.inferPositions(workModes: agent.workModes, persona: agent.persona).contains(.writer))
     }
 
     @Test("goodPositions — research → researcher, analyst")
@@ -75,8 +75,8 @@ struct WorkflowPositionTests {
             persona: "조사 분석 전문",
             workModes: [.research]
         )
-        #expect(agent.goodPositions.contains(.researcher))
-        #expect(agent.goodPositions.contains(.analyst))
+        #expect(PositionInferenceService.inferPositions(workModes: agent.workModes, persona: agent.persona).contains(.researcher))
+        #expect(PositionInferenceService.inferPositions(workModes: agent.workModes, persona: agent.persona).contains(.analyst))
     }
 
     @Test("goodPositions — review → reviewer, auditor")
@@ -86,7 +86,7 @@ struct WorkflowPositionTests {
             persona: "코드 리뷰 전문",
             workModes: [.review]
         )
-        #expect(agent.goodPositions.contains(.reviewer))
+        #expect(PositionInferenceService.inferPositions(workModes: agent.workModes, persona: agent.persona).contains(.reviewer))
     }
 
     @Test("goodPositions — plan → planner, architect")
@@ -96,8 +96,8 @@ struct WorkflowPositionTests {
             persona: "전략 기획",
             workModes: [.plan]
         )
-        #expect(agent.goodPositions.contains(.planner))
-        #expect(agent.goodPositions.contains(.architect))
+        #expect(PositionInferenceService.inferPositions(workModes: agent.workModes, persona: agent.persona).contains(.planner))
+        #expect(PositionInferenceService.inferPositions(workModes: agent.workModes, persona: agent.persona).contains(.architect))
     }
 
     @Test("goodPositions — persona '번역' → translator")
@@ -107,7 +107,7 @@ struct WorkflowPositionTests {
             persona: "다국어 번역 및 현지화 전문가",
             workModes: [.create]
         )
-        #expect(agent.goodPositions.contains(.translator))
+        #expect(PositionInferenceService.inferPositions(workModes: agent.workModes, persona: agent.persona).contains(.translator))
     }
 
     @Test("goodPositions — persona 'QA' → tester")
@@ -117,7 +117,7 @@ struct WorkflowPositionTests {
             persona: "QA 및 테스트 자동화 전문",
             workModes: [.review]
         )
-        #expect(agent.goodPositions.contains(.tester))
+        #expect(PositionInferenceService.inferPositions(workModes: agent.workModes, persona: agent.persona).contains(.tester))
     }
 
     @Test("goodPositions — persona '기획' → coordinator")
@@ -127,7 +127,7 @@ struct WorkflowPositionTests {
             persona: "프로젝트 기획 및 관리",
             workModes: [.plan]
         )
-        #expect(agent.goodPositions.contains(.coordinator))
+        #expect(PositionInferenceService.inferPositions(workModes: agent.workModes, persona: agent.persona).contains(.coordinator))
     }
 
     @Test("goodPositions — persona '법률' → auditor")
@@ -137,7 +137,7 @@ struct WorkflowPositionTests {
             persona: "법률 자문 및 컴플라이언스",
             workModes: [.review]
         )
-        #expect(agent.goodPositions.contains(.auditor))
+        #expect(PositionInferenceService.inferPositions(workModes: agent.workModes, persona: agent.persona).contains(.auditor))
     }
 
     @Test("goodPositions — persona '아키텍처' → architect")
@@ -147,7 +147,7 @@ struct WorkflowPositionTests {
             persona: "시스템 아키텍처 설계 전문",
             workModes: [.plan, .create]
         )
-        #expect(agent.goodPositions.contains(.architect))
+        #expect(PositionInferenceService.inferPositions(workModes: agent.workModes, persona: agent.persona).contains(.architect))
     }
 
     @Test("goodPositions — persona '데이터 분석' → analyst")
@@ -157,7 +157,7 @@ struct WorkflowPositionTests {
             persona: "데이터 분석 및 시각화",
             workModes: [.research]
         )
-        #expect(agent.goodPositions.contains(.analyst))
+        #expect(PositionInferenceService.inferPositions(workModes: agent.workModes, persona: agent.persona).contains(.analyst))
     }
 
     @Test("goodPositions — 빈 workModes → 빈 포지션")
@@ -167,7 +167,7 @@ struct WorkflowPositionTests {
             persona: "일반",
             workModes: []
         )
-        #expect(agent.goodPositions.isEmpty)
+        #expect(PositionInferenceService.inferPositions(workModes: agent.workModes, persona: agent.persona).isEmpty)
     }
 
     // MARK: - PositionTemplate
