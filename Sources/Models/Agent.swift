@@ -129,6 +129,10 @@ struct Agent: Identifiable, Codable, Hashable {
     /// 장착된 플러그인 ID 목록 (RPG식 스킬 주입)
     var equippedPluginIDs: [String]
 
+    /// 에이전트별 플러그인 설정 (pluginID → [key: value])
+    /// 예: ["slack": ["channelFilter": "#backend", "triggerPatterns": "@dev"]]
+    var pluginConfigs: [String: [String: String]]
+
     /// workModes에서 자동 추론되는 도구 권한
     var actionPermissions: Set<ActionScope> {
         guard !workModes.isEmpty else { return [] }  // 비어있으면 전체 허용 (역호환)
@@ -189,7 +193,7 @@ struct Agent: Identifiable, Codable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case id, name, persona, providerName, modelName, status, isMaster, errorMessage, hasImage, imageVersion
         case referenceProjectPaths, workingRules, workRules
-        case skillTags, workModes, outputStyles, equippedPluginIDs
+        case skillTags, workModes, outputStyles, equippedPluginIDs, pluginConfigs
     }
 
     /// 레거시 JSON의 roleTemplateID 디코딩용
@@ -228,7 +232,8 @@ struct Agent: Identifiable, Codable, Hashable {
         skillTags: [String] = [],
         workModes: Set<WorkMode> = [],
         outputStyles: Set<OutputStyle> = [],
-        equippedPluginIDs: [String] = []
+        equippedPluginIDs: [String] = [],
+        pluginConfigs: [String: [String: String]] = [:]
     ) {
         self.id = id
         self.name = name
@@ -245,6 +250,7 @@ struct Agent: Identifiable, Codable, Hashable {
         self.workModes = workModes
         self.outputStyles = outputStyles
         self.equippedPluginIDs = equippedPluginIDs
+        self.pluginConfigs = pluginConfigs
         self.hasImage = false
         self.imageVersion = 0
         if let imageData {
@@ -288,6 +294,7 @@ struct Agent: Identifiable, Codable, Hashable {
         workModes = try container.decodeIfPresent(Set<WorkMode>.self, forKey: .workModes) ?? []
         outputStyles = try container.decodeIfPresent(Set<OutputStyle>.self, forKey: .outputStyles) ?? []
         equippedPluginIDs = try container.decodeIfPresent([String].self, forKey: .equippedPluginIDs) ?? []
+        pluginConfigs = try container.decodeIfPresent([String: [String: String]].self, forKey: .pluginConfigs) ?? [:]
         // restrictions, actionPermissions는 레거시 — JSON에 있어도 무시 (workModes에서 자동 추론)
 
         // 레거시 마이그레이션: UserDefaults에 imageData가 있으면 파일로 이동

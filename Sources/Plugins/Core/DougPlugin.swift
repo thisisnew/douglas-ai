@@ -83,8 +83,11 @@ protocol DougPlugin: AnyObject {
     /// 현재 활성화 상태
     var isActive: Bool { get }
 
-    /// 설정 UI에 표시할 필드 목록
+    /// 글로벌 설정 UI에 표시할 필드 (토큰, 인증 등 — 플러그인 레벨)
     var configFields: [PluginConfigField] { get }
+
+    /// 에이전트별 설정 UI에 표시할 필드 (채널 필터, 트리거 등 — 에이전트마다 다름)
+    var agentConfigFields: [PluginConfigField] { get }
 
     /// 컨텍스트 주입 (발견 직후 1회 호출)
     func configure(context: PluginContext)
@@ -138,4 +141,7 @@ extension DougPlugin {
 
     /// 기본 능력: 없음 (플러그인이 override하여 능력 제공)
     var agentCapabilities: PluginAgentCapabilities { .empty }
+
+    /// 기본 에이전트별 설정: 없음
+    var agentConfigFields: [PluginConfigField] { [] }
 }

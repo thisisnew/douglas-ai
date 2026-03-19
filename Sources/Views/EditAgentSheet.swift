@@ -32,6 +32,7 @@ struct EditAgentSheet: View {
 
     // 플러그인 장착
     @State private var equippedPluginIDs: [String]
+    @State private var pluginConfigs: [String: [String: String]]
 
     init(agent: Agent) {
         self.agent = agent
@@ -51,6 +52,7 @@ struct EditAgentSheet: View {
         _selectedOutputStyles = State(initialValue: agent.outputStyles)
         _showAdvancedCard = State(initialValue: !agent.workModes.isEmpty)
         _equippedPluginIDs = State(initialValue: agent.equippedPluginIDs)
+        _pluginConfigs = State(initialValue: agent.pluginConfigs)
     }
 
     var body: some View {
@@ -274,19 +276,55 @@ struct EditAgentSheet: View {
                     }
                 }
 
-                // 장착된 플러그인의 능력 미리보기
-                if !equippedPluginIDs.isEmpty {
-                    let equippedTags = equippedPluginIDs.flatMap { id in
-                        pluginManager.capabilities(for: id)?.providedSkillTags ?? []
-                    }
-                    if !equippedTags.isEmpty {
-                        HStack(spacing: 4) {
-                            Image(systemName: "bolt.fill")
-                                .font(.caption2)
-                                .foregroundColor(.orange)
-                            Text("추가 태그: \(equippedTags.joined(separator: ", "))")
-                                .font(.caption)
-                                .foregroundColor(.orange)
+                // 장착된 플러그인별 에이전트 설정 + 능력 미리보기
+                ForEach(equippedPluginIDs, id: \.self) { pluginID in
+                    if let plugin = pluginManager.plugins.first(where: { $0.info.id == pluginID }) {
+                        let agentFields = plugin.agentConfigFields
+                        if !agentFields.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(plugin.info.name)
+                                    .font(.system(size: DesignTokens.FontSize.sm, weight: .semibold, design: .rounded))
+                                    .foregroundColor(palette.textPrimary)
+
+                                ForEach(agentFields, id: \.key) { field in
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(field.label)
+                                            .font(.caption)
+                                            .foregroundColor(palette.textSecondary)
+                                        TextField(field.placeholder, text: Binding(
+                                            get: { pluginConfigs[pluginID]?[field.key] ?? "" },
+                                            set: {
+                                                var config = pluginConfigs[pluginID] ?? [:]
+                                                config[field.key] = $0
+                                                pluginConfigs[pluginID] = config
+                                            }
+                                        ))
+                                        .textFieldStyle(.plain)
+                                        .font(.caption)
+                                        .padding(8)
+                                        .background(palette.inputBackground)
+                                        .continuousRadius(DesignTokens.CozyGame.cardRadius)
+                                        .overlay(RoundedRectangle(cornerRadius: DesignTokens.CozyGame.cardRadius, style: .continuous)
+                                            .strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 1))
+                                    }
+                                }
+                            }
+                            .padding(10)
+                            .background(palette.surfaceTertiary.opacity(0.5))
+                            .continuousRadius(DesignTokens.Radius.lg)
+                        }
+
+                        // 능력 미리보기
+                        let tags = pluginManager.capabilities(for: pluginID)?.providedSkillTags ?? []
+                        if !tags.isEmpty {
+                            HStack(spacing: 4) {
+                                Image(systemName: "bolt.fill")
+                                    .font(.caption2)
+                                    .foregroundColor(.orange)
+                                Text("\(plugin.info.name) 태그: \(tags.joined(separator: ", "))")
+                                    .font(.caption)
+                                    .foregroundColor(.orange)
+                            }
                         }
                     }
                 }
@@ -561,6 +599,7 @@ struct EditAgentSheet: View {
             updated.workModes = selectedWorkModes
             updated.outputStyles = selectedOutputStyles
             updated.equippedPluginIDs = equippedPluginIDs
+            updated.pluginConfigs = pluginConfigs
         }
         agentStore.updateAgent(updated)
         dismiss()

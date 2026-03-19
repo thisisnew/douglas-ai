@@ -30,6 +30,7 @@ final class SlackPlugin: DougPlugin {
     private var socketConnection: SlackSocketConnection?
     private var channelRoomMapper = SlackChannelRoomMapper()
 
+    // 글로벌 설정: 인증 (플러그인 레벨)
     let configFields: [PluginConfigField] = [
         PluginConfigField(
             key: "botToken",
@@ -44,7 +45,11 @@ final class SlackPlugin: DougPlugin {
             type: .text,
             isSecret: true,
             placeholder: "xapp-..."
-        ),
+        )
+    ]
+
+    // 에이전트별 설정: 채널/트리거 (에이전트마다 다름)
+    let agentConfigFields: [PluginConfigField] = [
         PluginConfigField(
             key: "triggerPatterns",
             label: "트리거 패턴 (쉼표 구분)",
@@ -57,7 +62,7 @@ final class SlackPlugin: DougPlugin {
             label: "채널 필터 (빈칸=전체)",
             type: .text,
             isSecret: false,
-            placeholder: "C01234567, C89ABCDEF"
+            placeholder: "#backend, #bugs"
         )
     ]
 
