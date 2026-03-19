@@ -5,6 +5,7 @@ struct EditAgentSheet: View {
     @Environment(\.colorPalette) private var palette
     @EnvironmentObject var agentStore: AgentStore
     @EnvironmentObject var providerManager: ProviderManager
+    @EnvironmentObject var pluginManager: PluginManager
     @Environment(\.dismiss) private var dismiss
 
     let agent: Agent
@@ -29,6 +30,9 @@ struct EditAgentSheet: View {
     @State private var selectedOutputStyles: Set<OutputStyle>
     @State private var showAdvancedCard: Bool
 
+    // 플러그인 장착
+    @State private var equippedPluginIDs: [String]
+
     init(agent: Agent) {
         self.agent = agent
         _name = State(initialValue: agent.name)
@@ -46,6 +50,7 @@ struct EditAgentSheet: View {
         _selectedWorkModes = State(initialValue: agent.workModes)
         _selectedOutputStyles = State(initialValue: agent.outputStyles)
         _showAdvancedCard = State(initialValue: !agent.workModes.isEmpty)
+        _equippedPluginIDs = State(initialValue: agent.equippedPluginIDs)
     }
 
     var body: some View {
@@ -115,6 +120,9 @@ struct EditAgentSheet: View {
 
                         // 에이전트 카드 메타데이터 (Plan C)
                         agentCardSection
+
+                        // 플러그인 장착 (RPG식 스킬 주입)
+                        pluginEquipSection
                     }
 
                     // 모델 설정 (그룹 카드)
@@ -235,6 +243,54 @@ struct EditAgentSheet: View {
                     .foregroundColor(palette.textSecondary)
             }
             .disclosureGroupStyle(PlainDisclosureStyle())
+        }
+    }
+
+    // MARK: - 플러그인 장착 섹션
+
+    @ViewBuilder
+    private var pluginEquipSection: some View {
+        let activePlugins = pluginManager.plugins.filter { $0.isActive }
+        if !activePlugins.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                sectionLabel("플러그인 장착", required: false)
+                Text("장착된 플러그인의 능력(도구, 규칙, 태그)이 이 에이전트에 자동 주입됩니다.")
+                    .font(.caption)
+                    .foregroundColor(palette.textSecondary)
+
+                FlowLayout(spacing: 6) {
+                    ForEach(activePlugins, id: \.info.id) { plugin in
+                        let isEquipped = equippedPluginIDs.contains(plugin.info.id)
+                        ToggleChip(
+                            label: plugin.info.name,
+                            isSelected: isEquipped
+                        ) {
+                            if isEquipped {
+                                equippedPluginIDs.removeAll { $0 == plugin.info.id }
+                            } else {
+                                equippedPluginIDs.append(plugin.info.id)
+                            }
+                        }
+                    }
+                }
+
+                // 장착된 플러그인의 능력 미리보기
+                if !equippedPluginIDs.isEmpty {
+                    let equippedTags = equippedPluginIDs.flatMap { id in
+                        pluginManager.capabilities(for: id)?.providedSkillTags ?? []
+                    }
+                    if !equippedTags.isEmpty {
+                        HStack(spacing: 4) {
+                            Image(systemName: "bolt.fill")
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                            Text("추가 태그: \(equippedTags.joined(separator: ", "))")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -504,6 +560,7 @@ struct EditAgentSheet: View {
             updated.skillTags = parsedSkillTags
             updated.workModes = selectedWorkModes
             updated.outputStyles = selectedOutputStyles
+            updated.equippedPluginIDs = equippedPluginIDs
         }
         agentStore.updateAgent(updated)
         dismiss()

@@ -1196,7 +1196,7 @@ struct FloatingSidebarView: View {
     private func openEditWindow(for agent: Agent) {
         UtilityWindowManager.shared.open(title: "\(agent.name) 편집",
             width: DesignTokens.WindowSize.agentSheet.width, height: DesignTokens.WindowSize.agentSheet.height,
-            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, themeManager: themeManager) {
+            agentStore: agentStore, providerManager: providerManager, chatVM: chatVM, themeManager: themeManager, pluginManager: pluginManager) {
             EditAgentSheet(agent: agent)
         }
     }
