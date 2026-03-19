@@ -121,11 +121,19 @@ DOUGLAS/
 │   │   ├── OnboardingViewModel.swift # 첫 실행 온보딩 (의존성 체크 + Claude 설정 + 프로바이더 선택)
 │   │   ├── ProviderManager.swift    # 프로바이더 설정 관리
 │   │   ├── BuildLoopRunner.swift     # 빌드/테스트 실행 + 수정 프롬프트 생성 엔진
-│   │   ├── RoomManager.swift          # 프로젝트 방 생명주기, CRUD, 상태 관리 (승인 게이트는 ApprovalGateManager로 위임)
-│   │   ├── RoomManager+Workflow.swift # 워크플로우 Phase 실행 메서드 (startRoomWorkflow, executePhaseWorkflow 등)
-│   │   ├── RoomManager+Discussion.swift # 토론 실행 (라운드, 합의 감지, 브리핑 생성)
-│   │   ├── RoomManager+BuildQA.swift  # 빌드/QA 루프 (빌드→수정→재빌드, 테스트→수정→재테스트)
-│   │   ├── ApprovalGateManager.swift  # 승인/입력 게이트 관리 — 7종 continuation 소유, wait/provide 쌍 제공
+│   │   ├── RoomManager.swift          # 방 생명주기 CRUD, 상태 관리, 계산 프로퍼티 (~870줄)
+│   │   ├── RoomManager+Workflow.swift # 핵심 디스패치 루프 + Intent/Intake + 헬퍼 (~1,290줄)
+│   │   ├── RoomManager+PhaseUnderstand.swift # Clarify + Assemble + Understand 페이즈 (~1,030줄)
+│   │   ├── RoomManager+PhaseDesign.swift # Design + Build + Review + Deliver + Legacy (~1,540줄)
+│   │   ├── RoomManager+Discussion.swift # 토론 실행 (라운드, 합의 감지, 브리핑 생성, ~820줄)
+│   │   ├── RoomManager+Document.swift # 문서 저장, 문서화 요청, 문서 신호 감지 (~610줄)
+│   │   ├── RoomManager+BuildQA.swift  # 빌드/QA 루프 (~260줄)
+│   │   ├── RoomManager+AgentSuggestion.swift # 에이전트 생성 제안 + 팀 구성 (~250줄)
+│   │   ├── RoomManager+Gateway.swift  # 사용자 상호작용 게이트 (승인/선택/입력, ~290줄)
+│   │   ├── RoomManager+Persistence.swift # 영속화 (save/load/prune) + Git Worktree (~180줄)
+│   │   ├── ApprovalGateManager.swift  # 승인/입력 게이트 관리 — 7종 continuation 소유
+│   │   ├── PhaseRouter.swift          # 페이즈 디스패치 로직 (nextPhase, 타임아웃)
+│   │   ├── InMemoryRoomRepository.swift # Room 인메모리 저장소 (RoomRepository 프로토콜 구현)
 │   │   ├── StepExecutionEngine.swift  # Build 단계 실행 엔진 (StepStatus 전이, Policy 기반 동작, 계획 승인 후 자동 실행)
 │   │   ├── StepContextBudget.swift    # executeStep context 토큰 예산 (30K 토큰, TokenEstimator 기반) — Step Journal 패턴 도입으로 역할 축소
 │   │   ├── AgentMatcher.swift       # 시스템 주도 에이전트 매칭 Facade (3-tier 스코어링 + 파싱/검색/제안 — 어휘→MatchingVocabulary, 설정→MatchScoringConfig, NLP→KoreanTextUtils, 포지션→PositionInferenceService 위임)
