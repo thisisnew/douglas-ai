@@ -41,6 +41,19 @@ struct PluginManifest: Codable {
         let secret: Bool?
         let placeholder: String?
     }
+
+    /// 에이전트에 주입할 능력 (plugin.json에서 선언)
+    struct ManifestCapabilities: Codable {
+        let skillTags: [String]?         // 매칭용 태그
+        let rules: [String]?            // 시스템 프롬프트 규칙
+        let workModes: [String]?        // WorkMode rawValue
+    }
+
+    /// 에이전트별 설정 필드
+    let agentConfig: [ManifestConfigField]?
+
+    /// 에이전트 능력 선언
+    let capabilities: ManifestCapabilities?
 }
 
 // MARK: - 스크립트 플러그인
@@ -65,6 +78,28 @@ final class ScriptPlugin: DougPlugin {
                 placeholder: field.placeholder ?? ""
             )
         }
+    }
+
+    var agentConfigFields: [PluginConfigField] {
+        (manifest.agentConfig ?? []).map { field in
+            PluginConfigField(
+                key: field.key,
+                label: field.label,
+                type: .text,
+                isSecret: field.secret ?? false,
+                placeholder: field.placeholder ?? ""
+            )
+        }
+    }
+
+    var agentCapabilities: PluginAgentCapabilities {
+        let caps = manifest.capabilities
+        return PluginAgentCapabilities(
+            providedSkillTags: caps?.skillTags ?? [],
+            providedTools: registeredTools(),
+            providedRules: caps?.rules ?? [],
+            providedWorkModes: Set(caps?.workModes?.compactMap { WorkMode(rawValue: $0) } ?? [])
+        )
     }
 
     init(manifest: PluginManifest, directory: URL) {

@@ -222,7 +222,9 @@ enum ScriptGenerator {
             icon: icon,
             author: nil,
             handlers: pluginHandlers,
-            config: manifestConfig.isEmpty ? nil : manifestConfig
+            config: manifestConfig.isEmpty ? nil : manifestConfig,
+            agentConfig: nil,
+            capabilities: nil
         )
     }
 
