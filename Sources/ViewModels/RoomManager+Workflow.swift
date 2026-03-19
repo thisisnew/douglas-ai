@@ -54,6 +54,24 @@ extension RoomManager {
         }
     }
 
+    // MARK: - WorkflowError 처리
+
+    /// 구조화된 워크플로우 에러 → 방 상태 전이 + 사용자 메시지
+    func handleWorkflowError(_ error: WorkflowError, roomID: UUID) {
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].transitionTo(.failed)
+            rooms[i].completedAt = Date()
+        }
+        let msg = ChatMessage(
+            role: .system,
+            content: error.userFacingMessage,
+            messageType: .error
+        )
+        appendMessage(msg, to: roomID)
+        syncAgentStatuses()
+        scheduleSave()
+    }
+
     // MARK: - Phase 워크플로우 (새 7단계)
 
     /// 새 워크플로우: intent.requiredPhases 동적 순회
@@ -76,18 +94,7 @@ extension RoomManager {
 
             // 타임아웃 체크 (PhaseRouter 위임)
             if PhaseRouter.isTimedOut(since: workflowStart) {
-                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].transitionTo(.failed)
-                    rooms[i].completedAt = Date()
-                }
-                let timeoutMsg = ChatMessage(
-                    role: .system,
-                    content: "워크플로우가 제한 시간(10분)을 초과하여 자동 종료되었습니다.",
-                    messageType: .error
-                )
-                appendMessage(timeoutMsg, to: roomID)
-                syncAgentStatuses()
-                scheduleSave()
+                handleWorkflowError(.workflowTimeout, roomID: roomID)
                 return
             }
 
@@ -568,7 +575,11 @@ extension RoomManager {
             briefingContext = "[토론 원문]\n" + fullLog
             // 예산 초과 시 단계적 축소: 원문 4000자 → 초과하면 briefing 폴백
             if briefingContext.count > 4000 {
-                if let briefing = room.discussion.briefing {
+                if let rb = room.discussion.researchBriefing {
+                    let head = String(fullLog.prefix(1000))
+                    let tail = String(fullLog.suffix(1000))
+                    briefingContext = rb.asContextString() + "\n\n[조사 원문 발췌]\n…\(head)\n…(중략)…\n\(tail)…"
+                } else if let briefing = room.discussion.briefing {
                     // briefing 요약 + 원문 핵심 부분 (앞뒤 각 1000자)
                     let head = String(fullLog.prefix(1000))
                     let tail = String(fullLog.suffix(1000))
@@ -577,6 +588,8 @@ extension RoomManager {
                     briefingContext = String(briefingContext.prefix(4000)) + "…(이하 생략)"
                 }
             }
+        } else if let rb = room.discussion.researchBriefing {
+            briefingContext = rb.asContextString()
         } else if let briefing = room.discussion.briefing {
             briefingContext = briefing.asContextString()
         } else {
@@ -766,9 +779,10 @@ extension RoomManager {
             return parsePlan(from: retryResponse)
         } catch {
             speakingAgentIDByRoom.removeValue(forKey: roomID)
+            let workflowErr = WorkflowError.llmFailure(agentID: firstAgentID, detail: error.userFacingMessage)
             let errorMsg = ChatMessage(
                 role: .assistant,
-                content: "계획 수립 실패: \(error.userFacingMessage)",
+                content: "계획 수립 실패: \(workflowErr.userFacingMessage)",
                 agentName: agent.name,
                 messageType: .error
             )
@@ -955,8 +969,12 @@ extension RoomManager {
             history.append(ConversationMessage.user(intakeData.asClarifyContextString()))
         }
 
-        // 2. 브리핑 (2000자 캡)
-        if let briefing = room?.discussion.briefing {
+        // 2. 브리핑 (2000자 캡) — research/discussion 구분
+        if let rb = room?.discussion.researchBriefing {
+            let ctx = rb.asContextString()
+            let capped = ctx.count > 2000 ? String(ctx.prefix(2000)) + "…" : ctx
+            history.append(ConversationMessage.user("조사 브리핑:\n\(capped)"))
+        } else if let briefing = room?.discussion.briefing {
             let ctx = briefing.asContextString()
             let capped = ctx.count > 2000 ? String(ctx.prefix(2000)) + "…" : ctx
             history.append(ConversationMessage.user("작업 브리핑:\n\(capped)"))

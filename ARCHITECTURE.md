@@ -54,7 +54,7 @@ DOUGLAS/
 │   │   ├── BuildResult.swift         # 빌드 결과 모델 + BuildLoopStatus + QAResult + QALoopStatus
 │   │   ├── FileWriteTracker.swift   # 병렬 실행 파일 쓰기 충돌 감지 (actor)
 │   │   ├── ToolExecutionContext.swift # 도구 실행 컨텍스트 (+ Plan C: agentPermissions)
-│   │   ├── WorkflowIntent.swift    # 워크플로우 의도 (WorkflowPhase, WorkflowIntent 6종: quickAnswer/task/discussion/research/documentation/complex)
+│   │   ├── WorkflowIntent.swift    # 워크플로우 의도 (WorkflowPhase, WorkflowIntent 6종: quickAnswer/task/discussion/research/documentation/complex, isDiscussionLike computed property)
 │   │   ├── DocumentType.swift     # 문서 유형 (6종 + 섹션 템플릿, 문서화 요청 시 사용)
 │   │   ├── DocumentRequestDetector.swift # 문서화 요청 감지 (NLTokenizer + LLM 폴백) + 포맷 변환 판별
 │   │   ├── IntentClassifier.swift # Intent 분류기 (PreIntentRoute + IntentVocabulary 위임 + LLM 폴백 + modifier 추출)
@@ -88,11 +88,11 @@ DOUGLAS/
 │   │   ├── MatchScoringConfig.swift # 매칭 스코어링 설정 Value Object (tier 가중치, 임계값, 보너스 상수)
 │   │   ├── ApprovalRecord.swift     # 승인 기록 모델 (ApprovalType, AwaitingType, ApprovalRecord)
 │   │   ├── WorkflowState.swift     # 워크플로우 진행 상태 값 객체 (intent, phase 추적, activeRuleIDs) — 도메인 메서드: advanceToPhase, completePhase, clearCurrentPhase, recordPhaseSummary
-│   │   ├── WorkflowError.swift    # 워크플로우 도메인 에러 (agentUnmatchable, approvalTimeout, phaseTransitionInvalid, llmFailure 등)
+│   │   ├── WorkflowError.swift    # 워크플로우 도메인 에러 (agentUnmatchable, approvalTimeout, phaseTransitionInvalid, llmFailure 등) + userFacingMessage, handleWorkflowError 연동
 │   │   ├── ClarifyContext.swift    # 복명복창 컨텍스트 값 객체 (intake, summary, delegation)
 │   │   ├── ProjectContext.swift    # 프로젝트 연동 컨텍스트 값 객체 (경로, 빌드/테스트 명령)
 │   │   ├── SystemPromptCache.swift # 시스템 프롬프트 캐시 (agentID+ruleIDs 키, 반복 생성 방지)
-│   │   ├── DiscussionSession.swift # 토론 세션 값 객체 (라운드, 산출물, 브리핑, 결정 로그, debateMode, actionItems, maxRounds, roundSummaries) — 도메인 메서드: advanceRound, setCheckpoint, clearCheckpoint, addDecision, addRoundSummary, updateRoundSummary, conclude
+│   │   ├── DiscussionSession.swift # 토론 세션 값 객체 (라운드, 산출물, 브리핑, 결정 로그, debateMode, actionItems, maxRounds, roundSummaries, researchBriefing) — 도메인 메서드: advanceRound, setCheckpoint, clearCheckpoint, addDecision, addRoundSummary, updateRoundSummary, conclude
 │   │   ├── BuildQAState.swift      # 빌드/QA 루프 상태 값 객체 (8개 프로퍼티 그룹핑)
 │   │   └── KeychainHelper.swift     # 파일 기반 API 키 저장 (Keychain 레거시 마이그레이션)
 │   │   ├── DouglasRequest.swift     # 사용자 요청 생명주기 모델 (IntentClassification, InputType, ConfidenceLevel)
@@ -602,9 +602,28 @@ struct RoomBriefing: Codable {
 ```
 
 - 토론 종료 후 `generateBriefing()`이 LLM에게 JSON 형식 브리핑 요청
+- intent에 따라 분기: discussion → `RoomBriefing`, research → `ResearchBriefing`
 - 계획 수립: 전체 토론 히스토리(40msg) 대신 브리핑 + 산출물만 전달
 - 실행 단계: 브리핑 + 최근 5개 메시지만 전달 → 토큰 대폭 절약
 - `Room.briefing`: nil이면 기존 히스토리 폴백
+
+### ResearchBriefing (`Models/Room.swift`)
+
+```swift
+struct ResearchBriefing: Codable, Equatable {
+    let executiveSummary: String       // 핵심 요약 (2-3문장)
+    let findings: [ResearchFinding]    // 조사 결과 (주제별)
+    let actionablePoints: [String]     // 실무 포인트
+    let limitations: [String]          // 한계/추가 조사 필요
+
+    func asContextString() -> String   // 후속 단계용 포맷
+}
+```
+
+- Research intent 전용 구조화 결과물
+- `generateResearchBriefing()`이 LLM에게 JSON 형식으로 요청
+- Discussion의 key_decisions/agentResponsibilities 대신 findings/actionablePoints/limitations 구조
+- `DiscussionSession.researchBriefing`에 저장, `isCompleted` 판정에 포함
 
 ### ArtifactParser (`Models/ArtifactParser.swift`)
 

@@ -59,4 +59,45 @@ struct WorkflowErrorTests {
             Issue.record("Expected llmFailure")
         }
     }
+
+    // MARK: - userFacingMessage
+
+    @Test("userFacingMessage — 모든 케이스가 비어있지 않음")
+    func userFacingMessage_nonEmpty() {
+        let id = UUID()
+        let cases: [WorkflowError] = [
+            .agentUnmatchable(reason: "없음"),
+            .approvalTimeout(roomID: id),
+            .approvalRejected(roomID: id),
+            .phaseTransitionInvalid(from: .design, to: .build),
+            .llmFailure(agentID: id, detail: "timeout"),
+            .buildFailure(output: "error log"),
+            .qaFailure(output: "test failed"),
+            .workflowTimeout,
+            .cancelled
+        ]
+        for error in cases {
+            #expect(!error.userFacingMessage.isEmpty, "userFacingMessage should not be empty for \(error)")
+        }
+    }
+
+    @Test("userFacingMessage — 한국어 포함")
+    func userFacingMessage_korean() {
+        #expect(WorkflowError.workflowTimeout.userFacingMessage.contains("제한 시간"))
+        #expect(WorkflowError.cancelled.userFacingMessage.contains("취소"))
+        #expect(WorkflowError.approvalRejected(roomID: UUID()).userFacingMessage.contains("거부"))
+    }
+
+    @Test("userFacingMessage — buildFailure output 100자 제한")
+    func userFacingMessage_buildOutputTruncation() {
+        let longOutput = String(repeating: "x", count: 200)
+        let msg = WorkflowError.buildFailure(output: longOutput).userFacingMessage
+        #expect(msg.count < 200)
+    }
+
+    @Test("userFacingMessage — phaseTransitionInvalid from nil")
+    func userFacingMessage_phaseTransitionFromNil() {
+        let msg = WorkflowError.phaseTransitionInvalid(from: nil, to: .design).userFacingMessage
+        #expect(msg.contains("시작"))
+    }
 }

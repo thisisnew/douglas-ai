@@ -68,7 +68,10 @@ struct PhaseContextSummarizer {
     }
 
     private static func summarizeDesign(_ room: Room) -> String {
-        // 토론 브리핑이 있으면 그것 사용, 없으면 계획 요약
+        // 조사/토론 브리핑이 있으면 그것 사용, 없으면 계획 요약
+        if let rb = room.discussion.researchBriefing {
+            return rb.asContextString()
+        }
         if let briefing = room.discussion.briefing {
             return briefing.asContextString()
         }

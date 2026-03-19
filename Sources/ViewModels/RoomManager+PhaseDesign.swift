@@ -16,7 +16,7 @@ extension RoomManager {
             if room.workflowState.autoDocOutput {
                 return
             }
-            if room.workflowState.intent == .discussion {
+            if room.workflowState.intent?.isDiscussionLike == true {
                 await executeSoloDiscussion(roomID: roomID, task: task, room: room)
             } else {
                 await executeSoloDesign(roomID: roomID, task: task, room: room)
@@ -60,7 +60,7 @@ extension RoomManager {
         await executeDiscussionDesign(roomID: roomID, task: task, briefContext: briefContext, specialists: specialists)
 
         // task intent: 토론 결과를 바탕으로 실행 계획 생성 + 승인
-        if room.workflowState.intent != .discussion {
+        if room.workflowState.intent?.isDiscussionLike != true {
             guard !Task.isCancelled,
                   rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
@@ -180,6 +180,7 @@ extension RoomManager {
             }
         } catch {
             // LLM 호출 실패 → 원래 순서 폴백 (토론 진행에 영향 없음)
+            print("[DOUGLAS] Turn 2 순서 결정 실패: \(error.localizedDescription) → 원래 순서로 폴백")
         }
 
         return agentInfos
@@ -423,7 +424,8 @@ extension RoomManager {
                     feedbacks.append((info.agent.name, result))
                 }
             } catch {
-                // 피드백 실패는 무시하고 계속 진행
+                // 피드백 실패 → 플레이스홀더에 오류 표시하고 계속 진행
+                updateMessageContent(placeholderID, newContent: "피드백 작성 오류: \(error.localizedDescription)", in: roomID)
             }
         }
 
@@ -476,16 +478,33 @@ extension RoomManager {
             let synthesisProgressMsg = ChatMessage(role: .system, content: "토론 결과를 종합합니다.", messageType: .progress)
             appendMessage(synthesisProgressMsg, to: roomID)
 
-            let synthesisPrompt = """
-            당신은 DOUGLAS, 이 토론의 진행자입니다.
-            전문가들의 의견과 피드백을 종합하여 실행 가능한 결론을 도출하세요.
+            let isResearch = rooms.first(where: { $0.id == roomID })?.workflowState.intent == .research
+            let synthesisPrompt: String
+            if isResearch {
+                synthesisPrompt = """
+                당신은 DOUGLAS, 이 조사의 진행자입니다.
+                전문가들의 조사 결과를 종합하여 구조화된 리서치 결과를 도출하세요.
 
-            규칙:
-            - 반드시 아래 순서로 정리하세요: 결론(추천안) → 대안 → 트레이드오프 → 미해결 쟁점.
-            - 결론에서는 어떤 방향이 왜 더 적합한지 근거와 함께 명확히 추천하세요.
-            - 마크다운 헤더(##, ###) 최소화. 읽기 좋은 문단 형식으로.
-            - 전체 길이는 원본 의견의 절반 이하로 압축하세요.
-            """
+                규칙:
+                - 반드시 아래 순서로 정리하세요: 핵심 요약 → 조사 결과(주제별) → 실무 포인트 → 한계/추가 조사 필요.
+                - 핵심 요약은 2-3문장으로 조사 결과의 핵심을 압축하세요.
+                - 조사 결과는 주제별로 나눠서 정리하세요.
+                - 실무 포인트는 바로 적용 가능한 구체적 항목으로.
+                - 마크다운 헤더(##, ###) 최소화. 읽기 좋은 문단 형식으로.
+                - 전체 길이는 원본 의견의 절반 이하로 압축하세요.
+                """
+            } else {
+                synthesisPrompt = """
+                당신은 DOUGLAS, 이 토론의 진행자입니다.
+                전문가들의 의견과 피드백을 종합하여 실행 가능한 결론을 도출하세요.
+
+                규칙:
+                - 반드시 아래 순서로 정리하세요: 결론(추천안) → 대안 → 트레이드오프 → 미해결 쟁점.
+                - 결론에서는 어떤 방향이 왜 더 적합한지 근거와 함께 명확히 추천하세요.
+                - 마크다운 헤더(##, ###) 최소화. 읽기 좋은 문단 형식으로.
+                - 전체 길이는 원본 의견의 절반 이하로 압축하세요.
+                """
+            }
 
             let placeholderID = UUID()
             speakingAgentIDByRoom[roomID] = master.id
@@ -598,19 +617,8 @@ extension RoomManager {
                 if let newPlan, let i = rooms.firstIndex(where: { $0.id == roomID }) {
                     rooms[i].plan = newPlan
                 } else {
-                    // 재생성 실패 → 워크플로우 중단 (.failed로 전환하여 phase loop 탈출)
-                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                        rooms[i].transitionTo(.failed)
-                        rooms[i].completedAt = Date()
-                    }
-                    let failMsg = ChatMessage(
-                        role: .system,
-                        content: "계획 재수립에 실패했습니다. 새 요청으로 다시 시도해주세요.",
-                        messageType: .error
-                    )
-                    appendMessage(failMsg, to: roomID)
-                    syncAgentStatuses()
-                    scheduleSave()
+                    // 재생성 실패 → 구조화된 에러로 워크플로우 중단
+                    handleWorkflowError(.approvalRejected(roomID: roomID), roomID: roomID)
                     return false
                 }
             }
@@ -1181,11 +1189,14 @@ extension RoomManager {
                   rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
         }
 
-        // discussion: 토론 완료 (종합은 Design에서 이미 완료)
-        if room.workflowState.intent == .discussion {
+        // discussion/research: 토론·조사 완료 (종합은 Design에서 이미 완료)
+        if room.workflowState.intent?.isDiscussionLike == true {
+            let label = room.workflowState.intent == .research
+                ? "조사가 마무리되었습니다."
+                : "토론이 마무리되었습니다."
             let doneMsg = ChatMessage(
                 role: .system,
-                content: "토론이 마무리되었습니다.",
+                content: label,
                 agentName: masterAgentName,
                 messageType: .phaseTransition
             )

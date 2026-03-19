@@ -444,6 +444,38 @@ struct RoomBriefing: Codable {
     }
 }
 
+// MARK: - 조사 브리핑 (Research 전용 구조화 결과물)
+
+/// 조사 결과의 개별 주제
+struct ResearchFinding: Codable, Equatable {
+    let topic: String    // 조사 주제
+    let detail: String   // 상세 내용
+}
+
+/// Research intent의 구조화된 브리핑 — 핵심요약/조사결과/실무포인트/한계
+struct ResearchBriefing: Codable, Equatable {
+    let executiveSummary: String       // 핵심 요약 (2-3문장)
+    let findings: [ResearchFinding]    // 조사 결과 (주제별)
+    let actionablePoints: [String]     // 실무 포인트
+    let limitations: [String]          // 한계/추가 조사 필요
+
+    /// 후속 단계에서 사용할 컨텍스트 문자열
+    func asContextString() -> String {
+        var parts: [String] = []
+        parts.append("[핵심 요약] \(executiveSummary)")
+        if !findings.isEmpty {
+            parts.append("[조사 결과]\n" + findings.map { "- \($0.topic): \($0.detail)" }.joined(separator: "\n"))
+        }
+        if !actionablePoints.isEmpty {
+            parts.append("[실무 포인트]\n" + actionablePoints.map { "- \($0)" }.joined(separator: "\n"))
+        }
+        if !limitations.isEmpty {
+            parts.append("[한계/추가 조사 필요]\n" + limitations.map { "- \($0)" }.joined(separator: "\n"))
+        }
+        return parts.joined(separator: "\n")
+    }
+}
+
 // MARK: - 방
 
 struct Room: Identifiable, Codable {
@@ -550,7 +582,7 @@ struct Room: Identifiable, Codable {
         case .plan:
             if discussion.currentRound > 0 { return "토론 중 (\(discussion.currentRound)R)" }
             if plan != nil { return "계획 검토 중" }
-            if discussion.briefing != nil { return "계획 수립 중" }
+            if discussion.researchBriefing != nil || discussion.briefing != nil { return "계획 수립 중" }
             return "분석 중"
         case .execute:
             return "진행 중"

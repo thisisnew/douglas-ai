@@ -582,3 +582,33 @@ scripts/build-app.sh
 ### 5. 확인
 - 기존 사용자 앱이 다음 실행 시 "새 버전 있음" 알림 표시
 - 설정 → 일반 → "지금 확인" 버튼으로 수동 확인 가능
+
+---
+
+## 에러 처리 컨벤션
+
+### WorkflowError 사용 원칙
+- **치명적 에러** (워크플로우 중단): `handleWorkflowError(_:roomID:)` 호출 → `.failed` 전이 + 사용자 메시지
+- **비치명적 에러** (계속 진행 가능): catch 블록에서 에러 메시지 append 후 진행
+- **빈 catch 금지**: 최소한 `print("[DOUGLAS] ...")` 로그를 남길 것
+
+### 패턴 예시
+```swift
+// 치명적: 워크플로우 타임아웃
+handleWorkflowError(.workflowTimeout, roomID: roomID)
+return
+
+// 비치명적: 토론 피드백 실패
+} catch {
+    updateMessageContent(placeholderID, newContent: "피드백 오류: \(error.localizedDescription)", in: roomID)
+}
+
+// 의도적 fallback: 순서 결정 실패
+} catch {
+    print("[DOUGLAS] 순서 결정 실패 → 원래 순서로 폴백")
+}
+```
+
+### intent 분기 시 `isDiscussionLike` 사용
+- `discussion`과 `research`가 같은 코드 경로를 공유할 때 `intent == .discussion` 대신 `intent?.isDiscussionLike == true` 사용
+- `discussion`만 해당하는 로직은 명시적 `== .discussion` 유지

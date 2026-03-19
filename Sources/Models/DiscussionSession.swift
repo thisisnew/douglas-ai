@@ -44,6 +44,8 @@ struct DiscussionSession: Codable {
     var decisionLog: [DecisionEntry]
     var artifacts: [DiscussionArtifact]
     var briefing: RoomBriefing?
+    /// Research intent 전용 구조화된 브리핑
+    var researchBriefing: ResearchBriefing?
     /// 토론 전문 아카이브 — 브리핑 요약 전 원본 (다음 단계에서 재참조용)
     var fullDiscussionLog: String?
     /// 토론 유형 — Strategy 패턴으로 Turn 2 프롬프트·합의 기준·쟁점 추출 결정
@@ -64,7 +66,7 @@ struct DiscussionSession: Codable {
 
     /// 토론이 완료되었는지 (briefing이 생성됨)
     var isCompleted: Bool {
-        briefing != nil
+        briefing != nil || researchBriefing != nil
     }
 
     /// 토론 모드 선택 — DebateClassifier에 위임 + 결과를 세션에 저장
@@ -130,6 +132,7 @@ struct DiscussionSession: Codable {
         decisionLog: [DecisionEntry] = [],
         artifacts: [DiscussionArtifact] = [],
         briefing: RoomBriefing? = nil,
+        researchBriefing: ResearchBriefing? = nil,
         fullDiscussionLog: String? = nil,
         debateMode: DebateMode? = nil,
         actionItems: [ActionItem]? = nil,
@@ -141,6 +144,7 @@ struct DiscussionSession: Codable {
         self.decisionLog = decisionLog
         self.artifacts = artifacts
         self.briefing = briefing
+        self.researchBriefing = researchBriefing
         self.fullDiscussionLog = fullDiscussionLog
         self.debateMode = debateMode
         self.actionItems = actionItems
@@ -151,7 +155,7 @@ struct DiscussionSession: Codable {
     // MARK: - Codable (하위 호환)
 
     private enum CodingKeys: String, CodingKey {
-        case currentRound, isCheckpoint, decisionLog, artifacts, briefing
+        case currentRound, isCheckpoint, decisionLog, artifacts, briefing, researchBriefing
         case fullDiscussionLog, debateMode, actionItems, maxRounds, roundSummaries
     }
 
@@ -162,6 +166,7 @@ struct DiscussionSession: Codable {
         decisionLog = try container.decode([DecisionEntry].self, forKey: .decisionLog)
         artifacts = try container.decode([DiscussionArtifact].self, forKey: .artifacts)
         briefing = try container.decodeIfPresent(RoomBriefing.self, forKey: .briefing)
+        researchBriefing = try container.decodeIfPresent(ResearchBriefing.self, forKey: .researchBriefing)
         fullDiscussionLog = try container.decodeIfPresent(String.self, forKey: .fullDiscussionLog)
         debateMode = try container.decodeIfPresent(DebateMode.self, forKey: .debateMode)
         actionItems = try container.decodeIfPresent([ActionItem].self, forKey: .actionItems)

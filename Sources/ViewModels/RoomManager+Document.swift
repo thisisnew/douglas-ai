@@ -439,7 +439,7 @@ extension RoomManager {
             return .implementCompleted
         }()
         let hasActionItems = rooms[idx].discussion.actionItems?.isEmpty == false
-        let hasBriefing = rooms[idx].discussion.briefing != nil
+        let hasBriefing = rooms[idx].discussion.briefing != nil || rooms[idx].discussion.researchBriefing != nil
         let hasWorkLog = rooms[idx].workLog != nil
 
         let followUpDecision = FollowUpClassifier.classify(
@@ -454,6 +454,7 @@ extension RoomManager {
         let carryover = followUpDecision.contextPolicy
         if !carryover.keepBriefing, let i = rooms.firstIndex(where: { $0.id == roomID }) {
             rooms[i].discussion.briefing = nil
+            rooms[i].discussion.researchBriefing = nil
         }
         if !carryover.keepActionItems, let i = rooms.firstIndex(where: { $0.id == roomID }) {
             rooms[i].discussion.actionItems = nil

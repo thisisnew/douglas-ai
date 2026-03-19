@@ -240,6 +240,40 @@ struct WorkflowPositionTests {
 
     // MARK: - Tier2 포지션 보너스
 
+    // MARK: - isDiscussionLike
+
+    @Test("isDiscussionLike — discussion은 true")
+    func discussionLikeForDiscussion() {
+        #expect(WorkflowIntent.discussion.isDiscussionLike)
+    }
+
+    @Test("isDiscussionLike — research는 true")
+    func discussionLikeForResearch() {
+        #expect(WorkflowIntent.research.isDiscussionLike)
+    }
+
+    @Test("isDiscussionLike — task는 false")
+    func discussionLikeForTask() {
+        #expect(!WorkflowIntent.task.isDiscussionLike)
+    }
+
+    @Test("isDiscussionLike — quickAnswer는 false")
+    func discussionLikeForQuickAnswer() {
+        #expect(!WorkflowIntent.quickAnswer.isDiscussionLike)
+    }
+
+    @Test("isDiscussionLike — documentation은 false")
+    func discussionLikeForDocumentation() {
+        #expect(!WorkflowIntent.documentation.isDiscussionLike)
+    }
+
+    @Test("isDiscussionLike — complex는 false")
+    func discussionLikeForComplex() {
+        #expect(!WorkflowIntent.complex.isDiscussionLike)
+    }
+
+    // MARK: - Tier2 포지션 보너스
+
     @Test("matchByTags — 포지션 일치 에이전트가 더 높은 점수")
     func positionBonusInMatching() {
         // task intent → implementer 필요

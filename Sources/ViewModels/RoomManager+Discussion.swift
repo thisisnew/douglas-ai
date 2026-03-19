@@ -543,10 +543,18 @@ extension RoomManager {
         }
     }
 
-    /// 토론 브리핑 생성 (컨텍스트 압축)
+    /// 토론/조사 브리핑 생성 (컨텍스트 압축) — intent에 따라 분기
     func generateBriefing(roomID: UUID, topic: String) async {
-        guard let room = rooms.first(where: { $0.id == roomID }),
-              let firstAgentID = room.assignedAgentIDs.first,
+        guard let room = rooms.first(where: { $0.id == roomID }) else { return }
+
+        // Research intent → 전용 ResearchBriefing 생성
+        if room.workflowState.intent == .research {
+            await generateResearchBriefing(roomID: roomID, topic: topic)
+            return
+        }
+
+        // Discussion intent → 기존 RoomBriefing 생성
+        guard let firstAgentID = room.assignedAgentIDs.first,
               let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
               let provider = providerManager?.provider(named: agent.providerName) else { return }
 
@@ -663,6 +671,128 @@ extension RoomManager {
             keyDecisions: keyDecisions,
             agentResponsibilities: responsibilities,
             openIssues: openIssues
+        )
+    }
+
+    // MARK: - Research 브리핑
+
+    /// Research intent 전용 구조화 브리핑 생성
+    func generateResearchBriefing(roomID: UUID, topic: String) async {
+        guard let room = rooms.first(where: { $0.id == roomID }),
+              let firstAgentID = room.assignedAgentIDs.first,
+              let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
+              let provider = providerManager?.provider(named: agent.providerName) else { return }
+
+        let history = buildDiscussionHistory(roomID: roomID, currentAgentName: nil)
+
+        // 전문 아카이브 기록
+        let fullLog = history.map { "[\($0.role)] \($0.content)" }.joined(separator: "\n\n")
+        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[i].discussion.fullDiscussionLog = fullLog
+        }
+
+        let originalContext: String
+        if let summary = room.clarifyContext.clarifySummary {
+            originalContext = "[원래 사용자 요청]\n\(summary)\n\n"
+        } else {
+            originalContext = ""
+        }
+
+        let briefingPrompt = """
+        \(originalContext)조사 내용을 분석하여 구조화된 리서치 브리핑을 JSON으로 작성하세요.
+
+        반드시 아래 형식의 JSON으로만 응답하세요:
+        {"executive_summary": "핵심 요약 2-3문장", "findings": [{"topic": "주제", "detail": "상세 내용"}], "actionable_points": ["실무 포인트1"], "limitations": ["한계/추가 조사 필요 사항"]}
+
+        규칙:
+        - executive_summary: 조사 결과의 핵심을 2-3문장으로 압축
+        - findings: 주제별로 분류된 조사 결과 (3-7개)
+        - actionable_points: 바로 적용 가능한 구체적 실무 항목 (2-5개)
+        - limitations: 조사의 한계, 추가 검토 필요 사항 (없으면 빈 배열)
+        - 반드시 유효한 JSON으로만 응답하세요
+        """
+
+        speakingAgentIDByRoom[roomID] = firstAgentID
+
+        do {
+            let lightModel = providerManager?.lightModelName(for: agent.providerName) ?? agent.modelName
+            let (response, _) = try await trackPhaseActivity(
+                roomID: roomID,
+                label: "조사 브리핑을 생성하는 중…",
+                agentName: agent.name,
+                modelName: lightModel,
+                providerName: agent.providerName
+            ) { _ in
+                try await provider.sendRouterMessage(
+                    model: lightModel,
+                    systemPrompt: briefingPrompt,
+                    messages: history
+                )
+            }
+
+            speakingAgentIDByRoom.removeValue(forKey: roomID)
+
+            if let briefing = parseResearchBriefing(from: response) {
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].discussion.researchBriefing = briefing
+                }
+                let reply = ChatMessage(
+                    role: .assistant,
+                    content: briefing.asContextString(),
+                    agentName: "조사 정리",
+                    messageType: .summary
+                )
+                appendMessage(reply, to: roomID)
+            } else {
+                // JSON 파싱 실패 → 폴백
+                let fallback = ResearchBriefing(
+                    executiveSummary: String(response.prefix(500)),
+                    findings: [],
+                    actionablePoints: [],
+                    limitations: []
+                )
+                if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].discussion.researchBriefing = fallback
+                }
+                let reply = ChatMessage(
+                    role: .assistant,
+                    content: response,
+                    agentName: "조사 정리",
+                    messageType: .summary
+                )
+                appendMessage(reply, to: roomID)
+            }
+        } catch {
+            speakingAgentIDByRoom.removeValue(forKey: roomID)
+            let errorMsg = ChatMessage(
+                role: .system,
+                content: "조사 브리핑 생성 실패: \(error.userFacingMessage)",
+                messageType: .error
+            )
+            appendMessage(errorMsg, to: roomID)
+        }
+    }
+
+    /// Research 브리핑 JSON 파싱
+    private func parseResearchBriefing(from response: String) -> ResearchBriefing? {
+        let jsonString = extractJSON(from: response)
+        guard let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let summary = json["executive_summary"] as? String else {
+            return nil
+        }
+        let findings: [ResearchFinding] = (json["findings"] as? [[String: Any]])?.compactMap { item in
+            guard let topic = item["topic"] as? String,
+                  let detail = item["detail"] as? String else { return nil }
+            return ResearchFinding(topic: topic, detail: detail)
+        } ?? []
+        let actionablePoints = json["actionable_points"] as? [String] ?? []
+        let limitations = json["limitations"] as? [String] ?? []
+        return ResearchBriefing(
+            executiveSummary: summary,
+            findings: findings,
+            actionablePoints: actionablePoints,
+            limitations: limitations
         )
     }
 

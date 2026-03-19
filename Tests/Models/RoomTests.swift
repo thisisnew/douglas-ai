@@ -1101,4 +1101,66 @@ struct RoomTests {
         #expect(room.workflowState.currentPhase == nil)
         #expect(room.completedAt != nil)
     }
+
+    // MARK: - ResearchBriefing
+
+    @Test("ResearchFinding — Codable 라운드트립")
+    func researchFindingCodable() throws {
+        let finding = ResearchFinding(topic: "카나리 배포", detail: "점진적 트래픽 이동 방식")
+        let data = try JSONEncoder().encode(finding)
+        let decoded = try JSONDecoder().decode(ResearchFinding.self, from: data)
+        #expect(decoded == finding)
+    }
+
+    @Test("ResearchBriefing — Codable 라운드트립")
+    func researchBriefingCodable() throws {
+        let briefing = ResearchBriefing(
+            executiveSummary: "카나리 배포는 점진적 트래픽 이동으로 위험을 줄인다.",
+            findings: [
+                ResearchFinding(topic: "카나리 배포", detail: "1-5% 트래픽으로 시작"),
+                ResearchFinding(topic: "블루그린 배포", detail: "전환 속도가 빠르지만 리소스 2배")
+            ],
+            actionablePoints: ["Istio 기반 트래픽 분할 권장", "메트릭 기반 자동 롤백 설정"],
+            limitations: ["서버리스 환경에서는 별도 검토 필요"]
+        )
+        let data = try JSONEncoder().encode(briefing)
+        let decoded = try JSONDecoder().decode(ResearchBriefing.self, from: data)
+        #expect(decoded == briefing)
+        #expect(decoded.findings.count == 2)
+        #expect(decoded.actionablePoints.count == 2)
+        #expect(decoded.limitations.count == 1)
+    }
+
+    @Test("ResearchBriefing — asContextString 출력 형식")
+    func researchBriefingContextString() {
+        let briefing = ResearchBriefing(
+            executiveSummary: "요약입니다.",
+            findings: [ResearchFinding(topic: "주제A", detail: "내용A")],
+            actionablePoints: ["포인트1"],
+            limitations: ["한계1"]
+        )
+        let ctx = briefing.asContextString()
+        #expect(ctx.contains("[핵심 요약] 요약입니다."))
+        #expect(ctx.contains("[조사 결과]"))
+        #expect(ctx.contains("- 주제A: 내용A"))
+        #expect(ctx.contains("[실무 포인트]"))
+        #expect(ctx.contains("- 포인트1"))
+        #expect(ctx.contains("[한계/추가 조사 필요]"))
+        #expect(ctx.contains("- 한계1"))
+    }
+
+    @Test("ResearchBriefing — 빈 필드면 섹션 생략")
+    func researchBriefingEmptySections() {
+        let briefing = ResearchBriefing(
+            executiveSummary: "요약만 있음.",
+            findings: [],
+            actionablePoints: [],
+            limitations: []
+        )
+        let ctx = briefing.asContextString()
+        #expect(ctx.contains("[핵심 요약]"))
+        #expect(!ctx.contains("[조사 결과]"))
+        #expect(!ctx.contains("[실무 포인트]"))
+        #expect(!ctx.contains("[한계/추가 조사 필요]"))
+    }
 }
