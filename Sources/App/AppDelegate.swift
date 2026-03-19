@@ -112,6 +112,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         roomManager.pluginInterceptToolDelegate = { [weak pluginManager] toolName, arguments in
             await pluginManager?.interceptTool(name: toolName, arguments: arguments) ?? .passthrough
         }
+        roomManager.pluginSkillTagsProvider = { [weak pluginManager] agent in
+            pluginManager?.effectiveSkillTags(for: agent) ?? []
+        }
+        roomManager.pluginRulesProvider = { [weak pluginManager] agent in
+            pluginManager?.effectiveRules(for: agent) ?? []
+        }
 
         // 에이전트 삭제 시 채팅 기록 + 첨부 파일 정리
         agentStore.onAgentRemoved = { [weak self] agentID in

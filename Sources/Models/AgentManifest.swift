@@ -38,6 +38,7 @@ extension AgentManifest {
         let skillTags: [String]?
         let workModes: [String]?          // WorkMode rawValue 배열
         let outputStyles: [String]?       // OutputStyle rawValue 배열
+        let equippedPluginIDs: [String]?  // 장착된 플러그인 ID
     }
 }
 
@@ -68,6 +69,7 @@ extension AgentManifest.AgentEntry {
         skillTags = agent.skillTags.isEmpty ? nil : agent.skillTags
         workModes = agent.workModes.isEmpty ? nil : agent.workModes.map(\.rawValue)
         outputStyles = agent.outputStyles.isEmpty ? nil : agent.outputStyles.map(\.rawValue)
+        equippedPluginIDs = agent.equippedPluginIDs.isEmpty ? nil : agent.equippedPluginIDs
     }
 
     /// AgentEntry → Agent 변환 (새 UUID 발급)
@@ -95,7 +97,8 @@ extension AgentManifest.AgentEntry {
             workingRules: rules,
             skillTags: skillTags ?? [],
             workModes: decodedModes,
-            outputStyles: decodedOutputs
+            outputStyles: decodedOutputs,
+            equippedPluginIDs: equippedPluginIDs ?? []
         )
     }
 }

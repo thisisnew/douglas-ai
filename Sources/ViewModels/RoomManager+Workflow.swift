@@ -16,7 +16,15 @@ extension RoomManager {
         if let cached = systemPromptCache.get(agentID: agent.id, activeRuleIDs: activeRuleIDs) {
             return cached
         }
-        var prompt = agent.resolvedSystemPrompt(activeRuleIDs: activeRuleIDs)
+        // 플러그인 규칙 주입
+        let pluginRules = pluginRulesProvider?(agent) ?? []
+        var prompt = PromptCompositionService.compose(
+            persona: agent.persona,
+            workRules: agent.workRules,
+            legacyRules: agent.workingRules,
+            activeRuleIDs: activeRuleIDs,
+            pluginRules: pluginRules
+        )
 
         // WorkflowPosition 지시 주입
         if let position = room?.agentPositions[agent.id] {
