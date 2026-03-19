@@ -140,6 +140,16 @@ struct IntakeData: Codable {
             parts.append("참조 URL이 포함된 요청입니다.")
         }
 
+        // Jira 데이터에서 도메인 힌트 감지 → LLM에게 역할 판단 참고 자료 제공
+        if !jiraDataList.isEmpty {
+            let allSummary = jiraDataList.map { $0.summary }.joined(separator: " ")
+            let allDesc = jiraDataList.map { $0.description }.joined(separator: " ")
+            let hints = JiraDomainDetector.detect(summary: allSummary, description: allDesc)
+            if let formatted = JiraDomainDetector.formatHint(hints) {
+                parts.append("감지된 관련 도메인: \(formatted)")
+            }
+        }
+
         return parts.joined(separator: "\n")
     }
 }
