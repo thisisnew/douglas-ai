@@ -408,6 +408,8 @@ enum ToolExecutor {
             result = await executeJiraUpdateStatus(call)
         case "jira_add_comment":
             result = await executeJiraAddComment(call)
+        case "jira_assign_self":
+            result = await executeJiraAssignSelf(call)
         case "ask_user":
             result = await executeAskUser(call, context: context)
         case "code_search":
@@ -1003,6 +1005,58 @@ enum ToolExecutor {
         } catch {
             return ToolResult(callID: call.id, content: "Jira 요청 실패: \(error.localizedDescription)", isError: true)
         }
+    }
+
+    // MARK: - jira_assign_self
+
+    private static func executeJiraAssignSelf(_ call: ToolCall) async -> ToolResult {
+        guard let issueKey = call.arguments["issue_key"]?.stringValue else {
+            return ToolResult(callID: call.id, content: "issue_key 파라미터가 필요합니다.", isError: true)
+        }
+
+        var config = JiraConfig.shared
+        guard config.isConfigured else {
+            return ToolResult(callID: call.id, content: "Jira가 설정되지 않았습니다. 설정 → Jira에서 도메인과 API 토큰을 입력하세요.", isError: true)
+        }
+
+        // 1. 내 accountId 가져오기
+        let accountId: String
+        do {
+            accountId = try await config.fetchMyAccountId()
+            JiraConfig.shared = config  // 캐시 저장
+        } catch {
+            return ToolResult(callID: call.id, content: "Jira 계정 조회 실패: \(error.localizedDescription)", isError: true)
+        }
+
+        // 2. 작업자 할당 (PUT /rest/api/3/issue/{issueKey}/assignee)
+        let assignBody: [String: Any] = ["accountId": accountId]
+        guard let body = try? JSONSerialization.data(withJSONObject: assignBody),
+              let (request, _) = makeJiraRequest(path: "/rest/api/3/issue/\(issueKey)/assignee", method: "PUT", body: body) else {
+            return ToolResult(callID: call.id, content: "Jira 요청 생성 실패", isError: true)
+        }
+
+        do {
+            let (data, response) = try await urlSession.data(for: request)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            // 204 No Content = 성공
+            guard (200..<300).contains(statusCode) else {
+                let errBody = String(data: data, encoding: .utf8) ?? ""
+                return ToolResult(callID: call.id, content: "작업자 할당 실패 (HTTP \(statusCode)): \(String(errBody.prefix(500)))", isError: true)
+            }
+        } catch {
+            return ToolResult(callID: call.id, content: "Jira 작업자 할당 실패: \(error.localizedDescription)", isError: true)
+        }
+
+        // 3. 코멘트 추가 (선택)
+        if let comment = call.arguments["add_comment"]?.stringValue, !comment.isEmpty {
+            let commentCall = ToolCall(id: call.id, toolName: "jira_add_comment", arguments: [
+                "issue_key": .string(issueKey),
+                "comment": .string(comment)
+            ])
+            _ = await executeJiraAddComment(commentCall)
+        }
+
+        return ToolResult(callID: call.id, content: "\(issueKey) 작업자가 내 계정으로 할당되었습니다.", isError: false)
     }
 
     // MARK: - ask_user

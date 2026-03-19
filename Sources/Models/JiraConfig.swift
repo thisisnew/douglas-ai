@@ -47,6 +47,26 @@ struct JiraConfig: Codable {
         "\(baseURL)/browse/\(key)"
     }
 
+    /// 내 Jira accountId 캐시 (self-assign 용)
+    var cachedAccountId: String?
+
+    /// /rest/api/3/myself → accountId 조회 + 캐싱
+    mutating func fetchMyAccountId() async throws -> String {
+        if let cached = cachedAccountId { return cached }
+        guard let auth = authHeader() else { throw URLError(.userAuthenticationRequired) }
+        let url = URL(string: "\(baseURL)/rest/api/3/myself")!
+        var req = URLRequest(url: url)
+        req.addValue(auth, forHTTPHeaderField: "Authorization")
+        req.addValue("application/json", forHTTPHeaderField: "Accept")
+        let (data, _) = try await URLSession.shared.data(for: req)
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let accountId = json["accountId"] as? String else {
+            throw URLError(.cannotParseResponse)
+        }
+        cachedAccountId = accountId
+        return accountId
+    }
+
     /// Jira 브라우저 URL을 REST API URL로 변환
     /// "/browse/PROJ-123" → "/rest/api/3/issue/PROJ-123"
     func apiURL(from browseURL: String) -> String {

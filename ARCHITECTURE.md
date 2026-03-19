@@ -83,7 +83,7 @@ DOUGLAS/
 │   │   ├── PluginTemplate.swift     # 플러그인 빌더 모델 (PluginActionType, HandlerConfig, ScriptGenerator, PluginSlug)
 │   │   ├── ShellEnvironment.swift   # 셸 환경 캐싱 (NVM 경로 1회 스캔, PATH 병합, 실행 파일 탐색)
 │   │   ├── ProcessRunner.swift      # 테스트 가능한 프로세스 실행기 (DI seam)
-│   │   ├── Room.swift               # 프로젝트 방 모델 (+ Plan C: TaskBrief, agentRoles[UUID:]/agentPositions[UUID:], RiskLevel, OutputType, RuntimeRole, WorkflowPosition) — Rich Domain Model: transitionTo, addAgent, removeAgent, assignRole(UUID), assignPosition, complete, fail, startExecution, awaitApproval, awaitUserInput, resumeWorkflow, classifyIntent, setPlan, recordApproval, appendDiscussionContext, startDiscussion
+│   │   ├── Room.swift               # 프로젝트 방 모델 (+ Plan C: TaskBrief, agentRoles[UUID:]/agentPositions[UUID:], equippedPluginIDs, RiskLevel, OutputType, RuntimeRole, WorkflowPosition) — Rich Domain Model: transitionTo, addAgent, removeAgent, assignRole(UUID), assignPosition, complete, fail, startExecution, awaitApproval, awaitUserInput, resumeWorkflow, classifyIntent, setPlan, recordApproval, appendDiscussionContext, startDiscussion
 │   │   ├── MatchingVocabulary.swift # 매칭 어휘 사전 Value Object (동의어 30+그룹, genericSuffixes, domainKeywords, containsWholeWord)
 │   │   ├── MatchScoringConfig.swift # 매칭 스코어링 설정 Value Object (tier 가중치, 임계값, 보너스 상수)
 │   │   ├── ApprovalRecord.swift     # 승인 기록 모델 (ApprovalType, AwaitingType, ApprovalRecord)

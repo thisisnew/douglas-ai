@@ -243,6 +243,16 @@ enum ToolRegistry {
             risk: .external, requiredActionScope: .modifyExternal
         ),
         AgentTool(
+            id: "jira_assign_self",
+            name: "Jira 작업자 자동 할당",
+            description: "Assign the current Jira issue to yourself (the configured Jira user). Optionally transitions to In Progress and adds a comment.",
+            parameters: [
+                .init(name: "issue_key", type: .string, description: "Issue key (e.g. PROJ-123)", required: true, enumValues: nil),
+                .init(name: "add_comment", type: .string, description: "Optional comment to add (e.g. 'DOUGLAS가 분석 중입니다')", required: false, enumValues: nil)
+            ],
+            risk: .external, requiredActionScope: .modifyExternal
+        ),
+        AgentTool(
             id: "suggest_agent_creation",
             name: "에이전트 생성 제안",
             description: "Suggest creating a new agent for the current room. The user must approve the suggestion before the agent is created. Use this when the team is missing a role needed for the task.",

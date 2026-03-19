@@ -109,6 +109,25 @@ protocol DougPlugin: AnyObject {
         arguments: [String: String]
     ) async -> ToolInterceptResult
 
+    /// 에이전트에 주입할 능력 (skillTags, tools, rules, workModes)
+    var agentCapabilities: PluginAgentCapabilities { get }
+}
+
+// MARK: - 플러그인이 에이전트에 주입하는 능력 (RPG식 스킬 주입)
+
+/// 플러그인이 장착된 에이전트에 부여하는 능력
+struct PluginAgentCapabilities: Sendable {
+    let providedSkillTags: [String]      // 매칭용 태그 (예: ["slack", "실시간 알림"])
+    let providedTools: [AgentTool]       // 사용 가능한 도구
+    let providedRules: [String]          // 시스템 프롬프트에 주입되는 규칙
+    let providedWorkModes: Set<WorkMode> // 작업 모드 확장
+
+    static let empty = PluginAgentCapabilities(
+        providedSkillTags: [],
+        providedTools: [],
+        providedRules: [],
+        providedWorkModes: []
+    )
 }
 
 // MARK: - 기본 구현
@@ -116,4 +135,7 @@ protocol DougPlugin: AnyObject {
 extension DougPlugin {
     func registeredTools() -> [AgentTool] { [] }
     func interceptToolExecution(toolName: String, arguments: [String: String]) async -> ToolInterceptResult { .passthrough }
+
+    /// 기본 능력: 없음 (플러그인이 override하여 능력 제공)
+    var agentCapabilities: PluginAgentCapabilities { .empty }
 }

@@ -239,6 +239,35 @@ final class PluginManager: ObservableObject {
         return .passthrough
     }
 
+    // MARK: - 에이전트 능력 주입
+
+    /// 특정 플러그인의 agentCapabilities 조회
+    func capabilities(for pluginID: String) -> PluginAgentCapabilities? {
+        guard let plugin = plugins.first(where: { $0.info.id == pluginID && $0.isActive }) else { return nil }
+        return plugin.agentCapabilities
+    }
+
+    /// 에이전트에 장착된 모든 플러그인의 providedSkillTags를 합산
+    func effectiveSkillTags(for agent: Agent) -> [String] {
+        agent.equippedPluginIDs.flatMap { id in
+            capabilities(for: id)?.providedSkillTags ?? []
+        }
+    }
+
+    /// 에이전트에 장착된 모든 플러그인의 providedRules를 합산
+    func effectiveRules(for agent: Agent) -> [String] {
+        agent.equippedPluginIDs.flatMap { id in
+            capabilities(for: id)?.providedRules ?? []
+        }
+    }
+
+    /// 에이전트에 장착된 모든 플러그인의 providedTools를 합산
+    func effectiveTools(for agent: Agent) -> [AgentTool] {
+        agent.equippedPluginIDs.flatMap { id in
+            capabilities(for: id)?.providedTools ?? []
+        }
+    }
+
     // MARK: - Helpers
 
     private func ensureDirectory(_ url: URL) {

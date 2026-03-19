@@ -1242,6 +1242,50 @@ struct ToolExecutorTests {
         #expect(toolResult?.content?.contains("comment") == true)
     }
 
+    // MARK: - jira_assign_self
+
+    @Test("jira_assign_self — Jira 미설정 시 오류")
+    func jiraAssignSelfNotConfigured() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "jira_assign_self", arguments: [
+            "issue_key": .string("PROJ-123")
+        ])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("handled"))
+        ]
+
+        let agent = makeAgent()
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "assign")]
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResult = lastMessages.first { $0.role == "tool" }
+        #expect(toolResult?.content != nil)
+    }
+
+    @Test("jira_assign_self — issue_key 누락 시 오류")
+    func jiraAssignSelfMissingKey() async throws {
+        let provider = makeMockProvider(supportsTools: true)
+        let call = ToolCall(id: "c1", toolName: "jira_assign_self", arguments: [:])
+        provider.sendMessageWithToolsResults = [
+            .success(.toolCalls([call])),
+            .success(.text("handled"))
+        ]
+
+        let agent = makeAgent()
+        _ = try await ToolExecutor.smartSend(
+            provider: provider, agent: agent,
+            systemPrompt: "s", messages: [("user", "assign")]
+        )
+
+        let lastMessages = provider.lastSendMessageWithToolsArgs?.messages ?? []
+        let toolResult = lastMessages.first { $0.role == "tool" }
+        #expect(toolResult?.content?.contains("issue_key") == true)
+    }
+
     // MARK: - suggest_agent_creation (Phase D)
 
     @Test("suggest_agent_creation: 방 밖 에러")
