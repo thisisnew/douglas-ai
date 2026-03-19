@@ -188,7 +188,7 @@ extension RoomManager {
         let room = rooms.first(where: { $0.id == roomID })
         let finalDescs = executingAgentIDs(in: roomID).compactMap { id -> String? in
             guard let name = agentStore?.agents.first(where: { $0.id == id })?.name else { return nil }
-            if let role = room?.agentRoles[name] {
+            if let role = room?.agentRoles[id] {
                 return "\(name)(\(role.displayName))"
             }
             return name

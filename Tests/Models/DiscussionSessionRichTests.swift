@@ -134,4 +134,52 @@ struct DiscussionSessionRichTests {
         )
         #expect(session.isCompleted == true)
     }
+
+    // MARK: - advanceRound 상한 검증
+
+    @Test("advanceRound — maxRounds 초과 시 거부")
+    func advanceRound_exceedMaxRounds_rejected() {
+        var session = DiscussionSession(maxRounds: 2)
+        session.advanceRound(to: 5)
+        #expect(session.currentRound == 0)
+    }
+
+    @Test("advanceRound — 범위 내 허용")
+    func advanceRound_withinBounds_allowed() {
+        var session = DiscussionSession(maxRounds: 3)
+        session.advanceRound(to: 2)
+        #expect(session.currentRound == 2)
+    }
+
+    // MARK: - conclude 중복 호출 방지
+
+    @Test("conclude — 첫 호출 성공")
+    func conclude_firstCall_succeeds() {
+        var session = DiscussionSession()
+        let briefing = RoomBriefing(summary: "요약", keyDecisions: [], agentResponsibilities: [:], openIssues: [])
+        let ok = session.conclude(briefing: briefing, fullLog: "로그")
+        #expect(ok == true)
+        #expect(session.isCompleted)
+    }
+
+    @Test("conclude — 두 번째 호출 거부")
+    func conclude_secondCall_rejected() {
+        var session = DiscussionSession()
+        let briefing1 = RoomBriefing(summary: "요약1", keyDecisions: [], agentResponsibilities: [:], openIssues: [])
+        let briefing2 = RoomBriefing(summary: "요약2", keyDecisions: [], agentResponsibilities: [:], openIssues: [])
+        _ = session.conclude(briefing: briefing1, fullLog: "로그1")
+        let ok = session.conclude(briefing: briefing2, fullLog: "로그2")
+        #expect(ok == false)
+        #expect(session.briefing?.summary == "요약1")
+    }
+
+    @Test("concludeResearch — 첫 호출 성공")
+    func concludeResearch_firstCall_succeeds() {
+        var session = DiscussionSession()
+        let rb = ResearchBriefing(executiveSummary: "핵심", findings: [], actionablePoints: [], limitations: [])
+        let ok = session.concludeResearch(briefing: rb, fullLog: "로그")
+        #expect(ok == true)
+        #expect(session.isCompleted)
+        #expect(session.researchBriefing?.executiveSummary == "핵심")
+    }
 }

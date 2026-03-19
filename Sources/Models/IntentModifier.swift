@@ -23,7 +23,12 @@ struct ClassificationResult: Equatable {
 
     init(intent: WorkflowIntent, modifiers: Set<IntentModifier> = []) {
         self.intent = intent
-        self.modifiers = modifiers
+        // outputOnly와 withExecution은 모순 — outputOnly 우선 (사용자가 "결과만"을 명시)
+        var cleaned = modifiers
+        if cleaned.contains(.outputOnly) && cleaned.contains(.withExecution) {
+            cleaned.remove(.withExecution)
+        }
+        self.modifiers = cleaned
     }
 
     /// modifier 존재 여부 확인

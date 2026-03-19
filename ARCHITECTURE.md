@@ -83,11 +83,11 @@ DOUGLAS/
 │   │   ├── PluginTemplate.swift     # 플러그인 빌더 모델 (PluginActionType, HandlerConfig, ScriptGenerator, PluginSlug)
 │   │   ├── ShellEnvironment.swift   # 셸 환경 캐싱 (NVM 경로 1회 스캔, PATH 병합, 실행 파일 탐색)
 │   │   ├── ProcessRunner.swift      # 테스트 가능한 프로세스 실행기 (DI seam)
-│   │   ├── Room.swift               # 프로젝트 방 모델 (+ Plan C: TaskBrief, agentRoles/agentPositions[UUID:], RiskLevel, OutputType, RuntimeRole, WorkflowPosition) — Rich Domain Model: transitionTo, addAgent, removeAgent, assignRole, assignPosition, complete
+│   │   ├── Room.swift               # 프로젝트 방 모델 (+ Plan C: TaskBrief, agentRoles[UUID:]/agentPositions[UUID:], RiskLevel, OutputType, RuntimeRole, WorkflowPosition) — Rich Domain Model: transitionTo, addAgent, removeAgent, assignRole(UUID), assignPosition, complete, fail, startExecution, awaitApproval, awaitUserInput, resumeWorkflow, classifyIntent, setPlan, recordApproval, appendDiscussionContext, startDiscussion
 │   │   ├── MatchingVocabulary.swift # 매칭 어휘 사전 Value Object (동의어 30+그룹, genericSuffixes, domainKeywords, containsWholeWord)
 │   │   ├── MatchScoringConfig.swift # 매칭 스코어링 설정 Value Object (tier 가중치, 임계값, 보너스 상수)
 │   │   ├── ApprovalRecord.swift     # 승인 기록 모델 (ApprovalType, AwaitingType, ApprovalRecord)
-│   │   ├── WorkflowState.swift     # 워크플로우 진행 상태 값 객체 (intent, phase 추적, activeRuleIDs) — 도메인 메서드: advanceToPhase, completePhase, clearCurrentPhase, recordPhaseSummary
+│   │   ├── WorkflowState.swift     # 워크플로우 진행 상태 값 객체 (intent, phase 추적, activeRuleIDs) — 도메인 메서드: advanceToPhase(전이 검증), completePhase, clearCurrentPhase, recordPhaseSummary
 │   │   ├── WorkflowError.swift    # 워크플로우 도메인 에러 (agentUnmatchable, approvalTimeout, phaseTransitionInvalid, llmFailure 등) + userFacingMessage, handleWorkflowError 연동
 │   │   ├── ClarifyContext.swift    # 복명복창 컨텍스트 값 객체 (intake, summary, delegation)
 │   │   ├── ProjectContext.swift    # 프로젝트 연동 컨텍스트 값 객체 (경로, 빌드/테스트 명령)
@@ -1432,8 +1432,9 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
 - `executeSoloReview`: 1인 자기 검토 (Reviewer 페르소나로 Build 결과 검증, FAIL 시 자기 수정 1회)
 - `executeStep` 문서 템플릿 주입: `documentType != nil`일 때 `documentType.templatePromptBlock()` + "이미 완성" 응답 금지 지침. Assemble에서 `documentType != nil`이면 1명 제한.
 
-**Build 라이브 협업**:
-- `ToolExecutionContext.fetchPendingUserMessages`: 도구 라운드 사이에 사용자 메시지 주입 (Anthropic/OpenAI/Google)
+**Build 라이브 협업** (자율 실행 원칙):
+- `ToolExecutionContext.isAutonomousExecution`: Build/Execute 단계에서 true → 사용자 메시지 주입 차단
+- `ToolExecutionContext.fetchPendingUserMessages`: Design 등 비자율 단계에서만 도구 라운드 사이에 사용자 메시지 주입
 - `executeBuildPhase` step 간 체크: step 완료 → 다음 step의 `fullTask`에 "[사용자 추가 지시]" 추가 (ClaudeCode 포함 전 프로바이더)
 - `executeStep` 내 `StepPromptBuilder.injectDirective()`: `fullTask`의 사용자 지시를 `stepPrompt` 끝에 명시적 주입 (LLM이 최우선 반영)
 - 단계 시작 시 `context_info` 활동 메시지: 업무규칙/도구/산출물 참조 현황 표시

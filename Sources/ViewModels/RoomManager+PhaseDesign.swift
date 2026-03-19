@@ -54,7 +54,7 @@ extension RoomManager {
         }
         let modifiers = IntentClassifier.extractModifiers(from: task)
         if let idx = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[idx].discussion.selectDebateMode(topic: task, agentRoles: agentRoles, modifiers: modifiers)
+            rooms[idx].startDiscussion(topic: task, agentRoles: agentRoles, modifiers: modifiers)
         }
 
         await executeDiscussionDesign(roomID: roomID, task: task, briefContext: briefContext, specialists: specialists)
@@ -69,7 +69,7 @@ extension RoomManager {
             if rooms.first(where: { $0.id == roomID })?.plan == nil {
                 let plan = await requestPlan(roomID: roomID, task: task, designOutput: discussionOutput)
                 if let plan, let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].plan = plan
+                    rooms[i].setPlan(plan)
                 }
             }
 
@@ -468,7 +468,7 @@ extension RoomManager {
 
         // 토론 결과를 room에 저장 (workLog 등에서 참조)
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].clarifyContext.clarifySummary = (rooms[i].clarifyContext.clarifySummary ?? "") + "\n\n[토론 결과]\n" + discussionSummary
+            rooms[i].appendDiscussionContext(discussionSummary)
         }
 
         let masterAgent = agentStore?.masterAgent
@@ -481,29 +481,9 @@ extension RoomManager {
             let isResearch = rooms.first(where: { $0.id == roomID })?.workflowState.intent == .research
             let synthesisPrompt: String
             if isResearch {
-                synthesisPrompt = """
-                당신은 DOUGLAS, 이 조사의 진행자입니다.
-                전문가들의 조사 결과를 종합하여 구조화된 리서치 결과를 도출하세요.
-
-                규칙:
-                - 반드시 아래 순서로 정리하세요: 핵심 요약 → 조사 결과(주제별) → 실무 포인트 → 한계/추가 조사 필요.
-                - 핵심 요약은 2-3문장으로 조사 결과의 핵심을 압축하세요.
-                - 조사 결과는 주제별로 나눠서 정리하세요.
-                - 실무 포인트는 바로 적용 가능한 구체적 항목으로.
-                - 마크다운 헤더(##, ###) 최소화. 읽기 좋은 문단 형식으로.
-                - 전체 길이는 원본 의견의 절반 이하로 압축하세요.
-                """
+                synthesisPrompt = PromptCompositionService.researchSynthesisPrompt()
             } else {
-                synthesisPrompt = """
-                당신은 DOUGLAS, 이 토론의 진행자입니다.
-                전문가들의 의견과 피드백을 종합하여 실행 가능한 결론을 도출하세요.
-
-                규칙:
-                - 반드시 아래 순서로 정리하세요: 결론(추천안) → 대안 → 트레이드오프 → 미해결 쟁점.
-                - 결론에서는 어떤 방향이 왜 더 적합한지 근거와 함께 명확히 추천하세요.
-                - 마크다운 헤더(##, ###) 최소화. 읽기 좋은 문단 형식으로.
-                - 전체 길이는 원본 의견의 절반 이하로 압축하세요.
-                """
+                synthesisPrompt = PromptCompositionService.discussionSynthesisPrompt()
             }
 
             let placeholderID = UUID()
@@ -597,7 +577,7 @@ extension RoomManager {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                     rooms[i].transitionTo(.planning)
                     if rooms[i].plan != nil {
-                        rooms[i].plan!.version += 1
+                        rooms[i].plan!.incrementVersion()
                     }
                 }
 
@@ -834,10 +814,10 @@ extension RoomManager {
         }
 
         // reviewer 역할의 에이전트 찾기
-        let reviewerName = room.agentRoles.first(where: { $0.value == .reviewer })?.key
+        let reviewerID = room.agentRoles.first(where: { $0.value == .reviewer })?.key
         let reviewerAgent: Agent?
-        if let name = reviewerName {
-            reviewerAgent = agentStore?.agents.first(where: { $0.name == name })
+        if let rid = reviewerID {
+            reviewerAgent = agentStore?.agents.first(where: { $0.id == rid })
         } else {
             let specialists = executingAgentIDs(in: roomID)
             if specialists.count >= 2 {
@@ -853,8 +833,8 @@ extension RoomManager {
               let reviewerProvider = providerManager?.provider(named: reviewer.providerName) else { return }
 
         // Creator 찾기 (fail 시 수정 요청용)
-        let creatorName = room.agentRoles.first(where: { $0.value == .creator })?.key
-        let creatorAgent = creatorName.flatMap { name in agentStore?.agents.first(where: { $0.name == name }) }
+        let creatorID = room.agentRoles.first(where: { $0.value == .creator })?.key
+        let creatorAgent = creatorID.flatMap { cid in agentStore?.agents.first(where: { $0.id == cid }) }
             ?? executingAgentIDs(in: roomID).first.flatMap { id in agentStore?.agents.first(where: { $0.id == id }) }
 
         let briefContext: String

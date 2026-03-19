@@ -405,4 +405,143 @@ struct ValueObjectTests {
         #expect(state.buildRetryCount == 3)
         #expect(state.maxBuildRetries == 10)
     }
+
+    // MARK: - WorkflowState.advanceToPhase 전이 검증
+
+    @Test("advanceToPhase — quickAnswer에서 design 전이 거부 (멤버십)")
+    func advanceToPhase_quickAnswerToDesign_rejected() {
+        var state = WorkflowState(intent: .quickAnswer)
+        let ok = state.advanceToPhase(.design)
+        #expect(ok == false)
+        #expect(state.currentPhase == nil)
+    }
+
+    @Test("advanceToPhase — quickAnswer에서 understand → assemble 순서 정상")
+    func advanceToPhase_quickAnswerToAssemble_allowed() {
+        var state = WorkflowState(intent: .quickAnswer, currentPhase: .understand, completedPhases: [.understand])
+        let ok = state.advanceToPhase(.assemble)
+        #expect(ok == true)
+        #expect(state.currentPhase == .assemble)
+    }
+
+    @Test("advanceToPhase — intent nil이면 모든 전이 허용 (레거시 호환)")
+    func advanceToPhase_nilIntent_alwaysAllowed() {
+        var state = WorkflowState()
+        let ok = state.advanceToPhase(.build)
+        #expect(ok == true)
+        #expect(state.currentPhase == .build)
+    }
+
+    @Test("advanceToPhase — withExecution modifier로 discussion에서 build 허용")
+    func advanceToPhase_withExecutionModifier_buildAllowed() {
+        // discussion + withExecution: understand → assemble → design → build → review → deliver
+        var state = WorkflowState(
+            intent: .discussion,
+            completedPhases: [.understand, .assemble, .design],
+            modifiers: [.withExecution]
+        )
+        let ok = state.advanceToPhase(.build)
+        #expect(ok == true)
+        #expect(state.currentPhase == .build)
+    }
+
+    @Test("advanceToPhase — task에서 design 완료 후 build 전이 허용")
+    func advanceToPhase_taskToBuild_allowed() {
+        var state = WorkflowState(
+            intent: .task, currentPhase: .design,
+            completedPhases: [.understand, .assemble, .design]
+        )
+        let ok = state.advanceToPhase(.build)
+        #expect(ok == true)
+        #expect(state.currentPhase == .build)
+    }
+
+    @Test("advanceToPhase — 첫 phase(understand)는 선행 조건 없이 허용")
+    func advanceToPhase_firstPhase_allowed() {
+        var state = WorkflowState(intent: .task)
+        let ok = state.advanceToPhase(.understand)
+        #expect(ok == true)
+        #expect(state.currentPhase == .understand)
+    }
+
+    @Test("advanceToPhase — 전이 기록이 추가됨")
+    func advanceToPhase_recordsTransition() {
+        var state = WorkflowState(intent: .task)
+        _ = state.advanceToPhase(.understand)
+        #expect(state.phaseTransitions.count == 1)
+        #expect(state.phaseTransitions[0].to == .understand)
+    }
+
+    @Test("advanceToPhase — understand 미완료 상태에서 assemble 전이 거부 (순서)")
+    func advanceToPhase_skipUnderstand_rejected() {
+        var state = WorkflowState(intent: .task)
+        let ok = state.advanceToPhase(.assemble)
+        #expect(ok == false)
+        #expect(state.currentPhase == nil)
+    }
+
+    @Test("advanceToPhase — skipPhases로 완료 처리된 phase는 건너뛰기 허용")
+    func advanceToPhase_skippedPhasesTreatedAsComplete() {
+        // understand가 skipPhases로 이미 completedPhases에 들어간 상태
+        var state = WorkflowState(intent: .task, completedPhases: [.understand])
+        let ok = state.advanceToPhase(.assemble)
+        #expect(ok == true)
+        #expect(state.currentPhase == .assemble)
+    }
+
+    // MARK: - WorkflowState.completePhase 검증
+
+    @Test("completePhase — 현재 phase와 일치하면 완료 허용")
+    func completePhase_matchingCurrent_allowed() {
+        var state = WorkflowState(intent: .task, currentPhase: .understand)
+        let ok = state.completePhase(.understand)
+        #expect(ok == true)
+        #expect(state.completedPhases.contains(.understand))
+    }
+
+    @Test("completePhase — 현재 phase와 불일치하면 거부")
+    func completePhase_mismatchCurrent_rejected() {
+        var state = WorkflowState(intent: .task, currentPhase: .understand)
+        let ok = state.completePhase(.deliver)
+        #expect(ok == false)
+        #expect(!state.completedPhases.contains(.deliver))
+    }
+
+    // MARK: - ToolExecutionContext.isAutonomousExecution
+
+    @Test("isAutonomousExecution — build 단계에서 true")
+    func isAutonomous_buildPhase() {
+        let ctx = ToolExecutionContext(
+            roomID: nil, agentsByName: [:], agentListString: "",
+            inviteAgent: { _ in false }, currentPhase: .build
+        )
+        #expect(ctx.isAutonomousExecution == true)
+    }
+
+    @Test("isAutonomousExecution — execute 단계에서 true")
+    func isAutonomous_executePhase() {
+        let ctx = ToolExecutionContext(
+            roomID: nil, agentsByName: [:], agentListString: "",
+            inviteAgent: { _ in false }, currentPhase: .execute
+        )
+        #expect(ctx.isAutonomousExecution == true)
+    }
+
+    @Test("isAutonomousExecution — design 단계에서 false")
+    func isAutonomous_designPhase() {
+        let ctx = ToolExecutionContext(
+            roomID: nil, agentsByName: [:], agentListString: "",
+            inviteAgent: { _ in false }, currentPhase: .design
+        )
+        #expect(ctx.isAutonomousExecution == false)
+    }
+
+    @Test("isAutonomousExecution — nil 단계에서 false (레거시 호환)")
+    func isAutonomous_nilPhase() {
+        let ctx = ToolExecutionContext(
+            roomID: nil, agentsByName: [:], agentListString: "",
+            inviteAgent: { _ in false }, currentPhase: nil
+        )
+        #expect(ctx.isAutonomousExecution == false)
+    }
 }

@@ -152,12 +152,12 @@ enum RoomStatus: String, Codable {
              (.awaitingUserInput, .completed),
              (.awaitingUserInput, .failed),
              (.awaitingUserInput, .cancelled),
-             (.completed, .inProgress),
-             (.completed, .planning),
-             (.failed, .inProgress),
-             (.failed, .planning),
-             (.cancelled, .inProgress),
-             (.cancelled, .planning):
+             (.completed, .inProgress),    // Follow-up cycle: 완료된 방 재활성화 (launchFollowUpCycle)
+             (.completed, .planning),      // Follow-up cycle: 완료된 방에서 새 워크플로우 시작
+             (.failed, .inProgress),       // 실패 복구: 재시도
+             (.failed, .planning),         // 실패 복구: 재계획
+             (.cancelled, .inProgress),    // 취소 후 재활성화
+             (.cancelled, .planning):      // 취소 후 재계획
             return true
         default:
             return false
@@ -345,10 +345,13 @@ struct RoomPlan: Codable {
     let summary: String           // 계획 요약
     let estimatedSeconds: Int     // 예상 소요 시간 (초)
     var steps: [RoomStep]         // 단계별 작업
-    var version: Int              // 계획 버전 (거부 시 +1)
+    private(set) var version: Int  // 계획 버전 (거부 시 incrementVersion() 호출)
     var stepJournal: [String]     // 완료된 단계의 요약 (인덱스 = 단계 번호, 300자 캡)
     /// 단계 결과 전문 아카이브 — journal의 300자 캡 전 원본 (다음 단계에서 재참조용)
     var stepResultsFull: [String]
+
+    /// 계획 버전 증가 (거부 → 재수립 시)
+    mutating func incrementVersion() { version += 1 }
 
     init(summary: String, estimatedSeconds: Int, steps: [RoomStep], version: Int = 1) {
         self.summary = summary
@@ -500,7 +503,7 @@ struct Room: Identifiable, Codable {
     var workLog: WorkLog?
     // Plan C: 새 워크플로우 필드
     var taskBrief: TaskBrief?
-    var agentRoles: [String: RuntimeRole]       // agentID.uuidString → RuntimeRole
+    var agentRoles: [UUID: RuntimeRole]          // agentID → RuntimeRole
     var agentPositions: [UUID: WorkflowPosition]  // agentID → WorkflowPosition (매칭 시 배정)
     // Phase 1: 승인 기록 + 대기 유형
     var approvalHistory: [ApprovalRecord]
@@ -677,13 +680,13 @@ struct Room: Identifiable, Codable {
     /// 에이전트를 방에서 제거
     mutating func removeAgent(_ agentID: UUID) {
         assignedAgentIDs.removeAll(where: { $0 == agentID })
-        agentRoles.removeValue(forKey: agentID.uuidString)
+        agentRoles.removeValue(forKey: agentID)
         agentPositions.removeValue(forKey: agentID)
     }
 
     /// 에이전트에 런타임 역할 배정
-    mutating func assignRole(_ role: RuntimeRole, to agentName: String) {
-        agentRoles[agentName] = role
+    mutating func assignRole(_ role: RuntimeRole, to agentID: UUID) {
+        agentRoles[agentID] = role
     }
 
     /// 에이전트에 워크플로우 포지션 배정
@@ -691,11 +694,78 @@ struct Room: Identifiable, Codable {
         agentPositions[agentID] = position
     }
 
+    // MARK: - 워크플로우 도메인 메서드 (Aggregate Root 캡슐화)
+
+    /// Intent 분류 결과 설정 — 이미 분류되었으면 무시 (재분류 방지)
+    /// nil intent는 무시 (quickClassify 실패 시)
+    mutating func classifyIntent(_ intent: WorkflowIntent?, modifiers: Set<IntentModifier>) {
+        guard workflowState.intent == nil, let intent else { return }
+        workflowState.intent = intent
+        workflowState.modifiers = modifiers
+    }
+
+    /// 실행 계획 설정 + needsPlan 자동 해제
+    mutating func setPlan(_ plan: RoomPlan) {
+        self.plan = plan
+        workflowState.needsPlan = false
+    }
+
+    /// 승인 기록 추가 + 대기 상태 해제
+    mutating func recordApproval(_ record: ApprovalRecord) {
+        approvalHistory.append(record)
+        awaitingType = nil
+    }
+
+    /// 토론 결과를 clarify 컨텍스트에 추가
+    mutating func appendDiscussionContext(_ summary: String) {
+        let existing = clarifyContext.clarifySummary ?? ""
+        clarifyContext.clarifySummary = existing + "\n\n[토론 결과]\n" + summary
+    }
+
+    /// 토론 모드 선택 — DiscussionSession에 위임
+    mutating func startDiscussion(topic: String, agentRoles: [String], modifiers: Set<IntentModifier>) {
+        discussion.selectDebateMode(topic: topic, agentRoles: agentRoles, modifiers: modifiers)
+    }
+
     /// 워크플로우 완료 처리
     mutating func complete() {
         workflowState.clearCurrentPhase()
         status = .completed
         completedAt = Date()
+    }
+
+    // MARK: - 원자적 상태 전이 (다중 필드 불일관 방지)
+
+    /// 워크플로우 실패 — status + completedAt + clearCurrentPhase 원자 처리
+    mutating func fail() {
+        transitionTo(.failed)
+        completedAt = Date()
+        workflowState.clearCurrentPhase()
+    }
+
+    /// 실행 시작 — status + timer 원자 처리
+    mutating func startExecution(duration: Int? = nil) {
+        transitionTo(.inProgress)
+        timerStartedAt = Date()
+        if let d = duration { timerDurationSeconds = d }
+    }
+
+    /// 승인 대기 — awaitingType + status 원자 처리
+    mutating func awaitApproval(type: AwaitingType) {
+        awaitingType = type
+        transitionTo(.awaitingApproval)
+    }
+
+    /// 사용자 입력 대기 — isCheckpoint + status 원자 처리
+    mutating func awaitUserInput() {
+        discussion.isCheckpoint = true
+        transitionTo(.awaitingUserInput)
+    }
+
+    /// 워크플로우 재개 (Follow-up cycle) — planning + completedAt 리셋
+    mutating func resumeWorkflow() {
+        transitionTo(.planning)
+        completedAt = nil
     }
 
     init(
@@ -782,7 +852,19 @@ struct Room: Identifiable, Codable {
         pendingAgentSuggestions = try container.decodeIfPresent([RoomAgentSuggestion].self, forKey: .pendingAgentSuggestions) ?? []
         workLog = try container.decodeIfPresent(WorkLog.self, forKey: .workLog)
         taskBrief = try container.decodeIfPresent(TaskBrief.self, forKey: .taskBrief)
-        agentRoles = try container.decodeIfPresent([String: RuntimeRole].self, forKey: .agentRoles) ?? [:]
+        // agentRoles: [String: RuntimeRole] → [UUID: RuntimeRole] 하위 호환 변환
+        if let uuidKeyed = try? container.decodeIfPresent([UUID: RuntimeRole].self, forKey: .agentRoles) {
+            agentRoles = uuidKeyed ?? [:]
+        } else if let stringKeyed = try? container.decodeIfPresent([String: RuntimeRole].self, forKey: .agentRoles) {
+            // 레거시: String 키(agent name)는 UUID 변환 불가 → 빈 dict (재매칭됨)
+            var converted: [UUID: RuntimeRole] = [:]
+            for (key, value) in stringKeyed {
+                if let uuid = UUID(uuidString: key) { converted[uuid] = value }
+            }
+            agentRoles = converted
+        } else {
+            agentRoles = [:]
+        }
         // agentPositions: [String: WorkflowPosition] → [UUID: WorkflowPosition] 하위 호환 변환
         if let stringKeyed = try container.decodeIfPresent([String: WorkflowPosition].self, forKey: .agentPositions) {
             var converted: [UUID: WorkflowPosition] = [:]

@@ -1069,19 +1069,20 @@ struct RoomTests {
     func removeAgentCleanup() {
         let agentID = UUID()
         var room = Room(title: "T", assignedAgentIDs: [agentID], createdBy: .user)
-        room.agentRoles[agentID.uuidString] = .creator
+        room.agentRoles[agentID] = .creator
         room.agentPositions[agentID] = .implementer
         room.removeAgent(agentID)
         #expect(room.assignedAgentIDs.isEmpty)
-        #expect(room.agentRoles[agentID.uuidString] == nil)
+        #expect(room.agentRoles[agentID] == nil)
         #expect(room.agentPositions[agentID] == nil)
     }
 
-    @Test("assignRole — 역할 배정")
+    @Test("assignRole — UUID 기반 역할 배정")
     func assignRole() {
-        var room = Room(title: "T", assignedAgentIDs: [], createdBy: .user)
-        room.assignRole(.reviewer, to: "검토자")
-        #expect(room.agentRoles["검토자"] == .reviewer)
+        let agentID = UUID()
+        var room = Room(title: "T", assignedAgentIDs: [agentID], createdBy: .user)
+        room.assignRole(.reviewer, to: agentID)
+        #expect(room.agentRoles[agentID] == .reviewer)
     }
 
     @Test("assignPosition — 포지션 배정")
@@ -1162,5 +1163,134 @@ struct RoomTests {
         #expect(!ctx.contains("[조사 결과]"))
         #expect(!ctx.contains("[실무 포인트]"))
         #expect(!ctx.contains("[한계/추가 조사 필요]"))
+    }
+
+    // MARK: - Room Aggregate 도메인 메서드
+
+    @Test("classifyIntent — intent와 modifiers를 설정")
+    func classifyIntent_setsIntentAndModifiers() {
+        var room = Room(title: "T", assignedAgentIDs: [], createdBy: .user)
+        room.classifyIntent(.task, modifiers: [.withExecution])
+        #expect(room.workflowState.intent == .task)
+        #expect(room.workflowState.modifiers.contains(.withExecution))
+    }
+
+    @Test("classifyIntent — 이미 분류되었으면 무시")
+    func classifyIntent_doesNotOverwriteExisting() {
+        var room = Room(title: "T", assignedAgentIDs: [], createdBy: .user)
+        room.classifyIntent(.task, modifiers: [])
+        room.classifyIntent(.discussion, modifiers: [.adversarial])
+        #expect(room.workflowState.intent == .task)
+        #expect(!room.workflowState.modifiers.contains(.adversarial))
+    }
+
+    @Test("setPlan — plan 설정 + needsPlan 해제")
+    func setPlan_setsPlanAndClearsNeedsPlan() {
+        var room = Room(title: "T", assignedAgentIDs: [], createdBy: .user)
+        room.workflowState.needsPlan = true
+        let plan = RoomPlan(summary: "테스트 계획", estimatedSeconds: 60, steps: [])
+        room.setPlan(plan)
+        #expect(room.plan?.summary == "테스트 계획")
+        #expect(room.workflowState.needsPlan == false)
+    }
+
+    @Test("recordApproval — 기록 추가 + awaitingType 해제")
+    func recordApproval_appendsAndClearsAwaitingType() {
+        var room = Room(title: "T", assignedAgentIDs: [], createdBy: .user)
+        room.awaitingType = .planApproval
+        let record = ApprovalRecord(type: .planApproval, approved: true)
+        room.recordApproval(record)
+        #expect(room.approvalHistory.count == 1)
+        #expect(room.approvalHistory[0].approved == true)
+        #expect(room.awaitingType == nil)
+    }
+
+    @Test("appendDiscussionContext — clarifySummary에 추가")
+    func appendDiscussionContext_appendsToSummary() {
+        var room = Room(title: "T", assignedAgentIDs: [], createdBy: .user)
+        room.clarifyContext.clarifySummary = "기존 요약"
+        room.appendDiscussionContext("백엔드 API 설계 합의")
+        #expect(room.clarifyContext.clarifySummary?.contains("기존 요약") == true)
+        #expect(room.clarifyContext.clarifySummary?.contains("[토론 결과]") == true)
+        #expect(room.clarifyContext.clarifySummary?.contains("백엔드 API 설계 합의") == true)
+    }
+
+    @Test("appendDiscussionContext — nil이면 초기화 후 추가")
+    func appendDiscussionContext_initializesIfNil() {
+        var room = Room(title: "T", assignedAgentIDs: [], createdBy: .user)
+        #expect(room.clarifyContext.clarifySummary == nil)
+        room.appendDiscussionContext("토론 결과")
+        #expect(room.clarifyContext.clarifySummary?.contains("토론 결과") == true)
+    }
+
+    @Test("startDiscussion — DiscussionSession에 debateMode 위임")
+    func startDiscussion_setsDebateMode() {
+        var room = Room(title: "T", assignedAgentIDs: [], createdBy: .user)
+        room.startDiscussion(topic: "아키텍처", agentRoles: ["백엔드", "프론트엔드"], modifiers: [])
+        #expect(room.discussion.debateMode != nil)
+    }
+
+    // MARK: - RoomPlan.version 캡슐화
+
+    @Test("RoomPlan — version 초기값 1")
+    func roomPlan_versionStartsAt1() {
+        let plan = RoomPlan(summary: "계획", estimatedSeconds: 60, steps: [])
+        #expect(plan.version == 1)
+    }
+
+    @Test("RoomPlan — incrementVersion 증가")
+    func roomPlan_incrementVersion() {
+        var plan = RoomPlan(summary: "계획", estimatedSeconds: 60, steps: [])
+        plan.incrementVersion()
+        #expect(plan.version == 2)
+        plan.incrementVersion()
+        #expect(plan.version == 3)
+    }
+
+    // MARK: - Room 원자적 상태 전이
+
+    @Test("fail — status + completedAt + clearCurrentPhase 원자 처리")
+    func fail_setsAllFields() {
+        var room = Room(title: "T", assignedAgentIDs: [], createdBy: .user)
+        room.workflowState.currentPhase = .build
+        room.fail()
+        #expect(room.status == .failed)
+        #expect(room.completedAt != nil)
+        #expect(room.workflowState.currentPhase == nil)
+    }
+
+    @Test("startExecution — status + timer 설정")
+    func startExecution_setsTimerAndStatus() {
+        var room = Room(title: "T", assignedAgentIDs: [], createdBy: .user)
+        room.startExecution(duration: 300)
+        #expect(room.status == .inProgress)
+        #expect(room.timerStartedAt != nil)
+        #expect(room.timerDurationSeconds == 300)
+    }
+
+    @Test("awaitApproval — awaitingType + status 설정")
+    func awaitApproval_setsTypeAndStatus() {
+        var room = Room(title: "T", assignedAgentIDs: [], createdBy: .user)
+        room.awaitApproval(type: .planApproval)
+        #expect(room.awaitingType == .planApproval)
+        #expect(room.status == .awaitingApproval)
+    }
+
+    @Test("awaitUserInput — isCheckpoint + status 설정")
+    func awaitUserInput_setsCheckpointAndStatus() {
+        var room = Room(title: "T", assignedAgentIDs: [], createdBy: .user)
+        room.awaitUserInput()
+        #expect(room.discussion.isCheckpoint == true)
+        #expect(room.status == .awaitingUserInput)
+    }
+
+    @Test("resumeWorkflow — planning + completedAt 리셋")
+    func resumeWorkflow_resetsToPlanning() {
+        var room = Room(title: "T", assignedAgentIDs: [], createdBy: .user)
+        room.complete()
+        #expect(room.status == .completed)
+        room.resumeWorkflow()
+        #expect(room.status == .planning)
+        #expect(room.completedAt == nil)
     }
 }

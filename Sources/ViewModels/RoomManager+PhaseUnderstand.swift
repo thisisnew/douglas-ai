@@ -360,16 +360,15 @@ extension RoomManager {
             // RuntimeRole 배정
             let specialists = executingAgentIDs(in: roomID)
             if let solo = specialists.first,
-               let soloName = agentStore?.agents.first(where: { $0.id == solo })?.name,
                let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].assignRole(.creator, to: soloName)
+                rooms[i].assignRole(.creator, to: solo)
             }
 
             // 참여 메시지 표시
             let masterName = agentStore?.masterAgent?.name ?? "DOUGLAS"
             let docDescs = executingAgentIDs(in: roomID).compactMap { id -> String? in
                 guard let name = agentStore?.agents.first(where: { $0.id == id })?.name else { return nil }
-                if let role = rooms.first(where: { $0.id == roomID })?.agentRoles[name] {
+                if let role = rooms.first(where: { $0.id == roomID })?.agentRoles[id] {
                     return "\(name)(\(role.displayName))"
                 }
                 return name
@@ -762,22 +761,16 @@ extension RoomManager {
                 await waitForSuggestionResponse(roomID: roomID)
             }
 
-            // 5) RuntimeRole 사전 배정 (Plan C: Assemble에서 배정)
+            // 5) RuntimeRole 사전 배정 (Plan C: Assemble에서 배정, UUID 기반)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 let specialists = executingAgentIDs(in: roomID)
                 if specialists.count >= 2 {
                     let (creatorID, reviewerID, plannerID) = assignDesignRoles(specialists: specialists)
-                    if let creatorName = agentStore?.agents.first(where: { $0.id == creatorID })?.name {
-                        rooms[i].assignRole(.creator, to: creatorName)
-                    }
-                    if let reviewerName = agentStore?.agents.first(where: { $0.id == reviewerID })?.name {
-                        rooms[i].assignRole(.reviewer, to: reviewerName)
-                    }
-                    if let plannerID, let plannerName = agentStore?.agents.first(where: { $0.id == plannerID })?.name {
-                        rooms[i].assignRole(.planner, to: plannerName)
-                    }
-                } else if let solo = specialists.first, let name = agentStore?.agents.first(where: { $0.id == solo })?.name {
-                    rooms[i].assignRole(.creator, to: name)
+                    rooms[i].assignRole(.creator, to: creatorID)
+                    rooms[i].assignRole(.reviewer, to: reviewerID)
+                    if let plannerID { rooms[i].assignRole(.planner, to: plannerID) }
+                } else if let solo = specialists.first {
+                    rooms[i].assignRole(.creator, to: solo)
                 }
             }
 

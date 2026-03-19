@@ -63,7 +63,7 @@ struct PhaseContextSummarizer {
     private static func summarizeAssemble(_ room: Room) -> String {
         let roles = room.agentRoles
         guard !roles.isEmpty else { return "" }
-        let roleDesc = roles.map { "\($0.key): \($0.value.displayName)" }.joined(separator: ", ")
+        let roleDesc = roles.map { "\($0.key.uuidString.prefix(8)): \($0.value.displayName)" }.joined(separator: ", ")
         return "에이전트 배정: \(roleDesc)"
     }
 

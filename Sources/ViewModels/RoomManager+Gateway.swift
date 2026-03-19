@@ -32,8 +32,7 @@ extension RoomManager {
                 stepIndex: rooms[idx].pendingApprovalStepIndex,
                 planVersion: rooms[idx].plan?.version
             )
-            rooms[idx].approvalHistory.append(record)
-            rooms[idx].awaitingType = nil
+            rooms[idx].recordApproval(record)
         }
 
         if approvalGates.hasPendingApproval(for: roomID) {

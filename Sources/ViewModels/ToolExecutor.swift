@@ -220,8 +220,8 @@ enum ToolExecutor {
                 print("[DOUGLAS] ⚠️ 토큰 ~\(totalTokens) 초과 — 도구 루프 조기 종료")
                 break
             }
-            // 도구 라운드 사이에서 사용자 메시지 실시간 반영
-            if let fetch = context.fetchPendingUserMessages {
+            // 도구 라운드 사이에서 사용자 메시지 반영 (Build/Execute 자율 실행 중에는 차단)
+            if !context.isAutonomousExecution, let fetch = context.fetchPendingUserMessages {
                 let newMsgs = await fetch()
                 if !newMsgs.isEmpty {
                     messages.append(contentsOf: newMsgs)

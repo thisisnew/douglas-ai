@@ -70,7 +70,7 @@ struct DebateClassifier {
         return .low
     }
 
-    /// 역할명 → 도메인 정규화 (동의어 해소)
+    /// 역할명 → 도메인 정규화 (동의어 해소, 최장 키워드 매칭)
     private static func normalizeRole(_ role: String) -> String {
         let lower = role.lowercased()
 
@@ -85,12 +85,18 @@ struct DebateClassifier {
             (["보안", "security", "인증", "auth"], "security"),
         ]
 
+        // 최장 키워드 매칭: 가장 긴 키워드가 매칭된 도메인 선택 (순서 의존성 제거)
+        var bestDomain: String?
+        var bestLength = 0
         for entry in domainMap {
-            if entry.keywords.contains(where: { lower.contains($0) }) {
-                return entry.domain
+            for keyword in entry.keywords where lower.contains(keyword) {
+                if keyword.count > bestLength {
+                    bestLength = keyword.count
+                    bestDomain = entry.domain
+                }
             }
         }
-        return lower  // 매칭 실패 시 원본 반환
+        return bestDomain ?? lower
     }
 
     // MARK: - 주제 키워드

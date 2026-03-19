@@ -88,9 +88,9 @@ struct DiscussionSession: Codable {
         }
     }
 
-    /// 라운드 전진 — 음수 방지
+    /// 라운드 전진 — 범위 검증 (0 ≤ round ≤ maxRounds)
     mutating func advanceRound(to round: Int) {
-        guard round >= 0 else { return }
+        guard round >= 0, round <= maxRounds else { return }
         currentRound = round
     }
 
@@ -120,10 +120,22 @@ struct DiscussionSession: Codable {
         roundSummaries[index] = summary
     }
 
-    /// 토론 종결 — briefing + 전문 아카이브 설정
-    mutating func conclude(briefing: RoomBriefing, fullLog: String) {
+    /// 토론 종결 — briefing + 전문 아카이브 설정 (중복 호출 방지)
+    @discardableResult
+    mutating func conclude(briefing: RoomBriefing, fullLog: String) -> Bool {
+        guard !isCompleted else { return false }
         self.briefing = briefing
         self.fullDiscussionLog = fullLog
+        return true
+    }
+
+    /// Research 조사 종결 — researchBriefing + 전문 아카이브 설정 (중복 호출 방지)
+    @discardableResult
+    mutating func concludeResearch(briefing: ResearchBriefing, fullLog: String) -> Bool {
+        guard !isCompleted else { return false }
+        self.researchBriefing = briefing
+        self.fullDiscussionLog = fullLog
+        return true
     }
 
     init(

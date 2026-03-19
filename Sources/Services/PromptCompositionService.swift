@@ -80,4 +80,80 @@ enum PromptCompositionService {
     private static func koreanSuffix(_ text: String) -> String {
         text.contains("한국어") ? "\n\n[필수] 반드시 한국어로 응답하세요. 영어 사용 금지." : ""
     }
+
+    // MARK: - Phase Prompts (정적 템플릿)
+
+    /// 토론 합성 프롬프트 — DOUGLAS가 전문가 의견을 종합
+    static func discussionSynthesisPrompt() -> String {
+        """
+        당신은 DOUGLAS, 이 토론의 진행자입니다.
+        전문가들의 의견과 피드백을 종합하여 실행 가능한 결론을 도출하세요.
+
+        규칙:
+        - 반드시 아래 순서로 정리하세요: 결론(추천안) → 대안 → 트레이드오프 → 미해결 쟁점.
+        - 결론에서는 어떤 방향이 왜 더 적합한지 근거와 함께 명확히 추천하세요.
+        - 마크다운 헤더(##, ###) 최소화. 읽기 좋은 문단 형식으로.
+        - 전체 길이는 원본 의견의 절반 이하로 압축하세요.
+        """
+    }
+
+    /// 조사 합성 프롬프트 — DOUGLAS가 조사 결과를 종합
+    static func researchSynthesisPrompt() -> String {
+        """
+        당신은 DOUGLAS, 이 조사의 진행자입니다.
+        전문가들의 조사 결과를 종합하여 구조화된 리서치 결과를 도출하세요.
+
+        규칙:
+        - 반드시 아래 순서로 정리하세요: 핵심 요약 → 조사 결과(주제별) → 실무 포인트 → 한계/추가 조사 필요.
+        - 핵심 요약은 2-3문장으로 조사 결과의 핵심을 압축하세요.
+        - 조사 결과는 주제별로 나눠서 정리하세요.
+        - 실무 포인트는 바로 적용 가능한 구체적 항목으로.
+        - 마크다운 헤더(##, ###) 최소화. 읽기 좋은 문단 형식으로.
+        - 전체 길이는 원본 의견의 절반 이하로 압축하세요.
+        """
+    }
+
+    /// 토론 규칙 블록 — 피상적 동의 금지, 합의/계속 태그 규칙
+    static func discussionRulesBlock() -> String {
+        """
+        2-4문장으로 핵심만 말하세요. 주장에는 반드시 근거나 트레이드오프를 붙이세요.
+        동료 의견에 "좋은 의견입니다"식 피상적 동의를 금지합니다. 보완, 반론, 또는 조건부 동의로 응답하세요.
+        이름 헤더(**[이름]** 등)를 붙이지 마세요. UI가 화자를 표시합니다.
+        발언 마지막 줄에 [합의] 또는 [계속] 태그를 붙이세요.
+        """
+    }
+
+    /// 토론 브리핑 JSON 프롬프트
+    static func discussionBriefingPrompt(originalContext: String, artifactList: String) -> String {
+        """
+        \(originalContext)토론 내용을 분석하여 실행팀을 위한 브리핑 문서를 JSON으로 작성하세요.\(artifactList)
+
+        반드시 아래 형식의 JSON으로만 응답하세요:
+        {"summary": "작업 요약 2-3문장", "key_decisions": ["결정1", "결정2"], "agent_responsibilities": {"에이전트명": "담당역할"}, "open_issues": ["미결사항"]}
+
+        규칙:
+        - summary: 팀이 합의한 방향과 핵심 목표 (2-3문장). 반드시 원래 사용자 요청 범위 내에서 작성
+        - key_decisions: 토론에서 확정된 결정사항 (3-5개)
+        - agent_responsibilities: 각 참여자의 담당 역할 (토론에서 드러난 전문성 기반)
+        - open_issues: 추가 논의가 필요한 미결 사항 (없으면 빈 배열)
+        - 반드시 유효한 JSON으로만 응답하세요
+        """
+    }
+
+    /// 조사 브리핑 JSON 프롬프트
+    static func researchBriefingPrompt(originalContext: String) -> String {
+        """
+        \(originalContext)조사 내용을 분석하여 구조화된 리서치 브리핑을 JSON으로 작성하세요.
+
+        반드시 아래 형식의 JSON으로만 응답하세요:
+        {"executive_summary": "핵심 요약 2-3문장", "findings": [{"topic": "주제", "detail": "상세 내용"}], "actionable_points": ["실무 포인트1"], "limitations": ["한계/추가 조사 필요 사항"]}
+
+        규칙:
+        - executive_summary: 조사 결과의 핵심을 2-3문장으로 압축
+        - findings: 주제별로 분류된 조사 결과 (3-7개)
+        - actionable_points: 바로 적용 가능한 구체적 실무 항목 (2-5개)
+        - limitations: 조사의 한계, 추가 검토 필요 사항 (없으면 빈 배열)
+        - 반드시 유효한 JSON으로만 응답하세요
+        """
+    }
 }

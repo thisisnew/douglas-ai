@@ -612,3 +612,32 @@ return
 ### intent 분기 시 `isDiscussionLike` 사용
 - `discussion`과 `research`가 같은 코드 경로를 공유할 때 `intent == .discussion` 대신 `intent?.isDiscussionLike == true` 사용
 - `discussion`만 해당하는 로직은 명시적 `== .discussion` 유지
+
+---
+
+## Aggregate 규칙 (DDD)
+
+### Room 상태 변경은 도메인 메서드를 통해 수행한다
+```swift
+// Good — 도메인 메서드 사용
+rooms[idx].classifyIntent(.task, modifiers: [.withExecution])
+rooms[idx].setPlan(plan)
+rooms[idx].recordApproval(record)
+rooms[idx].appendDiscussionContext(summary)
+rooms[idx].startDiscussion(topic: task, agentRoles: roles, modifiers: mods)
+
+// Bad — 내부 필드 직접 변경
+rooms[idx].workflowState.intent = .task
+rooms[idx].plan = plan
+rooms[idx].approvalHistory.append(record)
+```
+
+- 새 mutation 패턴이 2곳 이상에서 반복되면 Room에 도메인 메서드를 추가한다
+- 기존 코드의 직접 변경은 점진적으로 도메인 메서드로 교체한다
+- 다중 필드 변경은 원자적 메서드 사용: `fail()`, `startExecution()`, `awaitApproval()`, `awaitUserInput()`, `resumeWorkflow()`
+- `agentRoles`는 UUID 키 사용. `assignRole(_:to:)`에 agent UUID 전달
+
+### 자율 실행 원칙
+- Build/Execute 단계에서는 사용자 메시지를 주입하지 않는다 (`isAutonomousExecution`)
+- 승인 후 실행은 중간 개입 없이 일관되게 진행된다
+- 방향 변경은 완료 후 FollowUpCycle로만 처리한다

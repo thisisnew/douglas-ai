@@ -35,10 +35,12 @@ extension RoomManager {
         await createWorktreeIfNeeded(roomID: roomID)
 
         // intent 미설정 → quickClassify 시도 (nil이면 executeIntentPhase에서 사용자 선택)
-        if let idx = rooms.firstIndex(where: { $0.id == roomID }), rooms[idx].workflowState.intent == nil {
-            rooms[idx].workflowState.intent = IntentClassifier.quickClassify(task)
-            rooms[idx].workflowState.modifiers = IntentClassifier.extractModifiers(from: task)
-            // quickClassify 실패 시 nil 유지 → executeIntentPhase에서 처리
+        if let idx = rooms.firstIndex(where: { $0.id == roomID }) {
+            rooms[idx].classifyIntent(
+                IntentClassifier.quickClassify(task),
+                modifiers: IntentClassifier.extractModifiers(from: task)
+            )
+            // classifyIntent: nil intent 무시, 이미 분류됐으면 무시
         }
         await executePhaseWorkflow(roomID: roomID, task: task)
     }
@@ -59,8 +61,7 @@ extension RoomManager {
     /// 구조화된 워크플로우 에러 → 방 상태 전이 + 사용자 메시지
     func handleWorkflowError(_ error: WorkflowError, roomID: UUID) {
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].transitionTo(.failed)
-            rooms[i].completedAt = Date()
+            rooms[i].fail()
         }
         let msg = ChatMessage(
             role: .system,

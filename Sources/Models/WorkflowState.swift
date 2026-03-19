@@ -16,16 +16,30 @@ struct WorkflowState: Equatable {
 
     // MARK: - 도메인 메서드 (불변식 보호)
 
-    /// 페이즈 전이 — 감사 기록 자동 추가
-    mutating func advanceToPhase(_ next: WorkflowPhase) {
+    /// 페이즈 전이 — 멤버십 + 순서 검증 + 감사 기록
+    /// intent가 nil이면 모든 전이 허용 (레거시 호환)
+    /// 순서 검증: next 이전의 모든 required phase가 completedPhases에 있어야 함
+    @discardableResult
+    mutating func advanceToPhase(_ next: WorkflowPhase) -> Bool {
+        if let intent = intent {
+            let allowed = intent.requiredPhases(with: modifiers)
+            guard let nextIdx = allowed.firstIndex(of: next) else { return false }
+            // 순서 검증: next 이전의 모든 phase가 완료되었어야 함
+            let prerequisites = allowed.prefix(upTo: nextIdx)
+            guard prerequisites.allSatisfy({ completedPhases.contains($0) }) else { return false }
+        }
         let previous = currentPhase
         phaseTransitions.append(PhaseTransition(from: previous, to: next))
         currentPhase = next
+        return true
     }
 
-    /// 페이즈 완료 처리
-    mutating func completePhase(_ phase: WorkflowPhase) {
+    /// 페이즈 완료 처리 — currentPhase와 일치해야만 허용
+    @discardableResult
+    mutating func completePhase(_ phase: WorkflowPhase) -> Bool {
+        guard phase == currentPhase else { return false }
         completedPhases.insert(phase)
+        return true
     }
 
     /// 현재 페이즈 초기화 (워크플로우 완료/실패 시)

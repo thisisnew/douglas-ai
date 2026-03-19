@@ -24,6 +24,11 @@ struct ToolExecutionContext: Sendable {
     // Build 중 사용자 메시지 실시간 반영
     let fetchPendingUserMessages: (@Sendable () async -> [ConversationMessage])?
 
+    /// Build/Execute 단계에서는 사용자 메시지 주입을 차단 (자율 실행 원칙)
+    var isAutonomousExecution: Bool {
+        currentPhase == .build || currentPhase == .execute
+    }
+
     // 플러그인 훅
     let dispatchPluginEvent: @Sendable (PluginEvent) -> Void
     let interceptTool: @Sendable (String, [String: String]) async -> ToolInterceptResult

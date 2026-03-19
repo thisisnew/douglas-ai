@@ -149,4 +149,19 @@ struct DebateClassifierTests {
         )
         #expect(mode == .collaborative)
     }
+
+    // MARK: - normalizeRole 최장 키워드 매칭 (간접 검증)
+
+    @Test("roleOverlapScore: 'UI/UX 디자이너' → design 도메인 (frontend 아님)")
+    func normalizeRole_uiuxDesigner_matchesDesign() {
+        // "UI/UX 디자이너"와 "디자인 전문가"는 같은 design 도메인 → high overlap
+        let overlap = DebateClassifier.roleOverlapScore(["UI/UX 디자이너", "디자인 전문가"])
+        #expect(overlap == .high)
+    }
+
+    @Test("roleOverlapScore: '백엔드 개발자'와 '프론트 디자이너' → 서로 다른 도메인")
+    func normalizeRole_backendVsFrontDesigner_lowOverlap() {
+        let overlap = DebateClassifier.roleOverlapScore(["백엔드 개발자", "프론트엔드 디자이너"])
+        #expect(overlap == .low)
+    }
 }

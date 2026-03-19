@@ -59,4 +59,17 @@ struct IntentModifierTests {
         let decoded = try JSONDecoder().decode(IntentModifier.self, from: data)
         #expect(decoded == modifier)
     }
+
+    @Test("ClassificationResult — outputOnly + withExecution 모순 시 outputOnly 우선")
+    func contradictoryModifiers_outputOnlyWins() {
+        let result = ClassificationResult(intent: .discussion, modifiers: [.outputOnly, .withExecution])
+        #expect(result.modifiers.contains(.outputOnly))
+        #expect(!result.modifiers.contains(.withExecution))
+    }
+
+    @Test("ClassificationResult — 단일 modifier는 보존")
+    func singleModifier_preserved() {
+        let result = ClassificationResult(intent: .task, modifiers: [.withExecution])
+        #expect(result.modifiers.contains(.withExecution))
+    }
 }

@@ -241,10 +241,7 @@ extension RoomManager {
         라운드 \(round + 1) | 동료: \(otherNames)
 
         첨부된 이미지나 파일이 있으면 내용을 확인하고 참고하세요.
-        2-4문장으로 핵심만 말하세요. 주장에는 반드시 근거나 트레이드오프를 붙이세요.
-        동료 의견에 "좋은 의견입니다"식 피상적 동의를 금지합니다. 보완, 반론, 또는 조건부 동의로 응답하세요.
-        이름 헤더(**[이름]** 등)를 붙이지 마세요. UI가 화자를 표시합니다.
-        발언 마지막 줄에 [합의] 또는 [계속] 태그를 붙이세요.
+        \(PromptCompositionService.discussionRulesBlock())
         """
 
         // 활동 추적: ProgressActivityBubble로 모델/소요시간 표시
@@ -578,19 +575,10 @@ extension RoomManager {
             originalContext = ""
         }
 
-        let briefingPrompt = """
-        \(originalContext)토론 내용을 분석하여 실행팀을 위한 브리핑 문서를 JSON으로 작성하세요.\(artifactList)
-
-        반드시 아래 형식의 JSON으로만 응답하세요:
-        {"summary": "작업 요약 2-3문장", "key_decisions": ["결정1", "결정2"], "agent_responsibilities": {"에이전트명": "담당역할"}, "open_issues": ["미결사항"]}
-
-        규칙:
-        - summary: 팀이 합의한 방향과 핵심 목표 (2-3문장). 반드시 원래 사용자 요청 범위 내에서 작성
-        - key_decisions: 토론에서 확정된 결정사항 (3-5개)
-        - agent_responsibilities: 각 참여자의 담당 역할 (토론에서 드러난 전문성 기반)
-        - open_issues: 추가 논의가 필요한 미결 사항 (없으면 빈 배열)
-        - 반드시 유효한 JSON으로만 응답하세요
-        """
+        let briefingPrompt = PromptCompositionService.discussionBriefingPrompt(
+            originalContext: originalContext,
+            artifactList: artifactList
+        )
 
         speakingAgentIDByRoom[roomID] = firstAgentID
 
@@ -698,19 +686,7 @@ extension RoomManager {
             originalContext = ""
         }
 
-        let briefingPrompt = """
-        \(originalContext)조사 내용을 분석하여 구조화된 리서치 브리핑을 JSON으로 작성하세요.
-
-        반드시 아래 형식의 JSON으로만 응답하세요:
-        {"executive_summary": "핵심 요약 2-3문장", "findings": [{"topic": "주제", "detail": "상세 내용"}], "actionable_points": ["실무 포인트1"], "limitations": ["한계/추가 조사 필요 사항"]}
-
-        규칙:
-        - executive_summary: 조사 결과의 핵심을 2-3문장으로 압축
-        - findings: 주제별로 분류된 조사 결과 (3-7개)
-        - actionable_points: 바로 적용 가능한 구체적 실무 항목 (2-5개)
-        - limitations: 조사의 한계, 추가 검토 필요 사항 (없으면 빈 배열)
-        - 반드시 유효한 JSON으로만 응답하세요
-        """
+        let briefingPrompt = PromptCompositionService.researchBriefingPrompt(originalContext: originalContext)
 
         speakingAgentIDByRoom[roomID] = firstAgentID
 
