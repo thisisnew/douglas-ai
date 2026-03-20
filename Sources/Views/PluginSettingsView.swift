@@ -20,14 +20,12 @@ struct PluginSettingsView: View {
                     .font(.system(size: DesignTokens.FontSize.icon, weight: .bold, design: .rounded))
                     .foregroundColor(palette.textPrimary)
                 Spacer()
-                Button {} label: {
-                    Label("만들기 (준비 중)", systemImage: "hammer")
+                Button { showBuilder = true } label: {
+                    Label("만들기", systemImage: "hammer")
                         .font(.system(size: DesignTokens.FontSize.xs, weight: .medium, design: .rounded))
                 }
                 .buttonStyle(.plain)
-                .foregroundColor(palette.textSecondary.opacity(0.4))
-                .disabled(true)
-                .help("플러그인 만들기 기능을 준비하고 있습니다")
+                .foregroundColor(palette.textSecondary)
 
                 Button {
                     installFromFolder()
@@ -47,6 +45,10 @@ struct PluginSettingsView: View {
                     .transition(.opacity)
             }
 
+            // 추천 플러그인 프리셋
+            presetSection
+
+            // 설치된 플러그인
             if pluginManager.plugins.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "puzzlepiece.extension")
@@ -74,6 +76,64 @@ struct PluginSettingsView: View {
         .sheet(isPresented: $showBuilder) {
             PluginBuilderSheet()
                 .environmentObject(pluginManager)
+        }
+    }
+
+    // MARK: - 추천 플러그인 프리셋
+
+    @ViewBuilder
+    private var presetSection: some View {
+        let uninstalled = PluginPreset.builtIn.filter { !pluginManager.isPresetInstalled($0.id) }
+        if !uninstalled.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("추천 플러그인")
+                    .font(.system(size: DesignTokens.FontSize.sm, weight: .semibold, design: .rounded))
+                    .foregroundColor(palette.textSecondary)
+
+                ForEach(uninstalled) { preset in
+                    HStack(spacing: 10) {
+                        Image(systemName: preset.icon)
+                            .font(.system(size: 16))
+                            .foregroundColor(palette.accent)
+                            .frame(width: 28, height: 28)
+                            .background(palette.accent.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(preset.name)
+                                .font(.system(size: DesignTokens.FontSize.body, weight: .medium, design: .rounded))
+                                .foregroundColor(palette.textPrimary)
+                            Text(preset.description)
+                                .font(.system(size: DesignTokens.FontSize.xs, design: .rounded))
+                                .foregroundColor(palette.textSecondary)
+                                .lineLimit(1)
+                        }
+
+                        Spacer()
+
+                        Button {
+                            let result = pluginManager.installPreset(preset)
+                            installMessage = result.success ? "✅ \(preset.name) 설치 완료" : result.message
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { installMessage = nil }
+                        } label: {
+                            Text("설치")
+                                .font(.system(size: DesignTokens.FontSize.xs, weight: .semibold, design: .rounded))
+                                .foregroundColor(palette.userBubbleText)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 5)
+                                .background(palette.accent, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            .padding(.bottom, 8)
+
+            Rectangle()
+                .fill(LinearGradient(colors: [.clear, palette.separator.opacity(0.3), .clear], startPoint: .leading, endPoint: .trailing))
+                .frame(height: 1)
+                .padding(.bottom, 4)
         }
     }
 

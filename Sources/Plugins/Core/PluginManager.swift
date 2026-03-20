@@ -239,6 +239,22 @@ final class PluginManager: ObservableObject {
         return .passthrough
     }
 
+    // MARK: - 프리셋 설치
+
+    /// 프리셋을 원클릭 설치
+    func installPreset(_ preset: PluginPreset) -> (success: Bool, message: String) {
+        guard !plugins.contains(where: { $0.info.id == preset.id }) else {
+            return (false, "이미 설치된 플러그인입니다: \(preset.name)")
+        }
+        let manifest = preset.toManifest()
+        return createPlugin(manifest: manifest, scripts: preset.scripts)
+    }
+
+    /// 프리셋이 이미 설치되었는지 확인
+    func isPresetInstalled(_ presetID: String) -> Bool {
+        plugins.contains(where: { $0.info.id == presetID })
+    }
+
     // MARK: - 에이전트 능력 주입
 
     /// 특정 플러그인의 agentCapabilities 조회
