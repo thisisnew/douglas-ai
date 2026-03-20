@@ -14,7 +14,7 @@ extension RoomManager {
         // maxRounds: selectDebateMode에서 이미 설정됨. 미설정 시 기본값 2 적용
         if let i = rooms.firstIndex(where: { $0.id == roomID }),
            rooms[i].discussion.debateMode == nil {
-            rooms[i].discussion.maxRounds = 2
+            rooms[i].discussion.setMaxRounds(2)
         }
 
         var round = 0
@@ -560,7 +560,7 @@ extension RoomManager {
         // 토론 전문을 아카이브에 기록 (브리핑 요약 전 원본 보존)
         let fullLog = history.map { "[\($0.role)] \($0.content)" }.joined(separator: "\n\n")
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].discussion.fullDiscussionLog = fullLog
+            rooms[i].discussion.archiveFullLog(fullLog)
         }
 
         // 산출물 목록도 포함
@@ -676,7 +676,7 @@ extension RoomManager {
         // 전문 아카이브 기록
         let fullLog = history.map { "[\($0.role)] \($0.content)" }.joined(separator: "\n\n")
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].discussion.fullDiscussionLog = fullLog
+            rooms[i].discussion.archiveFullLog(fullLog)
         }
 
         let originalContext: String

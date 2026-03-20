@@ -114,6 +114,14 @@ struct DiscussionSession: Codable {
         roundSummaries.append(summary)
     }
 
+    // MARK: - 필드별 도메인 메서드 (private(set) 봉인 준비)
+
+    mutating func setMaxRounds(_ rounds: Int) { maxRounds = max(1, rounds) }
+    mutating func archiveFullLog(_ log: String) { fullDiscussionLog = log }
+    mutating func setActionItems(_ items: [ActionItem]?) { actionItems = items }
+    mutating func resetDecisionLog() { decisionLog = [] }
+    mutating func resetBriefings() { briefing = nil; researchBriefing = nil }
+
     /// 기존 라운드 요약 교체 (피드백 반영 시)
     mutating func updateRoundSummary(at index: Int, with summary: RoundSummary) {
         guard index >= 0, index < roundSummaries.count else { return }

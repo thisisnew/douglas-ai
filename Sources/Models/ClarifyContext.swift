@@ -27,4 +27,11 @@ struct ClarifyContext: Codable {
         self.delegationInfo = delegationInfo
         self.playbook = playbook
     }
+
+    // MARK: - 도메인 메서드
+
+    mutating func setIntakeData(_ data: IntakeData) { intakeData = data }
+    mutating func setPlaybook(_ pb: ProjectPlaybook) { playbook = pb }
+    mutating func setClarifySummary(_ summary: String?) { clarifySummary = summary }
+    mutating func setDelegationInfo(_ info: DelegationInfo?) { delegationInfo = info }
 }

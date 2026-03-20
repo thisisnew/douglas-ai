@@ -220,8 +220,8 @@ extension RoomManager {
             if approved {
                 // 승인됨 → clarify 요약 저장 + delegation 분리 + planning 복귀
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].clarifyContext.delegationInfo = parseDelegationBlock(currentSummary)
-                    rooms[i].clarifyContext.clarifySummary = stripDelegationBlock(currentSummary)
+                    rooms[i].clarifyContext.setDelegationInfo(parseDelegationBlock(currentSummary))
+                    rooms[i].clarifyContext.setClarifySummary(stripDelegationBlock(currentSummary))
                     rooms[i].transitionTo(.planning)
                 }
                 break
@@ -930,11 +930,11 @@ extension RoomManager {
                 if lower.contains("추출") || lower.contains("extract") { return .document }
                 return .document
             }()
-            rooms[idx].taskBrief = TaskBrief(
+            rooms[idx].setTaskBrief(TaskBrief(
                 goal: actualTask,
                 outputType: inferredOutput,
                 needsClarification: false
-            )
+            ))
             scheduleSave()
             return
         }
@@ -964,10 +964,14 @@ extension RoomManager {
             let hasIntakeData = rooms[idx].clarifyContext.intakeData != nil
             let hasURL = actualTask.range(of: "https?://", options: .regularExpression) != nil
             if hasExplicitIntent && brief.needsClarification && (hasImageAttachment || hasURL || hasIntakeData) {
-                brief.needsClarification = false
-                brief.questions = []
+                brief = TaskBrief(
+                    goal: brief.goal, constraints: brief.constraints,
+                    successCriteria: brief.successCriteria, nonGoals: brief.nonGoals,
+                    overallRisk: brief.overallRisk, outputType: brief.outputType,
+                    needsClarification: false, questions: []
+                )
             }
-            rooms[idx].taskBrief = brief
+            rooms[idx].setTaskBrief(brief)
         } else {
             print("[DOUGLAS] ⚠️ TaskBrief 생성 실패 — 키워드 기반 fallback으로 진행")
         }
@@ -1020,7 +1024,7 @@ extension RoomManager {
                 ) {
                     currentBrief = updatedBrief
                     if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                        rooms[i].taskBrief = updatedBrief
+                        rooms[i].setTaskBrief(updatedBrief)
                     }
                 } else {
                     break  // 재생성 실패 시 기존 brief로 진행

@@ -18,4 +18,6 @@ struct ProjectContext: Codable, Equatable {
         self.buildCommand = buildCommand
         self.testCommand = testCommand
     }
+
+    mutating func setWorktreePath(_ path: String?) { worktreePath = path }
 }

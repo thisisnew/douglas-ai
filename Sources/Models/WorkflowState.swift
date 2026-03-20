@@ -52,6 +52,18 @@ struct WorkflowState: Equatable {
         phaseSummaries[phase] = summary
     }
 
+    // MARK: - 필드별 도메인 메서드 (private(set) 봉인 준비)
+
+    mutating func setIntent(_ intent: WorkflowIntent) { self.intent = intent }
+    mutating func setModifiers(_ modifiers: Set<IntentModifier>) { self.modifiers = modifiers }
+    mutating func setNeedsPlan(_ needsPlan: Bool) { self.needsPlan = needsPlan }
+    mutating func setAutoDocOutput(_ autoDoc: Bool, documentType: DocumentType? = nil) {
+        self.autoDocOutput = autoDoc
+        if let dt = documentType { self.documentType = dt }
+    }
+    mutating func setDocumentType(_ type: DocumentType?) { self.documentType = type }
+    mutating func setActiveRuleIDs(_ ids: Set<UUID>?) { self.activeRuleIDs = ids }
+
     init(
         intent: WorkflowIntent? = nil,
         documentType: DocumentType? = nil,

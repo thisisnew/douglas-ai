@@ -70,7 +70,7 @@ extension RoomManager {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
         let docType = suggestedType ?? .freeform
-        rooms[idx].workflowState.documentType = docType
+        rooms[idx].workflowState.setDocumentType(docType)
         rooms[idx].transitionTo(.inProgress)
         rooms[idx].completedAt = nil
 
@@ -313,8 +313,8 @@ extension RoomManager {
 
         if let docResult = DocumentRequestDetector.quickDetect(recentUserMessages),
            docResult.isDocumentRequest {
-            rooms[idx].workflowState.autoDocOutput = true
-            rooms[idx].workflowState.documentType = docResult.suggestedDocType ?? .freeform
+            rooms[idx].workflowState.setAutoDocOutput(true)
+            rooms[idx].workflowState.setDocumentType(docResult.suggestedDocType ?? .freeform)
         }
     }
 
@@ -350,8 +350,8 @@ extension RoomManager {
         }
 
         // 이전 사이클 문서 플래그 리셋
-        rooms[idx].workflowState.autoDocOutput = false
-        rooms[idx].workflowState.documentType = nil
+        rooms[idx].workflowState.setAutoDocOutput(false)
+        rooms[idx].workflowState.setDocumentType(nil)
 
         // 문서 요청 감지 → 플래그만 설정 (숏컷 제거 — assemble 경유로 적합 에이전트 판단)
         var detectedDocType: DocumentType? = nil
@@ -371,8 +371,8 @@ extension RoomManager {
         }
 
         if let docType = detectedDocType {
-            rooms[idx].workflowState.documentType = docType
-            rooms[idx].workflowState.autoDocOutput = true
+            rooms[idx].workflowState.setDocumentType(docType)
+            rooms[idx].workflowState.setAutoDocOutput(true)
         }
 
         // 타이핑 인디케이터 해제 (이후 각 phase에서 개별 설정)
@@ -453,14 +453,13 @@ extension RoomManager {
         // ContextCarryoverPolicy 적용: 리셋 대상 컨텍스트 정리
         let carryover = followUpDecision.contextPolicy
         if !carryover.keepBriefing, let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].discussion.briefing = nil
-            rooms[i].discussion.researchBriefing = nil
+            rooms[i].discussion.resetBriefings()
         }
         if !carryover.keepActionItems, let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].discussion.actionItems = nil
+            rooms[i].discussion.setActionItems(nil)
         }
         if !carryover.keepDecisionLog, let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].discussion.decisionLog = []
+            rooms[i].discussion.resetDecisionLog()
         }
         if !carryover.keepWorkLog, let i = rooms.firstIndex(where: { $0.id == roomID }) {
             rooms[i].workLog = nil
@@ -502,13 +501,13 @@ extension RoomManager {
                 )
             }
         }
-        rooms[idx].workflowState.intent = resolvedIntent ?? .quickAnswer
+        rooms[idx].workflowState.setIntent(resolvedIntent ?? .quickAnswer)
 
         // quickAnswer로 확정된 경우 문서 오탐 리셋 (단순 질문은 문서 요청이 아님)
         if rooms[idx].workflowState.intent == .quickAnswer && detectedDocType != nil {
             detectedDocType = nil
-            rooms[idx].workflowState.autoDocOutput = false
-            rooms[idx].workflowState.documentType = nil
+            rooms[idx].workflowState.setAutoDocOutput(false)
+            rooms[idx].workflowState.setDocumentType(nil)
         }
 
         syncAgentStatuses()

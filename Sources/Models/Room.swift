@@ -47,14 +47,14 @@ enum RuntimeRole: String, Codable {
 // MARK: - Plan C: TaskBrief (Understand 출력)
 
 struct TaskBrief: Codable, Equatable {
-    var goal: String              // "거래처 납기 지연 사과 메일 발송"
-    var constraints: [String]     // ["격식체", "새 납기일: 3/20"]
-    var successCriteria: [String] // ["사과 표현", "새 납기일 명시"]
-    var nonGoals: [String]        // ["전체 공지 아님"]
-    var overallRisk: RiskLevel    // .high (이메일 전송)
-    var outputType: OutputType    // .message
-    var needsClarification: Bool  // 정보 부족 시 true → 질문 1회 표시
-    var questions: [String]       // needsClarification=true 시 질문 목록 (최대 2개)
+    let goal: String              // "거래처 납기 지연 사과 메일 발송"
+    let constraints: [String]     // ["격식체", "새 납기일: 3/20"]
+    let successCriteria: [String] // ["사과 표현", "새 납기일 명시"]
+    let nonGoals: [String]        // ["전체 공지 아님"]
+    let overallRisk: RiskLevel    // .high (이메일 전송)
+    let outputType: OutputType    // .message
+    let needsClarification: Bool  // 정보 부족 시 true → 질문 1회 표시
+    let questions: [String]       // needsClarification=true 시 질문 목록 (최대 2개)
 
     init(
         goal: String,
@@ -767,6 +767,15 @@ struct Room: Identifiable, Codable {
         transitionTo(.planning)
         completedAt = nil
     }
+
+    // MARK: - 메시지 + TaskBrief 도메인 메서드
+
+    mutating func addMessage(_ message: ChatMessage) { messages.append(message) }
+    mutating func insertMessage(_ message: ChatMessage, at index: Int) {
+        guard index >= 0, index <= messages.count else { return }
+        messages.insert(message, at: index)
+    }
+    mutating func setTaskBrief(_ brief: TaskBrief?) { taskBrief = brief }
 
     init(
         id: UUID = UUID(),

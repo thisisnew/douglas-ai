@@ -139,7 +139,7 @@ extension RoomManager {
                    currentRoom2.workflowState.intent == .task {
                     let planNeeded = await classifyNeedsPlan(roomID: roomID, task: resolvedTask)
                     if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                        rooms[i].workflowState.needsPlan = planNeeded
+                        rooms[i].workflowState.setNeedsPlan(planNeeded)
                     }
                     scheduleSave()
                 }
@@ -217,14 +217,14 @@ extension RoomManager {
         if rooms[idx].workflowState.intent == nil {
             // 1) quickClassify 시도 (명확한 경우 즉시 결정)
             if let quick = IntentClassifier.quickClassify(task) {
-                rooms[idx].workflowState.intent = quick
+                rooms[idx].workflowState.setIntent(quick)
                 scheduleSave()
             } else {
                 // 2) LLM 분류 폴백 — 자동 적용, 사용자 선택 없음
                 guard let firstAgentID = rooms[idx].assignedAgentIDs.first,
                       let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
                       let provider = providerManager?.provider(named: agent.providerName) else {
-                    rooms[idx].workflowState.intent = .task
+                    rooms[idx].workflowState.setIntent(.task)
                     return
                 }
 
@@ -234,7 +234,7 @@ extension RoomManager {
                     provider: provider,
                     model: lightModel
                 )
-                rooms[idx].workflowState.intent = classified
+                rooms[idx].workflowState.setIntent(classified)
                 scheduleSave()
             }
         }
@@ -243,8 +243,7 @@ extension RoomManager {
         if let resolvedIdx = rooms.firstIndex(where: { $0.id == roomID }) {
             let currentTask = task
             if let docResult = DocumentRequestDetector.quickDetect(currentTask), docResult.isDocumentRequest {
-                rooms[resolvedIdx].workflowState.autoDocOutput = true
-                rooms[resolvedIdx].workflowState.documentType = docResult.suggestedDocType ?? .freeform
+                rooms[resolvedIdx].workflowState.setAutoDocOutput(true, documentType: docResult.suggestedDocType ?? .freeform)
             }
         }
     }
@@ -453,12 +452,12 @@ extension RoomManager {
             jiraDataList: jiraDataList,
             urls: urls
         )
-        rooms[idx].clarifyContext.intakeData = intakeData
+        rooms[idx].clarifyContext.setIntakeData(intakeData)
 
         // 4) 플레이북 로드 (내부 데이터만, UI 메시지 없음)
         if let projectPath = rooms[idx].primaryProjectPath {
             if let playbook = PlaybookManager.load(from: projectPath) {
-                rooms[idx].clarifyContext.playbook = playbook
+                rooms[idx].clarifyContext.setPlaybook(playbook)
             }
         }
 
@@ -467,7 +466,7 @@ extension RoomManager {
            let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
            !agent.workRules.isEmpty {
             let activeIDs = WorkRuleMatcher.match(rules: agent.workRules, taskText: task)
-            rooms[idx].workflowState.activeRuleIDs = activeIDs
+            rooms[idx].workflowState.setActiveRuleIDs(activeIDs)
         }
 
         scheduleSave()
