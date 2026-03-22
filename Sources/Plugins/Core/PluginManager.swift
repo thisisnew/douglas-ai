@@ -136,6 +136,16 @@ final class PluginManager: ObservableObject {
         plugins.contains { $0.info.id == id }
     }
 
+    /// LLM이 생성한 JSON으로 플러그인 자동 생성 + 설치
+    func createPluginFromLLM(jsonSpec: String) -> (success: Bool, message: String) {
+        do {
+            let (manifest, scripts) = try LLMPluginBuilder.buildPlugin(jsonSpec: jsonSpec)
+            return createPlugin(manifest: manifest, scripts: scripts)
+        } catch {
+            return (false, "플러그인 생성 실패: \(error.localizedDescription)")
+        }
+    }
+
     /// 빌더에서 생성된 플러그인을 직접 설치
     func createPlugin(
         manifest: PluginManifest,
