@@ -1299,6 +1299,7 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
               파일만 업로드(빈 task) 시 작업 의도 질문 후 대기 (2분 타임아웃)
               bare URL(명시적 의도 없음) 시 의도 질문 + Jira 티켓 정보 포함
 ② Assemble ── 3-tier 가중치 에이전트 매칭 (Tier1: skillTags×5, Tier2: workModes+OutputStyle+PositionBonus×2, Tier3: keyword+semantic×3)
+              Jira 도메인 힌트 직접 주입: JiraDomainDetector evidence → Tier1 보너스 (jiraDomainBonus=0.3, MatchScoringConfig)
               containsWholeWord(≤3자 키워드 false positive 방지) + 동의어 30+그룹 + empty skillTags 상한 0.75
               LLM에 agentRoster(name+skillTags+workModes+outputStyles) + position 지시 → `(position=implementer)` 파싱
               confidence 0.7↑ 자동, 0.5~0.7 사용자확인, 0.5↓ 제외 + WorkflowPosition 저장(Room.agentPositions) + 팀 확정 메시지

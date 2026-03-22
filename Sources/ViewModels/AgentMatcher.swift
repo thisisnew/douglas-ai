@@ -16,7 +16,8 @@ enum AgentMatcher {
         documentType: DocumentType? = nil,
         taskBrief: TaskBrief? = nil,
         config: MatchScoringConfig = .default,
-        pluginSkillTags: [UUID: [String]] = [:]
+        pluginSkillTags: [UUID: [String]] = [:],
+        jiraDomainHints: [JiraDomainDetector.DomainHint] = []
     ) -> [RoleRequirement] {
         var results = requirements
         var usedAgentIDs: Set<UUID> = []
@@ -31,7 +32,8 @@ enum AgentMatcher {
                 taskBrief: taskBrief,
                 position: results[i].position,
                 config: config,
-                pluginSkillTags: pluginSkillTags
+                pluginSkillTags: pluginSkillTags,
+                jiraDomainHints: jiraDomainHints
             )
 
             if let agent {
@@ -123,7 +125,8 @@ enum AgentMatcher {
         taskBrief: TaskBrief? = nil,
         position: WorkflowPosition? = nil,
         config: MatchScoringConfig = .default,
-        pluginSkillTags: [UUID: [String]] = [:]  // 플러그인 주입 태그 (agent.id → tags)
+        pluginSkillTags: [UUID: [String]] = [:],  // 플러그인 주입 태그 (agent.id → tags)
+        jiraDomainHints: [JiraDomainDetector.DomainHint] = []
     ) -> (Agent?, Double) {
         var keywords = roleName.lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
@@ -186,6 +189,19 @@ enum AgentMatcher {
                 }
                 let maxPossible = max(originalKeywordCount + preferredKWs.count, 1)
                 tier1Score = min(Double(tagHits) / Double(maxPossible), 1.0)  // 0~1
+            }
+
+            // Jira 도메인 힌트 보너스: 티켓 도메인 evidence와 에이전트 skillTags 교차
+            if !jiraDomainHints.isEmpty {
+                let allEvidence = jiraDomainHints.flatMap { $0.evidence }
+                let lowerTags = allSkillTags.map { $0.lowercased() }
+                let domainHits = allEvidence.filter { ev in
+                    lowerTags.contains(where: { vocabulary.containsWholeWord($0, keyword: ev) })
+                }
+                if !domainHits.isEmpty {
+                    let bonus = min(Double(domainHits.count) / Double(allEvidence.count), 1.0) * config.jiraDomainBonus
+                    tier1Score = min(tier1Score + bonus, 1.0)
+                }
             }
 
             // --- Tier 2: workModes 매칭 (가중치 2) ---

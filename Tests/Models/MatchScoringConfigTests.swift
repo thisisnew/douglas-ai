@@ -45,7 +45,7 @@ struct MatchScoringConfigTests {
             autoMatchThreshold: 0.8, suggestThreshold: 0.6,
             emptyTagsCap: 0.65, outputStyleBonus: 0.05,
             positionDirectBonus: 0.2, positionTemplateMaxBonus: 0.2,
-            goalKeywordLimit: 3
+            goalKeywordLimit: 3, jiraDomainBonus: 0.25
         )
         #expect(config.tier1Weight == 3.0)
         #expect(config.autoMatchThreshold == 0.8)

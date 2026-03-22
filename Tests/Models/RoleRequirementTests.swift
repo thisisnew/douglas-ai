@@ -176,7 +176,7 @@ struct RoleRequirementTests {
             autoMatchThreshold: 0.9, suggestThreshold: 0.7,
             emptyTagsCap: 0.75, outputStyleBonus: 0.03,
             positionDirectBonus: 0.3, positionTemplateMaxBonus: 0.25,
-            goalKeywordLimit: 5
+            goalKeywordLimit: 5, jiraDomainBonus: 0.3
         )
         r.applyMatch(agent: agent, confidence: 0.85, config: config)
         #expect(r.status == .suggested)  // 0.85 < 0.9

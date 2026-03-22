@@ -20,6 +20,7 @@ struct MatchScoringConfig {
     let positionDirectBonus: Double       // LLM 지정 position 직접 매칭 보너스
     let positionTemplateMaxBonus: Double  // PositionTemplate 보너스 상한
     let goalKeywordLimit: Int             // goal 키워드 상한
+    let jiraDomainBonus: Double           // Jira 도메인 힌트 매칭 보너스
 
     static let `default` = MatchScoringConfig(
         tier1Weight: 5.0,
@@ -31,6 +32,7 @@ struct MatchScoringConfig {
         outputStyleBonus: 0.03,
         positionDirectBonus: 0.3,
         positionTemplateMaxBonus: 0.25,
-        goalKeywordLimit: 5
+        goalKeywordLimit: 5,
+        jiraDomainBonus: 0.3
     )
 }
