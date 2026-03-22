@@ -577,9 +577,12 @@ extension RoomManager {
         // directMatch는 "명시적 위임"(에이전트 호명)에만 적용
         // 비-구현 작업(분석/도출/조사)에서는 도메인 키워드가 에이전트 이름과 겹쳐도
         // LLM 역할 분석에 위임하여 역할 적합성을 판단하게 함
+        // discussion/research intent에서는 directMatch 비활성화 (다양한 관점 필요)
+        let isDiscussionLike = (intent == .discussion || intent == .research)
         let nonImplementKeywords: Set<String> = ["분석", "도출", "파악", "조사", "리서치",
-                                                  "정리", "요약", "취합", "검토", "리뷰"]
-        let hasNonImplementAction = nonImplementKeywords.contains(where: { taskLowered.contains($0) })
+                                                  "정리", "요약", "취합", "검토", "리뷰",
+                                                  "작업해야", "뭘해야", "무슨작업", "할일", "알려줘"]
+        let hasNonImplementAction = isDiscussionLike || nonImplementKeywords.contains(where: { taskLowered.contains($0) })
 
         if !directMatches.isEmpty && !hasNonImplementAction {
             // directMatches: 구현 작업에서 사용자가 이름을 직접 언급한 에이전트
