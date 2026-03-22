@@ -126,10 +126,12 @@ struct Agent: Identifiable, Codable, Hashable {
     var workModes: Set<WorkMode>                   // 업무형태: [.create, .execute, .review]
     var outputStyles: Set<OutputStyle>             // 산출물 유형: [.code, .document]
 
-    /// 장착된 플러그인 ID 목록 (RPG식 스킬 주입)
+    /// 장착된 확장 능력 ID 목록 (플러그인 시스템에서 관리, RPG식 스킬 주입)
+    /// 타입 의존 없음: Agent는 Plugin 프로토콜을 import하지 않음 — 순수 ID 목록
     var equippedPluginIDs: [String]
 
-    /// 에이전트별 플러그인 설정 (pluginID → [key: value])
+    /// 확장 능력별 에이전트 설정 (extensionID → [key: value])
+    /// 타입 의존 없음: Agent는 설정 구조를 모름 — PluginManager가 해석
     /// 예: ["slack": ["channelFilter": "#backend", "triggerPatterns": "@dev"]]
     var pluginConfigs: [String: [String: String]]
 

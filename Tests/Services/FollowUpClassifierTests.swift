@@ -185,4 +185,46 @@ struct FollowUpClassifierTests {
         let indices = FollowUpClassifier.parseItemIndices(from: "전부 구현하자")
         #expect(indices == nil)
     }
+
+    // MARK: - documentResult 컨텍스트 캐리오버
+
+    @Test("documentResult — keepBriefing=true")
+    func documentResult_keepsBriefing() {
+        let decision = FollowUpClassifier.classify(
+            message: "기획서로 정리해줘",
+            previousState: .discussionCompleted,
+            hasActionItems: true,
+            hasBriefing: true,
+            hasWorkLog: false
+        )
+        #expect(decision.intent == .documentResult)
+        #expect(decision.contextPolicy.keepBriefing == true)
+        #expect(decision.contextPolicy.keepActionItems == true)
+    }
+
+    @Test("documentResult — keepWorkLog=true, keepStepResults=true")
+    func documentResult_keepsWorkResults() {
+        let decision = FollowUpClassifier.classify(
+            message: "보고서로 정리해줘",
+            previousState: .implementCompleted,
+            hasActionItems: false,
+            hasBriefing: true,
+            hasWorkLog: true
+        )
+        #expect(decision.intent == .documentResult)
+        #expect(decision.contextPolicy.keepWorkLog == true)
+        #expect(decision.contextPolicy.keepStepResults == true)
+    }
+
+    @Test("documentResult — discussion 후에도 documentation intent")
+    func documentResult_afterDiscussion() {
+        let decision = FollowUpClassifier.classify(
+            message: "마크다운으로 정리해줘",
+            previousState: .discussionCompleted,
+            hasActionItems: false,
+            hasBriefing: true,
+            hasWorkLog: false
+        )
+        #expect(decision.resolvedWorkflowIntent == .documentation)
+    }
 }

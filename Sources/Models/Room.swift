@@ -855,6 +855,18 @@ struct Room: Identifiable, Codable {
         self.followUpActions = []
     }
 
+    // MARK: - Factory Methods
+
+    /// 마스터 에이전트가 만드는 작업 방
+    static func forTask(title: String, agentIDs: [UUID] = [], masterAgentID: UUID, projectPaths: [String] = []) -> Room {
+        Room(title: title, assignedAgentIDs: agentIDs, createdBy: .master(agentID: masterAgentID), projectPaths: projectPaths)
+    }
+
+    /// 사용자가 직접 만드는 방
+    static func forUser(title: String, agentIDs: [UUID] = [], projectPaths: [String] = []) -> Room {
+        Room(title: title, assignedAgentIDs: agentIDs, createdBy: .user, projectPaths: projectPaths)
+    }
+
     // MARK: - Codable
 
     private enum CodingKeys: String, CodingKey {
