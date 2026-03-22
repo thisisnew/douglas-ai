@@ -9,6 +9,7 @@ enum PreIntentRoute: Equatable {
     case fileOnly                        // 텍스트 없음 + 파일만 → "뭘 할까요?" 대기
     case command(CommandType)            // 명시적 명령 ("에이전트 불러와" 등)
     case classified(WorkflowIntent)      // quickAnswer 또는 task
+    case pendingIntent                   // URL/참조만 입력 (의도 미정) → understand에서 사용자에게 질문
     case ambiguous                       // 분류 불가 → 사용자 선택 UI
 }
 
@@ -43,6 +44,12 @@ enum IntentClassifier {
         // 3) 기존 quickClassify로 intent 분류
         if let intent = quickClassify(trimmed) {
             return .classified(intent)
+        }
+
+        // 3.5) Jira/ticket URL만 입력 (명시적 의도 없음) → intent 미정으로 방 생성
+        //      executeUnderstandPhase에서 사용자에게 의도 질문 후 재분류
+        if containsTicketURL(trimmed.lowercased()) && !hasExplicitUserIntent(trimmed) {
+            return .pendingIntent
         }
 
         // 4) 분류 불가 → task가 기본값
@@ -111,7 +118,8 @@ enum IntentClassifier {
 
         // 작업 도출 의도가 명확한 키워드 → 입력 소스(URL/텍스트)에 무관하게 discussion
         // "파악"은 research 맥락에서도 사용되므로 제외 (vocab 점수에 위임)
-        let derivationKeywords = ["도출", "뭘해야", "어떤작업", "할일", "작업목록"]
+        let derivationKeywords = ["도출", "뭘해야", "무슨작업", "무슨 작업", "작업해야",
+                                   "어떤작업", "어떤 작업", "할일", "작업목록"]
         if derivationKeywords.contains(where: { text.contains($0) }) {
             return .discussion
         }
@@ -123,7 +131,8 @@ enum IntentClassifier {
 
         // Jira URL + 분석/도출 키워드 → discussion (시나리오 2)
         if containsTicketURL(text) {
-            let analysisKeywords = ["분석", "도출", "파악", "정리", "뭘해야", "어떤작업", "할일", "작업목록", "검토", "리뷰"]
+            let analysisKeywords = ["분석", "도출", "파악", "정리", "뭘해야", "무슨작업", "무슨 작업",
+                                       "작업해야", "어떤작업", "어떤 작업", "할일", "작업목록", "검토", "리뷰"]
             if analysisKeywords.contains(where: { text.contains($0) }) {
                 return .discussion
             }

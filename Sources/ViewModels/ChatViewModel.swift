@@ -199,6 +199,31 @@ class ChatViewModel: ObservableObject {
             agentStore.updateStatus(agentID: agent.id, status: .idle)
             sendNotification(agentName: agent.name, message: "작업 시작")
 
+        case .pendingIntent:
+            // URL/참조만 입력 (의도 미정) → intent nil로 방 생성, understand에서 사용자에게 질문
+            let roomTitle = Self.extractRoomTitle(from: text, hasAttachments: hasAttachments)
+            let startMsg = ChatMessage(
+                role: .assistant,
+                content: "확인합니다. 작업방에서 진행합니다.",
+                agentName: agent.name,
+                messageType: .delegation
+            )
+            appendMessage(startMsg, for: agent.id)
+
+            let room = roomManager.createRoom(
+                title: roomTitle,
+                agentIDs: [agent.id],
+                createdBy: .master(agentID: agent.id),
+                intent: nil  // intent 미정 → executeUnderstandPhase에서 재분류
+            )
+            roomManager.selectedRoomID = room.id
+            roomManager.pendingAutoOpenRoomID = room.id
+            let userMsg = ChatMessage(role: .user, content: text, attachments: attachments)
+            roomManager.appendMessage(userMsg, to: room.id)
+            roomManager.launchWorkflow(roomID: room.id, task: text)
+            agentStore.updateStatus(agentID: agent.id, status: .idle)
+            sendNotification(agentName: agent.name, message: "참조 확인")
+
         case .ambiguous:
             // preRoute가 더 이상 .ambiguous를 반환하지 않지만, 안전장치로 task 처리
             let roomTitle = Self.extractRoomTitle(from: text, hasAttachments: hasAttachments)

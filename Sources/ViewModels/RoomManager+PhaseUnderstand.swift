@@ -908,7 +908,7 @@ extension RoomManager {
         )
         appendMessage(analyzeMsg, to: roomID)
 
-        // 3) Intent: quickAnswer vs task 분류
+        // 3) Intent 분류: 사용자 응답(actualTask) 기반으로 quickClassify → LLM 폴백
         await executeIntentPhase(roomID: roomID, task: actualTask)
         guard !Task.isCancelled,
               rooms.first(where: { $0.id == roomID })?.isActive == true else { return }

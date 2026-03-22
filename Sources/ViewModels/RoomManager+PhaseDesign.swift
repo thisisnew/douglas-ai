@@ -377,8 +377,10 @@ extension RoomManager {
         // --- Turn 1: 각 전문가가 자기 관점에서 의견 제시 (병렬) ---
         var opinions: [(name: String, content: String)] = []
 
-        // 태스크 그룹 진입 전 시스템 프롬프트 미리 계산 (@MainActor 격리)
+        // 태스크 그룹 진입 전 시스템 프롬프트 + 도구 컨텍스트 미리 계산 (@MainActor 격리)
         let agentSystemPrompts = Dictionary(uniqueKeysWithValues: agentInfos.map { ($0.agent.id, systemPrompt(for: $0.agent, roomID: roomID)) })
+        let agentContexts = Dictionary(uniqueKeysWithValues: agentInfos.map { ($0.id, makeToolContext(roomID: roomID, currentAgentID: $0.id)) })
+        let roomHistory = buildRoomHistory(roomID: roomID)
 
         let turn1ProgressMsg = ChatMessage(role: .system, content: "각 전문가 의견 수렴 중", messageType: .progress)
         appendMessage(turn1ProgressMsg, to: roomID)
@@ -386,6 +388,7 @@ extension RoomManager {
         await withTaskGroup(of: (String, String, UUID).self) { group in
             for info in agentInfos {
                 let agentPrompt = agentSystemPrompts[info.agent.id] ?? info.agent.resolvedSystemPrompt
+                let context = agentContexts[info.id]!
                 group.addTask { [self] in
                     guard !Task.isCancelled else { return ("", "", info.id) }
 
@@ -413,40 +416,24 @@ extension RoomManager {
                     }
 
                     do {
-                        let userContent = "다음 주제에 대해 당신의 의견을 말해주세요:\n\n\(task)"
-                        let result: String
-
-                        // 이미지가 있으면 sendMessageWithTools로 이미지 데이터 전달
-                        if hasImages {
-                            let messages = [ConversationMessage.user(userContent, attachments: imageAttachments)]
-                            let responseContent = try await info.provider.sendMessageWithTools(
-                                model: info.agent.modelName,
-                                systemPrompt: prompt,
-                                messages: messages,
-                                tools: []
-                            )
-                            switch responseContent {
-                            case .text(let t): result = t
-                            case .toolCalls: result = ""
-                            case .mixed(let t, _): result = t
-                            }
-                        } else {
-                            let buffer = StreamBuffer()
-                            result = try await info.provider.sendMessageStreaming(
-                                model: info.agent.modelName,
-                                systemPrompt: prompt,
-                                messages: [("user", userContent)],
-                                onChunk: { [weak self] chunk in
-                                    guard let self else { return }
-                                    let current = buffer.append(chunk)
-                                    Task { @MainActor in self.updateMessageContent(placeholderID, newContent: current, in: roomID) }
-                                }
-                            )
-                        }
+                        let buffer = StreamBuffer()
+                        let response = try await ToolExecutor.smartSend(
+                            provider: info.provider,
+                            agent: info.agent,
+                            systemPrompt: prompt,
+                            conversationMessages: roomHistory,
+                            context: context,
+                            onStreamChunk: { [weak self] chunk in
+                                guard let self else { return }
+                                let current = buffer.append(chunk)
+                                Task { @MainActor in self.updateMessageContent(placeholderID, newContent: current, in: roomID) }
+                            },
+                            useTools: true
+                        )
                         await MainActor.run { [self] in
-                            self.updateMessageContent(placeholderID, newContent: result, in: roomID)
+                            self.updateMessageContent(placeholderID, newContent: stripTrailingOptions(response), in: roomID)
                         }
-                        return (info.agent.name, result, info.id)
+                        return (info.agent.name, response, info.id)
                     } catch {
                         await MainActor.run { [self] in
                             self.updateMessageContent(placeholderID, newContent: "의견 작성 오류: \(error.localizedDescription)", in: roomID)

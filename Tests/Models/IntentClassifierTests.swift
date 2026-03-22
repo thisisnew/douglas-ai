@@ -299,6 +299,24 @@ struct IntentClassifierTests {
         #expect(result == .research)
     }
 
+    @Test("'무슨 작업해야되는지 알려줘' → discussion (무슨 작업 패턴)")
+    func whatWorkToDo_discussion() {
+        let result = IntentClassifier.quickClassify("이거보고 무슨 작업해야되는지 알려줘")
+        #expect(result == .discussion)
+    }
+
+    @Test("URL + '무슨 작업해야되는지 알려줘' → discussion")
+    func urlPlusWhatWork_discussion() {
+        let result = IntentClassifier.quickClassify("https://jira.company.net/browse/PROJ-1 이거보고 무슨 작업해야되는지 알려줘")
+        #expect(result == .discussion)
+    }
+
+    @Test("URL만 입력 → preRoute pendingIntent")
+    func urlOnly_pendingIntent() {
+        let route = IntentClassifier.preRoute("https://jira.company.net/browse/PROJ-1", hasAttachments: false)
+        #expect(route == .pendingIntent)
+    }
+
     // MARK: - Phase 2: Bigram 매칭 (개선안 B)
 
     @Test("'작업 도출' 띄어쓰기 → discussion (bigram)")
