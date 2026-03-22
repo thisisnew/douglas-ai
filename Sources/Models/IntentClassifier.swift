@@ -109,6 +109,13 @@ enum IntentClassifier {
             }
         }
 
+        // 작업 도출 의도가 명확한 키워드 → 입력 소스(URL/텍스트)에 무관하게 discussion
+        // "파악"은 research 맥락에서도 사용되므로 제외 (vocab 점수에 위임)
+        let derivationKeywords = ["도출", "뭘해야", "어떤작업", "할일", "작업목록"]
+        if derivationKeywords.contains(where: { text.contains($0) }) {
+            return .discussion
+        }
+
         // Jira/외부 URL만 넣은 경우: 의도를 알 수 없으므로 사용자에게 선택하게 함
         if containsTicketURL(text) && !hasExplicitUserIntent(text) {
             return nil

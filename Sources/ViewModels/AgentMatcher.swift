@@ -191,7 +191,8 @@ enum AgentMatcher {
                 tier1Score = min(Double(tagHits) / Double(maxPossible), 1.0)  // 0~1
             }
 
-            // Jira 도메인 힌트 보너스: 티켓 도메인 evidence와 에이전트 skillTags 교차
+            // 도메인 힌트 보너스: 도메인 evidence와 에이전트 skillTags 교차
+            // intent에 따라 가중치 조절 — 분석/토론은 도메인보다 역할 적합성이 중요
             if !domainHints.isEmpty {
                 let allEvidence = domainHints.flatMap { $0.evidence }
                 let lowerTags = allSkillTags.map { $0.lowercased() }
@@ -199,7 +200,13 @@ enum AgentMatcher {
                     lowerTags.contains(where: { vocabulary.containsWholeWord($0, keyword: ev) })
                 }
                 if !domainHits.isEmpty {
-                    let bonus = min(Double(domainHits.count) / Double(allEvidence.count), 1.0) * config.jiraDomainBonus
+                    let effectiveBonus: Double
+                    if let intent = intent, intent == .discussion || intent == .research {
+                        effectiveBonus = config.jiraDomainBonus * 0.5
+                    } else {
+                        effectiveBonus = config.jiraDomainBonus
+                    }
+                    let bonus = min(Double(domainHits.count) / Double(allEvidence.count), 1.0) * effectiveBonus
                     tier1Score = min(tier1Score + bonus, 1.0)
                 }
             }

@@ -267,6 +267,38 @@ struct IntentClassifierTests {
         #expect(result == .discussion)
     }
 
+    // MARK: - URL 없이 도출/파악 키워드 → discussion
+
+    @Test("'확인해서 작업할거 도출해줘' → discussion (Clarify 응답)")
+    func derivationKeyword_noURL() {
+        let result = IntentClassifier.quickClassify("확인해서 작업할거 도출해줘")
+        #expect(result == .discussion)
+    }
+
+    @Test("'뭘해야 하는지 알려줘' → discussion")
+    func whatToDo_discussion() {
+        let result = IntentClassifier.quickClassify("이 티켓에서 뭘해야 하는지 알려줘")
+        #expect(result == .discussion)
+    }
+
+    @Test("'할일 정리해줘' → discussion")
+    func todoList_discussion() {
+        let result = IntentClassifier.quickClassify("할일 정리해줘")
+        #expect(result == .discussion)
+    }
+
+    @Test("'로그인 기능 구현해줘' → task (도출 키워드 없음)")
+    func implementTask_staysTask() {
+        let result = IntentClassifier.quickClassify("로그인 기능 구현해줘")
+        #expect(result == .task)
+    }
+
+    @Test("'현재 상태 파악해줘' → research (파악은 research, 도출과 구분)")
+    func investigate_staysResearch() {
+        let result = IntentClassifier.quickClassify("현재 상태 파악해줘")
+        #expect(result == .research)
+    }
+
     // MARK: - Phase 2: Bigram 매칭 (개선안 B)
 
     @Test("'작업 도출' 띄어쓰기 → discussion (bigram)")

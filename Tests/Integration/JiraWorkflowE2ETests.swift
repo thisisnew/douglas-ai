@@ -215,4 +215,14 @@ struct JiraWorkflowE2ETests {
         )
         #expect(frontConf > frontNoHint)
     }
+
+    // MARK: - Clarify 응답에서 intent 재분류
+
+    @Test("Clarify 응답 '확인해서 작업할거 도출해줘' → discussion")
+    func clarifyResponse_derivation_classifiesAsDiscussion() {
+        // Clarify 응답은 URL 없이 텍스트만 옴
+        let clarifyAnswer = "확인해서 작업할거 도출해줘"
+        let intent = IntentClassifier.quickClassify(clarifyAnswer)
+        #expect(intent == .discussion)
+    }
 }

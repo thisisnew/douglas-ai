@@ -98,4 +98,41 @@ struct AgentMatcherJiraTests {
 
         #expect(confEmpty == confNone)
     }
+
+    // MARK: - intent 기반 도메인 보너스 가중치 조절
+
+    @Test("discussion intent → 도메인 보너스 반감")
+    func discussionIntent_halfDomainBonus() {
+        let agent = Self.makeAgent(name: "서버 엔지니어", skillTags: ["spring", "api"], workModes: [.execute, .create])
+        let hints = [DomainHintDetector.DomainHint(domain: "백엔드", evidence: ["api", "spring"])]
+
+        let (_, confTask) = AgentMatcher.matchByTags(
+            roleName: "서버 엔지니어", agents: [agent], excluding: [],
+            intent: .task, domainHints: hints
+        )
+        let (_, confDiscussion) = AgentMatcher.matchByTags(
+            roleName: "서버 엔지니어", agents: [agent], excluding: [],
+            intent: .discussion, domainHints: hints
+        )
+
+        // task에서 보너스가 discussion보다 큼 (반감 효과)
+        #expect(confTask > confDiscussion)
+    }
+
+    @Test("research intent → 도메인 보너스 반감")
+    func researchIntent_halfDomainBonus() {
+        let agent = Self.makeAgent(name: "서버 엔지니어", skillTags: ["spring", "api"], workModes: [.execute, .create])
+        let hints = [DomainHintDetector.DomainHint(domain: "백엔드", evidence: ["api", "spring"])]
+
+        let (_, confTask) = AgentMatcher.matchByTags(
+            roleName: "서버 엔지니어", agents: [agent], excluding: [],
+            intent: .task, domainHints: hints
+        )
+        let (_, confResearch) = AgentMatcher.matchByTags(
+            roleName: "서버 엔지니어", agents: [agent], excluding: [],
+            intent: .research, domainHints: hints
+        )
+
+        #expect(confTask > confResearch)
+    }
 }
