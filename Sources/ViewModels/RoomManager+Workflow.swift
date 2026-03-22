@@ -68,6 +68,7 @@ extension RoomManager {
 
     /// 구조화된 워크플로우 에러 → 방 상태 전이 + 사용자 메시지
     func handleWorkflowError(_ error: WorkflowError, roomID: UUID) {
+        let roomTitle = rooms.first(where: { $0.id == roomID })?.title
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
             rooms[i].fail()
         }
@@ -79,6 +80,11 @@ extension RoomManager {
         appendMessage(msg, to: roomID)
         syncAgentStatuses()
         scheduleSave()
+
+        // Hook dispatch: 작업 실패
+        Task {
+            await hookDispatch?(.roomFailed, HookContext(roomID: roomID, roomTitle: roomTitle))
+        }
     }
 
     // MARK: - Phase 워크플로우 (새 7단계)

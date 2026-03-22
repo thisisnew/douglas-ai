@@ -189,6 +189,9 @@ class RoomManager: ObservableObject, WorkflowHost {
     /// 플러그인 주입 규칙 조회 (PluginManager가 설정)
     var pluginRulesProvider: ((_ agent: Agent) -> [String])?
 
+    /// Hook dispatch (HookManager가 설정)
+    var hookDispatch: ((_ trigger: HookTrigger, _ context: HookContext) async -> Void)?
+
     deinit {
         timerTask?.cancel()
         saveTask?.cancel()
@@ -718,6 +721,12 @@ class RoomManager: ObservableObject, WorkflowHost {
 
         syncAgentStatuses()
         scheduleSave()
+
+        // Hook dispatch: 작업 완료
+        let roomTitle = rooms[idx].title
+        Task {
+            await hookDispatch?(.roomCompleted, HookContext(roomID: roomID, roomTitle: roomTitle))
+        }
     }
 
     /// 사용자가 승인 카드에서 취소 → 작업 종료
