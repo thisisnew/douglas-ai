@@ -803,7 +803,25 @@ extension RoomManager {
                executingAgentIDs(in: roomID).count < 2 {
                 let alreadyAssigned = Set(rooms.first(where: { $0.id == roomID })?.assignedAgentIDs ?? [])
                 let candidates = subAgents.filter { !alreadyAssigned.contains($0.id) }
-                if let additional = AgentMatcher.findBestFallbackMatch(
+
+                // 1차: 도메인 힌트 기반 — Jira 티켓/텍스트에서 감지된 도메인과 매칭
+                var added = false
+                if !domainHints.isEmpty {
+                    let (best, _) = AgentMatcher.matchByTags(
+                        roleName: domainHints.map { $0.domain }.joined(separator: " "),
+                        agents: candidates,
+                        excluding: alreadyAssigned,
+                        intent: intent,
+                        domainHints: domainHints
+                    )
+                    if let best {
+                        addAgent(best.id, to: roomID, silent: true)
+                        added = true
+                    }
+                }
+
+                // 2차 폴백: 도메인 힌트 없으면 task 키워드 기반
+                if !added, let additional = AgentMatcher.findBestFallbackMatch(
                     task: enrichedTask,
                     agents: candidates,
                     intent: intent,
