@@ -252,7 +252,7 @@ class RoomManager: ObservableObject, WorkflowHost {
             buildCommand: buildCommand,
             testCommand: testCommand
         )
-        room.workflowState.intent = intent
+        if let intent { room.workflowState.setIntent(intent) }
 
         // 초기 에이전트의 참조 프로젝트를 방에 병합
         for agentID in agentIDs {

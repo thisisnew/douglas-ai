@@ -73,7 +73,7 @@ final class StepExecutionEngine {
             // 현재 단계 상태 업데이트
             host.updateRoom(id: roomID) { room in
                 room.setCurrentStep(stepIndex)
-                room.plan?.steps[stepIndex].status = .inProgress
+                room.updatePlanStep(at: stepIndex, status: .inProgress)
             }
 
             // 단계 실행
@@ -95,7 +95,7 @@ final class StepExecutionEngine {
                     journalEntry = ""
                 }
                 host.updateRoom(id: roomID) { room in
-                    room.plan?.steps[stepIndex].status = .completed
+                    room.updatePlanStep(at: stepIndex, status: .completed)
                     if !fullResult.isEmpty {
                         while room.plan?.stepResultsFull.count ?? 0 <= stepIndex {
                             room.plan?.stepResultsFull.append("")
@@ -117,7 +117,7 @@ final class StepExecutionEngine {
             } else {
                 // 실패: 워크플로우 중단
                 host.updateRoom(id: roomID) { room in
-                    room.plan?.steps[stepIndex].status = .failed
+                    room.updatePlanStep(at: stepIndex, status: .failed)
                     room.transitionTo(.failed)
                     room.markCompletedNow()
                 }

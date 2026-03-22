@@ -181,7 +181,7 @@ extension RoomManager {
         } else {
             // 워크플로우 없음 (앱 재시작 등) → intent 설정 후 워크플로우 재시작
             guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
-            rooms[idx].workflowState.intent = intent
+            rooms[idx].workflowState.setIntent(intent)
             rooms[idx].transitionTo(.planning)
             launchWorkflow(roomID: roomID, task: rooms[idx].title)
         }
@@ -202,7 +202,7 @@ extension RoomManager {
             approvalGates.provideDocType(roomID: roomID, docType: docType)
         } else {
             guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
-            rooms[idx].workflowState.documentType = docType
+            rooms[idx].workflowState.setDocumentType(docType)
             rooms[idx].transitionTo(.planning)
             launchWorkflow(roomID: roomID, task: rooms[idx].title)
         }
@@ -262,9 +262,7 @@ extension RoomManager {
         appendMessage(msg, to: roomID)
         // userAnswers에 저장 (질문은 메시지에서 역추적)
         if let idx = rooms.firstIndex(where: { $0.id == roomID }) {
-            let userAnswer = UserAnswer(question: "", answer: answer)
-            if rooms[idx].clarifyContext.userAnswers == nil { rooms[idx].clarifyContext.userAnswers = [] }
-            rooms[idx].clarifyContext.userAnswers?.append(userAnswer)
+            rooms[idx].clarifyContext.addUserAnswer(UserAnswer(question: "", answer: answer))
         }
 
         if approvalGates.hasPendingUserInput(for: roomID) {

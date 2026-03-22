@@ -24,26 +24,8 @@ extension RoomManager {
             return
         }
 
-        // TaskBrief 기반 컨텍스트
-        let intakeText = room.clarifyContext.intakeData?.asClarifyContextString() ?? ""
-        let intakeBlock = intakeText.isEmpty ? "" : "\n\(intakeText)"
-        let projectPathsBlock = room.effectiveProjectPaths.isEmpty ? "" : "\n[프로젝트 경로]\n" + room.effectiveProjectPaths.map { "- \($0)" }.joined(separator: "\n")
-
-        let briefContext: String
-        if let brief = room.taskBrief {
-            briefContext = """
-            [작업 브리프]
-            목표: \(brief.goal)
-            제약: \(brief.constraints.joined(separator: ", "))
-            성공기준: \(brief.successCriteria.joined(separator: ", "))
-            비목표: \(brief.nonGoals.joined(separator: ", "))
-            위험도: \(brief.overallRisk.rawValue)
-            산출물 유형: \(brief.outputType.rawValue)
-            \(intakeBlock)\(projectPathsBlock)
-            """
-        } else {
-            briefContext = (room.clarifyContext.clarifySummary ?? task) + intakeBlock + projectPathsBlock
-        }
+        // TaskBrief 기반 컨텍스트 (Room 도메인 메서드)
+        let briefContext = room.briefContextAsString(fallbackTask: task)
 
         // --- research intent: 토론 없이 병렬 조사 → 종합 ---
         if room.workflowState.intent?.isResearch == true {
@@ -462,7 +444,7 @@ extension RoomManager {
         appendMessage(checkpoint1Msg, to: roomID)
 
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].discussion.isCheckpoint = true
+            rooms[i].discussion.setCheckpoint()
             rooms[i].transitionTo(.awaitingUserInput)
         }
         syncAgentStatuses()
@@ -473,7 +455,7 @@ extension RoomManager {
         guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].discussion.isCheckpoint = false
+            rooms[i].discussion.clearCheckpoint()
             rooms[i].transitionTo(.inProgress)
         }
 
@@ -582,7 +564,7 @@ extension RoomManager {
         appendMessage(checkpoint2Msg, to: roomID)
 
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].discussion.isCheckpoint = true
+            rooms[i].discussion.setCheckpoint()
             rooms[i].transitionTo(.awaitingUserInput)
         }
         syncAgentStatuses()
@@ -593,7 +575,7 @@ extension RoomManager {
         guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].discussion.isCheckpoint = false
+            rooms[i].discussion.clearCheckpoint()
             rooms[i].transitionTo(.inProgress)
         }
 

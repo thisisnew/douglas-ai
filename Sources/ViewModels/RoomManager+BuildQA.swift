@@ -16,10 +16,9 @@ extension RoomManager {
         guard let room = rooms.first(where: { $0.id == roomID }) else { return false }
         let maxRetries = room.buildQA.maxBuildRetries
 
-        // 빌드 루프 상태 초기화
+        // 빌드 루프 상태 초기화 (도메인 메서드)
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].buildQA.buildLoopStatus = .building
-            rooms[i].buildQA.buildRetryCount = 0
+            rooms[i].buildQA.startBuildLoop()
         }
 
         let buildMsg = ChatMessage(
@@ -32,12 +31,12 @@ extension RoomManager {
         let result = await BuildLoopRunner.runBuild(command: buildCommand, workingDirectory: projectPath)
 
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].buildQA.lastBuildResult = result
+            rooms[i].buildQA.recordBuildResult(result)
         }
 
         if result.success {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].buildQA.buildLoopStatus = .passed
+                rooms[i].buildQA.recordBuildSuccess(result: result)
             }
             let successMsg = ChatMessage(
                 role: .system,
@@ -55,8 +54,7 @@ extension RoomManager {
                   currentRoom.status == .inProgress else { return false }
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].buildQA.buildLoopStatus = .fixing
-                rooms[i].buildQA.buildRetryCount = retry
+                rooms[i].buildQA.startFixing(retry: retry)
             }
 
             let failMsg = ChatMessage(
@@ -89,7 +87,7 @@ extension RoomManager {
 
             // 재빌드
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].buildQA.buildLoopStatus = .building
+                rooms[i].buildQA.startRebuilding()
             }
 
             let rebuildMsg = ChatMessage(
@@ -102,12 +100,12 @@ extension RoomManager {
             let retryResult = await BuildLoopRunner.runBuild(command: buildCommand, workingDirectory: projectPath)
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].buildQA.lastBuildResult = retryResult
+                rooms[i].buildQA.recordBuildResult(retryResult)
             }
 
             if retryResult.success {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].buildQA.buildLoopStatus = .passed
+                    rooms[i].buildQA.recordBuildSuccess(result: retryResult)
                 }
                 let successMsg = ChatMessage(
                     role: .system,
@@ -121,7 +119,7 @@ extension RoomManager {
 
         // 최대 재시도 초과
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].buildQA.buildLoopStatus = .failed
+            rooms[i].buildQA.markBuildFailed()
         }
         return false
     }
@@ -139,8 +137,7 @@ extension RoomManager {
         let maxRetries = room.buildQA.maxQARetries
 
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].buildQA.qaLoopStatus = .testing
-            rooms[i].buildQA.qaRetryCount = 0
+            rooms[i].buildQA.startQALoop()
         }
 
         let testMsg = ChatMessage(
@@ -153,12 +150,12 @@ extension RoomManager {
         let result = await BuildLoopRunner.runTests(command: testCommand, workingDirectory: projectPath)
 
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].buildQA.lastQAResult = result
+            rooms[i].buildQA.recordQAResult(result)
         }
 
         if result.success {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].buildQA.qaLoopStatus = .passed
+                rooms[i].buildQA.recordQASuccess(result: result)
             }
             let successMsg = ChatMessage(
                 role: .system,
@@ -176,8 +173,7 @@ extension RoomManager {
                   currentRoom.status == .inProgress else { return false }
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].buildQA.qaLoopStatus = .analyzing
-                rooms[i].buildQA.qaRetryCount = retry
+                rooms[i].buildQA.startAnalyzing(retry: retry)
             }
 
             let failMsg = ChatMessage(
@@ -211,7 +207,7 @@ extension RoomManager {
 
             // 재테스트
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].buildQA.qaLoopStatus = .testing
+                rooms[i].buildQA.startRetesting()
             }
 
             let retestMsg = ChatMessage(
@@ -224,12 +220,12 @@ extension RoomManager {
             let retryResult = await BuildLoopRunner.runTests(command: testCommand, workingDirectory: projectPath)
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].buildQA.lastQAResult = retryResult
+                rooms[i].buildQA.recordQAResult(retryResult)
             }
 
             if retryResult.success {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].buildQA.qaLoopStatus = .passed
+                    rooms[i].buildQA.recordQASuccess(result: retryResult)
                 }
                 let successMsg = ChatMessage(
                     role: .system,
@@ -243,7 +239,7 @@ extension RoomManager {
 
         // 최대 재시도 초과
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].buildQA.qaLoopStatus = .failed
+            rooms[i].buildQA.markQAFailed()
         }
         return false
     }

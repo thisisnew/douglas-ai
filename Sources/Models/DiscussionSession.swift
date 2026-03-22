@@ -120,6 +120,8 @@ struct DiscussionSession: Codable {
     mutating func archiveFullLog(_ log: String) { fullDiscussionLog = log }
     mutating func setActionItems(_ items: [ActionItem]?) { actionItems = items }
     mutating func resetDecisionLog() { decisionLog = [] }
+    mutating func setBriefing(_ briefing: RoomBriefing) { self.briefing = briefing }
+    mutating func setResearchBriefing(_ briefing: ResearchBriefing) { self.researchBriefing = briefing }
     mutating func resetBriefings() { briefing = nil; researchBriefing = nil }
 
     /// 기존 라운드 요약 교체 (피드백 반영 시)

@@ -544,6 +544,28 @@ struct Room: Identifiable, Codable {
         return [effective] + projectContext.projectPaths.dropFirst()
     }
 
+    /// Design 단계용 브리프 컨텍스트 문자열 (TaskBrief + IntakeData + 프로젝트 경로)
+    func briefContextAsString(fallbackTask: String) -> String {
+        let intakeText = clarifyContext.intakeData?.asClarifyContextString() ?? ""
+        let intakeBlock = intakeText.isEmpty ? "" : "\n\(intakeText)"
+        let projectPathsBlock = effectiveProjectPaths.isEmpty ? "" : "\n[프로젝트 경로]\n" + effectiveProjectPaths.map { "- \($0)" }.joined(separator: "\n")
+
+        if let brief = taskBrief {
+            return """
+            [작업 브리프]
+            목표: \(brief.goal)
+            제약: \(brief.constraints.joined(separator: ", "))
+            성공기준: \(brief.successCriteria.joined(separator: ", "))
+            비목표: \(brief.nonGoals.joined(separator: ", "))
+            위험도: \(brief.overallRisk.rawValue)
+            산출물 유형: \(brief.outputType.rawValue)
+            \(intakeBlock)\(projectPathsBlock)
+            """
+        } else {
+            return (clarifyContext.clarifySummary ?? fallbackTask) + intakeBlock + projectPathsBlock
+        }
+    }
+
     /// 활성 방 여부 (planning, inProgress, awaitingApproval, awaitingUserInput)
     var isActive: Bool {
         switch status {

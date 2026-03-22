@@ -34,4 +34,8 @@ struct ClarifyContext: Codable {
     mutating func setPlaybook(_ pb: ProjectPlaybook) { playbook = pb }
     mutating func setClarifySummary(_ summary: String?) { clarifySummary = summary }
     mutating func setDelegationInfo(_ info: DelegationInfo?) { delegationInfo = info }
+    mutating func addUserAnswer(_ answer: UserAnswer) {
+        if userAnswers == nil { userAnswers = [] }
+        userAnswers?.append(answer)
+    }
 }

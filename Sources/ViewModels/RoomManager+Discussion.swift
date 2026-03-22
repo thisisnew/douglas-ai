@@ -604,7 +604,7 @@ extension RoomManager {
             // JSON 파싱 → RoomBriefing
             if let briefing = parseBriefing(from: response) {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].discussion.briefing = briefing
+                    rooms[i].discussion.setBriefing(briefing)
                 }
                 let reply = ChatMessage(
                     role: .assistant,
@@ -710,7 +710,7 @@ extension RoomManager {
 
             if let briefing = parseResearchBriefing(from: response) {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].discussion.researchBriefing = briefing
+                    rooms[i].discussion.setResearchBriefing(briefing)
                 }
                 let reply = ChatMessage(
                     role: .assistant,
@@ -728,7 +728,7 @@ extension RoomManager {
                     limitations: []
                 )
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].discussion.researchBriefing = fallback
+                    rooms[i].discussion.setResearchBriefing(fallback)
                 }
                 let reply = ChatMessage(
                     role: .assistant,
