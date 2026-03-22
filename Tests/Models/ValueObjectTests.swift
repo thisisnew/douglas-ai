@@ -544,4 +544,90 @@ struct ValueObjectTests {
         )
         #expect(ctx.isAutonomousExecution == false)
     }
+
+    // MARK: - BuildQAState 도메인 메서드
+
+    @Test("startBuildLoop — status=building, retryCount=0")
+    func buildQA_startBuild() {
+        var state = BuildQAState()
+        state.startBuildLoop()
+        #expect(state.buildLoopStatus == .building)
+        #expect(state.buildRetryCount == 0)
+    }
+
+    @Test("recordBuildSuccess — status=passed, result 저장")
+    func buildQA_buildSuccess() {
+        var state = BuildQAState()
+        state.startBuildLoop()
+        let result = BuildResult(success: true, output: "ok", exitCode: 0)
+        state.recordBuildSuccess(result: result)
+        #expect(state.buildLoopStatus == .passed)
+        #expect(state.lastBuildResult?.success == true)
+    }
+
+    @Test("recordBuildFailure — retryCount 증가, status=fixing")
+    func buildQA_buildFailure() {
+        var state = BuildQAState()
+        state.startBuildLoop()
+        let result = BuildResult(success: false, output: "error", exitCode: 1)
+        state.recordBuildFailure(result: result)
+        #expect(state.buildRetryCount == 1)
+        #expect(state.buildLoopStatus == .fixing)
+        #expect(state.lastBuildResult?.success == false)
+    }
+
+    @Test("markBuildFailed — status=failed")
+    func buildQA_markBuildFailed() {
+        var state = BuildQAState()
+        state.markBuildFailed()
+        #expect(state.buildLoopStatus == .failed)
+    }
+
+    @Test("startQALoop — status=testing, retryCount=0")
+    func buildQA_startQA() {
+        var state = BuildQAState()
+        state.startQALoop()
+        #expect(state.qaLoopStatus == .testing)
+        #expect(state.qaRetryCount == 0)
+    }
+
+    @Test("recordQASuccess — status=passed")
+    func buildQA_qaSuccess() {
+        var state = BuildQAState()
+        state.startQALoop()
+        let result = QAResult(success: true, output: "pass", exitCode: 0)
+        state.recordQASuccess(result: result)
+        #expect(state.qaLoopStatus == .passed)
+    }
+
+    @Test("recordQAFailure — retryCount 증가, status=analyzing")
+    func buildQA_qaFailure() {
+        var state = BuildQAState()
+        state.startQALoop()
+        let result = QAResult(success: false, output: "fail", exitCode: 1)
+        state.recordQAFailure(result: result)
+        #expect(state.qaRetryCount == 1)
+        #expect(state.qaLoopStatus == .analyzing)
+    }
+
+    @Test("resetBuild — 초기화")
+    func buildQA_resetBuild() {
+        var state = BuildQAState()
+        state.startBuildLoop()
+        state.recordBuildFailure(result: BuildResult(success: false, output: "e", exitCode: 1))
+        state.resetBuild()
+        #expect(state.buildLoopStatus == nil)
+        #expect(state.buildRetryCount == 0)
+        #expect(state.lastBuildResult == nil)
+    }
+
+    @Test("resetQA — 초기화")
+    func buildQA_resetQA() {
+        var state = BuildQAState()
+        state.startQALoop()
+        state.resetQA()
+        #expect(state.qaLoopStatus == nil)
+        #expect(state.qaRetryCount == 0)
+        #expect(state.lastQAResult == nil)
+    }
 }

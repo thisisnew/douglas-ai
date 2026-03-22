@@ -484,7 +484,7 @@ extension RoomManager {
             rooms[i].discussion.resetDecisionLog()
         }
         if !carryover.keepWorkLog, let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].workLog = nil
+            rooms[i].clearWorkLog()
         }
 
         // Intent 재분류 (후속 사이클 특화)

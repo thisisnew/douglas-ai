@@ -776,6 +776,9 @@ struct Room: Identifiable, Codable {
         messages.insert(message, at: index)
     }
     mutating func setTaskBrief(_ brief: TaskBrief?) { taskBrief = brief }
+    mutating func setTitle(_ title: String) { self.title = title }
+    mutating func setWorkLog(_ log: WorkLog?) { workLog = log }
+    mutating func clearWorkLog() { workLog = nil }
 
     init(
         id: UUID = UUID(),

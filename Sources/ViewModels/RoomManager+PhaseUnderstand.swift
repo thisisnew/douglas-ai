@@ -187,7 +187,7 @@ extension RoomManager {
                    rooms[i].title == "이미지 분석" || rooms[i].title == "새 작업" || rooms[i].title.count > 28 {
                     let refined = Self.extractTitleFromClarifySummary(response)
                     if !refined.isEmpty {
-                        rooms[i].title = refined
+                        rooms[i].setTitle(refined)
                     }
                 }
 
@@ -868,7 +868,7 @@ extension RoomManager {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 rooms[i].transitionTo(.planning)
                 let titleText = userAnswer.prefix(30).components(separatedBy: "\n").first ?? String(userAnswer.prefix(30))
-                rooms[i].title = String(titleText)
+                rooms[i].setTitle(String(titleText))
             }
             scheduleSave()
         }

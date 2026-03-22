@@ -438,4 +438,33 @@ struct IntentClassifierTests {
         let phases = WorkflowIntent.discussion.requiredPhases(with: [])
         #expect(phases == WorkflowIntent.discussion.requiredPhases)
     }
+
+    // MARK: - IntentVocabulary 회귀 테스트
+
+    @Test("'검토해줘' → discussion (검토 키워드 추가됨)")
+    func reviewRequest_discussion() {
+        #expect(IntentClassifier.quickClassify("이거 검토해줘") == .discussion)
+    }
+
+    @Test("'찾고...알려줘' → quickAnswer가 아님 (멀티스텝 억제)")
+    func multiStep_notQuickAnswer() {
+        let result = IntentClassifier.quickClassify("화면에서 찾고 그 API의 쿼리를 알려줘")
+        #expect(result != .quickAnswer)
+    }
+
+    @Test("'자문해줘' → nil (task에서 제거됨, LLM 폴백)")
+    func consultRequest_llmFallback() {
+        // "자문"이 task에서 제거됨 → nil (LLM이 판단)
+        #expect(IntentClassifier.quickClassify("자문해줘") == nil)
+    }
+
+    @Test("'이메일 작성해줘' → documentation (이메일 키워드 추가됨)")
+    func emailRequest_documentation() {
+        #expect(IntentClassifier.quickClassify("이메일 작성해줘") == .documentation)
+    }
+
+    @Test("'파악해줘' → research (파악 키워드 추가됨)")
+    func investigateRequest_research() {
+        #expect(IntentClassifier.quickClassify("현재 상태 파악해줘") == .research)
+    }
 }

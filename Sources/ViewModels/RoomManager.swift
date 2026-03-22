@@ -660,7 +660,7 @@ class RoomManager: ObservableObject, WorkflowHost {
             )
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].workLog = log
+                rooms[i].setWorkLog(log)
             }
 
             scheduleSave()
@@ -687,7 +687,7 @@ class RoomManager: ObservableObject, WorkflowHost {
         )
 
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].workLog = log
+            rooms[i].setWorkLog(log)
         }
         scheduleSave()
     }
