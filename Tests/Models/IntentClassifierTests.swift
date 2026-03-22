@@ -96,9 +96,10 @@ struct IntentClassifierTests {
         #expect(result == WorkflowIntent.task)
     }
 
-    @Test("분석 요청 → task")
+    @Test("분석 요청 → LLM 폴백 (task에서 '분석' 제거됨, research/discussion 영역)")
     func analysis() {
-        #expect(IntentClassifier.quickClassify("이거 분석해봐") == WorkflowIntent.task)
+        // "분석"은 task에서 제거 → "이거 분석해봐"는 nil(LLM이 context 기반 판단)
+        #expect(IntentClassifier.quickClassify("이거 분석해봐") == nil)
     }
 
     @Test("브레인스토밍 → discussion")

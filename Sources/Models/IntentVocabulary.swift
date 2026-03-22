@@ -82,9 +82,9 @@ extension IntentVocabulary {
             // 의문사 (4점: 단독으로 quickAnswer 확정 가능)
             .init(stem: "뭐", weight: 4), .init(stem: "뭘", weight: 4),
             .init(stem: "뭔", weight: 4), .init(stem: "무슨", weight: 4),
-            .init(stem: "몇", weight: 2), .init(stem: "어디", weight: 2),
-            .init(stem: "언제", weight: 2), .init(stem: "누가", weight: 2),
-            .init(stem: "왜", weight: 2),
+            .init(stem: "몇", weight: 3), .init(stem: "어디", weight: 3),
+            .init(stem: "언제", weight: 3), .init(stem: "누가", weight: 3),
+            .init(stem: "왜", weight: 3),
             .init(stem: "어떻", weight: 2), .init(stem: "어떤", weight: 2),
             // 설명 요청
             .init(stem: "알려", weight: 3), .init(stem: "설명", weight: 4),
@@ -96,6 +96,8 @@ extension IntentVocabulary {
             // 멀티스텝 연결 키워드 → quickAnswer 억제 (복합 요청 패턴)
             .init(stem: "찾고", weight: -3), .init(stem: "추적", weight: -3),
             .init(stem: "분석해", weight: -2), .init(stem: "조사해", weight: -2),
+            .init(stem: "구현", weight: -3), .init(stem: "만들어", weight: -3),
+            .init(stem: "작성해", weight: -2), .init(stem: "코딩", weight: -3),
         ],
         threshold: 4  // 3→4: "알려줘" 단독(3)은 LLM 폴백, 의문사+설명(4+)은 quickAnswer 확정
     )
@@ -114,7 +116,9 @@ extension IntentVocabulary {
             .init(stem: "brainstorm", weight: 4), .init(stem: "아이디어", weight: 3),
             .init(stem: "회의", weight: 3),
             // 비교/판단
-            .init(stem: "장단점", weight: 3), .init(stem: "좋을까", weight: 3),
+            .init(stem: "검토", weight: 4), .init(stem: "리뷰", weight: 4),
+            .init(stem: "review", weight: 4), .init(stem: "피드백", weight: 4),
+            .init(stem: "장단점", weight: 4), .init(stem: "좋을까", weight: 3),
             .init(stem: "어떨까", weight: 3), .init(stem: "어떤 게 나을", weight: 4),
             .init(stem: "나을까", weight: 4), .init(stem: "낫지", weight: 4),
             .init(stem: "뭐가 나을", weight: 4), .init(stem: "뭐가 좋", weight: 4),
@@ -152,8 +156,10 @@ extension IntentVocabulary {
             .init(stem: "비교", weight: 5), .init(stem: "사례", weight: 3),
             .init(stem: "레퍼런스", weight: 4), .init(stem: "벤치마크", weight: 4),
             // 조사 맥락의 정리
-            .init(stem: "알아봐", weight: 4), .init(stem: "찾아봐", weight: 3),
+            .init(stem: "알아봐", weight: 4), .init(stem: "찾아봐", weight: 4),
             .init(stem: "찾고", weight: 4), .init(stem: "추적", weight: 4),
+            .init(stem: "파악", weight: 4), .init(stem: "살펴", weight: 3),
+            .init(stem: "확인해", weight: 3),
         ],
         negatives: [],
         threshold: 4
@@ -175,6 +181,8 @@ extension IntentVocabulary {
             .init(stem: "소개글", weight: 4), .init(stem: "안내문", weight: 4),
             .init(stem: "목차", weight: 4), .init(stem: "발표자료", weight: 5),
             .init(stem: "슬라이드", weight: 4), .init(stem: "매뉴얼", weight: 5),
+            .init(stem: "이메일", weight: 4), .init(stem: "메일", weight: 4),
+            .init(stem: "공문", weight: 4), .init(stem: "레터", weight: 4),
         ],
         negatives: [],
         threshold: 4
@@ -185,12 +193,8 @@ extension IntentVocabulary {
     static let task = IntentVocabulary(
         intent: .task,
         positives: [
-            // 분석/비교
-            .init(stem: "분석", weight: 3), .init(stem: "찾아", weight: 2),
-            // 자문/상담
-            .init(stem: "자문", weight: 3), .init(stem: "상담", weight: 3),
-            .init(stem: "조언", weight: 3), .init(stem: "컨설팅", weight: 3),
-            .init(stem: "consulting", weight: 3), .init(stem: "궁금", weight: 2),
+            // 분석 (research와 겹침 — task는 "코드 분석" 맥락에서만)
+            .init(stem: "찾아", weight: 2),
             // 요건/테스트/태스크
             .init(stem: "요건", weight: 3), .init(stem: "요구사항", weight: 3),
             .init(stem: "requirements", weight: 3),
@@ -237,6 +241,7 @@ extension IntentVocabulary {
         negatives: [
             .init(stem: "토론", weight: -3), .init(stem: "의견", weight: -2),
             .init(stem: "브레인스토밍", weight: -3), .init(stem: "어떻게생각", weight: -3),
+            .init(stem: "조사해", weight: -2), .init(stem: "찾아봐", weight: -2),
         ],
         threshold: 3
     )
