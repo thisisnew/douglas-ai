@@ -234,7 +234,7 @@ struct PluginSettingsView: View {
                             Text("제거")
                                 .font(.system(size: DesignTokens.FontSize.xs, weight: .medium, design: .rounded))
                         }
-                        .foregroundColor(.red.opacity(0.6))
+                        .foregroundColor(palette.messageError.opacity(0.8))
                     }
                     .buttonStyle(.plain)
                 }

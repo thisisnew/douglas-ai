@@ -88,9 +88,13 @@ struct GeneralSettingsView: View {
                     pickFolder()
                 } label: {
                     Label("선택", systemImage: "folder.badge.plus")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: DesignTokens.FontSize.xs, weight: .medium, design: .rounded))
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
+                .foregroundColor(palette.accent)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(palette.accent.opacity(0.1), in: Capsule())
 
                 // 초기화 버튼
                 if !documentSavePath.isEmpty {
@@ -186,11 +190,15 @@ struct GeneralSettingsView: View {
                         ProgressView()
                             .controlSize(.small)
                     } else {
-                        Label("지금 확인", systemImage: "arrow.clockwise")
-                            .font(.system(size: 12, weight: .medium))
+                        Label("업데이트 확인", systemImage: "arrow.clockwise")
+                            .font(.system(size: DesignTokens.FontSize.xs, weight: .medium, design: .rounded))
                     }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
+                .foregroundColor(palette.accent)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(palette.accent.opacity(0.1), in: Capsule())
                 .disabled(updateManager.isChecking)
 
                 if let error = updateManager.lastError {

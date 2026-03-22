@@ -194,7 +194,7 @@ struct RoomListView: View {
                 .foregroundColor(isEditMode ? .accentColor : .secondary.opacity(0.6))
                 .frame(width: 26, height: 26)
                 .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    RoundedRectangle(cornerRadius: DesignTokens.Radius.md, style: .continuous)
                         .fill(isEditMode ? Color.accentColor.opacity(0.12) : Color.clear)
                 )
         }

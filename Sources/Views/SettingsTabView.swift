@@ -105,11 +105,11 @@ struct SettingsTabView: View {
             .padding(.vertical, 8)
             .foregroundColor(isSelected ? tab.tint : palette.textSecondary)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: DesignTokens.Radius.xl, style: .continuous)
                     .fill(isSelected ? tab.tint.opacity(0.12) : Color.clear)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: DesignTokens.Radius.xl, style: .continuous)
                     .strokeBorder(
                         isSelected ? tab.tint.opacity(0.25) : Color.clear,
                         lineWidth: 1
