@@ -270,6 +270,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let release = updateManager.latestVersion else { return }
 
         NSApp.activate(ignoringOtherApps: true)
+        // 앱 활성화 후 약간 대기 — NSAlert 버튼이 활성 색상(파란색)으로 렌더링되도록
+        try? await Task.sleep(nanoseconds: 200_000_000)
         let alert = NSAlert()
         alert.messageText = "새로운 버전이 있습니다"
         alert.informativeText = "현재: \(updateManager.appVersion) → 최신: \(release.version)\n\n\(release.releaseNotes)"
