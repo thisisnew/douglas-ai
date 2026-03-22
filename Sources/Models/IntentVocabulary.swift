@@ -79,17 +79,17 @@ extension IntentVocabulary {
     static let quickAnswer = IntentVocabulary(
         intent: .quickAnswer,
         positives: [
-            // 의문사
-            .init(stem: "뭐", weight: 3), .init(stem: "뭘", weight: 3),
-            .init(stem: "뭔", weight: 3), .init(stem: "무슨", weight: 3),
+            // 의문사 (4점: 단독으로 quickAnswer 확정 가능)
+            .init(stem: "뭐", weight: 4), .init(stem: "뭘", weight: 4),
+            .init(stem: "뭔", weight: 4), .init(stem: "무슨", weight: 4),
             .init(stem: "몇", weight: 2), .init(stem: "어디", weight: 2),
             .init(stem: "언제", weight: 2), .init(stem: "누가", weight: 2),
             .init(stem: "왜", weight: 2),
             .init(stem: "어떻", weight: 2), .init(stem: "어떤", weight: 2),
             // 설명 요청
-            .init(stem: "알려", weight: 3), .init(stem: "설명", weight: 3),
+            .init(stem: "알려", weight: 3), .init(stem: "설명", weight: 4),
             // 의미/뜻
-            .init(stem: "뜻", weight: 3), .init(stem: "의미", weight: 3),
+            .init(stem: "뜻", weight: 4), .init(stem: "의미", weight: 4),
             .init(stem: "차이", weight: 2),
         ],
         negatives: [
@@ -97,7 +97,7 @@ extension IntentVocabulary {
             .init(stem: "찾고", weight: -3), .init(stem: "추적", weight: -3),
             .init(stem: "분석해", weight: -2), .init(stem: "조사해", weight: -2),
         ],
-        threshold: 3
+        threshold: 4  // 3→4: "알려줘" 단독(3)은 LLM 폴백, 의문사+설명(4+)은 quickAnswer 확정
     )
 
     // MARK: discussion — 의견 교환, 브레인스토밍

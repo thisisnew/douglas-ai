@@ -36,7 +36,7 @@ struct WorkflowFlowTests {
     func case1Classification() {
         #expect(IntentClassifier.quickClassify("이게 뭐야") == .quickAnswer)
         #expect(IntentClassifier.quickClassify("JWT가 뭐야?") == .quickAnswer)
-        #expect(IntentClassifier.quickClassify("알려줘") == .quickAnswer)
+        #expect(IntentClassifier.quickClassify("알려줘") == nil)  // "알려"=3 < threshold 4 → LLM 폴백
         #expect(IntentClassifier.quickClassify("뜻이 뭐야") == .quickAnswer)
     }
 

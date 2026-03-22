@@ -441,18 +441,33 @@ struct MessageBubble: View {
                 .markdownTextStyle {
                     FontSize(DesignTokens.FontSize.bodyMd)
                 }
+                .markdownBlockStyle(\.paragraph) { configuration in
+                    configuration.label
+                        .lineSpacing(3)
+                        .padding(.bottom, 4)
+                }
+                .markdownTextStyle(\.code) {
+                    FontFamily(.system(.monospaced))
+                    FontSize(DesignTokens.FontSize.xs)
+                    ForegroundColor(palette.accent)
+                    BackgroundColor(palette.accent.opacity(0.08))
+                }
                 .markdownTextStyle(\.link) {
                     UnderlineStyle(.single)
                     ForegroundColor(palette.accent)
                 }
                 .markdownBlockStyle(\.codeBlock) { configuration in
                     configuration.label
-                        .padding(10)
-                        .background(palette.inputBackground.opacity(0.8))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .markdownTextStyle {
+                            FontFamily(.system(.monospaced))
+                            FontSize(DesignTokens.FontSize.xs)
+                        }
+                        .padding(12)
+                        .background(palette.surfaceTertiary)
+                        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.lg, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .strokeBorder(palette.cardBorder.opacity(0.1), lineWidth: 0.5)
+                            RoundedRectangle(cornerRadius: DesignTokens.Radius.lg, style: .continuous)
+                                .strokeBorder(palette.cardBorder.opacity(0.15), lineWidth: 0.5)
                         )
                 }
                 .onHover { hovering in

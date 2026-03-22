@@ -17,9 +17,16 @@ struct IntentClassifierTests {
         #expect(IntentClassifier.quickClassify("이거 영어로 번역해줘") == .quickAnswer)
     }
 
-    @Test("설명 요청 → quickAnswer")
-    func explanation() {
-        #expect(IntentClassifier.quickClassify("알려줘") == .quickAnswer)
+    @Test("설명 요청 — '알려줘' 단독은 LLM 폴백 (threshold 4 미달)")
+    func explanation_allyeojwo_needsLLM() {
+        // "알려"=3 < threshold 4 → nil (LLM 폴백으로 처리)
+        #expect(IntentClassifier.quickClassify("알려줘") == nil)
+    }
+
+    @Test("설명 요청 — '설명해줘'는 quickAnswer")
+    func explanation_seolmyeong() {
+        // "설명"=4 ≥ threshold 4
+        #expect(IntentClassifier.quickClassify("설명해줘") == .quickAnswer)
     }
 
     @Test("의미 질문 → quickAnswer")
