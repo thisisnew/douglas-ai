@@ -446,13 +446,13 @@ struct RoomTests {
     @Test("Room Codable - workLog 포함")
     func roomCodableWithWorkLog() throws {
         var room = Room(title: "Work", assignedAgentIDs: [], createdBy: .user)
-        room.workLog = WorkLog(
+        room.setWorkLog(WorkLog(
             roomTitle: "Work",
             participants: ["A"],
             task: "test",
             outcome: "done",
             durationSeconds: 30
-        )
+        ))
         let data = try JSONEncoder().encode(room)
         let decoded = try JSONDecoder().decode(Room.self, from: data)
         #expect(decoded.workLog?.roomTitle == "Work")
@@ -1069,8 +1069,8 @@ struct RoomTests {
     func removeAgentCleanup() {
         let agentID = UUID()
         var room = Room(title: "T", assignedAgentIDs: [agentID], createdBy: .user)
-        room.agentRoles[agentID] = .creator
-        room.agentPositions[agentID] = .implementer
+        room.assignRole(.creator, to: agentID)
+        room.assignPosition(.implementer, to: agentID)
         room.removeAgent(agentID)
         #expect(room.assignedAgentIDs.isEmpty)
         #expect(room.agentRoles[agentID] == nil)

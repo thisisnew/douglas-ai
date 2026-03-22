@@ -483,33 +483,33 @@ struct ResearchBriefing: Codable, Equatable {
 
 struct Room: Identifiable, Codable {
     let id: UUID
-    var title: String
-    var assignedAgentIDs: [UUID]
-    var messages: [ChatMessage]
-    var status: RoomStatus
+    private(set) var title: String
+    var assignedAgentIDs: [UUID]                     // addAgent/removeAgent로 변경
+    var messages: [ChatMessage]                       // addMessage/insertMessage 권장 (private(set) 보류 — 208곳 위임 필요)
+    var status: RoomStatus                            // transitionTo/complete/fail/cancel 권장
     var mode: RoomMode
-    var plan: RoomPlan?
-    var timerStartedAt: Date?
-    var timerDurationSeconds: Int?
+    var plan: RoomPlan?                               // setPlan 권장 (private(set) 보류: 중첩 step mutation ~15곳)
+    var timerStartedAt: Date?                         // startExecution 권장
+    var timerDurationSeconds: Int?                    // startExecution 권장
     let createdAt: Date
-    var completedAt: Date?
+    var completedAt: Date?                            // complete/fail/cancel/resumeWorkflow 권장
     let createdBy: RoomCreator
-    var currentStepIndex: Int
+    var currentStepIndex: Int                        // setCurrentStep으로 변경
     // 승인 게이트
     var pendingApprovalStepIndex: Int?
     // 에이전트 생성 제안
     var pendingAgentSuggestions: [RoomAgentSuggestion]
     // 작업일지
-    var workLog: WorkLog?
+    private(set) var workLog: WorkLog?                // setWorkLog/clearWorkLog로 변경
     // Plan C: 새 워크플로우 필드
-    var taskBrief: TaskBrief?
-    var agentRoles: [UUID: RuntimeRole]          // agentID → RuntimeRole
-    var agentPositions: [UUID: WorkflowPosition]  // agentID → WorkflowPosition (매칭 시 배정)
+    private(set) var taskBrief: TaskBrief?            // setTaskBrief로 변경
+    private(set) var agentRoles: [UUID: RuntimeRole]  // assignRole로 변경
+    private(set) var agentPositions: [UUID: WorkflowPosition]  // assignPosition으로 변경
     // Phase 1: 승인 기록 + 대기 유형
-    var approvalHistory: [ApprovalRecord]
-    var awaitingType: AwaitingType?
+    var approvalHistory: [ApprovalRecord]              // recordApproval 권장
+    var awaitingType: AwaitingType?                    // awaitApproval/recordApproval 권장
     var pendingAgentConfirmationID: UUID?  // agentConfirmation 대기 중인 에이전트 ID
-    // Phase 7: 값 객체 (30개 개별 프로퍼티 → 5개 그룹)
+    // Phase 7: 값 객체 — 도메인 메서드 사용 권장 (private(set) 보류: 중첩 mutating 위임 ~200곳 필요)
     var workflowState: WorkflowState
     var clarifyContext: ClarifyContext
     var projectContext: ProjectContext
@@ -786,6 +786,32 @@ struct Room: Identifiable, Codable {
     mutating func setTitle(_ title: String) { self.title = title }
     mutating func setWorkLog(_ log: WorkLog?) { workLog = log }
     mutating func clearWorkLog() { workLog = nil }
+
+    // MARK: - Plan 위임 메서드
+
+    /// Plan 단계 상태 업데이트
+    mutating func updatePlanStep(at index: Int, status: StepStatus) {
+        guard index >= 0, index < (plan?.steps.count ?? 0) else { return }
+        plan?.steps[index].status = status
+    }
+
+    /// Plan 단계 결과 기록
+    mutating func recordStepResult(journal: String, fullResult: String) {
+        plan?.stepJournal.append(journal)
+        plan?.stepResultsFull.append(fullResult)
+    }
+
+    /// Plan 전체 교체 (step 결과 포함)
+    mutating func updatePlan(_ mutate: (inout RoomPlan) -> Void) {
+        guard plan != nil else { return }
+        mutate(&plan!)
+    }
+
+    /// 타이머 기간 설정
+    mutating func setTimerDuration(_ seconds: Int) { timerDurationSeconds = seconds }
+
+    /// completedAt 직접 설정 (cancel/complete가 아닌 특수 케이스)
+    mutating func markCompletedNow() { completedAt = Date() }
 
     init(
         id: UUID = UUID(),

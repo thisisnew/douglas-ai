@@ -58,9 +58,7 @@ final class StepExecutionEngine {
 
         // 초기화 — Build 시작 시점 기록
         host.updateRoom(id: roomID) { room in
-            room.timerDurationSeconds = plan.estimatedSeconds
-            room.timerStartedAt = Date()
-            room.transitionTo(.inProgress)
+            room.startExecution(duration: plan.estimatedSeconds)
         }
         host.scheduleSave()
 
@@ -121,7 +119,7 @@ final class StepExecutionEngine {
                 host.updateRoom(id: roomID) { room in
                     room.plan?.steps[stepIndex].status = .failed
                     room.transitionTo(.failed)
-                    room.completedAt = Date()
+                    room.markCompletedNow()
                 }
                 let failMsg = ChatMessage(
                     role: .system,
@@ -268,7 +266,7 @@ final class StepExecutionEngine {
             if similarity > 0.6 {
                 host.updateRoom(id: roomID) { room in
                     room.transitionTo(.failed)
-                    room.completedAt = Date()
+                    room.markCompletedNow()
                 }
                 let stuckMsg = ChatMessage(
                     role: .system,

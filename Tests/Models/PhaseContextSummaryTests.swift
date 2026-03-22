@@ -56,14 +56,14 @@ struct PhaseContextSummaryTests {
     @Test("summarizePhase — understand 요약 생성")
     func summarizeUnderstand() {
         var room = makeTestRoom()
-        room.taskBrief = TaskBrief(
+        room.setTaskBrief(TaskBrief(
             goal: "API 리팩토링",
             constraints: ["Swift 5.9"],
             successCriteria: ["빌드 통과"],
             nonGoals: ["UI 변경 없음"],
             overallRisk: .medium,
             outputType: .code
-        )
+        ))
         let summary = PhaseContextSummarizer.summarize(phase: .understand, room: room)
         #expect(summary.contains("API 리팩토링"))
         #expect(summary.contains("Swift 5.9"))

@@ -63,7 +63,7 @@ struct RoomCompletionTests {
 
         // workLog 설정
         if let i = manager.rooms.firstIndex(where: { $0.id == room.id }) {
-            manager.rooms[i].workLog = WorkLog(
+            manager.rooms[i].setWorkLog(WorkLog(
                 roomTitle: "테스트",
                 participants: ["agent1"],
                 task: "작업",
@@ -71,7 +71,7 @@ struct RoomCompletionTests {
                 planSummary: "",
                 outcome: "완료",
                 durationSeconds: 10
-            )
+            ))
         }
 
         let existingLogID = manager.rooms.first(where: { $0.id == room.id })?.workLog?.id

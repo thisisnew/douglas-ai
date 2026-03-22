@@ -232,7 +232,7 @@ struct WorkflowPositionTests {
     func roomPositionsRoundtrip() throws {
         var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
         let agentID = UUID()
-        room.agentPositions[agentID] = .implementer
+        room.assignPosition(.implementer, to: agentID)
         let data = try JSONEncoder().encode(room)
         let decoded = try JSONDecoder().decode(Room.self, from: data)
         #expect(decoded.agentPositions[agentID] == .implementer)

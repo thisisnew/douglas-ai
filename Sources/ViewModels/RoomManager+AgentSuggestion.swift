@@ -111,7 +111,7 @@ extension RoomManager {
         // 개별 suggested 에이전트 승인을 이미 거쳤으면 자동 진행 (§6.4 확장)
         if individuallyApproved {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].approvalHistory.append(
+                rooms[i].recordApproval(
                     ApprovalRecord(type: .teamConfirmation, approved: true, feedback: "개별 승인 완료 → 자동 진행")
                 )
             }
@@ -134,7 +134,7 @@ extension RoomManager {
             )
             if autoApprove {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].approvalHistory.append(
+                    rooms[i].recordApproval(
                         ApprovalRecord(type: .teamConfirmation, approved: true, feedback: "자동 진행 (§6.4)")
                     )
                 }
