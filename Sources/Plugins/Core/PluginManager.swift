@@ -10,7 +10,8 @@ final class PluginManager: ObservableObject {
 
     /// 외부 플러그인 설치 디렉토리
     static var pluginsDirectory: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
         return appSupport.appendingPathComponent("DOUGLAS/Plugins")
     }
 

@@ -162,8 +162,8 @@ struct UpdateManagerTests {
         #expect(manager.isUpdateAvailable == false)
     }
 
-    @Test("checkForUpdate - 건너뛴 버전은 업데이트 표시 안 함")
-    func checkForUpdateSkippedVersion() async throws {
+    @Test("checkForUpdate - 새 버전이면 항상 업데이트 표시")
+    func checkForUpdateAlwaysShows() async throws {
         let mockJSON = """
         {
             "version": "1.2.0",
@@ -188,12 +188,11 @@ struct UpdateManagerTests {
             currentVersion: "1.0.0",
             session: session
         )
-        manager.skipVersion("1.2.0")
 
         try await manager.checkForUpdate()
 
         #expect(manager.latestVersion != nil)
-        #expect(manager.isUpdateAvailable == false)
+        #expect(manager.isUpdateAvailable == true)
     }
 
     @Test("checkForUpdate - 404 에러 시 무시")

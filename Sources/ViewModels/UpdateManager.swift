@@ -21,9 +21,13 @@ final class UpdateManager: ObservableObject {
 
     // MARK: - Configuration
 
-    /// 버전 정보 JSON URL (Public Gist)
-    /// TODO: 실제 Gist 생성 후 URL 교체
-    static let versionURL = "https://gist.githubusercontent.com/thefarmersfront/YOUR_GIST_ID/raw/douglas-version.json"
+    /// 버전 정보 JSON URL
+    /// 기본값: GitHub Releases API (latest release)
+    /// 사용자가 설정에서 커스텀 URL을 지정할 수 있음 (Gist 등)
+    static var versionURL: String {
+        UserDefaults.standard.string(forKey: "customVersionURL")
+            ?? "https://gist.githubusercontent.com/donghuyn-kim/a5bb513ef689ce1338f89ed543e464e0/raw/douglas-version.json"
+    }
 
     private let defaults: UserDefaults
     private let currentVersion: String
@@ -126,12 +130,17 @@ final class UpdateManager: ObservableObject {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
 
-            let versionInfo = try decoder.decode(VersionInfo.self, from: data)
+            // GitHub Releases API 응답인지 Gist 형식인지 자동 감지
+            let versionInfo: VersionInfo
+            if let ghRelease = try? decoder.decode(GitHubRelease.self, from: data) {
+                versionInfo = ghRelease.toVersionInfo()
+            } else {
+                versionInfo = try decoder.decode(VersionInfo.self, from: data)
+            }
             self.latestVersion = versionInfo
 
             let remoteVersion = versionInfo.version
             self.isUpdateAvailable = isNewerVersion(remoteVersion, than: currentVersion)
-                && shouldShowUpdate(for: remoteVersion)
 
             defaults.set(Date(), forKey: Keys.lastCheckDate)
 
@@ -162,5 +171,33 @@ final class UpdateManager: ObservableObject {
 
     private func normalizeVersion(_ version: String) -> String {
         version.hasPrefix("v") ? String(version.dropFirst()) : version
+    }
+}
+
+// MARK: - GitHub Releases API 응답 매핑
+
+private struct GitHubRelease: Codable {
+    let tag_name: String
+    let name: String?
+    let body: String?
+    let published_at: Date?
+    let html_url: String
+    let assets: [Asset]?
+
+    struct Asset: Codable {
+        let name: String
+        let browser_download_url: String
+    }
+
+    func toVersionInfo() -> VersionInfo {
+        let dmgAsset = assets?.first { $0.name.hasSuffix(".dmg") }
+        let downloadURL = dmgAsset?.browser_download_url ?? html_url
+        return VersionInfo(
+            version: tag_name,
+            name: name ?? tag_name,
+            releaseNotes: body ?? "",
+            downloadURL: downloadURL,
+            publishedAt: published_at ?? Date()
+        )
     }
 }

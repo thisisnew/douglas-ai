@@ -182,12 +182,12 @@ enum IntentClassifier {
         return maxScore?.intent
     }
 
-    /// intent 우선순위 (동점 해소용): task > documentation > research > discussion > quickAnswer
+    /// intent 우선순위 (동점 해소용): documentation > task (문서 요청은 명시적이라 우선)
     private static func intentPriority(_ intent: WorkflowIntent) -> Int {
         switch intent {
         case .complex:       return 5
-        case .task:          return 4
-        case .documentation: return 3
+        case .documentation: return 4  // 문서 포맷 명시는 강한 신호
+        case .task:          return 3
         case .research:      return 2
         case .discussion:    return 2
         case .quickAnswer:   return 1

@@ -293,6 +293,70 @@ struct AgentManifestTests {
         #expect(decoded.agents[2].isMaster == true)
     }
 
+    // MARK: - Fingerprint & 중복 감지
+
+    @Test("동일 name+persona+skillTags → 같은 fingerprint")
+    func fingerprintSame() {
+        let a = makeTestAgent(name: "백엔드", persona: "Spring 전문가")
+        let b = makeTestAgent(name: "백엔드", persona: "Spring 전문가")
+        #expect(AgentManifest.fingerprint(for: a) == AgentManifest.fingerprint(for: b))
+    }
+
+    @Test("다른 persona → 다른 fingerprint")
+    func fingerprintDifferentPersona() {
+        let a = makeTestAgent(name: "백엔드", persona: "Spring 전문가")
+        let b = makeTestAgent(name: "백엔드", persona: "Django 전문가")
+        #expect(AgentManifest.fingerprint(for: a) != AgentManifest.fingerprint(for: b))
+    }
+
+    @Test("AgentEntry fingerprint도 Agent와 일치")
+    func entryFingerprintMatchesAgent() {
+        let agent = makeTestAgent(name: "백엔드", persona: "Spring 전문가")
+        let entry = AgentManifest.AgentEntry(from: agent)
+        #expect(AgentManifest.fingerprint(for: agent) == AgentManifest.entryFingerprint(for: entry))
+    }
+
+    @Test("findDuplicates — exact match 감지")
+    func findDuplicatesExact() {
+        let existing = [makeTestAgent(name: "백엔드", persona: "Spring 전문가")]
+        let entry = AgentManifest.AgentEntry(
+            name: "백엔드", persona: "Spring 전문가", isMaster: false,
+            providerType: "OpenAI", preferredModel: "gpt-4o",
+            workingRules: nil, avatarBase64: nil,
+            skillTags: nil, workModes: nil, outputStyles: nil, equippedPluginIDs: nil
+        )
+        let duplicates = AgentManifest.findDuplicates(entries: [entry], existing: existing)
+        #expect(duplicates.count == 1)
+        #expect(duplicates[0].matchType == .exact)
+    }
+
+    @Test("findDuplicates — 이름만 일치")
+    func findDuplicatesNameOnly() {
+        let existing = [makeTestAgent(name: "백엔드", persona: "Spring 전문가")]
+        let entry = AgentManifest.AgentEntry(
+            name: "백엔드", persona: "완전 다른 전문가", isMaster: false,
+            providerType: "OpenAI", preferredModel: "gpt-4o",
+            workingRules: nil, avatarBase64: nil,
+            skillTags: nil, workModes: nil, outputStyles: nil, equippedPluginIDs: nil
+        )
+        let duplicates = AgentManifest.findDuplicates(entries: [entry], existing: existing)
+        #expect(duplicates.count == 1)
+        #expect(duplicates[0].matchType == .nameOnly)
+    }
+
+    @Test("findDuplicates — 중복 없음")
+    func findDuplicatesNone() {
+        let existing = [makeTestAgent(name: "백엔드", persona: "Spring 전문가")]
+        let entry = AgentManifest.AgentEntry(
+            name: "프론트엔드", persona: "React 전문가", isMaster: false,
+            providerType: "OpenAI", preferredModel: "gpt-4o",
+            workingRules: nil, avatarBase64: nil,
+            skillTags: nil, workModes: nil, outputStyles: nil, equippedPluginIDs: nil
+        )
+        let duplicates = AgentManifest.findDuplicates(entries: [entry], existing: existing)
+        #expect(duplicates.isEmpty)
+    }
+
     // MARK: - Helpers
 
     private func makeManifest(agents: [AgentManifest.AgentEntry]) -> AgentManifest {

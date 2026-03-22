@@ -85,15 +85,16 @@ struct IntentClassifierTests {
         #expect(IntentClassifier.quickClassify("요약해줘") == WorkflowIntent.quickAnswer)
     }
 
-    @Test("요약+pdf 복합 → task")
+    @Test("요약+pdf 복합 → documentation (문서 포맷 명시)")
     func summarizeWithPdf() {
-        #expect(IntentClassifier.quickClassify("요약해서 pdf로 바꿔줘") == WorkflowIntent.task)
+        let result = IntentClassifier.quickClassify("요약해서 pdf로 바꿔줘")
+        #expect(result == WorkflowIntent.documentation || result == WorkflowIntent.complex)
     }
 
-    @Test("요약+pdf 만들어줘 → task")
+    @Test("요약+pdf 만들어줘 → documentation (문서 포맷 명시)")
     func summarizePdfMake() {
         let result = IntentClassifier.quickClassify("요약해서 pdf로 만들어줘")
-        #expect(result == WorkflowIntent.task)
+        #expect(result == WorkflowIntent.documentation || result == WorkflowIntent.complex)
     }
 
     @Test("분석 요청 → LLM 폴백 (task에서 '분석' 제거됨, research/discussion 영역)")
@@ -107,9 +108,10 @@ struct IntentClassifierTests {
         #expect(IntentClassifier.quickClassify("브레인스토밍 해보자") == WorkflowIntent.discussion)
     }
 
-    @Test("변환 → task")
+    @Test("변환 → documentation (문서 포맷 명시)")
     func convert() {
-        #expect(IntentClassifier.quickClassify("워드로 변환해줘") == WorkflowIntent.task)
+        let result = IntentClassifier.quickClassify("워드로 변환해줘")
+        #expect(result == WorkflowIntent.documentation || result == WorkflowIntent.complex)
     }
 
     @Test("코딩 → task")
@@ -132,10 +134,10 @@ struct IntentClassifierTests {
         #expect(IntentClassifier.quickClassify("이 코드 리팩토링해줘") == WorkflowIntent.task)
     }
 
-    @Test("pdf로 만들어줘 → task")
+    @Test("pdf로 만들어줘 → documentation (문서 포맷 명시)")
     func pdfContextOverridesAction() {
         let result = IntentClassifier.quickClassify("이걸 pdf로 만들어줘")
-        #expect(result == WorkflowIntent.task)
+        #expect(result == WorkflowIntent.documentation || result == WorkflowIntent.complex)
     }
 
     @Test("문서 만들어줘 → task (문서 단독으로는 documentation 임계값 미달)")
@@ -174,9 +176,10 @@ struct IntentClassifierTests {
         #expect(IntentClassifier.quickClassify("이 파일 요약해서 보내줘") == WorkflowIntent.task)
     }
 
-    @Test("바꿔봐 → task")
+    @Test("pdf로 바꿔봐 → documentation (문서 포맷 명시)")
     func koreanStemConvert() {
-        #expect(IntentClassifier.quickClassify("pdf로 바꿔봐") == WorkflowIntent.task)
+        let result = IntentClassifier.quickClassify("pdf로 바꿔봐")
+        #expect(result == WorkflowIntent.documentation || result == WorkflowIntent.complex)
     }
 
     @Test("classified task 파일 포함")

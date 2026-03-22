@@ -71,6 +71,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let themeManager = ThemeManager()
     let pluginManager = PluginManager()
     let updateManager = UpdateManager()
+    let hookManager = HookManager()
     private var statusItem: NSStatusItem?
     private var sidebarHotkeyMonitor: Any?
     private var sidebarGlobalMonitor: Any?
@@ -264,28 +265,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// 업데이트 알림 윈도우 표시
+    /// 업데이트 알림 — NSAlert 기반 (안전한 방식)
     private func showUpdateAlert() async {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 420),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "소프트웨어 업데이트"
-        window.center()
+        guard let release = updateManager.latestVersion else { return }
 
-        let updateView = UpdateAlertView(onDismiss: { [weak window] in
-            window?.close()
-        })
-        .environmentObject(updateManager)
-        .environmentObject(themeManager)
-        .environment(\.colorPalette, themeManager.currentPalette)
-
-        window.contentView = NSHostingView(rootView: updateView)
-        window.level = .floating
-        window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "새로운 버전이 있습니다"
+        alert.informativeText = "현재: \(updateManager.appVersion) → 최신: \(release.version)\n\n\(release.releaseNotes)"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "다운로드")
+        alert.addButton(withTitle: "나중에")
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            updateManager.openDownloadPage()
+        }
     }
 
     // MARK: - 사이드바 핫키 (Cmd+Shift+E)
@@ -516,6 +510,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .environmentObject(themeManager)
             .environmentObject(pluginManager)
             .environmentObject(updateManager)
+            .environmentObject(hookManager)
 
         let hostingView = ClickThroughHostingView(rootView: sidebarView)
         sidebarPanel.contentView = hostingView

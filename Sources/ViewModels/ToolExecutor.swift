@@ -1202,6 +1202,40 @@ enum ToolExecutor {
         guard let command = call.arguments["command"]?.stringValue else {
             return ToolResult(callID: call.id, content: "command 파라미터가 필요합니다.", isError: true)
         }
+
+        // Command Safety Check (3계층: 시스템 기본 + 프로젝트 규칙)
+        let projectRules = SafetyRuleStore.loadRules()
+        let safetyResult = CommandSafetyChecker.check(command, projectRules: projectRules)
+
+        switch safetyResult.risk {
+        case .block:
+            let reason = safetyResult.reason ?? "위험한 명령"
+            return ToolResult(
+                callID: call.id,
+                content: "이 명령은 안전상 실행할 수 없습니다: \(reason)\n명령어: \(command)",
+                isError: true
+            )
+        case .confirm:
+            // askUser를 통해 사용자 확인 요청
+            if context.roomID != nil {
+                let reason = safetyResult.reason ?? "확인 필요"
+                let response = await context.askUser(
+                    "명령 실행 확인: \(reason)\n명령어: \(command)",
+                    nil,
+                    ["실행", "거부"]
+                )
+                if response != "실행" {
+                    return ToolResult(
+                        callID: call.id,
+                        content: "사용자가 명령 실행을 거부했습니다.",
+                        isError: true
+                    )
+                }
+            }
+        case .warn, .allow:
+            break
+        }
+
         // working_directory 미지정 시 projectPath를 기본값으로 사용
         let workDir = call.arguments["working_directory"]?.stringValue ?? context.projectPaths.first
 

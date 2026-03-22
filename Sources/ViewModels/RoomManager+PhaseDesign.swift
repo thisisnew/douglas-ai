@@ -45,6 +45,12 @@ extension RoomManager {
             briefContext = (room.clarifyContext.clarifySummary ?? task) + intakeBlock + projectPathsBlock
         }
 
+        // --- research intent: 토론 없이 병렬 조사 → 종합 ---
+        if room.workflowState.intent?.isResearch == true {
+            await executeResearchDesign(roomID: roomID, task: task, briefContext: briefContext, specialists: specialists)
+            return
+        }
+
         // --- 멀티에이전트: 통합 토론 프로토콜 ---
         // discussion/task 모두 동일한 토론 (의견 → 상호 피드백 → DOUGLAS 종합)
 
@@ -188,6 +194,153 @@ extension RoomManager {
 
     /// 토론 모드: 전문가 각자 의견 제시 → 상호 피드백(LLM 순서 결정) → DOUGLAS 종합
     /// Build/Review 단계 없이 Design 내에서 토론 완결
+    /// Research 전용 Design: 토론 없이 에이전트들이 도구로 병렬 조사 → DOUGLAS 종합
+    private func executeResearchDesign(roomID: UUID, task: String, briefContext: String, specialists: [UUID]) async {
+        let startMsg = ChatMessage(
+            role: .system,
+            content: "조사를 시작합니다.",
+            messageType: .phaseTransition
+        )
+        appendMessage(startMsg, to: roomID)
+
+        // 에이전트별 병렬 조사 (도구 사용 가능)
+        struct ResearchFinding: Sendable {
+            let agentName: String
+            let result: String
+        }
+        var findings: [ResearchFinding] = []
+
+        await withTaskGroup(of: ResearchFinding?.self) { group in
+            for agentID in specialists {
+                group.addTask { [weak self] () -> ResearchFinding? in
+                    guard let self else { return nil }
+                    let agentAndProvider = await MainActor.run { () -> (Agent, AIProvider)? in
+                        guard let agent = self.agentStore?.agents.first(where: { $0.id == agentID }),
+                              let provider = self.providerManager?.provider(named: agent.providerName) else { return nil }
+                        return (agent, provider)
+                    }
+                    guard let (agent, provider) = agentAndProvider else { return nil }
+
+                    await MainActor.run { self.speakingAgentIDByRoom[roomID] = agentID }
+
+                    let room = await MainActor.run { self.rooms.first(where: { $0.id == roomID }) }
+                    let intakeText = room?.clarifyContext.intakeData?.asClarifyContextString() ?? ""
+                    let intakeBlock = intakeText.isEmpty ? "" : "\n\(intakeText)"
+                    let projectPathsBlock = (room?.effectiveProjectPaths ?? []).isEmpty ? "" : "\n[프로젝트 경로]\n" + (room?.effectiveProjectPaths ?? []).map { "- \($0)" }.joined(separator: "\n")
+
+                    let researchPrompt = """
+                    \(await MainActor.run { self.systemPrompt(for: agent, roomID: roomID) })
+
+                    [시스템] 필요한 외부 데이터는 이미 수집되었습니다.
+                    \(intakeBlock)\(projectPathsBlock)
+
+                    아래 조사 요청에 대해 당신의 전문 영역에서 도구를 활용하여 조사하고 결과를 보고하세요.
+                    코드 검색, 파일 읽기 등 도구를 적극 활용하세요.
+                    토론이나 의견 교환이 아닙니다. 사실에 기반한 조사 결과만 보고하세요.
+
+                    \(briefContext)
+                    """
+
+                    let history = await MainActor.run { self.buildRoomHistory(roomID: roomID) }
+                    let context = await MainActor.run { self.makeToolContext(roomID: roomID, currentAgentID: agentID) }
+
+                    let placeholderID = UUID()
+                    do {
+                        let buffer = StreamBuffer()
+                        await MainActor.run {
+                            let placeholder = ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: agent.name)
+                            self.appendMessage(placeholder, to: roomID)
+                        }
+                        let response = try await ToolExecutor.smartSend(
+                            provider: provider,
+                            agent: agent,
+                            systemPrompt: researchPrompt,
+                            conversationMessages: history,
+                            context: context,
+                            onStreamChunk: { [weak self] chunk in
+                                guard let self else { return }
+                                let current = buffer.append(chunk)
+                                Task { @MainActor in
+                                    self.updateMessageContent(placeholderID, newContent: current, in: roomID)
+                                }
+                            },
+                            useTools: true  // 도구 사용 허용
+                        )
+                        await MainActor.run {
+                            self.updateMessageContent(placeholderID, newContent: stripTrailingOptions(response), in: roomID)
+                        }
+                        return ResearchFinding(agentName: agent.name, result: response)
+                    } catch {
+                        await MainActor.run {
+                            self.appendMessage(ChatMessage(role: .assistant, content: "조사 오류: \(error.localizedDescription)", agentName: agent.name, messageType: .error), to: roomID)
+                        }
+                        return nil
+                    }
+                }
+            }
+
+            for await result in group {
+                if let result {
+                    findings.append(result)
+                }
+            }
+        }
+
+        // speakingAgent 정리
+        speakingAgentIDByRoom.removeValue(forKey: roomID)
+
+        // 조사 결과가 있으면 DOUGLAS가 종합
+        if findings.count >= 2 {
+            let synthesisInput = findings.map { "[\($0.agentName)]\n\($0.result)" }.joined(separator: "\n\n---\n\n")
+            await synthesizeResearchFindings(roomID: roomID, task: task, findings: synthesisInput)
+        }
+
+        scheduleSave()
+    }
+
+    /// 조사 결과 종합 (DOUGLAS가 수행)
+    private func synthesizeResearchFindings(roomID: UUID, task: String, findings: String) async {
+        guard let masterAgent = agentStore?.agents.first(where: { $0.isMaster }),
+              let provider = providerManager?.provider(named: masterAgent.providerName) else { return }
+
+        let synthesisPrompt = PromptCompositionService.researchSynthesisPrompt()
+
+        let synthMsg = ChatMessage(role: .system, content: "조사 결과를 종합합니다.", messageType: .phaseTransition)
+        appendMessage(synthMsg, to: roomID)
+
+        let conversationMessages = [
+            ConversationMessage.user("사용자 요청: \(task)\n\n아래는 전문가들의 조사 결과입니다:\n\n\(findings)")
+        ]
+
+        let placeholderID = UUID()
+        do {
+            let buffer = StreamBuffer()
+            let placeholder = ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: masterAgent.name)
+            appendMessage(placeholder, to: roomID)
+
+            let response = try await ToolExecutor.smartSend(
+                provider: provider,
+                agent: masterAgent,
+                systemPrompt: synthesisPrompt,
+                conversationMessages: conversationMessages,
+                onStreamChunk: { [weak self] chunk in
+                    guard let self else { return }
+                    let current = buffer.append(chunk)
+                    Task { @MainActor in
+                        self.updateMessageContent(placeholderID, newContent: current, in: roomID)
+                    }
+                },
+                useTools: false
+            )
+            updateMessageContent(placeholderID, newContent: response, in: roomID)
+
+            // Research briefing 생성
+            await generateResearchBriefing(roomID: roomID, topic: task)
+        } catch {
+            appendMessage(ChatMessage(role: .system, content: "종합 오류: \(error.localizedDescription)", messageType: .error), to: roomID)
+        }
+    }
+
     func executeDiscussionDesign(roomID: UUID, task: String, briefContext: String, specialists: [UUID]) async {
         let startMsg = ChatMessage(
             role: .system,
@@ -521,6 +674,8 @@ extension RoomManager {
 
     /// 계획 승인 루프: 사용자가 승인할 때까지 계획 재수립 반복
     private func awaitPlanApproval(roomID: UUID, task: String, designOutput: String? = nil) async -> Bool {
+        var rejectionCount = 0
+        let maxRejections = 3
         while true {
             guard !Task.isCancelled,
                   let room = rooms.first(where: { $0.id == roomID }),
@@ -570,6 +725,17 @@ extension RoomManager {
                 appendMessage(resumeMsg, to: roomID)
                 return true
             } else {
+                rejectionCount += 1
+                if rejectionCount >= maxRejections {
+                    let limitMsg = ChatMessage(
+                        role: .system,
+                        content: "계획이 \(maxRejections)회 거부되었습니다. 작업을 종료합니다. 요청을 다시 정리해서 새 방에서 시도해주세요.",
+                        messageType: .error
+                    )
+                    appendMessage(limitMsg, to: roomID)
+                    return false
+                }
+
                 let feedback = rooms.first(where: { $0.id == roomID })?
                     .messages.last(where: { $0.role == .user })?.content ?? ""
 

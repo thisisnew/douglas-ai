@@ -49,7 +49,7 @@ enum DocumentExporter {
 
     /// 문서 내용을 파일로 저장
     /// - 고정 경로 설정 시: 해당 폴더에 자동 저장 (NSSavePanel 없음)
-    /// - 미설정 시: NSSavePanel으로 위치 선택
+    /// - 미설정 시: 기본 폴더에 자동 저장
     /// - Returns: 저장된 파일 URL (nil = 사용자 취소 또는 오류)
     @discardableResult
     static func saveDocument(
@@ -57,6 +57,19 @@ enum DocumentExporter {
         suggestedName: String,
         defaultExtension: String = "md"
     ) -> URL? {
+        let result = saveDocumentWithResult(content: content, suggestedName: suggestedName, defaultExtension: defaultExtension)
+        switch result {
+        case .saved(let url, _): return url
+        case .failed: return nil
+        }
+    }
+
+    /// 문서 내용을 파일로 저장 (상세 결과 포함)
+    static func saveDocumentWithResult(
+        content: String,
+        suggestedName: String,
+        defaultExtension: String = "md"
+    ) -> SaveResult {
         let filename = sanitizeFilename(suggestedName, ext: defaultExtension)
 
         // 고정 경로가 설정되어 있으면 자동 저장
@@ -64,22 +77,46 @@ enum DocumentExporter {
             let fileURL = uniqueFileURL(directory: dirURL, filename: filename)
             do {
                 try content.write(to: fileURL, atomically: true, encoding: .utf8)
-                return fileURL
+                return .saved(url: fileURL, usedFallback: false)
             } catch {
                 print("[DocumentExporter] 설정 폴더 저장 실패: \(error.localizedDescription) → 기본 폴더로 폴백")
             }
         }
 
-        // 고정 경로 미설정 시 Application Support에 자동 저장 (TCC 팝업 방지)
+        // 고정 경로 미설정/실패 시 Application Support에 자동 저장 (TCC 팝업 방지)
         let douglasDir = defaultSaveDirectory()
         try? FileManager.default.createDirectory(at: douglasDir, withIntermediateDirectories: true)
         let fileURL = uniqueFileURL(directory: douglasDir, filename: filename)
+        let hadConfiguredPath = UserDefaults.standard.string(forKey: "documentSaveDirectory") != nil
         do {
             try content.write(to: fileURL, atomically: true, encoding: .utf8)
-            return fileURL
+            return .saved(url: fileURL, usedFallback: hadConfiguredPath)
         } catch {
-            return nil
+            return .failed(reason: error.localizedDescription)
         }
+    }
+
+    /// 문서 저장 결과
+    enum SaveResult {
+        case saved(url: URL, usedFallback: Bool)
+        case failed(reason: String)
+    }
+
+    /// 저장 디렉토리 상태
+    enum SaveDirectoryStatus {
+        case accessible(url: URL)
+        case inaccessible(configuredPath: String)
+        case notConfigured
+    }
+
+    /// 설정된 저장 경로의 접근 상태 확인
+    static func checkSaveDirectoryStatus() -> SaveDirectoryStatus {
+        let configured = UserDefaults.standard.string(forKey: "documentSaveDirectory")
+        guard let configured, !configured.isEmpty else { return .notConfigured }
+        if resolveDocumentSaveDirectory() != nil {
+            return .accessible(url: URL(fileURLWithPath: configured))
+        }
+        return .inaccessible(configuredPath: configured)
     }
 
     /// 설정된 경로가 존재하지만 접근 불가한 경우 경고 문자열 반환
@@ -130,7 +167,8 @@ enum DocumentExporter {
 
     /// 기본 저장 디렉토리 (TCC 팝업 방지: ~/Library/Application Support/DOUGLAS/Documents/)
     private static func defaultSaveDirectory() -> URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
         return appSupport
             .appendingPathComponent("DOUGLAS", isDirectory: true)
             .appendingPathComponent("Documents", isDirectory: true)
@@ -212,8 +250,16 @@ enum DocumentExporter {
         return nil
     }
 
-    /// 바이너리 포맷 (LLM이 file_write로 직접 생성해야 하는 형식)
-    static let binaryFormats: Set<String> = ["xlsx", "pptx", "docx"]
+    /// 바이너리 포맷 (현재 신뢰할 수 없음 — 안내 후 대체 포맷 제안)
+    static let unsupportedBinaryFormats: Set<String> = ["xlsx", "pptx", "docx"]
+
+    /// 공식 지원 포맷
+    static let supportedFormats: Set<String> = ["md", "pdf", "csv", "json", "txt"]
+
+    /// 바이너리 포맷 요청인지 확인
+    static func isUnsupportedFormat(_ format: String) -> Bool {
+        unsupportedBinaryFormats.contains(format.lowercased())
+    }
 
     /// 사용자 요청에서 파일 포맷 감지
     static func detectRequestedFormat(_ task: String) -> String {

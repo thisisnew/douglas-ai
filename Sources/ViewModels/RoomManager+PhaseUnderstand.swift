@@ -420,11 +420,13 @@ extension RoomManager {
         case .task:
             maxAgentHint = rooms[idx].workflowState.autoDocOutput
                 ? "이 작업은 조사/분석 + 문서 작성이므로 **2명**을 요청하세요."
-                : "불확실하면 적게 요청하세요 (1~2명이면 충분한 경우가 많습니다)."
+                : "작업 범위를 정확히 분석하여 필요한 역할을 모두 요청하세요. 프론트엔드+백엔드 등 여러 도메인이 필요하면 각각 요청하세요."
+        case .research:
+            maxAgentHint = "이 작업은 조사/검색입니다. 단일 도메인 조사는 **1명**이면 충분합니다. 여러 도메인(프론트+백엔드 등)의 코드를 모두 봐야 할 때만 2명을 요청하세요."
         case .discussion:
             maxAgentHint = "이 작업은 토론/의견 교환이므로 **2명 이상** 요청하세요. 다양한 관점이 필요합니다."
         default:
-            maxAgentHint = "불확실하면 적게 요청하세요 (1~2명이면 충분한 경우가 많습니다)."
+            maxAgentHint = "작업 범위를 분석하여 필요한 역할을 모두 요청하세요."
         }
 
         // 문서 유형 컨텍스트

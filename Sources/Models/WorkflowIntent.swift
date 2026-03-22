@@ -106,6 +106,9 @@ enum WorkflowIntent: String, CaseIterable {
     /// discussion 또는 research — Design 단계에서 토론/조사형 흐름을 타야 하는 intent
     var isDiscussionLike: Bool { self == .discussion || self == .research }
 
+    /// 조사 전용 — 토론 없이 에이전트가 바로 도구로 조사 후 보고
+    var isResearch: Bool { self == .research }
+
     /// 토론 필요 여부 (전문가 2명+ 시)
     var requiresDiscussion: Bool {
         switch self {

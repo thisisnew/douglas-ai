@@ -30,9 +30,7 @@ struct IntentVocabulary: Equatable {
         }
 
         for negative in negatives {
-            let matched = tokens.contains { $0.hasPrefix(negative.stem) || $0 == negative.stem }
-                || fullText.contains(negative.stem)
-            if matched {
+            if stemMatches(negative.stem, tokens: tokens, fullText: fullText, bigrams: bigrams) {
                 total += negative.weight // weight는 이미 음수
             }
         }
@@ -183,8 +181,18 @@ extension IntentVocabulary {
             .init(stem: "슬라이드", weight: 4), .init(stem: "매뉴얼", weight: 5),
             .init(stem: "이메일", weight: 4), .init(stem: "메일", weight: 4),
             .init(stem: "공문", weight: 4), .init(stem: "레터", weight: 4),
+            // 문서 포맷 키워드 (포맷 + "만들어/정리" = 문서 생성)
+            .init(stem: "pdf", weight: 5), .init(stem: "워드", weight: 4),
+            .init(stem: "엑셀", weight: 4), .init(stem: "한글", weight: 3),
+            .init(stem: "hwp", weight: 4), .init(stem: "pptx", weight: 4),
+            .init(stem: "ppt", weight: 4), .init(stem: "xlsx", weight: 4),
+            .init(stem: "docx", weight: 4),
         ],
-        negatives: [],
+        negatives: [
+            // 코딩/구현 맥락이면 documentation이 아님
+            .init(stem: "구현", weight: -3), .init(stem: "코딩", weight: -3),
+            .init(stem: "빌드", weight: -3), .init(stem: "배포", weight: -3),
+        ],
         threshold: 4
     )
 
@@ -216,18 +224,18 @@ extension IntentVocabulary {
             // 변환/포맷
             .init(stem: "바꿔", weight: 3), .init(stem: "변환", weight: 4),
             .init(stem: "convert", weight: 4), .init(stem: "컨버트", weight: 4),
-            // 문서 포맷
-            .init(stem: "pdf", weight: 5), .init(stem: "워드", weight: 4),
-            .init(stem: "엑셀", weight: 4),
-            .init(stem: "word", weight: 4), .init(stem: "excel", weight: 4),
-            .init(stem: "한글", weight: 3), .init(stem: "hwp", weight: 4),
+            // 문서 포맷 (documentation과 겹침 — task는 "코드로 pdf 생성" 맥락에서만)
+            .init(stem: "pdf", weight: 2), .init(stem: "워드", weight: 2),
+            .init(stem: "엑셀", weight: 2),
+            .init(stem: "word", weight: 2), .init(stem: "excel", weight: 2),
+            .init(stem: "한글", weight: 2), .init(stem: "hwp", weight: 2),
             .init(stem: "markdown", weight: 3), .init(stem: "마크다운", weight: 3),
             // 코딩/개발/빌드
-            .init(stem: "구현", weight: 4), .init(stem: "개발", weight: 3),
+            .init(stem: "구현", weight: 4), .init(stem: "개발", weight: 4),
             .init(stem: "코딩", weight: 5), .init(stem: "coding", weight: 5),
-            .init(stem: "만들어", weight: 3), .init(stem: "빌드", weight: 4),
+            .init(stem: "만들어", weight: 4), .init(stem: "빌드", weight: 4),
             .init(stem: "build", weight: 4),
-            .init(stem: "수정", weight: 3), .init(stem: "버그", weight: 5),
+            .init(stem: "수정", weight: 4), .init(stem: "버그", weight: 5),
             .init(stem: "bug", weight: 5),
             .init(stem: "리팩토", weight: 4), .init(stem: "refactor", weight: 4),
             .init(stem: "배포", weight: 4), .init(stem: "deploy", weight: 4),
@@ -242,7 +250,11 @@ extension IntentVocabulary {
             .init(stem: "토론", weight: -3), .init(stem: "의견", weight: -2),
             .init(stem: "브레인스토밍", weight: -3), .init(stem: "어떻게생각", weight: -3),
             .init(stem: "조사해", weight: -2), .init(stem: "찾아봐", weight: -2),
+            // 문서 포맷/유형 키워드가 있으면 task가 아님
+            .init(stem: "제안서", weight: -3), .init(stem: "보고서", weight: -3),
+            .init(stem: "기획서", weight: -3), .init(stem: "명세서", weight: -3),
+            .init(stem: "정리해", weight: -2),
         ],
-        threshold: 3
+        threshold: 4  // 다른 intent와 동일 (3이면 task 과적합)
     )
 }

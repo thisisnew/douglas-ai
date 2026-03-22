@@ -16,14 +16,28 @@ extension RoomManager {
 
         // 1차: 에이전트가 실제 생성한 문서 파일 확인 (바이너리 포맷: xlsx, pptx 등)
         if let docURL = DocumentExporter.findActualDocumentFile(from: room) {
-            let doneMsg = ChatMessage(
-                role: .system,
-                content: "문서가 저장되었습니다\n\(docURL.lastPathComponent)\n\(docURL.path)",
-                messageType: .phaseTransition,
-                documentURL: docURL.absoluteString
-            )
-            appendMessage(doneMsg, to: roomID)
-            return
+            // 바이너리 파일 유효성 검사 — 너무 작거나 비어있으면 깨진 파일
+            let fileSize = (try? FileManager.default.attributesOfItem(atPath: docURL.path)[.size] as? Int) ?? 0
+            if fileSize > 100 {
+                let doneMsg = ChatMessage(
+                    role: .system,
+                    content: "문서가 저장되었습니다\n\(docURL.lastPathComponent)\n\(docURL.path)",
+                    messageType: .phaseTransition,
+                    documentURL: docURL.absoluteString
+                )
+                appendMessage(doneMsg, to: roomID)
+                return
+            } else {
+                // 깨진 파일 → 삭제 후 md로 fallback
+                try? FileManager.default.removeItem(at: docURL)
+                let fallbackMsg = ChatMessage(
+                    role: .system,
+                    content: "파일 생성에 실패하여 Markdown으로 대체 저장합니다.",
+                    messageType: .phaseTransition
+                )
+                appendMessage(fallbackMsg, to: roomID)
+                // 아래 2차 로직으로 계속 진행 → md로 저장
+            }
         }
 
         // 2차: 메시지에서 콘텐츠 추출 후 파일 저장
@@ -35,31 +49,46 @@ extension RoomManager {
         let userTask = (task ?? room.messages.last(where: { $0.role == .user })?.content ?? "").lowercased()
         let format = DocumentExporter.detectRequestedFormat(userTask)
 
-        // 설정 경로 접근 불가 경고
-        if let warning = DocumentExporter.checkSaveDirectoryWarning() {
-            let warnMsg = ChatMessage(role: .system, content: warning, messageType: .phaseTransition)
-            appendMessage(warnMsg, to: roomID)
-        }
-
-        let url: URL?
         if format == "pdf" {
             let pdfMsg = ChatMessage(role: .system, content: "Markdown → PDF 변환 중…", messageType: .phaseTransition)
             appendMessage(pdfMsg, to: roomID)
-            url = await DocumentExporter.exportToPDF(markdownContent: content, suggestedName: suggestedName)
+            let url = await DocumentExporter.exportToPDF(markdownContent: content, suggestedName: suggestedName)
+            if let url {
+                let doneMsg = ChatMessage(
+                    role: .system,
+                    content: "문서가 저장되었습니다\n\(url.lastPathComponent)\n\(url.path)",
+                    messageType: .phaseTransition,
+                    documentURL: url.absoluteString
+                )
+                appendMessage(doneMsg, to: roomID)
+            }
         } else {
             let savingMsg = ChatMessage(role: .system, content: "문서를 파일로 저장합니다…", messageType: .phaseTransition)
             appendMessage(savingMsg, to: roomID)
-            url = DocumentExporter.saveDocument(content: content, suggestedName: suggestedName, defaultExtension: format)
-        }
-
-        if let url {
-            let doneMsg = ChatMessage(
-                role: .system,
-                content: "문서가 저장되었습니다\n\(url.lastPathComponent)\n\(url.path)",
-                messageType: .phaseTransition,
-                documentURL: url.absoluteString
+            let result = DocumentExporter.saveDocumentWithResult(
+                content: content, suggestedName: suggestedName, defaultExtension: format
             )
-            appendMessage(doneMsg, to: roomID)
+            switch result {
+            case .saved(let url, let usedFallback):
+                var msg = "문서가 저장되었습니다\n\(url.lastPathComponent)\n\(url.path)"
+                if usedFallback {
+                    msg += "\n\n(설정된 폴더에 접근할 수 없어 기본 폴더에 저장했습니다. 설정에서 저장 폴더를 다시 지정해주세요.)"
+                }
+                let doneMsg = ChatMessage(
+                    role: .system,
+                    content: msg,
+                    messageType: .phaseTransition,
+                    documentURL: url.absoluteString
+                )
+                appendMessage(doneMsg, to: roomID)
+            case .failed(let reason):
+                let errMsg = ChatMessage(
+                    role: .system,
+                    content: "문서 저장에 실패했습니다: \(reason)",
+                    messageType: .phaseTransition
+                )
+                appendMessage(errMsg, to: roomID)
+            }
         }
     }
 
@@ -173,8 +202,9 @@ extension RoomManager {
             }
         }
 
-        let requestedFormat = DocumentExporter.detectRequestedFormat(task.lowercased())
-        let isBinaryFormat = DocumentExporter.binaryFormats.contains(requestedFormat)
+        var requestedFormat = DocumentExporter.detectRequestedFormat(task.lowercased())
+
+        let isBinaryFormat = DocumentExporter.unsupportedBinaryFormats.contains(requestedFormat)
 
         // 포맷 변환: 원본 내용을 추출하여 프롬프트에 직접 포함
         let formatConversionBlock: String

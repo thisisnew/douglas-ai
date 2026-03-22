@@ -60,15 +60,14 @@ enum KeychainHelper {
         if let keyData = try? Data(contentsOf: url), keyData.count == 32 {
             return SymmetricKey(data: keyData)
         }
-        // 새 키 생성 후 저장 — 실패 시 반드시 에러 전파 (키 손실 방지)
+        // 새 키 생성 후 저장 — 임시 파일 → rename 패턴으로 race condition 방지
         let newKey = SymmetricKey(size: .bits256)
         let keyData = newKey.withUnsafeBytes { Data($0) }
-        try keyData.write(to: url)
-        // 파일 권한 제한 (소유자만 읽기/쓰기)
-        try? FileManager.default.setAttributes(
-            [.posixPermissions: 0o600],
-            ofItemAtPath: url.path
-        )
+        let tmpURL = url.appendingPathExtension("tmp-\(UUID().uuidString)")
+        // 임시 파일에 0o600 권한으로 생성
+        FileManager.default.createFile(atPath: tmpURL.path, contents: keyData, attributes: [.posixPermissions: 0o600])
+        // 원자적 이동 (rename)
+        try FileManager.default.moveItem(at: tmpURL, to: url)
         logger.info("New encryption key generated and saved")
         return newKey
     }

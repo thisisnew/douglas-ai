@@ -869,7 +869,8 @@ class RoomManager: ObservableObject, WorkflowHost {
     /// 마지막 글자의 받침 유무에 따라 "이"/"가" 반환
     func subjectParticle(for name: String) -> String {
         guard let last = name.last else { return "이" }
-        let v = last.unicodeScalars.first!.value
+        guard let scalar = last.unicodeScalars.first else { return "이" }
+        let v = scalar.value
         guard (0xAC00...0xD7A3).contains(v) else { return "가" }   // 비한글(영문 등)
         return (v - 0xAC00) % 28 == 0 ? "가" : "이"               // 받침 없으면 "가"
     }

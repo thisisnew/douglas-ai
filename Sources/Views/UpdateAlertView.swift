@@ -84,43 +84,49 @@ struct UpdateAlertView: View {
     private var releaseNotesSection: some View {
         ScrollView {
             if let release = updateManager.latestVersion {
-                VStack(alignment: .leading, spacing: 12) {
-                    // 릴리스 이름 및 날짜
+                VStack(alignment: .leading, spacing: 16) {
                     HStack {
                         Text(release.name)
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
                             .foregroundColor(palette.textPrimary)
 
                         Spacer()
 
                         Text(release.publishedAt, style: .date)
-                            .font(.system(size: 12))
-                            .foregroundColor(palette.textSecondary)
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundColor(palette.textSecondary.opacity(0.7))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(palette.surfaceSecondary.opacity(0.5), in: Capsule())
                     }
 
-                    // 릴리스 노트 (Markdown)
                     Markdown(release.releaseNotes)
-                        .markdownTheme(.gitHub)
                         .markdownTextStyle {
                             ForegroundColor(palette.textPrimary)
+                            FontSize(13)
+                        }
+                        .markdownTextStyle(\.code) {
+                            FontFamilyVariant(.monospaced)
+                            FontSize(12)
+                            ForegroundColor(palette.accent)
                         }
                 }
-                .padding(16)
+                .padding(20)
             } else {
                 Text("릴리스 노트를 불러올 수 없습니다.")
+                    .font(.system(size: 13, design: .rounded))
                     .foregroundColor(palette.textSecondary)
-                    .padding(16)
+                    .padding(20)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(palette.surfaceSecondary.opacity(0.3))
+        .background(palette.surfaceSecondary.opacity(0.15))
     }
 
     // MARK: - Buttons
 
     private var buttonBar: some View {
         HStack(spacing: 12) {
-            // 이 버전 건너뛰기
             Button {
                 if let release = updateManager.latestVersion {
                     updateManager.skipVersion(release.version)
@@ -128,32 +134,35 @@ struct UpdateAlertView: View {
                 onDismiss()
             } label: {
                 Text("이 버전 건너뛰기")
-                    .font(.system(size: 13))
+                    .font(.system(size: DesignTokens.FontSize.xs, design: .rounded))
             }
             .buttonStyle(.plain)
-            .foregroundColor(palette.textSecondary)
+            .foregroundColor(palette.textSecondary.opacity(0.6))
 
             Spacer()
 
-            // 나중에
-            Button {
-                onDismiss()
-            } label: {
+            Button(action: onDismiss) {
                 Text("나중에")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: DesignTokens.FontSize.xs, weight: .medium, design: .rounded))
+                    .foregroundColor(palette.textSecondary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(palette.surfaceSecondary.opacity(0.6), in: Capsule())
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.plain)
 
-            // 다운로드
             Button {
                 updateManager.openDownloadPage()
                 onDismiss()
             } label: {
                 Label("다운로드", systemImage: "arrow.down.to.line")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: DesignTokens.FontSize.xs, weight: .semibold, design: .rounded))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(palette.accent, in: Capsule())
             }
-            .buttonStyle(.borderedProminent)
-            .tint(palette.accent)
+            .buttonStyle(.plain)
         }
     }
 }

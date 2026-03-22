@@ -71,10 +71,18 @@ enum AgentPorter {
                 if !proceed { return }
             }
 
+            let nonMasterEntries = manifest.agents.filter { !$0.isMaster }
+            let duplicates = AgentManifest.findDuplicates(entries: nonMasterEntries, existing: store.agents)
+            let duplicateEntryNames = Set(duplicates.filter { $0.matchType == .exact }.map(\.entry.name))
+
             var importedCount = 0
-            for entry in manifest.agents {
-                // 마스터 에이전트는 import하지 않음
-                if entry.isMaster { continue }
+            var skippedCount = 0
+            for entry in nonMasterEntries {
+                // fingerprint 완전 일치 → 건너뜀 (중복)
+                if duplicateEntryNames.contains(entry.name) {
+                    skippedCount += 1
+                    continue
+                }
 
                 let finalName = AgentManifest.deduplicateName(entry.name, existing: store.agents)
                 var agent = entry.toAgent()
@@ -94,6 +102,9 @@ enum AgentPorter {
 
             let skippedMasters = manifest.agents.filter(\.isMaster).count
             var message = "\(importedCount)개의 에이전트를 가져왔습니다."
+            if skippedCount > 0 {
+                message += "\n(\(skippedCount)개는 이미 동일한 에이전트가 있어 건너뜀)"
+            }
             if skippedMasters > 0 {
                 message += "\n(마스터 에이전트 \(skippedMasters)개는 건너뜀)"
             }

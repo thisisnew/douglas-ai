@@ -1737,3 +1737,24 @@ Tests/
 | ViewModels | 302 | ChatViewModel (통합+파싱+상태), AgentStore, ProviderManager, RoomManager, OnboardingViewModel, ToolExecutor (Jira 도구 포함), BuildLoopRunner (QA 포함) |
 | Providers | 91 | OpenAI, Anthropic, Google, Ollama, LM Studio, Custom, ClaudeCode, ToolFormatConverter (도구 + 이미지 + 문서) |
 | **합계** | **789** | 테스트 가능 코드 87% 라인 커버리지 (View/App 레이어는 UI 특성상 제외) |
+
+### Phase K — 안전·품질·자동화 ✅ 완료
+
+| 항목 | 내용 | 상태 |
+|------|------|------|
+| K-1 | **Command Safety Layer**: `CommandSafetyChecker` — 3계층 안전 규칙 (시스템 기본 BLOCK/CONFIRM + 프로젝트 규칙 + 에이전트 업무 규칙). `SafetyRule` Codable 모델. `SafetyRuleStore` UserDefaults 영속화. `ToolExecutor.executeShellExec()` 앞단에 검사 통합. 27 tests. | ✅ |
+| K-2 | **에이전트 중복 감지**: `AgentManifest.fingerprint()` — FNV-1a 기반 해시로 동일 에이전트 판별. `findDuplicates()` exact/nameOnly 매칭. `AgentPorter.importAgents()` fingerprint 기반 중복 건너뜀. 6 tests. | ✅ |
+| K-3 | **문서 저장 피드백**: `DocumentExporter.SaveResult` + `SaveDirectoryStatus`. `saveDocumentWithResult()` fallback 여부 명시. `offerDocumentSave()` 저장 결과 메시지 (성공/fallback/실패). 설정 화면 접근 상태 아이콘. | ✅ |
+| K-4 | **토론 규칙 보강**: `discussionRulesBlock()` — "구현 제안/작업 착수 발언 금지" 규칙 추가. 토론 모드에서 에이전트가 부적절한 행동 제안 방지. | ✅ |
+| K-5 | **자동 업데이트 개선**: `UpdateManager` — GitHub Releases API 자동 감지. `GitHubRelease` → `VersionInfo` 매핑. 커스텀 URL 설정 가능. | ✅ |
+| K-6 | **사용자 정의 Hook 시스템**: `UserHook` 모델 (trigger + action). `HookManager` — CRUD, dispatch, 영속화. `HookTrigger` 5종 (roomCompleted/Failed, fileWritten, beforeShellExec, approvalRequested). `HookAction` 3종 (logToFile, runScript, systemNotification). 내장 템플릿 3개. 12 tests. | ✅ |
+
+### 향후 로드맵
+
+| 항목 | 내용 | 우선순위 |
+|------|------|----------|
+| L-1 | **플러그인 레시피 확대**: 이메일(SMTP), Google Sheets, 파일 감시 Preset 추가 | 중 |
+| L-2 | **엔터프라이즈 보안**: 프록시 설정, 로컬 전용 모드, MDM enterprise.json, macOS Keychain 옵션 | 중 |
+| L-3 | **MCP 서버 연동**: MS Office/Gmail 등 외부 도구 직접 호출 | 낮 |
+| L-4 | **Hook 설정 UI**: HookSettingsView — 사용자가 설정에서 직접 Hook 추가/삭제/활성화 | 중 |
+| L-5 | **Safety 설정 UI**: SafetySettingsView — 프로젝트 규칙 편집기, Safety Level 피커 | 중 |

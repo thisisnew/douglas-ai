@@ -1103,14 +1103,17 @@ extension RoomManager {
 
             이것이 최종 단계입니다. 사용자에게 전달할 완성된 결과물을 직접 작성하세요.
             과정 설명이나 단계 번호 없이, 결과물만 깔끔하게 출력하세요.
+            "Now I have", "Here's the final" 같은 메타 설명을 절대 포함하지 마세요.
+            반드시 한국어로 응답하세요.
             """
         } else {
             stepPrompt = """
             [작업 \(stepIndex + 1)/\(totalSteps)] \(step)\(workingDirContext)
             \(artifactContext)\(docTemplateBlock)
 
-            중간 단계입니다. 다음 단계에 필요한 핵심 데이터만 간결하게 출력하세요 (3줄 이내).
-            전체 결과물은 마지막 단계에서 작성합니다.
+            중간 단계입니다. 조사 결과나 작업 산출물만 출력하세요.
+            "Step N 핵심 데이터:", "Now I have" 같은 메타 설명을 절대 포함하지 마세요.
+            반드시 한국어로 응답하세요.
             """
         }
 

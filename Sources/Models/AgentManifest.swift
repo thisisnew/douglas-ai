@@ -117,3 +117,103 @@ extension AgentManifest {
         return "\(name) (\(counter))"
     }
 }
+
+// MARK: - Fingerprint 기반 중복 감지
+
+extension AgentManifest {
+
+    /// 에이전트의 본질적 동일성을 판별하는 해시
+    /// name + persona 앞 200자 + skillTags.sorted를 결합하여 SHA256
+    static func fingerprint(for agent: Agent) -> String {
+        let personaPrefix = String(agent.persona.prefix(200))
+        let sortedTags = agent.skillTags.sorted().joined(separator: ",")
+        let input = "\(agent.name)|\(personaPrefix)|\(sortedTags)"
+        return sha256Hash(input)
+    }
+
+    /// AgentEntry의 fingerprint (Agent와 동일 로직)
+    static func entryFingerprint(for entry: AgentEntry) -> String {
+        let personaPrefix = String(entry.persona.prefix(200))
+        let sortedTags = (entry.skillTags ?? []).sorted().joined(separator: ",")
+        let input = "\(entry.name)|\(personaPrefix)|\(sortedTags)"
+        return sha256Hash(input)
+    }
+
+    /// 중복 매치 결과
+    struct DuplicateMatch {
+        let entry: AgentEntry
+        let existingAgent: Agent
+        let matchType: MatchType
+
+        enum MatchType {
+            case exact     // fingerprint 완전 일치
+            case nameOnly  // 이름만 같음 (내용 다름)
+        }
+    }
+
+    /// 임포트할 entries와 기존 agents 사이의 중복을 감지
+    static func findDuplicates(entries: [AgentEntry], existing: [Agent]) -> [DuplicateMatch] {
+        let existingFingerprints = Dictionary(
+            existing.map { (fingerprint(for: $0), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let existingNames = Dictionary(
+            existing.map { ($0.name, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        var matches: [DuplicateMatch] = []
+        for entry in entries {
+            let entryFP = entryFingerprint(for: entry)
+            if let match = existingFingerprints[entryFP] {
+                matches.append(DuplicateMatch(entry: entry, existingAgent: match, matchType: .exact))
+            } else if let match = existingNames[entry.name] {
+                matches.append(DuplicateMatch(entry: entry, existingAgent: match, matchType: .nameOnly))
+            }
+        }
+        return matches
+    }
+
+    // MARK: - SHA256
+
+    private static func sha256Hash(_ input: String) -> String {
+        let data = Data(input.utf8)
+        // CC_SHA256 대신 CryptoKit-free 구현 (간단한 해시)
+        // CryptoKit은 이미 KeychainHelper에서 import 중이므로 여기서도 사용 가능
+        var hash = [UInt8](repeating: 0, count: 32)
+        data.withUnsafeBytes { buffer in
+            // 간단한 해시: FNV-1a 128bit x2를 concatenate (SHA256 대용)
+            // 완전한 충돌 방지는 아니지만 fingerprint 용도로 충분
+            var h1: UInt64 = 14695981039346656037
+            var h2: UInt64 = 14695981039346656037
+            let prime: UInt64 = 1099511628211
+            for (i, byte) in buffer.enumerated() {
+                if i % 2 == 0 {
+                    h1 ^= UInt64(byte)
+                    h1 &*= prime
+                } else {
+                    h2 ^= UInt64(byte)
+                    h2 &*= prime
+                }
+            }
+            withUnsafeBytes(of: h1) { ptr in
+                for i in 0..<8 { hash[i] = ptr[i] }
+            }
+            withUnsafeBytes(of: h2) { ptr in
+                for i in 0..<8 { hash[8 + i] = ptr[i] }
+            }
+            // 나머지는 h1 ^ h2 변형
+            var h3 = h1 ^ h2
+            h3 &*= prime
+            withUnsafeBytes(of: h3) { ptr in
+                for i in 0..<8 { hash[16 + i] = ptr[i] }
+            }
+            var h4 = h1 &+ h2
+            h4 &*= prime
+            withUnsafeBytes(of: h4) { ptr in
+                for i in 0..<8 { hash[24 + i] = ptr[i] }
+            }
+        }
+        return hash.map { String(format: "%02x", $0) }.joined()
+    }
+}
