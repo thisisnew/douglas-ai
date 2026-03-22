@@ -93,7 +93,9 @@ final class UpdateManager: ObservableObject {
         lastError = nil
         defer { isChecking = false }
 
-        guard let url = URL(string: Self.versionURL) else {
+        // GitHub Gist CDN 캐시 무효화: 타임스탬프 쿼리 파라미터 추가
+        let cacheBuster = "?t=\(Int(Date().timeIntervalSince1970))"
+        guard let url = URL(string: Self.versionURL + cacheBuster) else {
             logger.error("잘못된 버전 URL: \(Self.versionURL)")
             lastError = "잘못된 버전 URL입니다."
             return
