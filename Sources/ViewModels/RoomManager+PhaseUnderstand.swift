@@ -798,6 +798,21 @@ extension RoomManager {
                 await waitForSuggestionResponse(roomID: roomID)
             }
 
+            // 4.7) discussion/research 최소 2명 보장: LLM이 1명만 요청해도 추가 매칭
+            if (intent == .discussion || intent == .research),
+               executingAgentIDs(in: roomID).count < 2 {
+                let alreadyAssigned = Set(rooms.first(where: { $0.id == roomID })?.assignedAgentIDs ?? [])
+                let candidates = subAgents.filter { !alreadyAssigned.contains($0.id) }
+                if let additional = AgentMatcher.findBestFallbackMatch(
+                    task: enrichedTask,
+                    agents: candidates,
+                    intent: intent,
+                    pluginSkillTags: pluginSkillTags
+                ) {
+                    addAgent(additional.id, to: roomID, silent: true)
+                }
+            }
+
             // 5) RuntimeRole 사전 배정 (Plan C: Assemble에서 배정, UUID 기반)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
                 let specialists = executingAgentIDs(in: roomID)
