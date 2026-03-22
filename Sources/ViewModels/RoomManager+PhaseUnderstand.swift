@@ -587,6 +587,24 @@ extension RoomManager {
             return
         }
 
+        // 도메인 힌트 계산: Jira 데이터 + 사용자 입력 텍스트 병합
+        let jiraHints: [DomainHintDetector.DomainHint]
+        if let jiraDataList = rooms.first(where: { $0.id == roomID })?.clarifyContext.intakeData?.jiraDataList,
+           !jiraDataList.isEmpty {
+            let allSummary = jiraDataList.map { $0.summary }.joined(separator: " ")
+            let allDesc = jiraDataList.map { $0.description }.joined(separator: " ")
+            jiraHints = DomainHintDetector.detect(summary: allSummary, description: allDesc)
+        } else {
+            jiraHints = []
+        }
+        let textHints = DomainHintDetector.detect(text: enrichedTask)
+        let domainHints = DomainHintDetector.merge(jiraHints, textHints)
+
+        // 도메인 힌트를 LLM 참조 데이터에 추가 (Jira 없을 때도 동작)
+        if let formatted = DomainHintDetector.formatHint(domainHints) {
+            contextParts.append("감지된 관련 도메인: \(formatted)")
+        }
+
         // 사용자 요청을 먼저, 참조 데이터를 뒤로 (LLM이 요청에 집중하도록)
         let contextSuffix = contextParts.isEmpty ? "" : "\n\n[참조 데이터]\n\(contextParts.joined(separator: "\n\n"))"
         let messages: [(role: String, content: String)] = [
@@ -683,17 +701,6 @@ extension RoomManager {
                 }
             }
 
-            // Jira 도메인 힌트 계산 (에이전트 매칭 정확도 향상)
-            let jiraDomainHints: [JiraDomainDetector.DomainHint]
-            if let jiraDataList = rooms.first(where: { $0.id == roomID })?.clarifyContext.intakeData?.jiraDataList,
-               !jiraDataList.isEmpty {
-                let allSummary = jiraDataList.map { $0.summary }.joined(separator: " ")
-                let allDesc = jiraDataList.map { $0.description }.joined(separator: " ")
-                jiraDomainHints = JiraDomainDetector.detect(summary: allSummary, description: allDesc)
-            } else {
-                jiraDomainHints = []
-            }
-
             let matched = AgentMatcher.matchRoles(
                 requirements: requirements,
                 agents: subAgents,
@@ -701,7 +708,7 @@ extension RoomManager {
                 documentType: rooms.first(where: { $0.id == roomID })?.workflowState.documentType,
                 taskBrief: taskBrief,
                 pluginSkillTags: pluginSkillTags,
-                jiraDomainHints: jiraDomainHints
+                domainHints: domainHints
             )
 
             // 3) [필수] matched(0.7+) 에이전트 자동 초대

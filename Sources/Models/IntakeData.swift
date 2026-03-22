@@ -144,8 +144,8 @@ struct IntakeData: Codable {
         if !jiraDataList.isEmpty {
             let allSummary = jiraDataList.map { $0.summary }.joined(separator: " ")
             let allDesc = jiraDataList.map { $0.description }.joined(separator: " ")
-            let hints = JiraDomainDetector.detect(summary: allSummary, description: allDesc)
-            if let formatted = JiraDomainDetector.formatHint(hints) {
+            let hints = DomainHintDetector.detect(summary: allSummary, description: allDesc)
+            if let formatted = DomainHintDetector.formatHint(hints) {
                 parts.append("감지된 관련 도메인: \(formatted)")
             }
         }

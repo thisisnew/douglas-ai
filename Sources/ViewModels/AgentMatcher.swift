@@ -17,7 +17,7 @@ enum AgentMatcher {
         taskBrief: TaskBrief? = nil,
         config: MatchScoringConfig = .default,
         pluginSkillTags: [UUID: [String]] = [:],
-        jiraDomainHints: [JiraDomainDetector.DomainHint] = []
+        domainHints: [DomainHintDetector.DomainHint] = []
     ) -> [RoleRequirement] {
         var results = requirements
         var usedAgentIDs: Set<UUID> = []
@@ -33,7 +33,7 @@ enum AgentMatcher {
                 position: results[i].position,
                 config: config,
                 pluginSkillTags: pluginSkillTags,
-                jiraDomainHints: jiraDomainHints
+                domainHints: domainHints
             )
 
             if let agent {
@@ -126,7 +126,7 @@ enum AgentMatcher {
         position: WorkflowPosition? = nil,
         config: MatchScoringConfig = .default,
         pluginSkillTags: [UUID: [String]] = [:],  // 플러그인 주입 태그 (agent.id → tags)
-        jiraDomainHints: [JiraDomainDetector.DomainHint] = []
+        domainHints: [DomainHintDetector.DomainHint] = []
     ) -> (Agent?, Double) {
         var keywords = roleName.lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
@@ -192,8 +192,8 @@ enum AgentMatcher {
             }
 
             // Jira 도메인 힌트 보너스: 티켓 도메인 evidence와 에이전트 skillTags 교차
-            if !jiraDomainHints.isEmpty {
-                let allEvidence = jiraDomainHints.flatMap { $0.evidence }
+            if !domainHints.isEmpty {
+                let allEvidence = domainHints.flatMap { $0.evidence }
                 let lowerTags = allSkillTags.map { $0.lowercased() }
                 let domainHits = allEvidence.filter { ev in
                     lowerTags.contains(where: { vocabulary.containsWholeWord($0, keyword: ev) })

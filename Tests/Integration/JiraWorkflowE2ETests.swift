@@ -18,7 +18,7 @@ struct JiraWorkflowE2ETests {
 
     @Test("Jira 티켓 내용 → 백엔드 + 프론트엔드 도메인 힌트 감지")
     func jiraTicketContent_detectsDomainHints() {
-        let hints = JiraDomainDetector.detect(
+        let hints = DomainHintDetector.detect(
             summary: "API 엔드포인트 추가 + 결과 화면 표시",
             description: "백엔드 API를 호출하여 프론트 화면에 렌더링"
         )
@@ -62,7 +62,7 @@ struct JiraWorkflowE2ETests {
             skillTags: ["마케팅", "광고"], workModes: [.create]
         )
 
-        let hints = JiraDomainDetector.detect(
+        let hints = DomainHintDetector.detect(
             summary: "API 엔드포인트 추가",
             description: "REST API 구현 + Spring 설정"
         )
@@ -71,7 +71,7 @@ struct JiraWorkflowE2ETests {
             roleName: "서버 엔지니어",
             agents: [backendDev, unrelated],
             excluding: [],
-            jiraDomainHints: hints
+            domainHints: hints
         )
         let (_, confNoHint) = AgentMatcher.matchByTags(
             roleName: "서버 엔지니어",
@@ -119,7 +119,7 @@ struct JiraWorkflowE2ETests {
         // 2) 티켓 내용으로 도메인 힌트 감지
         let ticketSummary = "결제 API 리팩토링 + 결제 화면 UI 개선"
         let ticketDesc = "백엔드 REST API 구조 변경 + 프론트엔드 컴포넌트 수정"
-        let hints = JiraDomainDetector.detect(summary: ticketSummary, description: ticketDesc)
+        let hints = DomainHintDetector.detect(summary: ticketSummary, description: ticketDesc)
         #expect(!hints.isEmpty)
         let detectedDomains = hints.map { $0.domain }
         #expect(detectedDomains.contains("백엔드"))
@@ -141,7 +141,7 @@ struct JiraWorkflowE2ETests {
             roleName: "API 전문가",
             agents: [backendDev, designAgent],
             excluding: [],
-            jiraDomainHints: hints
+            domainHints: hints
         )
         #expect(agent?.id == backendDev.id)
 
@@ -167,5 +167,52 @@ struct JiraWorkflowE2ETests {
             hasWorkLog: false
         )
         #expect(partial.intent == .implementPartial([0, 2]))
+    }
+
+    // MARK: - 비-Jira 텍스트에서 도메인 힌트 감지
+
+    @Test("'화면'과 'API' 키워드 → 프론트엔드 + 백엔드 도메인 감지")
+    func nonJiraText_withScreenKeyword_detectsFrontend() {
+        let text = "회송 목록 화면에서 어떤 API 호출하는지 찾고, 그 API의 쿼리를 알려줘"
+        let hints = DomainHintDetector.detect(text: text)
+        let domains = hints.map { $0.domain }
+        #expect(domains.contains("프론트엔드"))  // "화면"
+        #expect(domains.contains("백엔드"))      // "api", "쿼리"
+    }
+
+    @Test("텍스트 힌트가 백엔드 + 프론트엔드 에이전트 모두 부스트")
+    func textHints_boostBothBackendAndFrontend() {
+        let backendDev = Agent(
+            name: "서버 엔지니어", persona: "API 전문가",
+            providerName: "test", modelName: "test",
+            skillTags: ["spring", "api", "쿼리"], workModes: [.execute, .create]
+        )
+        let frontendDev = Agent(
+            name: "웹 엔지니어", persona: "화면 전문가",
+            providerName: "test", modelName: "test",
+            skillTags: ["react", "화면", "css"], workModes: [.create]
+        )
+
+        let hints = DomainHintDetector.detect(text: "화면에서 API 호출 확인")
+
+        // 백엔드 에이전트 — 힌트 부스트 확인
+        let (_, backConf) = AgentMatcher.matchByTags(
+            roleName: "서버 엔지니어", agents: [backendDev], excluding: [],
+            domainHints: hints
+        )
+        let (_, backNoHint) = AgentMatcher.matchByTags(
+            roleName: "서버 엔지니어", agents: [backendDev], excluding: []
+        )
+        #expect(backConf > backNoHint)
+
+        // 프론트엔드 에이전트 — 힌트 부스트 확인
+        let (_, frontConf) = AgentMatcher.matchByTags(
+            roleName: "웹 엔지니어", agents: [frontendDev], excluding: [],
+            domainHints: hints
+        )
+        let (_, frontNoHint) = AgentMatcher.matchByTags(
+            roleName: "웹 엔지니어", agents: [frontendDev], excluding: []
+        )
+        #expect(frontConf > frontNoHint)
     }
 }

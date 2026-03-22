@@ -53,11 +53,11 @@ struct AgentMatcherJiraTests {
         let backend = Self.makeAgent(name: "서버 엔지니어", skillTags: ["spring", "jpa", "api"], workModes: [.execute, .create])
         let unrelated = Self.makeAgent(name: "마케터", skillTags: ["마케팅", "광고"], workModes: [.create])
         // evidence가 roleName 동의어 확장과 겹치지 않도록 설정
-        let hints = [JiraDomainDetector.DomainHint(domain: "백엔드", evidence: ["api", "spring"])]
+        let hints = [DomainHintDetector.DomainHint(domain: "백엔드", evidence: ["api", "spring"])]
 
         let (agentWithHint, confWithHint) = AgentMatcher.matchByTags(
             roleName: "서버 엔지니어", agents: [backend, unrelated], excluding: [],
-            jiraDomainHints: hints
+            domainHints: hints
         )
         let (_, confNoHint) = AgentMatcher.matchByTags(
             roleName: "서버 엔지니어", agents: [backend, unrelated], excluding: []
@@ -70,11 +70,11 @@ struct AgentMatcherJiraTests {
     @Test("도메인 힌트 → 무관 에이전트에 영향 없음")
     func domainHints_noEffectOnUnrelatedAgent() {
         let frontend = Self.makeAgent(name: "프론트엔드 개발자", skillTags: ["react", "css", "화면"], workModes: [.create])
-        let backendHints = [JiraDomainDetector.DomainHint(domain: "백엔드", evidence: ["api", "서버"])]
+        let backendHints = [DomainHintDetector.DomainHint(domain: "백엔드", evidence: ["api", "서버"])]
 
         let (_, confWithHint) = AgentMatcher.matchByTags(
             roleName: "화면 개발자", agents: [frontend], excluding: [],
-            jiraDomainHints: backendHints
+            domainHints: backendHints
         )
         let (_, confNoHint) = AgentMatcher.matchByTags(
             roleName: "화면 개발자", agents: [frontend], excluding: []
@@ -90,7 +90,7 @@ struct AgentMatcherJiraTests {
 
         let (_, confEmpty) = AgentMatcher.matchByTags(
             roleName: "개발자", agents: [agent], excluding: [],
-            jiraDomainHints: []
+            domainHints: []
         )
         let (_, confNone) = AgentMatcher.matchByTags(
             roleName: "개발자", agents: [agent], excluding: []
