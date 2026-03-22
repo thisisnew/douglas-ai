@@ -88,7 +88,7 @@ extension RoomManager {
     private func executePhaseWorkflow(roomID: UUID, task: String) async {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
-        rooms[idx].status = .planning
+        rooms[idx].transitionTo(.planning)
         syncAgentStatuses()
 
         var workflowStart = Date()
@@ -188,9 +188,7 @@ extension RoomManager {
         // Task.isCancelled (completeRoom 등 외부 완료) 시 이미 completed 상태이므로 중복 처리 방지
         if let i = rooms.firstIndex(where: { $0.id == roomID }),
            rooms[i].status != .failed && rooms[i].status != .completed {
-            rooms[i].workflowState.clearCurrentPhase()
-            rooms[i].status = .completed
-            rooms[i].completedAt = Date()
+            rooms[i].complete()
             pluginEventDelegate?(.roomCompleted(roomID: roomID, title: rooms[i].title))
         }
         syncAgentStatuses()
@@ -917,8 +915,7 @@ extension RoomManager {
         // 완료: 상태 변경 + 작업일지 생성
         if rooms.first(where: { $0.id == roomID })?.status == .inProgress {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].transitionTo(.completed)
-                rooms[i].completedAt = Date()
+                rooms[i].complete()
             }
             previousCycleAgentCount[roomID] = executingAgentIDs(in: roomID).count
             syncAgentStatuses()

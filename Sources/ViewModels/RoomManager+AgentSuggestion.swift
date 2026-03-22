@@ -101,9 +101,7 @@ extension RoomManager {
         // 에이전트도 없고 후보도 없으면 → 워크플로우 완료
         if specialists.isEmpty && candidates.isEmpty {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].workflowState.clearCurrentPhase()
-                rooms[i].status = .completed
-                rooms[i].completedAt = Date()
+                rooms[i].complete()
             }
             syncAgentStatuses()
             scheduleSave()
@@ -159,9 +157,7 @@ extension RoomManager {
         guard let finalIDs = result else {
             if executingAgentIDs(in: roomID).isEmpty {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].workflowState.clearCurrentPhase()
-                    rooms[i].status = .completed
-                    rooms[i].completedAt = Date()
+                    rooms[i].complete()
                 }
                 syncAgentStatuses()
                 scheduleSave()

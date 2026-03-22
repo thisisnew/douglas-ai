@@ -706,8 +706,7 @@ class RoomManager: ObservableObject, WorkflowHost {
         pendingTeamConfirmation.removeValue(forKey: roomID)
         pendingIntentSelection.removeValue(forKey: roomID)
         pendingDocTypeSelection.removeValue(forKey: roomID)
-        guard rooms[idx].transitionTo(.completed) else { return }
-        rooms[idx].completedAt = Date()
+        rooms[idx].complete()
         // 에이전트 수 스냅샷 (다음 후속 사이클에서 변동 감지용)
         previousCycleAgentCount[roomID] = executingAgentIDs(in: roomID).count
 
@@ -732,8 +731,7 @@ class RoomManager: ObservableObject, WorkflowHost {
         pendingTeamConfirmation.removeValue(forKey: roomID)
         pendingIntentSelection.removeValue(forKey: roomID)
         pendingDocTypeSelection.removeValue(forKey: roomID)
-        rooms[idx].transitionTo(.cancelled)
-        rooms[idx].completedAt = Date()
+        rooms[idx].cancel()
         let msg = ChatMessage(role: .system, content: "사용자가 작업을 취소했습니다.", messageType: .error)
         appendMessage(msg, to: roomID)
         syncAgentStatuses()

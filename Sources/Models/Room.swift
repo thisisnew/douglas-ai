@@ -762,6 +762,13 @@ struct Room: Identifiable, Codable {
         transitionTo(.awaitingUserInput)
     }
 
+    /// 워크플로우 취소 — cancelled + completedAt + clearCurrentPhase
+    mutating func cancel() {
+        transitionTo(.cancelled)
+        completedAt = Date()
+        workflowState.clearCurrentPhase()
+    }
+
     /// 워크플로우 재개 (Follow-up cycle) — planning + completedAt 리셋
     mutating func resumeWorkflow() {
         transitionTo(.planning)

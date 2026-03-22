@@ -71,8 +71,7 @@ extension RoomManager {
 
         let docType = suggestedType ?? .freeform
         rooms[idx].workflowState.setDocumentType(docType)
-        rooms[idx].transitionTo(.inProgress)
-        rooms[idx].completedAt = nil
+        rooms[idx].startExecution()
 
         let phaseMsg = ChatMessage(
             role: .system,
@@ -98,8 +97,7 @@ extension RoomManager {
         // 완료
         if let i = rooms.firstIndex(where: { $0.id == roomID }),
            rooms[i].status != .failed {
-            rooms[i].status = .completed
-            rooms[i].completedAt = Date()
+            rooms[i].complete()
         }
         scheduleSave()
     }
@@ -404,8 +402,7 @@ extension RoomManager {
         // UI에는 표시하지 않음
 
         // 방 재활성화
-        rooms[idx].transitionTo(.planning)
-        rooms[idx].completedAt = nil
+        rooms[idx].resumeWorkflow()
 
         // 순수 포맷 변환 감지: 기존 대화 내용을 문서로 변환하는 요청 (새 작업 없음)
         // "md파일로 만들어줘", "문서로 정리해줘" 등 — LLM이 기존 내용을 정리하여 문서 출력
@@ -434,9 +431,7 @@ extension RoomManager {
                 // handleDocumentOutput이 .completed를 설정하지 못한 경우 보완
                 if let i = rooms.firstIndex(where: { $0.id == roomID }),
                    rooms[i].status != .failed && rooms[i].status != .completed {
-                    rooms[i].workflowState.clearCurrentPhase()
-                    rooms[i].status = .completed
-                    rooms[i].completedAt = Date()
+                    rooms[i].complete()
                     pluginEventDelegate?(.roomCompleted(roomID: roomID, title: rooms[i].title))
                 }
                 syncAgentStatuses()
@@ -616,9 +611,7 @@ extension RoomManager {
         // 완료
         if let i = rooms.firstIndex(where: { $0.id == roomID }),
            rooms[i].status != .failed && rooms[i].status != .completed {
-            rooms[i].workflowState.clearCurrentPhase()
-            rooms[i].status = .completed
-            rooms[i].completedAt = Date()
+            rooms[i].complete()
             pluginEventDelegate?(.roomCompleted(roomID: roomID, title: rooms[i].title))
         }
         syncAgentStatuses()

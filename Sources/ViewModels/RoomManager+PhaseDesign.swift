@@ -550,8 +550,7 @@ extension RoomManager {
             appendMessage(approvalMsg, to: roomID)
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].awaitingType = .planApproval
-                rooms[i].transitionTo(.awaitingApproval)
+                rooms[i].awaitApproval(type: .planApproval)
             }
             syncAgentStatuses()
             scheduleSave()
@@ -595,7 +594,7 @@ extension RoomManager {
                     designOutput: designOutput
                 )
                 if let newPlan, let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].plan = newPlan
+                    rooms[i].setPlan(newPlan)
                 } else {
                     // 재생성 실패 → 구조화된 에러로 워크플로우 중단
                     handleWorkflowError(.approvalRejected(roomID: roomID), roomID: roomID)
@@ -689,7 +688,7 @@ extension RoomManager {
 
             if let plan = parsePlan(from: response),
                let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].plan = plan
+                rooms[i].setPlan(plan)
             }
         } catch {
             appendMessage(ChatMessage(role: .assistant, content: "계획 수립 오류: \(error.userFacingMessage)", agentName: agent.name, messageType: .error), to: roomID)
@@ -1222,7 +1221,7 @@ extension RoomManager {
 
         if let plan = currentPlan {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].plan = plan
+                rooms[i].setPlan(plan)
             }
         }
 
@@ -1244,12 +1243,10 @@ extension RoomManager {
         } else if rooms[idx].workflowState.needsPlan {
             // task + needsPlan: 계획 기반 단계별 실행
             if rooms[idx].plan == nil {
-                rooms[idx].plan = RoomPlan(summary: task, estimatedSeconds: 300, steps: [RoomStep(text: task)])
+                rooms[idx].setPlan(RoomPlan(summary: task, estimatedSeconds: 300, steps: [RoomStep(text: task)]))
             }
 
-            rooms[idx].timerDurationSeconds = rooms[idx].plan?.estimatedSeconds ?? 300
-            rooms[idx].timerStartedAt = Date()
-            rooms[idx].transitionTo(.inProgress)
+            rooms[idx].startExecution(duration: rooms[idx].plan?.estimatedSeconds ?? 300)
             scheduleSave()
 
             await executeRoomWork(roomID: roomID, task: task)

@@ -208,8 +208,7 @@ extension RoomManager {
             // 2) 사용자에게 컨펌 요청 (복명복창 요약 자체가 확인 요청)
             speakingAgentIDByRoom.removeValue(forKey: roomID)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].awaitingType = .clarification
-                rooms[i].transitionTo(.awaitingApproval)
+                rooms[i].awaitApproval(type: .clarification)
             }
             syncAgentStatuses()
             scheduleSave()
@@ -727,9 +726,8 @@ extension RoomManager {
                 appendMessage(suggestMsg, to: roomID)
 
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].awaitingType = .agentConfirmation
                     rooms[i].pendingAgentConfirmationID = agentID
-                    rooms[i].transitionTo(.awaitingApproval)
+                    rooms[i].awaitApproval(type: .agentConfirmation)
                 }
                 syncAgentStatuses()
                 scheduleSave()
