@@ -970,12 +970,9 @@ struct PlanCard: View {
                 .font(.system(size: 11))
                 .foregroundColor(.green.opacity(0.7))
         case .inProgress:
-            Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(.orange)
-                .rotationEffect(.degrees(isPulsing ? 360 : 0))
-                .animation(.linear(duration: 1.2).repeatForever(autoreverses: false), value: isPulsing)
-                .onAppear { isPulsing = true }
+            ProgressView()
+                .scaleEffect(0.5)
+                .frame(width: 11, height: 11)
         case .failed:
             Image(systemName: "xmark.circle.fill")
                 .font(.system(size: 11))
@@ -1106,12 +1103,9 @@ struct DiscussionProgressBar: View {
                 .font(.system(size: 9))
                 .foregroundColor(.green.opacity(0.7))
         } else if phase == room.workflowState.currentPhase {
-            Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundColor(.orange)
-                .rotationEffect(.degrees(isPulsing ? 360 : 0))
-                .animation(.linear(duration: 1.2).repeatForever(autoreverses: false), value: isPulsing)
-                .onAppear { isPulsing = true }
+            ProgressView()
+                .scaleEffect(0.4)
+                .frame(width: 9, height: 9)
         } else {
             Image(systemName: "circle")
                 .font(.system(size: 9))

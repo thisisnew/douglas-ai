@@ -153,6 +153,28 @@ extension RoomManager {
         let templateBlock = docType != .freeform ? "\n" + docType.templatePromptBlock() : ""
         let history = buildRoomHistory(roomID: roomID)
 
+        // 이전 분석 결과를 프롬프트에 명시적 주입 (buildRoomHistory의 20개 제한 보완)
+        var previousContext = ""
+        if let rb = room.discussion.researchBriefing {
+            previousContext += "\n\n[이전 조사 결과 — 이 내용을 기반으로 문서를 작성하세요]\n" + rb.asContextString()
+        } else if let briefing = room.discussion.briefing {
+            previousContext += "\n\n[이전 토론 결과 — 이 내용을 기반으로 문서를 작성하세요]\n" + briefing.asContextString()
+        }
+        if let plan = room.plan, !plan.stepResultsFull.isEmpty {
+            let results = plan.stepResultsFull.suffix(3).joined(separator: "\n---\n")
+            previousContext += "\n\n[이전 작업 결과]\n" + String(results.prefix(3000))
+        }
+        if let log = room.discussion.fullDiscussionLog, !log.isEmpty {
+            // 토론 원문 중 핵심 부분만 (앞뒤 각 1000자)
+            let head = String(log.prefix(1000))
+            let tail = String(log.suffix(1000))
+            if log.count > 2000 {
+                previousContext += "\n\n[토론 원문 발췌]\n\(head)\n…(중략)…\n\(tail)"
+            } else {
+                previousContext += "\n\n[토론 원문]\n\(log)"
+            }
+        }
+
         let requestedFormat = DocumentExporter.detectRequestedFormat(task.lowercased())
         let isBinaryFormat = DocumentExporter.binaryFormats.contains(requestedFormat)
 
@@ -192,7 +214,7 @@ extension RoomManager {
 
             ⚠️ 당신은 지금 "파일 생성 모드"입니다.
             이전 대화와 분석 내용을 바탕으로 \(requestedFormat) 파일을 생성합니다.
-            \(formatConversionBlock)
+            \(previousContext)\(formatConversionBlock)
 
             [작업]
             \(task)
@@ -218,7 +240,7 @@ extension RoomManager {
             파일 저장은 시스템이 자동으로 처리합니다. 당신은 텍스트만 출력하면 됩니다.
 
             이전 대화와 분석 내용을 바탕으로 문서를 작성합니다.
-            \(templateBlock)\(formatConversionBlock)
+            \(previousContext)\(templateBlock)\(formatConversionBlock)
 
             [작업]
             \(task)
