@@ -81,10 +81,8 @@ extension RoomManager {
         syncAgentStatuses()
         scheduleSave()
 
-        // Hook dispatch: 작업 실패
-        Task {
-            await hookDispatch?(.roomFailed, HookContext(roomID: roomID, roomTitle: roomTitle))
-        }
+        // Hook dispatch: 작업 실패 → 결과를 시스템 메시지로 표시
+        dispatchHookAndNotify(trigger: .roomFailed, roomID: roomID, roomTitle: roomTitle)
     }
 
     // MARK: - Phase 워크플로우 (새 7단계)
@@ -709,9 +707,10 @@ extension RoomManager {
         토론에서 우려사항이 나왔더라도, 사용자가 명시적으로 요청한 작업(구현, PR, 배포 등)은 계획에 포함해야 합니다.
         토론 의견은 구현 방식의 참고 자료로만 활용하세요. 사용자 요청 범위를 축소하지 마세요.
 
-        {"plan": {"summary": "전체 계획 요약", "estimated_minutes": 5, "steps": [{"text": "단계 설명", "agent": "담당 에이전트 이름", "working_directory": "/프로젝트/경로"}, ...]}}
+        {"plan": {"summary": "전체 계획 요약", "estimated_minutes": 0, "steps": [{"text": "단계 설명", "agent": "담당 에이전트 이름", "working_directory": "/프로젝트/경로"}, ...]}}
 
         방 내 전문가: \(specialistNames)
+        ⚠️ 위 전문가 각각에게 최소 1개 이상의 step을 반드시 배정하세요. 누락된 전문가가 있으면 계획이 거절됩니다.
 
         규칙:
         - 각 단계는 **한 가지 명확한 산출물**을 가져야 합니다 (코드 작성, 테스트, PR 오픈 등).
@@ -720,7 +719,7 @@ extension RoomManager {
         - 번역, 요약, 분석 등 단일 작업은 1단계로 작성하세요.
         - 같은 에이전트가 연속 수행해도, 산출물이 다르면 단계를 나누세요.
         - estimated_minutes는 0으로 설정하세요 (시간 예측 비표시)
-        - **참여하는 모든 에이전트의 작업을 빠짐없이 포함하세요** (백엔드+프론트엔드 모두 참여하면 양쪽 작업 모두 계획에 포함)
+        - **모든 참여 전문가에게 최소 1개 step을 배정하세요.** 방 내 전문가 목록의 각 이름이 step의 "agent" 필드에 최소 1회 등장해야 합니다.
         - 각 step에 "agent" 필드로 담당 전문가를 지정하세요 (위 목록에서 정확한 이름 사용)
         - 프로젝트 경로가 2개 이상이면, 각 step에 "working_directory" 필드로 해당 단계의 작업 디렉토리를 지정하세요 (위 프로젝트 경로 중 선택)
         - 마스터(진행자/오케스트레이터)는 실행 대상이 아닙니다. 마스터에게 step을 배정하지 마세요.
@@ -788,6 +787,16 @@ extension RoomManager {
             }
 
             if let plan = parsePlan(from: response) {
+                // 멀티 에이전트: 모든 전문가가 step에 배정되었는지 검증 (1회 재요청)
+                if specialists.count >= 2 {
+                    let fixedPlan = await validateAndFixAgentCoverage(
+                        plan: plan, room: room, agent: agent, provider: provider,
+                        planSystemPrompt: planSystemPrompt, planMessages: planMessages,
+                        originalResponse: response, roomID: roomID
+                    )
+                    speakingAgentIDByRoom.removeValue(forKey: roomID)
+                    return fixedPlan
+                }
                 speakingAgentIDByRoom.removeValue(forKey: roomID)
                 return plan
             }
@@ -796,7 +805,7 @@ extension RoomManager {
             let retryMessages: [(role: String, content: String)] = [
                 ("user", planMessages[0].1),
                 ("assistant", response),
-                ("user", "위 내용을 반드시 유효한 JSON 형식으로 다시 작성하세요. {\"plan\": {\"summary\": \"...\", \"estimated_minutes\": N, \"steps\": [...]}} 형태만 응답하세요.")
+                ("user", "위 내용을 반드시 유효한 JSON 형식으로 다시 작성하세요. {\"plan\": {\"summary\": \"...\", \"estimated_minutes\": 0, \"steps\": [...]}} 형태만 응답하세요.")
             ]
             let (retryResponse, _) = try await trackPhaseActivity(
                 roomID: roomID,
@@ -828,6 +837,45 @@ extension RoomManager {
         }
     }
 
+    /// 계획에 모든 전문가가 배정되었는지 검증. 누락 시 1회 재요청하여 보완된 계획 반환.
+    private func validateAndFixAgentCoverage(
+        plan: RoomPlan,
+        room: Room,
+        agent: Agent,
+        provider: AIProvider,
+        planSystemPrompt: String,
+        planMessages: [(String, String)],
+        originalResponse: String,
+        roomID: UUID
+    ) async -> RoomPlan {
+        let assignedIDs = Set(plan.steps.compactMap(\.assignedAgentID))
+        let specialistIDs = Set(room.assignedAgentIDs.filter { id in
+            !(agentStore?.agents.first(where: { $0.id == id })?.isMaster ?? false)
+        })
+        let missingIDs = specialistIDs.subtracting(assignedIDs)
+        guard !missingIDs.isEmpty else { return plan }
+
+        let missingNames = missingIDs.compactMap { id in
+            agentStore?.agents.first(where: { $0.id == id })?.name
+        }
+        print("[DOUGLAS] ⚠️ 계획에서 누락된 전문가: \(missingNames.joined(separator: ", ")) — 재요청")
+
+        let fixMessages: [(role: String, content: String)] = [
+            ("user", planMessages[0].1),
+            ("assistant", originalResponse),
+            ("user", "계획에 \(missingNames.joined(separator: ", "))의 작업이 포함되지 않았습니다. 모든 전문가의 작업을 포함하여 다시 작성하세요. JSON만 응답하세요.")
+        ]
+        guard let (fixResponse, _) = try? await trackPhaseActivity(
+            roomID: roomID, label: "계획 보완 중…",
+            agentName: agent.name, modelName: agent.modelName, providerName: agent.providerName
+        ) { _ in
+            try await provider.sendRouterMessage(model: agent.modelName, systemPrompt: planSystemPrompt, messages: fixMessages)
+        }, let fixedPlan = parsePlan(from: fixResponse) else {
+            return plan // 재요청 실패 시 원래 계획 반환
+        }
+        return fixedPlan
+    }
+
     /// 계획 JSON 파싱
     func parsePlan(from response: String) -> RoomPlan? {
         let jsonString = extractJSON(from: response)
@@ -835,7 +883,6 @@ extension RoomManager {
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let planDict = json["plan"] as? [String: Any],
               let summary = planDict["summary"] as? String,
-              let estimatedMinutes = planDict["estimated_minutes"] as? Int,
               let rawSteps = planDict["steps"] as? [Any] else {
             return nil
         }
@@ -880,7 +927,7 @@ extension RoomManager {
 
         return RoomPlan(
             summary: summary,
-            estimatedSeconds: estimatedMinutes * 60,
+            estimatedSeconds: 0,
             steps: steps
         )
     }
@@ -1110,6 +1157,8 @@ extension RoomManager {
 
             이것이 최종 단계입니다. 사용자에게 전달할 완성된 결과물을 직접 작성하세요.
             과정 설명이나 단계 번호 없이, 결과물만 깔끔하게 출력하세요.
+            사용자 질문의 범위만 답하세요. 요청하지 않은 부가 정보, 관련 API 나열, 아키텍처 제안을 추가하지 마세요.
+            단, 사용자가 "자세히", "상세하게" 등 명시적으로 상세 출력을 요청한 경우에는 충분한 정보를 제공하세요.
             "Now I have", "Here's the final" 같은 메타 설명을 절대 포함하지 마세요.
             반드시 한국어로 응답하세요.
             """
@@ -1118,7 +1167,9 @@ extension RoomManager {
             [작업 \(stepIndex + 1)/\(totalSteps)] \(step)\(workingDirContext)
             \(artifactContext)\(docTemplateBlock)
 
-            중간 단계입니다. 조사 결과나 작업 산출물만 출력하세요.
+            중간 단계입니다. 조사 결과나 작업 산출물만 간결하게 출력하세요.
+            테이블은 핵심 컬럼만, 설명은 요점만. 불필요한 배경 설명, 화면 플로우, 관련 API 나열 금지.
+            사용자가 요청한 정보만 정확히 답하세요. 단, 사용자가 "자세히", "상세하게" 등 명시적으로 상세 출력을 요청한 경우에는 충분한 정보를 제공하세요.
             "Step N 핵심 데이터:", "Now I have" 같은 메타 설명을 절대 포함하지 마세요.
             반드시 한국어로 응답하세요.
             """

@@ -120,7 +120,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             pluginManager?.effectiveRules(for: agent) ?? []
         }
         roomManager.hookDispatch = { [weak hookManager] trigger, context in
-            await hookManager?.dispatch(trigger: trigger, context: context)
+            await hookManager?.dispatch(trigger: trigger, context: context) ?? []
         }
 
         // 에이전트 삭제 시 채팅 기록 + 첨부 파일 정리

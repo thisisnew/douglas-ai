@@ -99,6 +99,27 @@ struct HookContext: Sendable {
     }
 }
 
+// MARK: - Hook Result
+
+/// Hook 실행 결과 (Value Object)
+struct HookResult: Sendable, Equatable {
+    let hookName: String
+    let success: Bool
+    let errorMessage: String?
+
+    var displayText: String {
+        success ? "✓ \(hookName)" : "✗ \(hookName): \(errorMessage ?? "알 수 없는 오류")"
+    }
+}
+
+extension Array where Element == HookResult {
+    /// Hook 결과를 시스템 메시지용 텍스트로 변환. 빈 배열이면 nil.
+    var summaryText: String? {
+        guard !isEmpty else { return nil }
+        return "Hook 결과:\n" + map(\.displayText).joined(separator: "\n")
+    }
+}
+
 // MARK: - Hook Templates
 
 extension UserHook {

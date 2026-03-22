@@ -48,12 +48,15 @@ final class HookManager: ObservableObject {
 
     // MARK: - Dispatch
 
-    /// 트리거에 매칭되는 활성 Hook을 실행
-    nonisolated func dispatch(trigger: HookTrigger, context: HookContext) async {
+    /// 트리거에 매칭되는 활성 Hook을 실행하고 결과를 반환
+    nonisolated func dispatch(trigger: HookTrigger, context: HookContext) async -> [HookResult] {
         let activeHooks = await MainActor.run { hooks.filter { $0.isEnabled && $0.trigger == trigger } }
+        var results: [HookResult] = []
         for hook in activeHooks {
-            await execute(hook: hook, context: context)
+            let result = await execute(hook: hook, context: context)
+            results.append(result)
         }
+        return results
     }
 
     /// 매칭되는 Hook 수 반환 (테스트용)
@@ -63,18 +66,18 @@ final class HookManager: ObservableObject {
 
     // MARK: - Execution
 
-    private nonisolated func execute(hook: UserHook, context: HookContext) async {
+    private nonisolated func execute(hook: UserHook, context: HookContext) async -> HookResult {
         switch hook.action {
         case .logToFile(let path):
-            await executeLogToFile(path: path, hook: hook, context: context)
+            return await executeLogToFile(path: path, hook: hook, context: context)
         case .runScript(let path):
-            await executeScript(path: path, context: context)
+            return await executeScript(path: path, hook: hook, context: context)
         case .systemNotification(let title):
-            await executeNotification(title: title, context: context)
+            return await executeNotification(title: title, hook: hook, context: context)
         }
     }
 
-    private nonisolated func executeLogToFile(path: String, hook: UserHook, context: HookContext) async {
+    private nonisolated func executeLogToFile(path: String, hook: UserHook, context: HookContext) async -> HookResult {
         let expandedPath = NSString(string: path).expandingTildeInPath
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
@@ -89,7 +92,6 @@ final class HookManager: ObservableObject {
 
         let fileURL = URL(fileURLWithPath: expandedPath)
         do {
-            // 파일이 없으면 생성, 있으면 append
             if FileManager.default.fileExists(atPath: expandedPath) {
                 let handle = try FileHandle(forWritingTo: fileURL)
                 handle.seekToEndOfFile()
@@ -101,16 +103,21 @@ final class HookManager: ObservableObject {
                 let header = "# DOUGLAS Hook Log\n"
                 try (header + logEntry).write(to: fileURL, atomically: true, encoding: .utf8)
             }
+            return HookResult(hookName: hook.name, success: true, errorMessage: nil)
         } catch {
             logger.error("Hook logToFile 실패: \(error.localizedDescription)")
+            return HookResult(hookName: hook.name, success: false, errorMessage: error.localizedDescription)
         }
     }
 
-    private nonisolated func executeScript(path: String, context: HookContext) async {
+    private static let scriptTimeoutSeconds: Double = 30
+
+    private nonisolated func executeScript(path: String, hook: UserHook, context: HookContext) async -> HookResult {
         let expandedPath = NSString(string: path).expandingTildeInPath
         guard FileManager.default.isExecutableFile(atPath: expandedPath) else {
-            logger.error("Hook 스크립트를 찾을 수 없거나 실행 권한이 없습니다: \(expandedPath)")
-            return
+            let msg = "스크립트를 찾을 수 없거나 실행 권한이 없습니다: \(expandedPath)"
+            logger.error("Hook \(msg)")
+            return HookResult(hookName: hook.name, success: false, errorMessage: msg)
         }
 
         let process = Process()
@@ -125,19 +132,38 @@ final class HookManager: ObservableObject {
 
         do {
             try process.run()
-            process.waitUntilExit()
+
+            // 30초 타임아웃
+            let deadline = Date().addingTimeInterval(Self.scriptTimeoutSeconds)
+            while process.isRunning && Date() < deadline {
+                try await Task.sleep(nanoseconds: 200_000_000) // 200ms
+            }
+            if process.isRunning {
+                process.terminate()
+                let msg = "실행 시간 초과 (\(Int(Self.scriptTimeoutSeconds))초)"
+                logger.error("Hook 스크립트 \(msg): \(expandedPath)")
+                return HookResult(hookName: hook.name, success: false, errorMessage: msg)
+            }
+
+            if process.terminationStatus != 0 {
+                let msg = "종료 코드 \(process.terminationStatus)"
+                return HookResult(hookName: hook.name, success: false, errorMessage: msg)
+            }
+            return HookResult(hookName: hook.name, success: true, errorMessage: nil)
         } catch {
             logger.error("Hook 스크립트 실행 실패: \(error.localizedDescription)")
+            return HookResult(hookName: hook.name, success: false, errorMessage: error.localizedDescription)
         }
     }
 
-    private nonisolated func executeNotification(title: String, context: HookContext) async {
+    private nonisolated func executeNotification(title: String, hook: UserHook, context: HookContext) async -> HookResult {
         await MainActor.run {
             let notification = NSUserNotification()
             notification.title = title
             notification.informativeText = context.roomTitle ?? "DOUGLAS"
             NSUserNotificationCenter.default.deliver(notification)
         }
+        return HookResult(hookName: hook.name, success: true, errorMessage: nil)
     }
 
     // MARK: - Persistence

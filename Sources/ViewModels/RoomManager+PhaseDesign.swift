@@ -816,7 +816,7 @@ extension RoomManager {
         {
           "plan": {
             "summary": "계획 요약",
-            "estimated_minutes": 10,
+            "estimated_minutes": 0,
             "steps": [
               {"text": "단계 설명", "risk_level": "low"}
             ]
@@ -830,7 +830,7 @@ extension RoomManager {
         - 구현, 테스트, PR 등은 반드시 별개 단계로 분할하세요
         - 번역, 요약 등 단일 작업은 1단계로 작성하세요
         - 같은 산출물이라도 파일/모듈이 다르면 단계를 나누세요
-        - **참여하는 모든 에이전트의 작업을 빠짐없이 포함하세요** (백엔드+프론트엔드 모두 참여하면 양쪽 작업 모두 계획에 포함)
+        - **모든 참여 전문가에게 최소 1개 step을 배정하세요.** 누락된 전문가가 있으면 계획이 거절됩니다.
         - estimated_minutes는 0으로 설정하세요 (시간 예측 비표시)
         """
 
@@ -1410,10 +1410,10 @@ extension RoomManager {
         } else if rooms[idx].workflowState.needsPlan {
             // task + needsPlan: 계획 기반 단계별 실행
             if rooms[idx].plan == nil {
-                rooms[idx].setPlan(RoomPlan(summary: task, estimatedSeconds: 300, steps: [RoomStep(text: task)]))
+                rooms[idx].setPlan(RoomPlan(summary: task, estimatedSeconds: 0, steps: [RoomStep(text: task)]))
             }
 
-            rooms[idx].startExecution(duration: rooms[idx].plan?.estimatedSeconds ?? 300)
+            rooms[idx].startExecution()
             scheduleSave()
 
             await executeRoomWork(roomID: roomID, task: task)

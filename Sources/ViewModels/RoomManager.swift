@@ -190,7 +190,7 @@ class RoomManager: ObservableObject, WorkflowHost {
     var pluginRulesProvider: ((_ agent: Agent) -> [String])?
 
     /// Hook dispatch (HookManager가 설정)
-    var hookDispatch: ((_ trigger: HookTrigger, _ context: HookContext) async -> Void)?
+    var hookDispatch: ((_ trigger: HookTrigger, _ context: HookContext) async -> [HookResult])?
 
     deinit {
         timerTask?.cancel()
@@ -299,6 +299,21 @@ class RoomManager: ObservableObject, WorkflowHost {
         roomTasks[roomID] = Task { [weak self] in
             await self?.startRoomWorkflow(roomID: roomID, task: task)
             self?.roomTasks.removeValue(forKey: roomID)
+        }
+    }
+
+    // MARK: - Hook Dispatch
+
+    /// Hook 실행 후 결과를 시스템 메시지로 표시
+    func dispatchHookAndNotify(trigger: HookTrigger, roomID: UUID, roomTitle: String?) {
+        guard let hookDispatch else { return }
+        Task {
+            let results = await hookDispatch(trigger, HookContext(roomID: roomID, roomTitle: roomTitle))
+            guard let text = results.summaryText else { return }
+            await MainActor.run {
+                let msg = ChatMessage(role: .system, content: text, messageType: .progress)
+                self.appendMessage(msg, to: roomID)
+            }
         }
     }
 
@@ -722,11 +737,9 @@ class RoomManager: ObservableObject, WorkflowHost {
         syncAgentStatuses()
         scheduleSave()
 
-        // Hook dispatch: 작업 완료
+        // Hook dispatch: 작업 완료 → 결과를 시스템 메시지로 표시
         let roomTitle = rooms[idx].title
-        Task {
-            await hookDispatch?(.roomCompleted, HookContext(roomID: roomID, roomTitle: roomTitle))
-        }
+        dispatchHookAndNotify(trigger: .roomCompleted, roomID: roomID, roomTitle: roomTitle)
     }
 
     /// 사용자가 승인 카드에서 취소 → 작업 종료

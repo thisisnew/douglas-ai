@@ -58,7 +58,7 @@ final class StepExecutionEngine {
 
         // 초기화 — Build 시작 시점 기록
         host.updateRoom(id: roomID) { room in
-            room.startExecution(duration: plan.estimatedSeconds)
+            room.startExecution(duration: plan.estimatedSeconds > 0 ? plan.estimatedSeconds : nil)
         }
         host.scheduleSave()
 

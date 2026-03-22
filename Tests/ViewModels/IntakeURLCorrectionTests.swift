@@ -138,4 +138,26 @@ struct PlanParseRetryTests {
         let plan = rm.parsePlan(from: response)
         #expect(plan == nil)
     }
+
+    @Test("parsePlan — estimated_minutes가 non-zero여도 estimatedSeconds는 항상 0")
+    func estimatedMinutesClampedToZero() {
+        let json = """
+        {"plan": {"summary": "시간 예측 테스트", "estimated_minutes": 25, "steps": [{"text": "단계1"}]}}
+        """
+        let rm = makeManager()
+        let plan = rm.parsePlan(from: json)
+        #expect(plan != nil)
+        #expect(plan?.estimatedSeconds == 0)
+    }
+
+    @Test("parsePlan — estimated_minutes 키 없어도 파싱 성공")
+    func estimatedMinutesMissing() {
+        let json = """
+        {"plan": {"summary": "키 누락", "steps": [{"text": "단계1"}]}}
+        """
+        let rm = makeManager()
+        let plan = rm.parsePlan(from: json)
+        #expect(plan != nil)
+        #expect(plan?.estimatedSeconds == 0)
+    }
 }
