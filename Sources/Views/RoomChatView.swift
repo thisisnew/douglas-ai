@@ -970,13 +970,11 @@ struct PlanCard: View {
                 .font(.system(size: 11))
                 .foregroundColor(.green.opacity(0.7))
         case .inProgress:
-            Image(systemName: "play.circle.fill")
-                .font(.system(size: 11))
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(.orange)
-                .scaleEffect(isPulsing ? 1.15 : 1.0)
-                .opacity(isPulsing ? 1.0 : 0.7)
-                .shadow(color: .orange.opacity(isPulsing ? 0.6 : 0), radius: isPulsing ? 4 : 0)
-                .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
+                .rotationEffect(.degrees(isPulsing ? 360 : 0))
+                .animation(.linear(duration: 1.2).repeatForever(autoreverses: false), value: isPulsing)
                 .onAppear { isPulsing = true }
         case .failed:
             Image(systemName: "xmark.circle.fill")
@@ -1108,13 +1106,11 @@ struct DiscussionProgressBar: View {
                 .font(.system(size: 9))
                 .foregroundColor(.green.opacity(0.7))
         } else if phase == room.workflowState.currentPhase {
-            Image(systemName: "play.circle.fill")
-                .font(.system(size: 9))
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 9, weight: .semibold))
                 .foregroundColor(.orange)
-                .scaleEffect(isPulsing ? 1.2 : 1.0)
-                .opacity(isPulsing ? 1.0 : 0.7)
-                .shadow(color: .orange.opacity(isPulsing ? 0.5 : 0), radius: isPulsing ? 3 : 0)
-                .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
+                .rotationEffect(.degrees(isPulsing ? 360 : 0))
+                .animation(.linear(duration: 1.2).repeatForever(autoreverses: false), value: isPulsing)
                 .onAppear { isPulsing = true }
         } else {
             Image(systemName: "circle")

@@ -92,7 +92,11 @@ extension IntentVocabulary {
             .init(stem: "뜻", weight: 3), .init(stem: "의미", weight: 3),
             .init(stem: "차이", weight: 2),
         ],
-        negatives: [],
+        negatives: [
+            // 멀티스텝 연결 키워드 → quickAnswer 억제 (복합 요청 패턴)
+            .init(stem: "찾고", weight: -3), .init(stem: "추적", weight: -3),
+            .init(stem: "분석해", weight: -2), .init(stem: "조사해", weight: -2),
+        ],
         threshold: 3
     )
 
@@ -149,6 +153,7 @@ extension IntentVocabulary {
             .init(stem: "레퍼런스", weight: 4), .init(stem: "벤치마크", weight: 4),
             // 조사 맥락의 정리
             .init(stem: "알아봐", weight: 4), .init(stem: "찾아봐", weight: 3),
+            .init(stem: "찾고", weight: 4), .init(stem: "추적", weight: 4),
         ],
         negatives: [],
         threshold: 4
