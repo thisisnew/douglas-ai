@@ -99,13 +99,26 @@ struct AddProviderSheet: View {
 
                             HStack(spacing: 8) {
                                 Spacer()
-                                Button("테스트") { testProvider(.openAI) }
-                                    .controlSize(.small)
-                                    .disabled(openAIKey.isEmpty || isTesting[.openAI] == true)
-                                Button("저장") { saveKey(.openAI, key: openAIKey) }
-                                    .controlSize(.small)
-                                    .buttonStyle(.borderedProminent)
-                                    .disabled(openAIKey.isEmpty)
+                                Button { testProvider(.openAI) } label: {
+                                    Text("테스트")
+                                        .font(.system(size: DesignTokens.FontSize.xs, weight: .medium, design: .rounded))
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(palette.textSecondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 5)
+                                .background(palette.surfaceSecondary.opacity(0.6), in: Capsule())
+                                .disabled(openAIKey.isEmpty || isTesting[.openAI] == true)
+                                Button { saveKey(.openAI, key: openAIKey) } label: {
+                                    Text("저장")
+                                        .font(.system(size: DesignTokens.FontSize.xs, weight: .semibold, design: .rounded))
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 5)
+                                .background(openAIKey.isEmpty ? Color.gray : palette.accent, in: Capsule())
+                                .disabled(openAIKey.isEmpty)
                             }
                         }
                     }
@@ -143,13 +156,26 @@ struct AddProviderSheet: View {
 
                             HStack(spacing: 8) {
                                 Spacer()
-                                Button("테스트") { testProvider(.google) }
-                                    .controlSize(.small)
-                                    .disabled(googleKey.isEmpty || isTesting[.google] == true)
-                                Button("저장") { saveKey(.google, key: googleKey) }
-                                    .controlSize(.small)
-                                    .buttonStyle(.borderedProminent)
-                                    .disabled(googleKey.isEmpty)
+                                Button { testProvider(.google) } label: {
+                                    Text("테스트")
+                                        .font(.system(size: DesignTokens.FontSize.xs, weight: .medium, design: .rounded))
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(palette.textSecondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 5)
+                                .background(palette.surfaceSecondary.opacity(0.6), in: Capsule())
+                                .disabled(googleKey.isEmpty || isTesting[.google] == true)
+                                Button { saveKey(.google, key: googleKey) } label: {
+                                    Text("저장")
+                                        .font(.system(size: DesignTokens.FontSize.xs, weight: .semibold, design: .rounded))
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 5)
+                                .background(googleKey.isEmpty ? Color.gray : palette.accent, in: Capsule())
+                                .disabled(googleKey.isEmpty)
                             }
                         }
                     }
@@ -231,13 +257,26 @@ struct AddProviderSheet: View {
 
                             HStack(spacing: 8) {
                                 Spacer()
-                                Button("테스트") { testJira() }
-                                    .controlSize(.small)
-                                    .disabled(jiraDomain.isEmpty || jiraEmail.isEmpty || jiraToken.isEmpty || isTestingJira)
-                                Button("저장") { saveJira() }
-                                    .controlSize(.small)
-                                    .buttonStyle(.borderedProminent)
-                                    .disabled(jiraDomain.isEmpty || jiraEmail.isEmpty || jiraToken.isEmpty)
+                                Button { testJira() } label: {
+                                    Text("테스트")
+                                        .font(.system(size: DesignTokens.FontSize.xs, weight: .medium, design: .rounded))
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(palette.textSecondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 5)
+                                .background(palette.surfaceSecondary.opacity(0.6), in: Capsule())
+                                .disabled(jiraDomain.isEmpty || jiraEmail.isEmpty || jiraToken.isEmpty || isTestingJira)
+                                Button { saveJira() } label: {
+                                    Text("저장")
+                                        .font(.system(size: DesignTokens.FontSize.xs, weight: .semibold, design: .rounded))
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 5)
+                                .background((jiraDomain.isEmpty || jiraEmail.isEmpty || jiraToken.isEmpty) ? Color.gray : palette.accent, in: Capsule())
+                                .disabled(jiraDomain.isEmpty || jiraEmail.isEmpty || jiraToken.isEmpty)
                             }
                         }
                     }

@@ -40,8 +40,9 @@ final class HookManager: ObservableObject {
     }
 
     func installTemplate(_ template: UserHook) {
-        var hook = template
-        hook = UserHook(name: template.name, trigger: template.trigger, action: template.action, isEnabled: true)
+        // 같은 이름 + 같은 트리거의 hook이 이미 있으면 무시
+        guard !hooks.contains(where: { $0.name == template.name && $0.trigger == template.trigger }) else { return }
+        let hook = UserHook(name: template.name, trigger: template.trigger, action: template.action, isEnabled: true)
         hooks.append(hook)
     }
 
