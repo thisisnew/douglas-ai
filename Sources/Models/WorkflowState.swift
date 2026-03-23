@@ -63,6 +63,8 @@ struct WorkflowState: Equatable {
     }
     mutating func setDocumentType(_ type: DocumentType?) { self.documentType = type }
     mutating func setActiveRuleIDs(_ ids: Set<UUID>?) { self.activeRuleIDs = ids }
+    mutating func setCurrentPhase(_ phase: WorkflowPhase?) { self.currentPhase = phase }
+    mutating func setCompletedPhases(_ phases: Set<WorkflowPhase>) { self.completedPhases = phases }
 
     init(
         intent: WorkflowIntent? = nil,

@@ -61,9 +61,11 @@ struct ToolActivityDetail: Codable {
 struct ChatMessage: Identifiable, Codable {
     let id: UUID
     let role: MessageRole
+    // content/messageType은 스트리밍 업데이트 및 상태 전환에 필요하여 var 유지
+    // 변경은 updateContent/updateMessageType 도메인 메서드 권장
     var content: String
     let agentName: String?
-    var timestamp: Date
+    var timestamp: Date  // 스트리밍 완료 시 정렬용 갱신 필요
     var messageType: MessageType
     let attachments: [FileAttachment]?
     /// 부모 .progress 메시지 ID — non-nil이면 해당 progress 버블에 소속된 활동 메시지

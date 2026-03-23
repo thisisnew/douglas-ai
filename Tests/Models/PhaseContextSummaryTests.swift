@@ -104,8 +104,8 @@ struct PhaseContextSummaryTests {
     @Test("buildContextForPhase — 이전 페이즈 요약을 조합")
     func buildContextCombinesSummaries() {
         var room = makeTestRoom()
-        room.workflowState.phaseSummaries[.understand] = "목표: API 리팩토링"
-        room.workflowState.phaseSummaries[.assemble] = "에이전트: 백엔드, 프론트"
+        room.recordWorkflowPhaseSummary(phase: .understand, summary: "목표: API 리팩토링")
+        room.recordWorkflowPhaseSummary(phase: .assemble, summary: "에이전트: 백엔드, 프론트")
 
         let context = PhaseContextSummarizer.buildContextForPhase(.design, room: room)
         #expect(context.contains("API 리팩토링"))

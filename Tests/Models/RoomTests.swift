@@ -821,8 +821,8 @@ struct RoomTests {
     @Test("Phase E 필드 Codable 라운드트립")
     func phaseEFieldsCodable() throws {
         var room = Room(title: "Workflow", assignedAgentIDs: [], createdBy: .user)
-        room.workflowState.intent = WorkflowIntent.task
-        room.workflowState.currentPhase = .clarify
+        room.setWorkflowIntent(WorkflowIntent.task)
+        room.setWorkflowCurrentPhase(.clarify)
         room.setIntakeData(IntakeData(sourceType: .text, rawInput: "작업 내용"))
         room.setPlaybook(ProjectPlaybook.team)
         room.addUserAnswer(UserAnswer(question: "DB?", answer: "PostgreSQL"))
@@ -902,28 +902,28 @@ struct RoomTests {
     @Test("RequestStatus - planning + understand → intentClassified")
     func requestStatusPlanningUnderstand() {
         var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .planning)
-        room.workflowState.currentPhase = .understand
+        room.setWorkflowCurrentPhase(.understand)
         #expect(room.requestStatus == .intentClassified)
     }
 
     @Test("RequestStatus - planning + assemble → agentMatched")
     func requestStatusPlanningAssemble() {
         var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .planning)
-        room.workflowState.currentPhase = .assemble
+        room.setWorkflowCurrentPhase(.assemble)
         #expect(room.requestStatus == .agentMatched)
     }
 
     @Test("RequestStatus - planning + design → discussing")
     func requestStatusPlanningDesign() {
         var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .planning)
-        room.workflowState.currentPhase = .design
+        room.setWorkflowCurrentPhase(.design)
         #expect(room.requestStatus == .discussing)
     }
 
     @Test("RequestStatus - planning + build → executing")
     func requestStatusPlanningBuild() {
         var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .planning)
-        room.workflowState.currentPhase = .build
+        room.setWorkflowCurrentPhase(.build)
         #expect(room.requestStatus == .executing)
     }
 
@@ -1087,7 +1087,7 @@ struct RoomTests {
     @Test("complete — 상태 전이 + 시간 기록")
     func completeRoom() {
         var room = Room(title: "T", assignedAgentIDs: [], createdBy: .user)
-        room.workflowState.currentPhase = .build
+        room.setWorkflowCurrentPhase(.build)
         room.complete()
         #expect(room.status == .completed)
         #expect(room.workflowState.currentPhase == nil)
@@ -1178,7 +1178,7 @@ struct RoomTests {
     @Test("setPlan — plan 설정 + needsPlan 해제")
     func setPlan_setsPlanAndClearsNeedsPlan() {
         var room = Room(title: "T", assignedAgentIDs: [], createdBy: .user)
-        room.workflowState.needsPlan = true
+        room.setWorkflowNeedsPlan(true)
         let plan = RoomPlan(summary: "테스트 계획", estimatedSeconds: 60, steps: [])
         room.setPlan(plan)
         #expect(room.plan?.summary == "테스트 계획")
@@ -1243,7 +1243,7 @@ struct RoomTests {
     @Test("fail — status + completedAt + clearCurrentPhase 원자 처리")
     func fail_setsAllFields() {
         var room = Room(title: "T", assignedAgentIDs: [], createdBy: .user)
-        room.workflowState.currentPhase = .build
+        room.setWorkflowCurrentPhase(.build)
         room.fail()
         #expect(room.status == .failed)
         #expect(room.completedAt != nil)

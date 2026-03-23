@@ -267,7 +267,9 @@ struct ValueObjectTests {
         var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
         #expect(room.workflowState.intent == nil)
 
-        room.workflowState = WorkflowState(intent: .task, needsPlan: true, currentPhase: .plan)
+        room.setWorkflowIntent(.task)
+        room.setWorkflowNeedsPlan(true)
+        room.setWorkflowCurrentPhase(.plan)
         #expect(room.workflowState.intent == .task)
         #expect(room.workflowState.needsPlan == true)
         #expect(room.workflowState.currentPhase == WorkflowPhase.plan)
@@ -276,9 +278,9 @@ struct ValueObjectTests {
     @Test("Room.workflowState - 개별 프로퍼티와 동기화")
     func roomWorkflowStateSync() {
         var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
-        room.workflowState.intent = .discussion
-        room.workflowState.currentPhase = .assemble
-        room.workflowState.completedPhases = [.intake]
+        room.setWorkflowIntent(.discussion)
+        room.setWorkflowCurrentPhase(.assemble)
+        room.setWorkflowCompletedPhases([.intake])
 
         let state = room.workflowState
         #expect(state.intent == .discussion)

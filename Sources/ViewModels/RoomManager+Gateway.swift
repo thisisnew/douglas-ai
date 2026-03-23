@@ -181,7 +181,7 @@ extension RoomManager {
         } else {
             // 워크플로우 없음 (앱 재시작 등) → intent 설정 후 워크플로우 재시작
             guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
-            rooms[idx].workflowState.setIntent(intent)
+            rooms[idx].setWorkflowIntent(intent)
             rooms[idx].transitionTo(.planning)
             launchWorkflow(roomID: roomID, task: rooms[idx].title)
         }
@@ -202,7 +202,7 @@ extension RoomManager {
             approvalGates.provideDocType(roomID: roomID, docType: docType)
         } else {
             guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
-            rooms[idx].workflowState.setDocumentType(docType)
+            rooms[idx].setWorkflowDocumentType(docType)
             rooms[idx].transitionTo(.planning)
             launchWorkflow(roomID: roomID, task: rooms[idx].title)
         }

@@ -121,7 +121,7 @@ extension RoomManager {
 
             // 현재 단계 기록 + 전이 감사 기록 (내부 상태만, UI 메시지 없음)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].workflowState.advanceToPhase(nextPhase)
+                rooms[i].advanceWorkflowPhase(nextPhase)
             }
             scheduleSave()
 
@@ -143,7 +143,7 @@ extension RoomManager {
                    currentRoom2.workflowState.intent == .task {
                     let planNeeded = await classifyNeedsPlan(roomID: roomID, task: resolvedTask)
                     if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                        rooms[i].workflowState.setNeedsPlan(planNeeded)
+                        rooms[i].setWorkflowNeedsPlan(planNeeded)
                     }
                     scheduleSave()
                 }
@@ -178,11 +178,11 @@ extension RoomManager {
 
             completedPhases.insert(nextPhase)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].workflowState.completePhase(nextPhase)
+                rooms[i].completeWorkflowPhase(nextPhase)
                 // 페이즈 완료 시 요약 저장 — 다음 페이즈에서 전체 히스토리 대신 참조 (토큰 최적화)
                 let summary = PhaseContextSummarizer.summarize(phase: nextPhase, room: rooms[i])
                 if !summary.isEmpty {
-                    rooms[i].workflowState.recordPhaseSummary(phase: nextPhase, summary: summary)
+                    rooms[i].recordWorkflowPhaseSummary(phase: nextPhase, summary: summary)
                 }
             }
             workflowStart = Date() // 단계 완료 후 타이머 리셋 (사용자 대기 시간으로 인한 타임아웃 방지)
@@ -219,14 +219,14 @@ extension RoomManager {
         if rooms[idx].workflowState.intent == nil {
             // 1) quickClassify 시도 (명확한 경우 즉시 결정)
             if let quick = IntentClassifier.quickClassify(task) {
-                rooms[idx].workflowState.setIntent(quick)
+                rooms[idx].setWorkflowIntent(quick)
                 scheduleSave()
             } else {
                 // 2) LLM 분류 폴백 — 자동 적용, 사용자 선택 없음
                 guard let firstAgentID = rooms[idx].assignedAgentIDs.first,
                       let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
                       let provider = providerManager?.provider(named: agent.providerName) else {
-                    rooms[idx].workflowState.setIntent(.task)
+                    rooms[idx].setWorkflowIntent(.task)
                     return
                 }
 
@@ -236,7 +236,7 @@ extension RoomManager {
                     provider: provider,
                     model: lightModel
                 )
-                rooms[idx].workflowState.setIntent(classified)
+                rooms[idx].setWorkflowIntent(classified)
                 scheduleSave()
             }
         }
@@ -245,7 +245,7 @@ extension RoomManager {
         if let resolvedIdx = rooms.firstIndex(where: { $0.id == roomID }) {
             let currentTask = task
             if let docResult = DocumentRequestDetector.quickDetect(currentTask), docResult.isDocumentRequest {
-                rooms[resolvedIdx].workflowState.setAutoDocOutput(true, documentType: docResult.suggestedDocType ?? .freeform)
+                rooms[resolvedIdx].setWorkflowAutoDocOutput(true, documentType: docResult.suggestedDocType ?? .freeform)
             }
         }
     }
@@ -468,7 +468,7 @@ extension RoomManager {
            let agent = agentStore?.agents.first(where: { $0.id == firstAgentID }),
            !agent.workRules.isEmpty {
             let activeIDs = WorkRuleMatcher.match(rules: agent.workRules, taskText: task)
-            rooms[idx].workflowState.setActiveRuleIDs(activeIDs)
+            rooms[idx].setWorkflowActiveRuleIDs(activeIDs)
         }
 
         scheduleSave()

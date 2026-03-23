@@ -99,7 +99,7 @@ extension RoomManager {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
 
         let docType = suggestedType ?? .freeform
-        rooms[idx].workflowState.setDocumentType(docType)
+        rooms[idx].setWorkflowDocumentType(docType)
         rooms[idx].startExecution()
 
         let phaseMsg = ChatMessage(
@@ -363,8 +363,8 @@ extension RoomManager {
 
         if let docResult = DocumentRequestDetector.quickDetect(recentUserMessages),
            docResult.isDocumentRequest {
-            rooms[idx].workflowState.setAutoDocOutput(true)
-            rooms[idx].workflowState.setDocumentType(docResult.suggestedDocType ?? .freeform)
+            rooms[idx].setWorkflowAutoDocOutput(true)
+            rooms[idx].setWorkflowDocumentType(docResult.suggestedDocType ?? .freeform)
         }
     }
 
@@ -400,8 +400,8 @@ extension RoomManager {
         }
 
         // 이전 사이클 문서 플래그 리셋
-        rooms[idx].workflowState.setAutoDocOutput(false)
-        rooms[idx].workflowState.setDocumentType(nil)
+        rooms[idx].setWorkflowAutoDocOutput(false)
+        rooms[idx].setWorkflowDocumentType(nil)
 
         // 문서 요청 감지 → 플래그만 설정 (숏컷 제거 — assemble 경유로 적합 에이전트 판단)
         var detectedDocType: DocumentType? = nil
@@ -421,8 +421,8 @@ extension RoomManager {
         }
 
         if let docType = detectedDocType {
-            rooms[idx].workflowState.setDocumentType(docType)
-            rooms[idx].workflowState.setAutoDocOutput(true)
+            rooms[idx].setWorkflowDocumentType(docType)
+            rooms[idx].setWorkflowAutoDocOutput(true)
         }
 
         // 타이핑 인디케이터 해제 (이후 각 phase에서 개별 설정)
@@ -548,13 +548,13 @@ extension RoomManager {
                 )
             }
         }
-        rooms[idx].workflowState.setIntent(resolvedIntent ?? .quickAnswer)
+        rooms[idx].setWorkflowIntent(resolvedIntent ?? .quickAnswer)
 
         // quickAnswer로 확정된 경우 문서 오탐 리셋 (단순 질문은 문서 요청이 아님)
         if rooms[idx].workflowState.intent == .quickAnswer && detectedDocType != nil {
             detectedDocType = nil
-            rooms[idx].workflowState.setAutoDocOutput(false)
-            rooms[idx].workflowState.setDocumentType(nil)
+            rooms[idx].setWorkflowAutoDocOutput(false)
+            rooms[idx].setWorkflowDocumentType(nil)
         }
 
         syncAgentStatuses()
@@ -587,7 +587,7 @@ extension RoomManager {
         // Room에 동기화
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
             for phase in completedPhases {
-                rooms[i].workflowState.completePhase(phase)
+                rooms[i].completeWorkflowPhase(phase)
             }
         }
         // 현재 에이전트 수 기록 (다음 후속 사이클 비교용)
@@ -603,7 +603,7 @@ extension RoomManager {
             guard let nextPhase = phases.first(where: { !completedPhases.contains($0) }) else { break }
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].workflowState.advanceToPhase(nextPhase)
+                rooms[i].advanceWorkflowPhase(nextPhase)
             }
             scheduleSave()
 
@@ -634,7 +634,7 @@ extension RoomManager {
 
             completedPhases.insert(nextPhase)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].workflowState.completePhase(nextPhase)
+                rooms[i].completeWorkflowPhase(nextPhase)
             }
         }
 

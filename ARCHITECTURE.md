@@ -139,7 +139,7 @@ DOUGLAS/
 │   │   ├── AgentMatcher.swift       # → Sources/Services/로 이동됨 (도메인 서비스)
 │   │   ├── DocumentExporter.swift   # 문서 산출물 파일 저장 (에이전트 생성 파일 탐지 → 고정 경로 자동저장 / NSSavePanel 폴백)
 │   │   ├── ThemeManager.swift       # 테마 관리 (기본값: .cozyGame, UserDefaults 저장, 커스텀 팔레트)
-│   │   └── ToolExecutor.swift       # 도구 호출 루프 + smartSend + 경로 해석/충돌 추적 + 도구 결과 토큰 압축
+│   │   └── ToolExecutor.swift       # → Sources/Providers/로 이동됨 (인프라 레이어)
 │   ├── Utilities/
 │   │   ├── TokenEstimator.swift     # CJK 인지 토큰 수 추정 (한국어 ~2자/토큰, ASCII ~4자/토큰)
 │   │   └── KoreanTextUtils.swift    # 한국어 NLP 경량 유틸리티 (조사 제거, 스크립트 경계 분리, 의미 키워드 추출)

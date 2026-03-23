@@ -510,7 +510,7 @@ struct Room: Identifiable, Codable {
     var awaitingType: AwaitingType?                    // awaitApproval/recordApproval 권장
     var pendingAgentConfirmationID: UUID?  // agentConfirmation 대기 중인 에이전트 ID
     // Phase 7: 값 객체 — 도메인 메서드 사용 권장
-    var workflowState: WorkflowState  // private(set) 보류: executeIntentPhase 등에서 직접 접근 필요
+    private(set) var workflowState: WorkflowState
     private(set) var clarifyContext: ClarifyContext
     var projectContext: ProjectContext
     var discussion: DiscussionSession
@@ -745,6 +745,23 @@ struct Room: Identifiable, Codable {
         approvalHistory.append(record)
         awaitingType = nil
     }
+
+    // MARK: - WorkflowState 위임 (Aggregate Root 캡슐화)
+
+    mutating func setWorkflowIntent(_ intent: WorkflowIntent) { workflowState.setIntent(intent) }
+    mutating func setWorkflowNeedsPlan(_ needsPlan: Bool) { workflowState.setNeedsPlan(needsPlan) }
+    mutating func setWorkflowAutoDocOutput(_ autoDoc: Bool, documentType: DocumentType? = nil) {
+        workflowState.setAutoDocOutput(autoDoc, documentType: documentType)
+    }
+    mutating func setWorkflowDocumentType(_ type: DocumentType?) { workflowState.setDocumentType(type) }
+    mutating func setWorkflowActiveRuleIDs(_ ids: Set<UUID>) { workflowState.setActiveRuleIDs(ids) }
+    mutating func advanceWorkflowPhase(_ phase: WorkflowPhase) { workflowState.advanceToPhase(phase) }
+    mutating func completeWorkflowPhase(_ phase: WorkflowPhase) { workflowState.completePhase(phase) }
+    mutating func recordWorkflowPhaseSummary(phase: WorkflowPhase, summary: String) {
+        workflowState.recordPhaseSummary(phase: phase, summary: summary)
+    }
+    mutating func setWorkflowCurrentPhase(_ phase: WorkflowPhase?) { workflowState.setCurrentPhase(phase) }
+    mutating func setWorkflowCompletedPhases(_ phases: Set<WorkflowPhase>) { workflowState.setCompletedPhases(phases) }
 
     /// 토론 결과를 clarify 컨텍스트에 추가
     mutating func appendDiscussionContext(_ summary: String) {
