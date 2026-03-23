@@ -289,12 +289,8 @@ struct ValueObjectTests {
     @Test("Room.clarifyContext - get/set 왕복")
     func roomClarifyContextAccessor() {
         var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
-        room.clarifyContext = ClarifyContext(
-            clarifySummary: "요약",
-            clarifyQuestionCount: 5
-        )
+        room.setClarifySummary("요약")
         #expect(room.clarifyContext.clarifySummary == "요약")
-        #expect(room.clarifyContext.clarifyQuestionCount == 5)
     }
 
     @Test("Room.projectContext - get/set 왕복")

@@ -21,6 +21,27 @@ enum WorkflowError: Error, Equatable {
     /// 사용자 취소
     case cancelled
 
+    /// 에러 심각도
+    enum Severity { case low, medium, high }
+
+    /// 복구 가능 여부 + 심각도 분류
+    var severity: Severity {
+        switch self {
+        case .cancelled, .approvalRejected: return .low
+        case .agentUnmatchable, .approvalTimeout, .llmFailure: return .medium
+        case .buildFailure, .qaFailure, .phaseTransitionInvalid, .workflowTimeout: return .high
+        }
+    }
+
+    /// 복구 가능 여부
+    var isRecoverable: Bool {
+        switch self {
+        case .cancelled, .approvalRejected, .approvalTimeout, .agentUnmatchable: return true
+        case .llmFailure, .buildFailure, .qaFailure: return true
+        case .phaseTransitionInvalid, .workflowTimeout: return false
+        }
+    }
+
     /// 사용자에게 보여줄 한국어 에러 메시지
     var userFacingMessage: String {
         switch self {

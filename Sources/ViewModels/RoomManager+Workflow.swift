@@ -454,12 +454,12 @@ extension RoomManager {
             jiraDataList: jiraDataList,
             urls: urls
         )
-        rooms[idx].clarifyContext.setIntakeData(intakeData)
+        rooms[idx].setIntakeData(intakeData)
 
         // 4) 플레이북 로드 (내부 데이터만, UI 메시지 없음)
         if let projectPath = rooms[idx].primaryProjectPath {
             if let playbook = PlaybookManager.load(from: projectPath) {
-                rooms[idx].clarifyContext.setPlaybook(playbook)
+                rooms[idx].setPlaybook(playbook)
             }
         }
 

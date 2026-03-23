@@ -262,7 +262,7 @@ extension RoomManager {
         appendMessage(msg, to: roomID)
         // userAnswers에 저장 (질문은 메시지에서 역추적)
         if let idx = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[idx].clarifyContext.addUserAnswer(UserAnswer(question: "", answer: answer))
+            rooms[idx].addUserAnswer(UserAnswer(question: "", answer: answer))
         }
 
         if approvalGates.hasPendingUserInput(for: roomID) {

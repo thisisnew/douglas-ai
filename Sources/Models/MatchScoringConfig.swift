@@ -22,6 +22,18 @@ struct MatchScoringConfig {
     let goalKeywordLimit: Int             // goal 키워드 상한
     let jiraDomainBonus: Double           // Jira 도메인 힌트 매칭 보너스
 
+    /// Tier 가중치 합 (정규화 분모)
+    var totalWeight: Double { tier1Weight + tier2Weight + tier3Weight }
+
+    /// 설정 유효성 검증
+    var isValid: Bool {
+        tier1Weight > 0 && tier2Weight > 0 && tier3Weight > 0
+            && autoMatchThreshold > suggestThreshold
+            && suggestThreshold > 0
+            && emptyTagsCap >= 0 && emptyTagsCap <= 1.0
+            && goalKeywordLimit > 0
+    }
+
     static let `default` = MatchScoringConfig(
         tier1Weight: 5.0,
         tier2Weight: 2.0,

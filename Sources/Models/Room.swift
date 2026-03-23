@@ -509,9 +509,9 @@ struct Room: Identifiable, Codable {
     var approvalHistory: [ApprovalRecord]              // recordApproval 권장
     var awaitingType: AwaitingType?                    // awaitApproval/recordApproval 권장
     var pendingAgentConfirmationID: UUID?  // agentConfirmation 대기 중인 에이전트 ID
-    // Phase 7: 값 객체 — 도메인 메서드 사용 권장 (private(set) 보류: 중첩 mutating 위임 ~200곳 필요)
-    var workflowState: WorkflowState
-    var clarifyContext: ClarifyContext
+    // Phase 7: 값 객체 — 도메인 메서드 사용 권장
+    var workflowState: WorkflowState  // private(set) 보류: executeIntentPhase 등에서 직접 접근 필요
+    private(set) var clarifyContext: ClarifyContext
     var projectContext: ProjectContext
     var discussion: DiscussionSession
     var buildQA: BuildQAState
@@ -715,6 +715,14 @@ struct Room: Identifiable, Codable {
     mutating func assignPosition(_ position: WorkflowPosition, to agentID: UUID) {
         agentPositions[agentID] = position
     }
+
+    // MARK: - ClarifyContext 위임 (Aggregate Root 캡슐화)
+
+    mutating func setIntakeData(_ data: IntakeData) { clarifyContext.setIntakeData(data) }
+    mutating func setPlaybook(_ pb: ProjectPlaybook) { clarifyContext.setPlaybook(pb) }
+    mutating func setClarifySummary(_ summary: String?) { clarifyContext.setClarifySummary(summary) }
+    mutating func setDelegationInfo(_ info: DelegationInfo?) { clarifyContext.setDelegationInfo(info) }
+    mutating func addUserAnswer(_ answer: UserAnswer) { clarifyContext.addUserAnswer(answer) }
 
     // MARK: - 워크플로우 도메인 메서드 (Aggregate Root 캡슐화)
 

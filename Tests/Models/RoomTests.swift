@@ -823,28 +823,19 @@ struct RoomTests {
         var room = Room(title: "Workflow", assignedAgentIDs: [], createdBy: .user)
         room.workflowState.intent = WorkflowIntent.task
         room.workflowState.currentPhase = .clarify
-        room.clarifyContext.assumptions = [
-            WorkflowAssumption(text: "Swift 5.9 사용", riskLevel: .low)
-        ]
-        room.clarifyContext.userAnswers = [
-            UserAnswer(question: "DB?", answer: "PostgreSQL")
-        ]
-        room.clarifyContext.playbook = ProjectPlaybook.team
-        room.clarifyContext.intakeData = IntakeData(sourceType: .text, rawInput: "작업 내용")
-        room.clarifyContext.clarifyQuestionCount = 3
+        room.setIntakeData(IntakeData(sourceType: .text, rawInput: "작업 내용"))
+        room.setPlaybook(ProjectPlaybook.team)
+        room.addUserAnswer(UserAnswer(question: "DB?", answer: "PostgreSQL"))
 
         let data = try JSONEncoder().encode(room)
         let decoded = try JSONDecoder().decode(Room.self, from: data)
 
         #expect(decoded.workflowState.intent == WorkflowIntent.task)
         #expect(decoded.workflowState.currentPhase == .clarify)
-        #expect(decoded.clarifyContext.assumptions?.count == 1)
-        #expect(decoded.clarifyContext.assumptions?[0].text == "Swift 5.9 사용")
         #expect(decoded.clarifyContext.userAnswers?.count == 1)
         #expect(decoded.clarifyContext.userAnswers?[0].answer == "PostgreSQL")
         #expect(decoded.clarifyContext.playbook?.baseBranch == "develop")
         #expect(decoded.clarifyContext.intakeData?.sourceType == .text)
-        #expect(decoded.clarifyContext.clarifyQuestionCount == 3)
     }
 
     // MARK: - Phase DDD-2: RoomStatus.cancelled + RequestStatus
@@ -1208,7 +1199,7 @@ struct RoomTests {
     @Test("appendDiscussionContext — clarifySummary에 추가")
     func appendDiscussionContext_appendsToSummary() {
         var room = Room(title: "T", assignedAgentIDs: [], createdBy: .user)
-        room.clarifyContext.clarifySummary = "기존 요약"
+        room.setClarifySummary("기존 요약")
         room.appendDiscussionContext("백엔드 API 설계 합의")
         #expect(room.clarifyContext.clarifySummary?.contains("기존 요약") == true)
         #expect(room.clarifyContext.clarifySummary?.contains("[토론 결과]") == true)

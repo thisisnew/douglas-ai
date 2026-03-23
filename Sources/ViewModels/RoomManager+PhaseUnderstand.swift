@@ -219,8 +219,8 @@ extension RoomManager {
             if approved {
                 // 승인됨 → clarify 요약 저장 + delegation 분리 + planning 복귀
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].clarifyContext.setDelegationInfo(parseDelegationBlock(currentSummary))
-                    rooms[i].clarifyContext.setClarifySummary(stripDelegationBlock(currentSummary))
+                    rooms[i].setDelegationInfo(parseDelegationBlock(currentSummary))
+                    rooms[i].setClarifySummary(stripDelegationBlock(currentSummary))
                     rooms[i].transitionTo(.planning)
                 }
                 break
