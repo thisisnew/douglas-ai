@@ -1509,9 +1509,8 @@ extension RoomManager {
                 newContent: "오류: \(error.userFacingMessage)",
                 in: roomID
             )
-            if let roomIdx = rooms.firstIndex(where: { $0.id == roomID }),
-               let msgIdx = rooms[roomIdx].messages.firstIndex(where: { $0.id == placeholderID }) {
-                rooms[roomIdx].messages[msgIdx].messageType = .error
+            if let roomIdx = rooms.firstIndex(where: { $0.id == roomID }) {
+                rooms[roomIdx].updateMessageType(id: placeholderID, type: .error)
             }
         }
 
@@ -1625,7 +1624,7 @@ extension RoomManager {
             // 사전 분석 실패는 워크플로우에 영향 없음 — placeholder를 조용히 제거
             if let roomIdx = rooms.firstIndex(where: { $0.id == roomID }),
                let msgIdx = rooms[roomIdx].messages.firstIndex(where: { $0.id == placeholderID }) {
-                rooms[roomIdx].messages.remove(at: msgIdx)
+                rooms[roomIdx].removeMessage(at: msgIdx)
             }
         }
 

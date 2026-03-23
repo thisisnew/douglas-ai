@@ -1313,10 +1313,10 @@ extension RoomManager {
             updateMessageContent(streamPlaceholderID, newContent: cleanedResponse, in: roomID)
             // 타임스탬프를 실제 완료 시점으로 갱신 (도구 활동보다 앞에 정렬되는 문제 방지)
             if let i = rooms.firstIndex(where: { $0.id == roomID }),
-               let mi = rooms[i].messages.firstIndex(where: { $0.id == streamPlaceholderID }) {
-                rooms[i].messages[mi].timestamp = Date()
+               rooms[i].messages.firstIndex(where: { $0.id == streamPlaceholderID }) != nil {
+                rooms[i].updateMessageTimestamp(id: streamPlaceholderID, timestamp: Date())
                 if !(isLastStep || totalSteps == 1) {
-                    rooms[i].messages[mi].messageType = .toolActivity
+                    rooms[i].updateMessageType(id: streamPlaceholderID, type: .toolActivity)
                 }
             }
             return true
@@ -1368,10 +1368,10 @@ extension RoomManager {
                     let cleanedRetry = expandTildePaths(stripHallucinatedAuthLines(stripTrailingOptions(retryResponse)))
                     updateMessageContent(streamPlaceholderID, newContent: cleanedRetry, in: roomID)
                     if let i = rooms.firstIndex(where: { $0.id == roomID }),
-                       let mi = rooms[i].messages.firstIndex(where: { $0.id == streamPlaceholderID }) {
-                        rooms[i].messages[mi].timestamp = Date()
+                       rooms[i].messages.firstIndex(where: { $0.id == streamPlaceholderID }) != nil {
+                        rooms[i].updateMessageTimestamp(id: streamPlaceholderID, timestamp: Date())
                         if !(isLastStep || totalSteps == 1) {
-                            rooms[i].messages[mi].messageType = .toolActivity
+                            rooms[i].updateMessageType(id: streamPlaceholderID, type: .toolActivity)
                         }
                     }
                     return true

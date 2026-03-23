@@ -941,7 +941,7 @@ struct RoomTests {
     func requestStatusAwaitingPlanApproval() {
         var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .inProgress)
         room.status = .awaitingApproval
-        room.awaitingType = .planApproval
+        room.awaitApproval(type: .planApproval)
         #expect(room.requestStatus == .waitingPlanApproval)
     }
 
@@ -949,7 +949,7 @@ struct RoomTests {
     func requestStatusAwaitingStepApproval() {
         var room = Room(title: "Test", assignedAgentIDs: [], createdBy: .user, status: .inProgress)
         room.status = .awaitingApproval
-        room.awaitingType = .stepApproval
+        room.awaitApproval(type: .stepApproval)
         #expect(room.requestStatus == .waitingExecutionApproval)
     }
 
@@ -1192,7 +1192,7 @@ struct RoomTests {
     @Test("recordApproval — 기록 추가 + awaitingType 해제")
     func recordApproval_appendsAndClearsAwaitingType() {
         var room = Room(title: "T", assignedAgentIDs: [], createdBy: .user)
-        room.awaitingType = .planApproval
+        room.awaitApproval(type: .planApproval)
         let record = ApprovalRecord(type: .planApproval, approved: true)
         room.recordApproval(record)
         #expect(room.approvalHistory.count == 1)

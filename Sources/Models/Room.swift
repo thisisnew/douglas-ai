@@ -485,7 +485,7 @@ struct Room: Identifiable, Codable {
     let id: UUID
     private(set) var title: String
     var assignedAgentIDs: [UUID]                     // addAgent/removeAgent로 변경
-    var messages: [ChatMessage]                       // addMessage/insertMessage 권장 (private(set) 보류 — 208곳 위임 필요)
+    private(set) var messages: [ChatMessage]
     var status: RoomStatus                            // transitionTo/complete/fail/cancel 권장
     var mode: RoomMode
     var plan: RoomPlan?                               // setPlan 권장 (private(set) 보류: 중첩 step mutation ~15곳)
@@ -506,18 +506,18 @@ struct Room: Identifiable, Codable {
     private(set) var agentRoles: [UUID: RuntimeRole]  // assignRole로 변경
     private(set) var agentPositions: [UUID: WorkflowPosition]  // assignPosition으로 변경
     // Phase 1: 승인 기록 + 대기 유형
-    var approvalHistory: [ApprovalRecord]              // recordApproval 권장
-    var awaitingType: AwaitingType?                    // awaitApproval/recordApproval 권장
-    var pendingAgentConfirmationID: UUID?  // agentConfirmation 대기 중인 에이전트 ID
-    // Phase 7: 값 객체 — 도메인 메서드 사용 권장
+    private(set) var approvalHistory: [ApprovalRecord]
+    private(set) var awaitingType: AwaitingType?
+    private(set) var pendingAgentConfirmationID: UUID?
+    // Phase 7: 값 객체
     private(set) var workflowState: WorkflowState
     private(set) var clarifyContext: ClarifyContext
     private(set) var projectContext: ProjectContext
     private(set) var discussion: DiscussionSession
     private(set) var buildQA: BuildQAState
     // Phase 7: 요청/후속 이력
-    var requests: [DouglasRequest]
-    var followUpActions: [FollowUpAction]
+    private(set) var requests: [DouglasRequest]
+    private(set) var followUpActions: [FollowUpAction]
 
     /// 남은 시간 (초). 타이머 미시작 시 nil
     var remainingSeconds: Int? {
@@ -716,6 +716,13 @@ struct Room: Identifiable, Codable {
         agentPositions[agentID] = position
     }
 
+    // MARK: - 승인/요청 위임
+
+    mutating func setPendingAgentConfirmationID(_ id: UUID?) { pendingAgentConfirmationID = id }
+    mutating func addRequest(_ request: DouglasRequest) { requests.append(request) }
+    mutating func addFollowUpAction(_ action: FollowUpAction) { followUpActions.append(action) }
+    mutating func clearFollowUpActions() { followUpActions.removeAll() }
+
     // MARK: - ClarifyContext 위임 (Aggregate Root 캡슐화)
 
     mutating func setIntakeData(_ data: IntakeData) { clarifyContext.setIntakeData(data) }
@@ -865,6 +872,22 @@ struct Room: Identifiable, Codable {
     mutating func insertMessage(_ message: ChatMessage, at index: Int) {
         guard index >= 0, index <= messages.count else { return }
         messages.insert(message, at: index)
+    }
+    mutating func updateMessageContent(id: UUID, content: String) {
+        guard let idx = messages.firstIndex(where: { $0.id == id }) else { return }
+        messages[idx].content = content
+    }
+    mutating func updateMessageType(id: UUID, type: MessageType) {
+        guard let idx = messages.firstIndex(where: { $0.id == id }) else { return }
+        messages[idx].messageType = type
+    }
+    mutating func updateMessageTimestamp(id: UUID, timestamp: Date) {
+        guard let idx = messages.firstIndex(where: { $0.id == id }) else { return }
+        messages[idx].timestamp = timestamp
+    }
+    mutating func removeMessage(at index: Int) {
+        guard index >= 0, index < messages.count else { return }
+        messages.remove(at: index)
     }
     mutating func setTaskBrief(_ brief: TaskBrief?) { taskBrief = brief }
     mutating func setTitle(_ title: String) { self.title = title }

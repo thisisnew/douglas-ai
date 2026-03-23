@@ -757,7 +757,7 @@ extension RoomManager {
                 appendMessage(suggestMsg, to: roomID)
 
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].pendingAgentConfirmationID = agentID
+                    rooms[i].setPendingAgentConfirmationID(agentID)
                     rooms[i].awaitApproval(type: .agentConfirmation)
                 }
                 syncAgentStatuses()

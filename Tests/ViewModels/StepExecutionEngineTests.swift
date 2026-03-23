@@ -38,7 +38,7 @@ final class MockWorkflowHost: WorkflowHost {
 
     func appendMessage(_ message: ChatMessage, to roomID: UUID) {
         appendedMessages.append(message)
-        rooms[roomID]?.messages.append(message)
+        rooms[roomID]?.addMessage(message)
     }
 
     func updateMessageContent(_ messageID: UUID, newContent: String, in roomID: UUID) {}

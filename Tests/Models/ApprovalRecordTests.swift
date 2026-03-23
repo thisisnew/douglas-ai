@@ -166,7 +166,7 @@ struct ApprovalRecordTests {
     func roomApprovalHistoryAppend() {
         var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
         let record = ApprovalRecord(type: .clarifyApproval, approved: true)
-        room.approvalHistory.append(record)
+        room.recordApproval(record)
         #expect(room.approvalHistory.count == 1)
         #expect(room.approvalHistory[0].type == .clarifyApproval)
     }
@@ -174,8 +174,8 @@ struct ApprovalRecordTests {
     @Test("Room - Codable 왕복 (approvalHistory + awaitingType)")
     func roomCodableWithApproval() throws {
         var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
-        room.approvalHistory.append(ApprovalRecord(type: .planApproval, approved: true, planVersion: 1))
-        room.awaitingType = .stepApproval
+        room.recordApproval(ApprovalRecord(type: .planApproval, approved: true, planVersion: 1))
+        room.awaitApproval(type: .stepApproval)
 
         let data = try JSONEncoder().encode(room)
         let decoded = try JSONDecoder().decode(Room.self, from: data)

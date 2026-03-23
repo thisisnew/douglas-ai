@@ -119,8 +119,8 @@ extension RoomManager {
         // 저장 성공 후 본문 메시지 숨김 (채팅에 문서 전문이 표시되는 것 방지)
         if let docMsgID,
            let i = rooms.firstIndex(where: { $0.id == roomID }),
-           let mi = rooms[i].messages.firstIndex(where: { $0.id == docMsgID }) {
-            rooms[i].messages[mi].messageType = .discussion
+           rooms[i].messages.contains(where: { $0.id == docMsgID }) {
+            rooms[i].updateMessageType(id: docMsgID, type: .discussion)
         }
 
         // 완료

@@ -320,7 +320,7 @@ class RoomManager: ObservableObject, WorkflowHost {
 
     func appendMessage(_ message: ChatMessage, to roomID: UUID) {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
-        rooms[idx].messages.append(message)
+        rooms[idx].addMessage(message)
         scheduleSave()
         pluginEventDelegate?(.messageAdded(roomID: roomID, message: message))
     }
@@ -329,9 +329,9 @@ class RoomManager: ObservableObject, WorkflowHost {
     func insertMessage(_ message: ChatMessage, to roomID: UUID, beforeMessageID: UUID) {
         guard let idx = rooms.firstIndex(where: { $0.id == roomID }) else { return }
         if let insertIdx = rooms[idx].messages.firstIndex(where: { $0.id == beforeMessageID }) {
-            rooms[idx].messages.insert(message, at: insertIdx)
+            rooms[idx].insertMessage(message, at: insertIdx)
         } else {
-            rooms[idx].messages.append(message)
+            rooms[idx].addMessage(message)
         }
         scheduleSave()
         pluginEventDelegate?(.messageAdded(roomID: roomID, message: message))
@@ -341,7 +341,7 @@ class RoomManager: ObservableObject, WorkflowHost {
     func updateMessageContent(_ messageID: UUID, newContent: String, in roomID: UUID) {
         guard let roomIdx = rooms.firstIndex(where: { $0.id == roomID }),
               let msgIdx = rooms[roomIdx].messages.firstIndex(where: { $0.id == messageID }) else { return }
-        rooms[roomIdx].messages[msgIdx].content = newContent
+        rooms[roomIdx].updateMessageContent(id: messageID, content: newContent)
     }
 
     // MARK: - Phase Activity Tracking
