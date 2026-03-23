@@ -645,21 +645,7 @@ extension RoomManager {
 
     /// 브리핑 JSON 파싱
     private func parseBriefing(from response: String) -> RoomBriefing? {
-        let jsonString = extractJSON(from: response)
-        guard let data = jsonString.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let summary = json["summary"] as? String else {
-            return nil
-        }
-        let keyDecisions = json["key_decisions"] as? [String] ?? []
-        let responsibilities = json["agent_responsibilities"] as? [String: String] ?? [:]
-        let openIssues = json["open_issues"] as? [String] ?? []
-        return RoomBriefing(
-            summary: summary,
-            keyDecisions: keyDecisions,
-            agentResponsibilities: responsibilities,
-            openIssues: openIssues
-        )
+        DiscussionService.parseBriefing(from: response)
     }
 
     // MARK: - Research 브리핑
@@ -749,133 +735,21 @@ extension RoomManager {
         }
     }
 
-    /// Research 브리핑 JSON 파싱
     private func parseResearchBriefing(from response: String) -> ResearchBriefing? {
-        let jsonString = extractJSON(from: response)
-        guard let data = jsonString.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let summary = json["executive_summary"] as? String else {
-            return nil
-        }
-        let findings: [ResearchFinding] = (json["findings"] as? [[String: Any]])?.compactMap { item in
-            guard let topic = item["topic"] as? String,
-                  let detail = item["detail"] as? String else { return nil }
-            return ResearchFinding(topic: topic, detail: detail)
-        } ?? []
-        let actionablePoints = json["actionable_points"] as? [String] ?? []
-        let limitations = json["limitations"] as? [String] ?? []
-        return ResearchBriefing(
-            executiveSummary: summary,
-            findings: findings,
-            actionablePoints: actionablePoints,
-            limitations: limitations
-        )
+        DiscussionService.parseResearchBriefing(from: response)
     }
 
-    /// 토론용 히스토리 빌드 (에이전트 이름을 명시하여 누가 말했는지 구분)
-    /// - Phase 2 개선: .discussionRound 제외 + RoundSummary 기반 이전 라운드 압축
+    /// 토론용 히스토리 빌드 — DiscussionService로 위임
     func buildDiscussionHistory(roomID: UUID, currentAgentName: String?) -> [(role: String, content: String)] {
         guard let room = rooms.first(where: { $0.id == roomID }) else { return [] }
-
-        let currentRound = room.discussion.currentRound
-        let summaries = room.discussion.roundSummaries
-
-        // RoundSummary가 있으면 이전 라운드 압축 + 현재 라운드 전문
-        if !summaries.isEmpty, summaries.contains(where: { $0.round < currentRound }) {
-            // 현재 라운드 메시지만 필터 (suffix에서 이전 라운드 발언 제외)
-            let filteredAll = DiscussionHistoryFilter.filterForHistory(room.messages)
-            // 현재 라운드 = discussion.currentRound 이후에 추가된 메시지
-            // 라운드 마커 기준으로 분리하기 어려우므로, 마지막 N개를 현재 라운드로 간주
-            // (에이전트 수 × 1 = 라운드당 발언 수의 상한)
-            let agentCount = max(room.assignedAgentIDs.count, 1)
-            let currentRoundMessages = Array(filteredAll.suffix(agentCount))
-            return DiscussionHistoryBuilder.build(
-                currentRound: currentRound,
-                roundSummaries: summaries,
-                currentRoundMessages: currentRoundMessages,
-                currentAgentName: currentAgentName
-            )
-        }
-
-        // RoundSummary 없으면 기존 로직 (DiscussionHistoryFilter 적용)
-        return DiscussionHistoryFilter.filterForHistory(room.messages)
-            .map { msg in
-                let role: String
-                var content: String
-                switch msg.role {
-                case .user:
-                    role = "user"
-                    content = msg.content
-                case .assistant:
-                    if let agentName = msg.agentName, agentName == currentAgentName {
-                        role = "assistant"
-                        content = msg.content
-                    } else {
-                        role = "user"
-                        content = "[\(msg.agentName ?? "에이전트")의 발언]: \(msg.content)"
-                    }
-                case .system:
-                    role = "user"
-                    content = "[시스템]: \(msg.content)"
-                }
-                if content.count > 800 {
-                    content = String(content.prefix(800)) + "…"
-                }
-                return (role: role, content: content)
-            }
+        return DiscussionService.buildHistory(room: room, currentAgentName: currentAgentName)
     }
 
     // MARK: - 도메인 힌트
 
-    /// 에이전트 이름에서 전문 영역 힌트를 생성 (토론 시 역할 혼동 방지)
+    /// 에이전트 이름에서 전문 영역 힌트 — DiscussionService로 위임
     static func domainHint(for agentName: String) -> String {
-        let name = agentName.lowercased()
-        if name.contains("프론트엔드") || name.contains("frontend") || name.contains("ui") {
-            return """
-
-            [전문 영역 — 반드시 준수] 당신은 프론트엔드 전문가입니다. 아래 영역만 다루세요:
-            UI/UX, 클라이언트 상태관리, 컴포넌트 설계, 렌더링 성능, 브라우저 호환성, 반응형 디자인, 접근성, CSS/스타일링, 프론트엔드 프레임워크(React, Vue, Svelte 등)
-            [금지] 백엔드, 서버, 데이터베이스, API 설계, 인프라에 대해 말하지 마세요. "백엔드에서는", "서버 측에서는"이라는 표현을 사용하면 안 됩니다. 주제가 백엔드와 관련되더라도 반드시 프론트엔드 시각으로만 해석하세요.
-            """
-        } else if name.contains("백엔드") || name.contains("backend") || name.contains("서버") {
-            return """
-
-            [전문 영역 — 반드시 준수] 당신은 백엔드 전문가입니다. 아래 영역만 다루세요:
-            API 설계, 데이터베이스, 서버 아키텍처, 인증/보안, 성능 최적화, 인프라, 마이크로서비스
-            [금지] 프론트엔드, UI/UX, 컴포넌트, 렌더링, CSS에 대해 말하지 마세요. "프론트엔드에서는", "클라이언트 측에서는"이라는 표현을 사용하면 안 됩니다. 주제가 프론트엔드와 관련되더라도 반드시 백엔드 시각으로만 해석하세요.
-            """
-        } else if name.contains("qa") || name.contains("테스트") || name.contains("품질") {
-            return """
-
-            [전문 영역] 테스트 전략, 품질 보증, 자동화 테스트, 버그 트래킹, 성능 테스트, 보안 테스트
-            - "QA/테스트 관점에서"로 시작하세요.
-            """
-        } else if name.contains("디자인") || name.contains("design") || name.contains("ux") {
-            return """
-
-            [전문 영역] 사용자 경험, 인터페이스 디자인, 디자인 시스템, 프로토타이핑, 사용성 테스트, 접근성
-            - "디자인 관점에서"로 시작하세요.
-            """
-        } else if name.contains("devops") || name.contains("인프라") || name.contains("sre") {
-            return """
-
-            [전문 영역] CI/CD, 컨테이너, 클라우드 인프라, 모니터링, 배포 전략, IaC
-            - "DevOps/인프라 관점에서"로 시작하세요.
-            """
-        } else if name.contains("기획") || name.contains("pm") || name.contains("프로덕트") {
-            return """
-
-            [전문 영역] 제품 전략, 요구사항 분석, 로드맵, 사용자 리서치, 비즈니스 가치, 우선순위
-            - "기획/PM 관점에서"로 시작하세요.
-            """
-        } else if name.contains("리서치") || name.contains("분석") || name.contains("research") {
-            return """
-
-            [전문 영역] 시장 조사, 데이터 분석, 트렌드 파악, 경쟁사 분석, 사용자 리서치
-            - "리서치/분석 관점에서"로 시작하세요.
-            """
-        }
-        return ""
+        DiscussionService.domainHint(for: agentName)
     }
 
     // MARK: - Turn 2 발언 순서 파싱
