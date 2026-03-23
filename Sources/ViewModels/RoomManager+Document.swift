@@ -519,8 +519,16 @@ extension RoomManager {
 
         // FollowUpClassifier가 명확한 의도를 결정한 경우 우선 적용
         switch followUpDecision.intent {
-        case .implementAll, .implementPartial, .retryExecution:
+        case .implementAll, .retryExecution:
             resolvedIntent = followUpDecision.resolvedWorkflowIntent  // .task
+        case .implementPartial(let indices):
+            resolvedIntent = followUpDecision.resolvedWorkflowIntent  // .task
+            // 선택된 인덱스의 actionItems만 유지 (나머지 제거)
+            if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                let current = rooms[i].discussion.actionItems ?? []
+                let filtered = indices.compactMap { idx in idx < current.count ? current[idx] : nil }
+                rooms[i].discussionSetActionItems(filtered)
+            }
         case .continueDiscussion, .modifyAndDiscuss, .restartDiscussion:
             resolvedIntent = followUpDecision.resolvedWorkflowIntent  // .discussion
         case .reviewResult:

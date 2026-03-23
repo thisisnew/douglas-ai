@@ -125,55 +125,54 @@ extension RoomManager {
             }
             scheduleSave()
 
-            switch nextPhase {
-            case .intake:
-                await executeIntakePhase(roomID: roomID, task: resolvedTask)
-            case .intent:
-                await executeIntentPhase(roomID: roomID, task: resolvedTask)
-            case .clarify:
-                await executeClarifyPhase(roomID: roomID, task: resolvedTask)
-                // clarify 후 문서 요청 재감지 (사용자 피드백에 문서 신호 있을 수 있음)
-                detectDocumentSignalFromMessages(roomID: roomID)
-            case .assemble:
-                await executeAssemblePhase(roomID: roomID, task: resolvedTask)
-
-                // assemble 완료 후: task intent이면 needsPlan 플래그 설정
-                // (실제 계획 생성+승인은 design 단계에서 수행 — 중복 방지)
-                if let currentRoom2 = rooms.first(where: { $0.id == roomID }),
-                   currentRoom2.workflowState.intent == .task {
-                    let planNeeded = await classifyNeedsPlan(roomID: roomID, task: resolvedTask)
-                    if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                        rooms[i].setWorkflowNeedsPlan(planNeeded)
+            // 각 phase 실행을 do-catch로 래핑 — uncaught error 시 무한 루프 방지
+            do {
+                switch nextPhase {
+                case .intake:
+                    await executeIntakePhase(roomID: roomID, task: resolvedTask)
+                case .intent:
+                    await executeIntentPhase(roomID: roomID, task: resolvedTask)
+                case .clarify:
+                    await executeClarifyPhase(roomID: roomID, task: resolvedTask)
+                    detectDocumentSignalFromMessages(roomID: roomID)
+                case .assemble:
+                    await executeAssemblePhase(roomID: roomID, task: resolvedTask)
+                    if let currentRoom2 = rooms.first(where: { $0.id == roomID }),
+                       currentRoom2.workflowState.intent == .task {
+                        let planNeeded = await classifyNeedsPlan(roomID: roomID, task: resolvedTask)
+                        if let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                            rooms[i].setWorkflowNeedsPlan(planNeeded)
+                        }
+                        scheduleSave()
                     }
-                    scheduleSave()
+                case .plan:
+                    let intent = rooms.first(where: { $0.id == roomID })?.workflowState.intent ?? .quickAnswer
+                    await executePlanPhase(roomID: roomID, task: resolvedTask, intent: intent)
+                case .execute:
+                    let intent = rooms.first(where: { $0.id == roomID })?.workflowState.intent ?? .quickAnswer
+                    await executeExecutePhase(roomID: roomID, task: resolvedTask, intent: intent)
+                case .understand:
+                    await executeUnderstandPhase(roomID: roomID, task: resolvedTask)
+                    if resolvedTask.isEmpty, let room = rooms.first(where: { $0.id == roomID }) {
+                        resolvedTask = room.taskBrief?.goal ?? room.title
+                    }
+                    detectDocumentSignalFromMessages(roomID: roomID)
+                case .design:
+                    await executeDesignPhase(roomID: roomID, task: resolvedTask)
+                case .build:
+                    await executeBuildPhase(roomID: roomID, task: resolvedTask)
+                case .review:
+                    await executeReviewPhase(roomID: roomID, task: resolvedTask)
+                case .deliver:
+                    await executeDeliverPhase(roomID: roomID, task: resolvedTask)
                 }
-            case .plan:
-                // requiredPhases에 .plan이 없으므로 여기에 오지 않음 (안전장치)
-                let intent = rooms.first(where: { $0.id == roomID })?.workflowState.intent ?? .quickAnswer
-                await executePlanPhase(roomID: roomID, task: resolvedTask, intent: intent)
-            case .execute:
-                let intent = rooms.first(where: { $0.id == roomID })?.workflowState.intent ?? .quickAnswer
-                await executeExecutePhase(roomID: roomID, task: resolvedTask, intent: intent)
-            case .understand:
-                // Plan C: Understand 통합 단계 — intake+intent+clarify+TaskBrief
-                await executeUnderstandPhase(roomID: roomID, task: resolvedTask)
-                // understand 후 사용자가 입력한 실제 task로 갱신 (파일만 업로드 등)
-                if resolvedTask.isEmpty, let room = rooms.first(where: { $0.id == roomID }) {
-                    resolvedTask = room.taskBrief?.goal ?? room.title
-                }
-                detectDocumentSignalFromMessages(roomID: roomID)
-            case .design:
-                // Plan C: 3턴 고정 프로토콜 (Propose → Critique → Revise)
-                await executeDesignPhase(roomID: roomID, task: resolvedTask)
-            case .build:
-                // Plan C: Creator 단계별 실행 (riskLevel별 정책)
-                await executeBuildPhase(roomID: roomID, task: resolvedTask)
-            case .review:
-                // Plan C: Reviewer 검토
-                await executeReviewPhase(roomID: roomID, task: resolvedTask)
-            case .deliver:
-                // Plan C: 최종 전달 (high = Draft 프리뷰 + 명시 승인)
-                await executeDeliverPhase(roomID: roomID, task: resolvedTask)
+            } catch {
+                handleWorkflowError(
+                    .llmFailure(agentID: rooms.first(where: { $0.id == roomID })?.assignedAgentIDs.first ?? UUID(),
+                                detail: "Phase \(nextPhase.displayName) 실행 중 오류: \(error.localizedDescription)"),
+                    roomID: roomID
+                )
+                return  // 루프 탈출
             }
 
             completedPhases.insert(nextPhase)

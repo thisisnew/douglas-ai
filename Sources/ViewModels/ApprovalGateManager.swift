@@ -21,16 +21,16 @@ final class ApprovalGateManager {
     /// 승인 대기 — 사용자가 approve/reject할 때까지 블록
     func waitForApproval(roomID: UUID) async -> Bool {
         await withCheckedContinuation { continuation in
+            // 기존 continuation이 있으면 취소 처리 후 대체 (누수 방지)
+            approvalContinuations.removeValue(forKey: roomID)?.resume(returning: false)
             approvalContinuations[roomID] = continuation
         }
     }
 
-    /// 승인
     func approve(roomID: UUID) {
         approvalContinuations.removeValue(forKey: roomID)?.resume(returning: true)
     }
 
-    /// 거부
     func reject(roomID: UUID) {
         approvalContinuations.removeValue(forKey: roomID)?.resume(returning: false)
     }
@@ -44,11 +44,11 @@ final class ApprovalGateManager {
     /// 사용자 입력 대기 — ask_user 도구, 토론 체크포인트 등
     func waitForUserInput(roomID: UUID) async -> String {
         await withCheckedContinuation { continuation in
+            userInputContinuations.removeValue(forKey: roomID)?.resume(returning: "")
             userInputContinuations[roomID] = continuation
         }
     }
 
-    /// 사용자 입력 제공
     func provideUserInput(roomID: UUID, input: String) {
         userInputContinuations.removeValue(forKey: roomID)?.resume(returning: input)
     }
@@ -59,66 +59,60 @@ final class ApprovalGateManager {
 
     // MARK: - Intent Selection Gate
 
-    /// Intent 선택 대기
     func waitForIntent(roomID: UUID) async -> WorkflowIntent {
         await withCheckedContinuation { continuation in
+            intentContinuations.removeValue(forKey: roomID)?.resume(returning: .quickAnswer)
             intentContinuations[roomID] = continuation
         }
     }
 
-    /// Intent 제공
     func provideIntent(roomID: UUID, intent: WorkflowIntent) {
         intentContinuations.removeValue(forKey: roomID)?.resume(returning: intent)
     }
 
     // MARK: - Document Type Selection Gate
 
-    /// 문서 유형 선택 대기
     func waitForDocType(roomID: UUID) async -> DocumentType {
         await withCheckedContinuation { continuation in
+            docTypeContinuations.removeValue(forKey: roomID)?.resume(returning: .freeform)
             docTypeContinuations[roomID] = continuation
         }
     }
 
-    /// 문서 유형 제공
     func provideDocType(roomID: UUID, docType: DocumentType) {
         docTypeContinuations.removeValue(forKey: roomID)?.resume(returning: docType)
     }
 
     // MARK: - Team Confirmation Gate
 
-    /// 팀 구성 확인 대기 — nil이면 건너뜀
     func waitForTeamConfirmation(roomID: UUID) async -> Set<UUID>? {
         await withCheckedContinuation { continuation in
+            teamConfirmationContinuations.removeValue(forKey: roomID)?.resume(returning: nil)
             teamConfirmationContinuations[roomID] = continuation
         }
     }
 
-    /// 팀 확정
     func confirmTeam(roomID: UUID, selectedIDs: Set<UUID>) {
         teamConfirmationContinuations.removeValue(forKey: roomID)?.resume(returning: selectedIDs)
     }
 
-    /// 팀 구성 건너뜀
     func skipTeamConfirmation(roomID: UUID) {
         teamConfirmationContinuations.removeValue(forKey: roomID)?.resume(returning: nil)
     }
 
     // MARK: - Agent Suggestion Gate
 
-    /// 에이전트 생성 제안 승인 대기
     func waitForSuggestionResponse(roomID: UUID) async -> Bool {
         await withCheckedContinuation { continuation in
+            suggestionContinuations.removeValue(forKey: roomID)?.resume(returning: false)
             suggestionContinuations[roomID] = continuation
         }
     }
 
-    /// 에이전트 생성 제안 승인
     func approveSuggestion(roomID: UUID) {
         suggestionContinuations.removeValue(forKey: roomID)?.resume(returning: true)
     }
 
-    /// 에이전트 생성 제안 거부
     func rejectSuggestion(roomID: UUID) {
         suggestionContinuations.removeValue(forKey: roomID)?.resume(returning: false)
     }
