@@ -116,6 +116,15 @@ enum IntentClassifier {
             }
         }
 
+        // 조사/탐색 의도가 명확한 패턴 → research (complex 감지 전에 우선 분류)
+        // "찾고 + 알려줘" 같은 단일 조사 요청이 complex로 잘못 잡히는 것 방지
+        let researchPatterns = ["찾고", "찾아서", "조사해", "알아봐"]
+        let hasResearchAction = researchPatterns.contains(where: { text.contains($0) })
+        let hasTaskAction = ["구현", "개발", "수정", "만들어", "작성", "코딩", "배포"].contains(where: { text.contains($0) })
+        if hasResearchAction && !hasTaskAction {
+            return .research
+        }
+
         // 작업 도출 의도가 명확한 키워드 → 입력 소스(URL/텍스트)에 무관하게 discussion
         // "파악"은 research 맥락에서도 사용되므로 제외 (vocab 점수에 위임)
         let derivationKeywords = ["도출", "뭘해야", "무슨작업", "무슨 작업", "작업해야",
@@ -173,10 +182,9 @@ enum IntentClassifier {
         }
 
         // complex 감지:
-        // 1단계: positive-only score ≥ 4인 intent가 2개 이상 → complex 후보
-        //   (negatives 무시 — 상호 부정 키워드가 genuine complex를 억제하지 않도록)
+        // 1단계: positive-only score ≥ 6인 intent가 2개 이상 → complex 후보
+        //   (threshold 6: 키워드 1개(4점)로는 부족, 명확한 복합 의도만 감지)
         // 2단계: normal score(negatives 포함)에서도 2개 이상 threshold 통과 → 확정
-        //   (1개만 통과하면 나머지는 토픽 키워드일 뿐 → not complex)
         let complexMinScore = 4
         let complexCandidateCount = IntentVocabulary.all.filter { vocab in
             guard vocab.intent != .quickAnswer else { return false }
