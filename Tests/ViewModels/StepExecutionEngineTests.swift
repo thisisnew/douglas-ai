@@ -44,7 +44,7 @@ final class MockWorkflowHost: WorkflowHost {
     func updateMessageContent(_ messageID: UUID, newContent: String, in roomID: UUID) {}
     func insertMessage(_ message: ChatMessage, to roomID: UUID, beforeMessageID: UUID) {}
     func syncAgentStatuses() {}
-    func scheduleSave() {}
+    func scheduleSave(immediate: Bool) {}
     func startReviewAutoApproval(roomID: UUID, seconds: Int) {}
     func cancelReviewAutoApproval(roomID: UUID) {}
     func addAgent(_ agentID: UUID, to roomID: UUID, silent: Bool) {}

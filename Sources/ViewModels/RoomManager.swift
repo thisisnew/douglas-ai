@@ -750,7 +750,7 @@ class RoomManager: ObservableObject, WorkflowHost {
         }
 
         syncAgentStatuses()
-        scheduleSave()
+        scheduleSave(immediate: true)  // 완료 상태는 즉시 저장 (크래시 시 유실 방지)
 
         // Hook dispatch: 작업 완료 → 결과를 시스템 메시지로 표시
         let roomTitle = rooms[idx].title

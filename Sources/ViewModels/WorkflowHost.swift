@@ -30,7 +30,7 @@ protocol WorkflowHost: AnyObject {
     func syncAgentStatuses()
 
     /// 변경사항 저장 예약
-    func scheduleSave()
+    func scheduleSave(immediate: Bool)
 
     /// 현재 발화 중인 에이전트 설정/해제
     var speakingAgentIDByRoom: [UUID: UUID] { get set }
@@ -103,4 +103,9 @@ protocol WorkflowHost: AnyObject {
         workingDirectoryOverride: String?
     ) async -> Bool
 
+}
+
+extension WorkflowHost {
+    /// 기본 scheduleSave — immediate=false
+    func scheduleSave() { scheduleSave(immediate: false) }
 }

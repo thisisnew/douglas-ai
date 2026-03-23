@@ -413,8 +413,19 @@ extension RoomManager {
             sourceType = .jira
             intakeLogger.info("Jira intake: keys=\(jiraKeys, privacy: .public), urls=\(jiraURLs.count) 건")
             // 각 Jira URL에서 티켓 요약 fetch (최대 10건)
+            let fetchCount = min(jiraURLs.count, 10)
             jiraDataList = await fetchJiraTicketSummaries(urls: Array(jiraURLs.prefix(10)))
-            intakeLogger.info("Jira fetch 완료: \(jiraDataList.count)/\(jiraURLs.prefix(10).count) 건 성공")
+            intakeLogger.info("Jira fetch 완료: \(jiraDataList.count)/\(fetchCount) 건 성공")
+
+            // fetch 실패 시 사용자에게 알림 (인증/권한 문제 가능성)
+            if jiraDataList.count < fetchCount {
+                let failCount = fetchCount - jiraDataList.count
+                appendMessage(ChatMessage(
+                    role: .system,
+                    content: "Jira 티켓 \(failCount)건 조회 실패 — API 토큰이나 접근 권한을 확인해주세요.",
+                    messageType: .error
+                ), to: roomID)
+            }
 
             // Jira 자동 할당: 첫 번째 티켓에 내 계정을 작업자로 설정
             if let firstKey = jiraKeys.first {

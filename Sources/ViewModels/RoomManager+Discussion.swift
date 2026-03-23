@@ -75,7 +75,8 @@ extension RoomManager {
                 }
                 for (_, msg, agreed) in results.sorted(by: { $0.0 < $1.0 }) {
                     appendMessage(msg, to: roomID)
-                    if agreed, let agentName = msg.agentName,
+                    // 단일 에이전트는 자기 자신과 합의 불가 → consensus 무시
+                    if agreed, agentIDs.count >= 2, let agentName = msg.agentName,
                        let i = rooms.firstIndex(where: { $0.id == roomID }) {
                         let decision = Self.parseDecisionContent(from: msg.content) ?? "합의 도달"
                         rooms[i].discussionAddDecision(DecisionEntry(

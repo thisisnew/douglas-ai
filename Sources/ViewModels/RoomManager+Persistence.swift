@@ -13,7 +13,12 @@ extension RoomManager {
 
     static var roomDirectory: URL { RoomPersistenceService.directory }
 
-    func scheduleSave() {
+    func scheduleSave(immediate: Bool = false) {
+        if immediate {
+            saveTask?.cancel()
+            saveRooms()
+            return
+        }
         saveTask?.cancel()
         saveTask = Task {
             try? await Task.sleep(for: .seconds(1))
