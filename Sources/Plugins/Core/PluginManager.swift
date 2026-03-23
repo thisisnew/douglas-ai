@@ -33,6 +33,7 @@ final class PluginManager: ObservableObject {
         // 1. 빌트인 플러그인
         let builtins: [any DougPlugin] = [
             SlackPlugin(),
+            DocumentAutoSavePlugin(),
         ]
         for plugin in builtins {
             registerPlugin(plugin)
