@@ -410,6 +410,8 @@ enum ToolExecutor {
             result = await executeJiraAddComment(call)
         case "jira_assign_self":
             result = await executeJiraAssignSelf(call)
+        case "jira_get_dev_info":
+            result = await executeJiraGetDevInfo(call)
         case "ask_user":
             result = await executeAskUser(call, context: context)
         case "code_search":
@@ -1057,6 +1059,82 @@ enum ToolExecutor {
         }
 
         return ToolResult(callID: call.id, content: "\(issueKey) 작업자가 내 계정으로 할당되었습니다.", isError: false)
+    }
+
+    // MARK: - Jira Development Info
+
+    private static func executeJiraGetDevInfo(_ call: ToolCall) async -> ToolResult {
+        guard let issueKey = call.arguments["issue_key"]?.stringValue else {
+            return ToolResult(callID: call.id, content: "issue_key 파라미터가 필요합니다.", isError: true)
+        }
+
+        let config = JiraConfig.shared
+        guard config.isConfigured, let auth = config.authHeader() else {
+            return ToolResult(callID: call.id, content: "Jira가 설정되지 않았습니다.", isError: true)
+        }
+
+        // 1. Issue ID 가져오기 (dev-status API는 issue ID 필요)
+        guard let issueURL = URL(string: "https://\(config.domain)/rest/api/3/issue/\(issueKey)?fields=summary") else {
+            return ToolResult(callID: call.id, content: "URL 생성 실패", isError: true)
+        }
+        var issueReq = URLRequest(url: issueURL)
+        issueReq.setValue(auth, forHTTPHeaderField: "Authorization")
+        issueReq.timeoutInterval = 15
+
+        let issueId: String
+        do {
+            let (data, response) = try await URLSession.shared.data(for: issueReq)
+            guard (200..<300).contains((response as? HTTPURLResponse)?.statusCode ?? 0),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let id = json["id"] as? String else {
+                return ToolResult(callID: call.id, content: "\(issueKey) 조회 실패", isError: true)
+            }
+            issueId = id
+        } catch {
+            return ToolResult(callID: call.id, content: "Jira API 오류: \(error.localizedDescription)", isError: true)
+        }
+
+        // 2. Dev Status API 호출
+        guard let devURL = URL(string: "https://\(config.domain)/rest/dev-status/latest/issue/detail?issueId=\(issueId)&applicationType=GitHub&dataType=pullrequest") else {
+            return ToolResult(callID: call.id, content: "Dev status URL 생성 실패", isError: true)
+        }
+        var devReq = URLRequest(url: devURL)
+        devReq.setValue(auth, forHTTPHeaderField: "Authorization")
+        devReq.timeoutInterval = 15
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: devReq)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(statusCode) else {
+                return ToolResult(callID: call.id, content: "Dev status API 실패 (HTTP \(statusCode)). 이 API는 Jira Software 라이선스가 필요합니다.", isError: true)
+            }
+
+            // 3. PR 정보 파싱
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let detail = json["detail"] as? [[String: Any]] else {
+                return ToolResult(callID: call.id, content: "\(issueKey)에 연결된 개발 정보가 없습니다.", isError: false)
+            }
+
+            var prInfos: [String] = []
+            for provider in detail {
+                guard let pullRequests = provider["pullRequests"] as? [[String: Any]] else { continue }
+                for pr in pullRequests {
+                    let name = pr["name"] as? String ?? "?"
+                    let url = pr["url"] as? String ?? "?"
+                    let status = pr["status"] as? String ?? "?"
+                    let repo = pr["repositoryName"] as? String ?? "?"
+                    prInfos.append("[\(repo)] \(name) (\(status)) — \(url)")
+                }
+            }
+
+            if prInfos.isEmpty {
+                return ToolResult(callID: call.id, content: "\(issueKey)에 연결된 PR이 없습니다.", isError: false)
+            }
+
+            return ToolResult(callID: call.id, content: "[\(issueKey)] PR \(prInfos.count)건:\n" + prInfos.joined(separator: "\n"), isError: false)
+        } catch {
+            return ToolResult(callID: call.id, content: "Dev status 조회 실패: \(error.localizedDescription)", isError: true)
+        }
     }
 
     // MARK: - ask_user

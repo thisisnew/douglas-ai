@@ -134,8 +134,8 @@ struct AgentToolTests {
 
     @Test("ToolRegistry 모든 도구 존재 (코드 인텔리전스 포함)")
     func registryAllTools() {
-        #expect(ToolRegistry.allTools.count == 17)
-        #expect(ToolRegistry.allToolIDs.count == 17)
+        #expect(ToolRegistry.allTools.count == 18)
+        #expect(ToolRegistry.allToolIDs.count == 18)
     }
 
     @Test("ToolRegistry 코드 인텔리전스 도구 등록 확인")

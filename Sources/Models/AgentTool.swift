@@ -253,6 +253,15 @@ enum ToolRegistry {
             risk: .external, requiredActionScope: .modifyExternal
         ),
         AgentTool(
+            id: "jira_get_dev_info",
+            name: "Jira 개발 정보 조회",
+            description: "Get development info (pull requests, branches, commits) linked to a Jira issue from the Development panel. Returns PR URLs, repository names, and statuses.",
+            parameters: [
+                .init(name: "issue_key", type: .string, description: "Issue key (e.g. PROJ-123)", required: true, enumValues: nil)
+            ],
+            risk: .external, requiredActionScope: .readWeb
+        ),
+        AgentTool(
             id: "suggest_agent_creation",
             name: "에이전트 생성 제안",
             description: "Suggest creating a new agent for the current room. The user must approve the suggestion before the agent is created. Use this when the team is missing a role needed for the task.",
