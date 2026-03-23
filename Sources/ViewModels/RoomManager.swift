@@ -1,4 +1,5 @@
 import Foundation
+import UserNotifications
 
 /// 에이전트 응답 끝에 붙은 선택지 텍스트 제거 — ResponseSanitizer에 정의됨, 하위 호환 포워더
 @available(*, deprecated, message: "ResponseSanitizer.stripTrailingOptions 사용")
@@ -316,6 +317,20 @@ class RoomManager: ObservableObject, WorkflowHost {
         }
     }
 
+    // MARK: - 사용자 입력 대기 알림
+
+    /// 사용자 입력/승인이 필요할 때 시스템 알림 발송 (앱이 백그라운드일 때 유용)
+    func notifyUserInputNeeded(roomID: UUID, message: String) {
+        guard Bundle.main.bundleIdentifier != nil else { return }
+        let roomTitle = rooms.first(where: { $0.id == roomID })?.title ?? "DOUGLAS"
+        let content = UNMutableNotificationContent()
+        content.title = roomTitle
+        content.body = message
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+
     // MARK: - 방에 메시지 추가
 
     func appendMessage(_ message: ChatMessage, to roomID: UUID) {
@@ -513,6 +528,7 @@ class RoomManager: ObservableObject, WorkflowHost {
                         self.rooms[idx].transitionTo(.awaitingUserInput)
                     }
                     self.scheduleSave()
+                    self.notifyUserInputNeeded(roomID: roomID, message: "에이전트가 추가 정보를 요청합니다.")
                 }
                 // 2) 사용자 답변 대기 (approvalGates)
                 guard let self else { return "" }

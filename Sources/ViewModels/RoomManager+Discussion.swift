@@ -127,6 +127,7 @@ extension RoomManager {
                 rooms[i].transitionTo(.awaitingUserInput)
             }
             scheduleSave()
+            notifyUserInputNeeded(roomID: roomID, message: "토론 피드백을 입력해주세요.")
 
             let feedback = await approvalGates.waitForUserInput(roomID: roomID)
             guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }

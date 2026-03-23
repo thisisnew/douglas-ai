@@ -212,6 +212,7 @@ extension RoomManager {
             }
             syncAgentStatuses()
             scheduleSave()
+            notifyUserInputNeeded(roomID: roomID, message: "요청 사항을 확인해주세요.")
 
             let approved = await approvalGates.waitForApproval(roomID: roomID)
             guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
@@ -248,6 +249,7 @@ extension RoomManager {
                     rooms[i].transitionTo(.awaitingUserInput)
                 }
                 scheduleSave()
+                notifyUserInputNeeded(roomID: roomID, message: "수정 사항을 입력해주세요.")
 
                 let _ = await approvalGates.waitForUserInput(roomID: roomID)
             }
@@ -762,6 +764,7 @@ extension RoomManager {
                 }
                 syncAgentStatuses()
                 scheduleSave()
+                notifyUserInputNeeded(roomID: roomID, message: "에이전트 추가 여부를 확인해주세요.")
 
                 let approved = await approvalGates.waitForApproval(roomID: roomID)
                 guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
@@ -915,6 +918,7 @@ extension RoomManager {
                 rooms[i].transitionTo(.awaitingUserInput)
             }
             scheduleSave()
+            notifyUserInputNeeded(roomID: roomID, message: "추가 정보가 필요합니다.")
 
             // 사용자 응답 대기 (타임아웃 없음 — awaitingUserInput 상태로 무한 대기)
             let answer: String = await approvalGates.waitForUserInput(roomID: roomID)
@@ -1064,6 +1068,7 @@ extension RoomManager {
                 rooms[i].transitionTo(.awaitingUserInput)
             }
             scheduleSave()
+            notifyUserInputNeeded(roomID: roomID, message: "추가 정보가 필요합니다.")
 
             // 사용자 응답 대기 (타임아웃 없음 — awaitingUserInput 상태로 무한 대기)
             let answer: String = await approvalGates.waitForUserInput(roomID: roomID)

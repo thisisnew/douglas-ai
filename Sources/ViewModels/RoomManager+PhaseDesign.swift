@@ -449,6 +449,7 @@ extension RoomManager {
         }
         syncAgentStatuses()
         scheduleSave()
+        notifyUserInputNeeded(roomID: roomID, message: "전문가 의견이 나왔습니다. 피드백을 입력해주세요.")
 
         let userFeedback1: String = await approvalGates.waitForUserInput(roomID: roomID)
 
@@ -569,6 +570,7 @@ extension RoomManager {
         }
         syncAgentStatuses()
         scheduleSave()
+        notifyUserInputNeeded(roomID: roomID, message: "피드백이 완료되었습니다. 추가 의견을 입력해주세요.")
 
         let userFeedback2: String = await approvalGates.waitForUserInput(roomID: roomID)
 
@@ -679,6 +681,7 @@ extension RoomManager {
             }
             syncAgentStatuses()
             scheduleSave()
+            notifyUserInputNeeded(roomID: roomID, message: "실행 계획이 준비되었습니다. 승인해주세요.")
 
             let approved = await approvalGates.waitForApproval(roomID: roomID)
             guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return false }
