@@ -167,12 +167,12 @@ struct RoomBriefingTests {
             assignedAgentIDs: [UUID()],
             createdBy: .user
         )
-        room.discussion.briefing = RoomBriefing(
+        room.discussionSetBriefing(RoomBriefing(
             summary: "테스트 요약",
             keyDecisions: ["결정A"],
             agentResponsibilities: ["에이전트": "역할"],
             openIssues: []
-        )
+        ))
         let data = try JSONEncoder().encode(room)
         let decoded = try JSONDecoder().decode(Room.self, from: data)
         #expect(decoded.discussion.briefing != nil)
@@ -187,20 +187,18 @@ struct RoomBriefingTests {
             assignedAgentIDs: [UUID()],
             createdBy: .user
         )
-        room.discussion.briefing = RoomBriefing(
+        room.discussionSetBriefing(RoomBriefing(
             summary: "API 설계 완료",
             keyDecisions: ["REST API"],
             agentResponsibilities: [:],
             openIssues: []
-        )
-        room.discussion.artifacts = [
-            DiscussionArtifact(
-                type: .apiSpec,
-                title: "인증 API",
-                content: "POST /auth/login",
-                producedBy: "백엔드"
-            )
-        ]
+        ))
+        room.discussionAddArtifact(DiscussionArtifact(
+            type: .apiSpec,
+            title: "인증 API",
+            content: "POST /auth/login",
+            producedBy: "백엔드"
+        ))
         let data = try JSONEncoder().encode(room)
         let decoded = try JSONDecoder().decode(Room.self, from: data)
         #expect(decoded.discussion.briefing?.summary == "API 설계 완료")

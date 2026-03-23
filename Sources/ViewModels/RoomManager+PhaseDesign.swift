@@ -444,7 +444,7 @@ extension RoomManager {
         appendMessage(checkpoint1Msg, to: roomID)
 
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].discussion.setCheckpoint()
+            rooms[i].discussionSetCheckpoint()
             rooms[i].transitionTo(.awaitingUserInput)
         }
         syncAgentStatuses()
@@ -455,7 +455,7 @@ extension RoomManager {
         guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].discussion.clearCheckpoint()
+            rooms[i].discussionClearCheckpoint()
             rooms[i].transitionTo(.inProgress)
         }
 
@@ -564,7 +564,7 @@ extension RoomManager {
         appendMessage(checkpoint2Msg, to: roomID)
 
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].discussion.setCheckpoint()
+            rooms[i].discussionSetCheckpoint()
             rooms[i].transitionTo(.awaitingUserInput)
         }
         syncAgentStatuses()
@@ -575,7 +575,7 @@ extension RoomManager {
         guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { return }
 
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].discussion.clearCheckpoint()
+            rooms[i].discussionClearCheckpoint()
             rooms[i].transitionTo(.inProgress)
         }
 

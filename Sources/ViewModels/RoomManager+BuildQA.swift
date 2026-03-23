@@ -9,7 +9,7 @@ extension RoomManager {
         BuildQAService.Host(
             updateBuildQA: { [self] roomID, update in
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    update(&rooms[i].buildQA)
+                    rooms[i].updateBuildQA(update)
                 }
             },
             appendMessage: { [self] msg, roomID in

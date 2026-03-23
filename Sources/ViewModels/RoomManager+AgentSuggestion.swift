@@ -218,9 +218,7 @@ extension RoomManager {
         // 에이전트의 참조 프로젝트를 방에 병합
         if let agent = agentStore?.agents.first(where: { $0.id == agentID }) {
             for path in agent.referenceProjectPaths {
-                if !rooms[idx].projectContext.projectPaths.contains(path) {
-                    rooms[idx].projectContext.projectPaths.append(path)
-                }
+                rooms[idx].addProjectPath(path)
             }
         }
 

@@ -512,9 +512,9 @@ struct Room: Identifiable, Codable {
     // Phase 7: 값 객체 — 도메인 메서드 사용 권장
     private(set) var workflowState: WorkflowState
     private(set) var clarifyContext: ClarifyContext
-    var projectContext: ProjectContext
-    var discussion: DiscussionSession
-    var buildQA: BuildQAState
+    private(set) var projectContext: ProjectContext
+    private(set) var discussion: DiscussionSession
+    private(set) var buildQA: BuildQAState
     // Phase 7: 요청/후속 이력
     var requests: [DouglasRequest]
     var followUpActions: [FollowUpAction]
@@ -723,6 +723,43 @@ struct Room: Identifiable, Codable {
     mutating func setClarifySummary(_ summary: String?) { clarifyContext.setClarifySummary(summary) }
     mutating func setDelegationInfo(_ info: DelegationInfo?) { clarifyContext.setDelegationInfo(info) }
     mutating func addUserAnswer(_ answer: UserAnswer) { clarifyContext.addUserAnswer(answer) }
+
+    // MARK: - ProjectContext 위임
+
+    mutating func setWorktreePath(_ path: String?) { projectContext.setWorktreePath(path) }
+    mutating func addProjectPath(_ path: String) {
+        if !projectContext.projectPaths.contains(path) {
+            projectContext.projectPaths.append(path)
+        }
+    }
+
+    // MARK: - DiscussionSession 위임
+
+    mutating func discussionSetMaxRounds(_ rounds: Int) { discussion.setMaxRounds(rounds) }
+    mutating func discussionAdvanceRound(to round: Int) { discussion.advanceRound(to: round) }
+    mutating func discussionSetCheckpoint() { discussion.setCheckpoint() }
+    mutating func discussionClearCheckpoint() { discussion.clearCheckpoint() }
+    mutating func discussionAddDecision(_ entry: DecisionEntry) { discussion.addDecision(entry) }
+    mutating func discussionAddRoundSummary(_ summary: RoundSummary) { discussion.addRoundSummary(summary) }
+    mutating func discussionUpdateRoundSummary(at index: Int, with summary: RoundSummary) {
+        discussion.updateRoundSummary(at: index, with: summary)
+    }
+    mutating func discussionArchiveFullLog(_ log: String) { discussion.archiveFullLog(log) }
+    mutating func discussionSetBriefing(_ briefing: RoomBriefing) { discussion.setBriefing(briefing) }
+    mutating func discussionSetResearchBriefing(_ briefing: ResearchBriefing) { discussion.setResearchBriefing(briefing) }
+    mutating func discussionSetActionItems(_ items: [ActionItem]?) { discussion.setActionItems(items) }
+    mutating func discussionResetBriefings() { discussion.resetBriefings() }
+    mutating func discussionResetDecisionLog() { discussion.resetDecisionLog() }
+    mutating func discussionAddArtifact(_ artifact: DiscussionArtifact) { discussion.artifacts.append(artifact) }
+    mutating func discussionAddArtifacts(_ artifacts: [DiscussionArtifact]) { discussion.artifacts.append(contentsOf: artifacts) }
+    mutating func discussionUpdateArtifact(at index: Int, _ artifact: DiscussionArtifact) {
+        guard index >= 0, index < discussion.artifacts.count else { return }
+        discussion.artifacts[index] = artifact
+    }
+
+    // MARK: - BuildQAState 위임
+
+    mutating func updateBuildQA(_ update: (inout BuildQAState) -> Void) { update(&buildQA) }
 
     // MARK: - 워크플로우 도메인 메서드 (Aggregate Root 캡슐화)
 

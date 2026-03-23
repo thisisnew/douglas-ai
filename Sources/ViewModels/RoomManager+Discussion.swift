@@ -14,7 +14,7 @@ extension RoomManager {
         // maxRounds: selectDebateMode에서 이미 설정됨. 미설정 시 기본값 2 적용
         if let i = rooms.firstIndex(where: { $0.id == roomID }),
            rooms[i].discussion.debateMode == nil {
-            rooms[i].discussion.setMaxRounds(2)
+            rooms[i].discussionSetMaxRounds(2)
         }
 
         var round = 0
@@ -31,7 +31,7 @@ extension RoomManager {
             appendMessage(roundMsg, to: roomID)
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].discussion.advanceRound(to: round)
+                rooms[i].discussionAdvanceRound(to: round)
             }
 
             // 마스터 제외한 전문가만 토론 참여
@@ -78,7 +78,7 @@ extension RoomManager {
                     if agreed, let agentName = msg.agentName,
                        let i = rooms.firstIndex(where: { $0.id == roomID }) {
                         let decision = Self.parseDecisionContent(from: msg.content) ?? "합의 도달"
-                        rooms[i].discussion.addDecision(DecisionEntry(
+                        rooms[i].discussionAddDecision(DecisionEntry(
                             round: round, decision: decision, supporters: [agentName]
                         ))
                     }
@@ -110,7 +110,7 @@ extension RoomManager {
                     userFeedback: nil
                 )
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].discussion.addRoundSummary(roundSummary)
+                    rooms[i].discussionAddRoundSummary(roundSummary)
                 }
             }
 
@@ -123,7 +123,7 @@ extension RoomManager {
             appendMessage(checkpointMsg, to: roomID)
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].discussion.setCheckpoint()
+                rooms[i].discussionSetCheckpoint()
                 rooms[i].transitionTo(.awaitingUserInput)
             }
             scheduleSave()
@@ -137,7 +137,7 @@ extension RoomManager {
                let lastIdx = rooms[i].discussion.roundSummaries.indices.last,
                rooms[i].discussion.roundSummaries[lastIdx].round == round {
                 let existing = rooms[i].discussion.roundSummaries[lastIdx]
-                rooms[i].discussion.updateRoundSummary(at: lastIdx, with: RoundSummary(
+                rooms[i].discussionUpdateRoundSummary(at: lastIdx, with: RoundSummary(
                     round: existing.round,
                     agentPositions: existing.agentPositions,
                     agreements: existing.agreements,
@@ -147,7 +147,7 @@ extension RoomManager {
             }
 
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].discussion.clearCheckpoint()
+                rooms[i].discussionClearCheckpoint()
                 rooms[i].transitionTo(.inProgress)
             }
 
@@ -340,7 +340,7 @@ extension RoomManager {
                     supporters: [agent.name],
                     concerns: concerns?.isEmpty == false ? concerns : nil
                 )
-                rooms[i].discussion.addDecision(entry)
+                rooms[i].discussionAddDecision(entry)
             }
             let cleanResponse = response
                 .replacingOccurrences(of: "\\[합의(?::[^\\]]*)?\\]", with: "", options: .regularExpression)
@@ -356,9 +356,9 @@ extension RoomManager {
                     }) {
                         var updated = artifact
                         updated.version = rooms[i].discussion.artifacts[existingIdx].version + 1
-                        rooms[i].discussion.artifacts[existingIdx] = updated
+                        rooms[i].discussionUpdateArtifact(at: existingIdx, updated)
                     } else {
-                        rooms[i].discussion.artifacts.append(artifact)
+                        rooms[i].discussionAddArtifact(artifact)
                     }
                 }
             }
@@ -560,7 +560,7 @@ extension RoomManager {
         // 토론 전문을 아카이브에 기록 (브리핑 요약 전 원본 보존)
         let fullLog = history.map { "[\($0.role)] \($0.content)" }.joined(separator: "\n\n")
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].discussion.archiveFullLog(fullLog)
+            rooms[i].discussionArchiveFullLog(fullLog)
         }
 
         // 산출물 목록도 포함
@@ -604,7 +604,7 @@ extension RoomManager {
             // JSON 파싱 → RoomBriefing
             if let briefing = parseBriefing(from: response) {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].discussion.setBriefing(briefing)
+                    rooms[i].discussionSetBriefing(briefing)
                 }
                 let reply = ChatMessage(
                     role: .assistant,
@@ -622,7 +622,7 @@ extension RoomManager {
                     openIssues: []
                 )
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].discussion.briefing = fallback
+                    rooms[i].discussionSetBriefing(fallback)
                 }
                 let reply = ChatMessage(
                     role: .assistant,
@@ -676,7 +676,7 @@ extension RoomManager {
         // 전문 아카이브 기록
         let fullLog = history.map { "[\($0.role)] \($0.content)" }.joined(separator: "\n\n")
         if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].discussion.archiveFullLog(fullLog)
+            rooms[i].discussionArchiveFullLog(fullLog)
         }
 
         let originalContext: String
@@ -710,7 +710,7 @@ extension RoomManager {
 
             if let briefing = parseResearchBriefing(from: response) {
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].discussion.setResearchBriefing(briefing)
+                    rooms[i].discussionSetResearchBriefing(briefing)
                 }
                 let reply = ChatMessage(
                     role: .assistant,
@@ -728,7 +728,7 @@ extension RoomManager {
                     limitations: []
                 )
                 if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                    rooms[i].discussion.setResearchBriefing(fallback)
+                    rooms[i].discussionSetResearchBriefing(fallback)
                 }
                 let reply = ChatMessage(
                     role: .assistant,

@@ -298,18 +298,14 @@ struct ValueObjectTests {
     @Test("Room.projectContext - get/set 왕복")
     func roomProjectContextAccessor() {
         var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
-        room.projectContext = ProjectContext(
-            projectPaths: ["/new/path"],
-            buildCommand: "swift build"
-        )
-        #expect(room.projectContext.projectPaths == ["/new/path"])
-        #expect(room.projectContext.buildCommand == "swift build")
+        room.addProjectPath("/new/path")
+        #expect(room.projectContext.projectPaths.contains("/new/path"))
     }
 
     @Test("Room.projectContext - 개별 프로퍼티 수정 후 동기화")
     func roomProjectContextIndividualSync() {
         var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user, projectPaths: ["/original"])
-        room.projectContext.worktreePath = "/tmp/wt"
+        room.setWorktreePath("/tmp/wt")
 
         let ctx = room.projectContext
         #expect(ctx.projectPaths == ["/original"])
@@ -347,16 +343,19 @@ struct ValueObjectTests {
     @Test("Room.discussion - get/set 왕복")
     func roomDiscussionAccessor() {
         var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
-        room.discussion = DiscussionSession(currentRound: 5, isCheckpoint: true)
-        #expect(room.discussion.currentRound == 5)
+        room.discussionSetMaxRounds(5)
+        room.discussionAdvanceRound(to: 3)
+        room.discussionSetCheckpoint()
+        #expect(room.discussion.currentRound == 3)
         #expect(room.discussion.isCheckpoint == true)
     }
 
     @Test("Room.discussion - 개별 프로퍼티 수정 후 동기화")
     func roomDiscussionSync() {
         var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
-        room.discussion.currentRound = 3
-        room.discussion.isCheckpoint = true
+        room.discussionSetMaxRounds(5)
+        room.discussionAdvanceRound(to: 3)
+        room.discussionSetCheckpoint()
         let session = room.discussion
         #expect(session.currentRound == 3)
         #expect(session.isCheckpoint == true)
@@ -389,7 +388,7 @@ struct ValueObjectTests {
     @Test("Room.buildQA - get/set 왕복")
     func roomBuildQAAccessor() {
         var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
-        room.buildQA = BuildQAState(buildRetryCount: 1, qaRetryCount: 2)
+        room.updateBuildQA { $0 = BuildQAState(buildRetryCount: 1, qaRetryCount: 2) }
         #expect(room.buildQA.buildRetryCount == 1)
         #expect(room.buildQA.qaRetryCount == 2)
     }
@@ -397,8 +396,10 @@ struct ValueObjectTests {
     @Test("Room.buildQA - 개별 프로퍼티 동기화")
     func roomBuildQASync() {
         var room = Room(title: "테스트", assignedAgentIDs: [], createdBy: .user)
-        room.buildQA.buildRetryCount = 3
-        room.buildQA.maxBuildRetries = 10
+        room.updateBuildQA {
+            $0.buildRetryCount = 3
+            $0.maxBuildRetries = 10
+        }
         let state = room.buildQA
         #expect(state.buildRetryCount == 3)
         #expect(state.maxBuildRetries == 10)

@@ -1,6 +1,7 @@
 import Foundation
 
-/// 에이전트 응답 끝에 붙은 선택지 텍스트 제거 (예: "1. 다음(구현) 2. 수정할래요 x. 나가기")
+/// 에이전트 응답 끝에 붙은 선택지 텍스트 제거 — ResponseSanitizer에 정의됨, 하위 호환 포워더
+@available(*, deprecated, message: "ResponseSanitizer.stripTrailingOptions 사용")
 func stripTrailingOptions(_ text: String) -> String {
     // 마지막 수 줄 이내에서 번호+선택지 패턴을 감지하여 제거
     let lines = text.components(separatedBy: "\n")
@@ -258,9 +259,7 @@ class RoomManager: ObservableObject, WorkflowHost {
         for agentID in agentIDs {
             if let agent = agentStore?.agents.first(where: { $0.id == agentID }) {
                 for path in agent.referenceProjectPaths {
-                    if !room.projectContext.projectPaths.contains(path) {
-                        room.projectContext.projectPaths.append(path)
-                    }
+                    room.addProjectPath(path)
                 }
             }
         }

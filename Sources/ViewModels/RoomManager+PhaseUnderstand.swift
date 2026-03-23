@@ -632,7 +632,7 @@ extension RoomManager {
             // 산출물 추출
             let artifacts = ArtifactParser.extractArtifacts(from: response, producedBy: agent.name)
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].discussion.artifacts.append(contentsOf: artifacts)
+                rooms[i].discussionAddArtifacts(artifacts)
             }
 
             // role_requirements 산출물에서 역할 파싱

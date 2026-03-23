@@ -77,7 +77,7 @@ extension RoomManager {
 
         if result.exitCode == 0 {
             if let i = rooms.firstIndex(where: { $0.id == roomID }) {
-                rooms[i].projectContext.setWorktreePath(worktreeDir)
+                rooms[i].setWorktreePath(worktreeDir)
                 scheduleSave()
             }
         }
@@ -90,7 +90,7 @@ extension RoomManager {
 
         let shortID = room.shortID
         if let idx = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[idx].projectContext.setWorktreePath(nil)
+            rooms[idx].setWorktreePath(nil)
         }
 
         Task.detached {
@@ -112,7 +112,7 @@ extension RoomManager {
             guard let wt = room.projectContext.worktreePath,
                   let pp = room.primaryProjectPath,
                   !room.isActive else { continue }
-            rooms[idx].projectContext.setWorktreePath(nil)
+            rooms[idx].setWorktreePath(nil)
             Task.detached {
                 let _ = await ProcessRunner.run(
                     executable: "/usr/bin/git",

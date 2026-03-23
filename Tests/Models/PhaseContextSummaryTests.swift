@@ -72,12 +72,12 @@ struct PhaseContextSummaryTests {
     @Test("summarizePhase — design 요약에 토론 요약 포함")
     func summarizeDesign() {
         var room = makeTestRoom()
-        room.discussion.briefing = RoomBriefing(
+        room.discussionSetBriefing(RoomBriefing(
             summary: "REST vs GraphQL 논의 결과 GraphQL 채택",
             keyDecisions: ["GraphQL 채택"],
             agentResponsibilities: [:],
             openIssues: []
-        )
+        ))
         let summary = PhaseContextSummarizer.summarize(phase: .design, room: room)
         #expect(summary.contains("GraphQL"))
     }

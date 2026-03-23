@@ -500,13 +500,13 @@ extension RoomManager {
         // ContextCarryoverPolicy 적용: 리셋 대상 컨텍스트 정리
         let carryover = followUpDecision.contextPolicy
         if !carryover.keepBriefing, let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].discussion.resetBriefings()
+            rooms[i].discussionResetBriefings()
         }
         if !carryover.keepActionItems, let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].discussion.setActionItems(nil)
+            rooms[i].discussionSetActionItems(nil)
         }
         if !carryover.keepDecisionLog, let i = rooms.firstIndex(where: { $0.id == roomID }) {
-            rooms[i].discussion.resetDecisionLog()
+            rooms[i].discussionResetDecisionLog()
         }
         if !carryover.keepWorkLog, let i = rooms.firstIndex(where: { $0.id == roomID }) {
             rooms[i].clearWorkLog()

@@ -268,7 +268,7 @@ struct RoomTests {
             createdBy: .user,
             mode: .discussion
         )
-        room.discussion.currentRound = 2
+        room.discussionAdvanceRound(to: 2)
         room.status = .inProgress
 
         let data = try JSONEncoder().encode(room)
@@ -497,10 +497,12 @@ struct RoomTests {
             projectPaths: ["/tmp/project"],
             buildCommand: "make"
         )
-        room.buildQA.buildLoopStatus = .building
-        room.buildQA.buildRetryCount = 2
-        room.buildQA.maxBuildRetries = 5
-        room.buildQA.lastBuildResult = BuildResult(success: false, output: "error", exitCode: 1)
+        room.updateBuildQA {
+            $0.buildLoopStatus = .building
+            $0.buildRetryCount = 2
+            $0.maxBuildRetries = 5
+            $0.lastBuildResult = BuildResult(success: false, output: "error", exitCode: 1)
+        }
 
         let data = try JSONEncoder().encode(room)
         let decoded = try JSONDecoder().decode(Room.self, from: data)
@@ -648,10 +650,12 @@ struct RoomTests {
             createdBy: .user,
             testCommand: "npm test"
         )
-        room.buildQA.qaLoopStatus = .testing
-        room.buildQA.qaRetryCount = 1
-        room.buildQA.maxQARetries = 5
-        room.buildQA.lastQAResult = QAResult(success: false, output: "FAIL", exitCode: 1)
+        room.updateBuildQA {
+            $0.qaLoopStatus = .testing
+            $0.qaRetryCount = 1
+            $0.maxQARetries = 5
+            $0.lastQAResult = QAResult(success: false, output: "FAIL", exitCode: 1)
+        }
 
         let data = try JSONEncoder().encode(room)
         let decoded = try JSONDecoder().decode(Room.self, from: data)
