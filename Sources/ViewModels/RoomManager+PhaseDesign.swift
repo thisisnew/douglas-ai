@@ -411,7 +411,7 @@ extension RoomManager {
                                 let current = buffer.append(chunk)
                                 Task { @MainActor in self.updateMessageContent(placeholderID, newContent: current, in: roomID) }
                             },
-                            useTools: false  // 토론 Turn 1은 도구 없이 의견만 (도구는 research 전용)
+                            useTools: true  // 읽기 전용 도구로 코드 참조 가능 (프롬프트에서 쓰기 도구 금지)
                         )
                         await MainActor.run { [self] in
                             self.updateMessageContent(placeholderID, newContent: stripTrailingOptions(response), in: roomID)

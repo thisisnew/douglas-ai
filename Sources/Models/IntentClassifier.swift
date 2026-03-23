@@ -116,11 +116,19 @@ enum IntentClassifier {
             }
         }
 
+        // 토론/의견 교환 의도가 명확한 패턴 → discussion (complex 감지 전에 우선 분류)
+        let discussionPatterns = ["생각을 듣", "의견을 듣", "의견 듣", "생각 듣",
+                                   "토론해", "논의해", "토의해", "브레인스토밍",
+                                   "어떻게 생각", "견해를 듣"]
+        if discussionPatterns.contains(where: { text.contains($0) }) {
+            return .discussion
+        }
+
         // 조사/탐색 의도가 명확한 패턴 → research (complex 감지 전에 우선 분류)
-        // "찾고 + 알려줘" 같은 단일 조사 요청이 complex로 잘못 잡히는 것 방지
-        let researchPatterns = ["찾고", "찾아서", "조사해", "알아봐"]
+        let researchPatterns = ["찾고", "찾아서", "찾아봐", "조사해", "알아봐"]
         let hasResearchAction = researchPatterns.contains(where: { text.contains($0) })
-        let hasTaskAction = ["구현", "개발", "수정", "만들어", "작성", "코딩", "배포"].contains(where: { text.contains($0) })
+        let hasTaskAction = ["구현해", "수정해", "만들어", "작성해", "코딩", "배포해", "개발해"]
+            .contains(where: { text.contains($0) })
         if hasResearchAction && !hasTaskAction {
             return .research
         }

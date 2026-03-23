@@ -68,4 +68,28 @@ struct WorkflowFlowGuardTests {
         )
         #expect(decision.intent == .implementPartial([0, 2]))
     }
+
+    // MARK: - 토론 패턴 회귀 방지
+
+    @Test("'생각을 듣고싶어' → discussion (complex 아님)")
+    func wantToHearThoughts_discussion() {
+        let result = IntentClassifier.quickClassify("최신 개발 트렌드에 대해 프론트, 백엔드의 생각을 듣고싶어")
+        #expect(result == .discussion)
+    }
+
+    @Test("'토론해줘' → discussion")
+    func debate_discussion() {
+        #expect(IntentClassifier.quickClassify("이 아키텍처에 대해 토론해줘") == .discussion)
+    }
+
+    @Test("'개발 트렌드 찾아봐' → research (task 아님)")
+    func devTrend_research() {
+        let result = IntentClassifier.quickClassify("최신 개발 트렌드 찾아봐")
+        #expect(result == .research)
+    }
+
+    @Test("'이거 개발해줘' → task")
+    func develop_task() {
+        #expect(IntentClassifier.quickClassify("이거 개발해줘") == .task)
+    }
 }
