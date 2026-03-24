@@ -192,21 +192,22 @@ extension RoomManager {
             let result: String
         }
 
-        // 1. 조사 순서 결정 (ResearchOrderService: LLM → 휴리스틱 폴백)
+        // 1. 조사 계획 수립 (ResearchOrderService: LLM → 순서 + 서브태스크 분해)
         let agents: [Agent] = specialists.compactMap { id in
             agentStore?.agents.first(where: { $0.id == id })
         }
-        let orderedAgents: [Agent]
+        let plan: ResearchPlan
         if agents.count >= 2,
            let masterAgent = agentStore?.masterAgent,
            let masterProvider = providerManager?.provider(named: masterAgent.providerName) {
             let lightModel = providerManager?.lightModelName(for: masterAgent.providerName) ?? masterAgent.modelName
-            orderedAgents = await ResearchOrderService.determineOrder(
+            plan = await ResearchOrderService.planResearch(
                 task: task, agents: agents, provider: masterProvider, model: lightModel
             )
         } else {
-            orderedAgents = agents
+            plan = ResearchPlan(orderedAgents: agents, subtasks: [:])
         }
+        let orderedAgents = plan.orderedAgents
 
         // 2. 순차 조사 — 이전 에이전트의 결과를 다음 에이전트 컨텍스트에 누적
         var findings: [ResearchFinding] = []
@@ -262,11 +263,17 @@ extension RoomManager {
                 """
             }
 
+            // 서브태스크가 있으면 에이전트별 좁은 임무 부여
+            let agentTask = plan.subtasks[agent.name] ?? task
+            let subtaskBlock = plan.subtasks[agent.name] != nil
+                ? "\n\n[당신의 조사 임무]\n\(agentTask)"
+                : ""
+
             let researchPrompt = """
             \(systemPrompt(for: agent, roomID: roomID))
 
             [시스템] 필요한 외부 데이터는 이미 수집되었습니다.
-            \(intakeBlock)\(projectPathsBlock)\(priorContext)
+            \(intakeBlock)\(projectPathsBlock)\(priorContext)\(subtaskBlock)
 
             [절대 규칙]
             1. 반드시 한국어로 응답하세요. 영어 응답은 금지입니다.
@@ -281,7 +288,7 @@ extension RoomManager {
             """
 
             let history = buildRoomHistory(roomID: roomID)
-            let context = makeToolContext(roomID: roomID, currentAgentID: agent.id)
+            let context = makeToolContext(roomID: roomID, currentAgentID: agent.id, allowedPaths: agentPaths)
 
             speakingAgentIDByRoom[roomID] = agent.id
             let placeholderID = UUID()

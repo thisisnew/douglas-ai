@@ -54,9 +54,20 @@ enum ToolExecutor {
             if let claudeProvider = provider as? ClaudeCodeProvider {
                 // ClaudeCodeProvider: 도구 활동 + 텍스트 스트리밍 동시 지원
                 // useTools: false → CLI 내장 도구도 비활성화 (계획/토론 단계 안전성)
+                // allowedPaths가 있으면 시스템 프롬프트에 경로 제한 강제 주입
+                var finalSystemPrompt = systemPrompt
+                if !context.allowedPaths.isEmpty {
+                    let pathList = context.allowedPaths.map { "- \($0)" }.joined(separator: "\n")
+                    finalSystemPrompt += """
+
+                    [파일 접근 제한 — 최우선 규칙]
+                    아래 디렉토리의 파일만 읽고 검색하세요. 다른 경로의 파일을 절대 열지 마세요:
+                    \(pathList)
+                    """
+                }
                 result = try await claudeProvider.sendMessage(
                     model: agent.modelName,
-                    systemPrompt: systemPrompt,
+                    systemPrompt: finalSystemPrompt,
                     messages: messages,
                     workingDirectory: context.projectPaths.first,
                     onToolActivity: onToolActivity,
@@ -127,12 +138,23 @@ enum ToolExecutor {
             }
             let result: String
             // ClaudeCodeProvider: 도구 활동 + 텍스트 스트리밍 동시 지원
+            // allowedPaths가 있으면 시스템 프롬프트에 경로 제한 강제 주입
+            let claudeSystemPrompt: String = {
+                guard !context.allowedPaths.isEmpty else { return systemPrompt }
+                let pathList = context.allowedPaths.map { "- \($0)" }.joined(separator: "\n")
+                return systemPrompt + """
+
+                [파일 접근 제한 — 최우선 규칙]
+                아래 디렉토리의 파일만 읽고 검색하세요. 다른 경로의 파일을 절대 열지 마세요:
+                \(pathList)
+                """
+            }()
             if let claudeProvider = provider as? ClaudeCodeProvider, let allowedToolIDs {
                 let cliTools = allowedToolIDs.compactMap { Self.cliToolName(for: $0) }
                 if !cliTools.isEmpty {
                     result = try await claudeProvider.sendMessageStreamingWithTools(
                         model: agent.modelName,
-                        systemPrompt: systemPrompt,
+                        systemPrompt: claudeSystemPrompt,
                         messages: simple,
                         allowedTools: cliTools,
                         workingDirectory: context.projectPaths.first,
@@ -142,7 +164,7 @@ enum ToolExecutor {
                 } else {
                     result = try await claudeProvider.sendMessage(
                         model: agent.modelName,
-                        systemPrompt: systemPrompt,
+                        systemPrompt: claudeSystemPrompt,
                         messages: simple,
                         workingDirectory: context.projectPaths.first,
                         onToolActivity: onToolActivity,
@@ -153,7 +175,7 @@ enum ToolExecutor {
                 // useTools: false → CLI 내장 도구도 비활성화 (계획/토론 단계 안전성)
                 result = try await claudeProvider.sendMessage(
                     model: agent.modelName,
-                    systemPrompt: systemPrompt,
+                    systemPrompt: claudeSystemPrompt,
                     messages: simple,
                     workingDirectory: context.projectPaths.first,
                     onToolActivity: onToolActivity,
@@ -385,6 +407,12 @@ enum ToolExecutor {
         ))
 
         let result: ToolResult
+
+        // Layer 2: 경로 제한 검사 (allowedPaths가 설정된 경우)
+        if let pathViolation = Self.checkPathRestriction(call: call, context: context) {
+            return pathViolation
+        }
+
         switch call.toolName {
         case "file_read":
             result = await executeFileRead(call, context: context)
@@ -1161,6 +1189,36 @@ enum ToolExecutor {
             return ToolResult(callID: call.id, content: "(사용자가 응답하지 않았습니다. 이 항목에 대해 가정을 선언하세요.)", isError: false)
         }
         return ToolResult(callID: call.id, content: "사용자 답변: \(answer)", isError: false)
+    }
+
+    // MARK: - 경로 제한 검사
+
+    /// 파일 접근 도구(file_read, code_search)에서 경로가 allowedPaths 내에 있는지 검사
+    /// allowedPaths가 비어있으면 제한 없음 (nil 반환)
+    /// 위반 시 에러 ToolResult 반환
+    private static func checkPathRestriction(call: ToolCall, context: ToolExecutionContext) -> ToolResult? {
+        guard !context.allowedPaths.isEmpty else { return nil }
+
+        // 파일 경로를 사용하는 도구만 검사
+        let pathKeys = ["path", "file_path", "directory"]
+        guard ["file_read", "code_search"].contains(call.toolName),
+              let path = pathKeys.compactMap({ call.arguments[$0]?.stringValue }).first else {
+            return nil
+        }
+
+        let resolved = NSString(string: path).standardizingPath
+        let isAllowed = context.allowedPaths.contains { allowed in
+            let resolvedAllowed = NSString(string: allowed).standardizingPath
+            return resolved.hasPrefix(resolvedAllowed)
+        }
+
+        if isAllowed { return nil }
+
+        return ToolResult(
+            callID: call.id,
+            content: "경로 제한: \(path)에 대한 접근이 제한되어 있습니다. 허용 경로: \(context.allowedPaths.joined(separator: ", "))",
+            isError: true
+        )
     }
 
     // MARK: - 도구 활동 상세 생성

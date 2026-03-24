@@ -32,6 +32,7 @@ struct ToolExecutionContext: Sendable {
     // 플러그인 훅
     let dispatchPluginEvent: @Sendable (PluginEvent) -> Void
     let interceptTool: @Sendable (String, [String: String]) async -> ToolInterceptResult
+    let allowedPaths: [String]  // research에서 에이전트별 경로 제한. 빈 배열이면 제한 없음.
 
     init(
         roomID: UUID?,
@@ -48,7 +49,8 @@ struct ToolExecutionContext: Sendable {
         currentPhase: WorkflowPhase? = nil,
         fetchPendingUserMessages: (@Sendable () async -> [ConversationMessage])? = nil,
         dispatchPluginEvent: @escaping @Sendable (PluginEvent) -> Void = { _ in },
-        interceptTool: @escaping @Sendable (String, [String: String]) async -> ToolInterceptResult = { _, _ in .passthrough }
+        interceptTool: @escaping @Sendable (String, [String: String]) async -> ToolInterceptResult = { _, _ in .passthrough },
+        allowedPaths: [String] = []
     ) {
         self.roomID = roomID
         self.agentsByName = agentsByName
@@ -65,6 +67,7 @@ struct ToolExecutionContext: Sendable {
         self.fetchPendingUserMessages = fetchPendingUserMessages
         self.dispatchPluginEvent = dispatchPluginEvent
         self.interceptTool = interceptTool
+        self.allowedPaths = allowedPaths
     }
 
     static let empty = ToolExecutionContext(

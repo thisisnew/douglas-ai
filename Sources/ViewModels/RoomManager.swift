@@ -468,7 +468,8 @@ class RoomManager: ObservableObject, WorkflowHost {
         roomID: UUID,
         currentAgentID: UUID? = nil,
         fileWriteTracker: FileWriteTracker? = nil,
-        workingDirectoryOverride: String? = nil
+        workingDirectoryOverride: String? = nil,
+        allowedPaths: [String] = []
     ) -> ToolExecutionContext {
         guard let store = agentStore else { return .empty }
         let subAgents = store.subAgents
@@ -582,7 +583,8 @@ class RoomManager: ObservableObject, WorkflowHost {
                     return .passthrough
                 }
                 return await delegate(toolName, arguments)
-            }
+            },
+            allowedPaths: allowedPaths
         )
     }
 
