@@ -639,6 +639,13 @@ struct FloatingSidebarView: View {
             .padding(.horizontal, DesignTokens.Spacing.lg)
             .animation(.easeInOut(duration: 0.2), value: allRosterAgents.map(\.id))
         }
+        .mask(
+            HStack(spacing: 0) {
+                Color.black
+                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: allRosterAgents.count > 6 ? 30 : 0)
+            }
+        )
             } // else
         } // Group
     }
