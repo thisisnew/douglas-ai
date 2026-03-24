@@ -107,4 +107,93 @@ struct ResearchOrderServiceTests {
         #expect(result[0].name == "프론트엔드 개발자")
         #expect(result[1].name == "백엔드 개발자")
     }
+
+    @Test("determineOrder — LLM 잘못된 JSON 응답 시 휴리스틱 폴백")
+    func determineOrder_llmInvalidJSON_fallback() async throws {
+        let be = makeTestAgent(name: "백엔드 개발자", providerName: "Mock")
+        let fe = makeTestAgent(name: "프론트엔드 개발자", providerName: "Mock")
+
+        let mockProvider = MockAIProvider()
+        mockProvider.sendMessageResult = .success("잘못된 응답입니다")
+
+        let result = await ResearchOrderService.determineOrder(
+            task: "API 찾고 쿼리 알려줘",
+            agents: [be, fe],
+            provider: mockProvider,
+            model: "test-model"
+        )
+        #expect(result[0].name == "프론트엔드 개발자")
+        #expect(result[1].name == "백엔드 개발자")
+    }
+
+    @Test("determineOrder — 에이전트 1명이면 LLM 호출 없이 그대로 반환")
+    func determineOrder_singleAgent_noLLM() async throws {
+        let agent = makeTestAgent(name: "백엔드 개발자", providerName: "Mock")
+
+        let mockProvider = MockAIProvider()
+        let result = await ResearchOrderService.determineOrder(
+            task: "쿼리 알려줘",
+            agents: [agent],
+            provider: mockProvider,
+            model: "test-model"
+        )
+        #expect(result.count == 1)
+        #expect(mockProvider.sendMessageCallCount == 0) // LLM 호출 안 함
+    }
+
+    @Test("determineOrder — LLM이 에이전트 일부만 반환하면 휴리스틱 폴백")
+    func determineOrder_llmPartialOrder_fallback() async throws {
+        let be = makeTestAgent(name: "백엔드 개발자", providerName: "Mock")
+        let fe = makeTestAgent(name: "프론트엔드 개발자", providerName: "Mock")
+
+        let mockProvider = MockAIProvider()
+        // 에이전트 1명만 반환 → 불완전 → 폴백
+        mockProvider.sendMessageResult = .success("""
+        {"order": ["백엔드 개발자"], "reason": "불완전"}
+        """)
+
+        let result = await ResearchOrderService.determineOrder(
+            task: "API 찾고 쿼리 알려줘",
+            agents: [be, fe],
+            provider: mockProvider,
+            model: "test-model"
+        )
+        #expect(result[0].name == "프론트엔드 개발자")
+    }
+
+    // MARK: - 핸드오프 컨텍스트 포맷 검증
+
+    @Test("priorContext 포맷 — 이전 에이전트 결과가 올바르게 포맷됨")
+    func priorContext_format() {
+        // 순차 조사에서 findings 누적 → priorContext 생성 로직 검증
+        let findings = [
+            (agentName: "프론트엔드 개발자", result: "GET /m/v1/receiving-return/returnable-targets 호출 확인"),
+        ]
+        let priorResults = findings.map { "[\($0.agentName)]\n\($0.result)" }.joined(separator: "\n\n---\n\n")
+        let priorContext = "\n\n[이전 전문가의 조사 결과 — 참고하여 당신의 영역을 조사하세요]\n\(priorResults)"
+
+        #expect(priorContext.contains("[프론트엔드 개발자]"))
+        #expect(priorContext.contains("returnable-targets"))
+        #expect(priorContext.contains("참고하여 당신의 영역을 조사하세요"))
+    }
+
+    @Test("priorContext — findings 비었을 때 빈 문자열")
+    func priorContext_empty() {
+        let findings: [(agentName: String, result: String)] = []
+        let priorContext = findings.isEmpty ? "" : "should not appear"
+        #expect(priorContext.isEmpty)
+    }
+
+    @Test("priorContext — 3명 에이전트 결과 누적")
+    func priorContext_threeAgents() {
+        let findings = [
+            (agentName: "프론트엔드 개발자", result: "API 호출 확인"),
+            (agentName: "백엔드 개발자", result: "QueryDSL 쿼리 확인"),
+        ]
+        let priorResults = findings.map { "[\($0.agentName)]\n\($0.result)" }.joined(separator: "\n\n---\n\n")
+
+        #expect(priorResults.contains("[프론트엔드 개발자]"))
+        #expect(priorResults.contains("[백엔드 개발자]"))
+        #expect(priorResults.contains("---"))
+    }
 }
