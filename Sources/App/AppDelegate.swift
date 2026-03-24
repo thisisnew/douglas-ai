@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UserNotifications
 
 extension Notification.Name {
     static let sidebarHideRequested = Notification.Name("sidebarHideRequested")
@@ -84,6 +85,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var onboardingWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // 포그라운드 알림 표시 설정 (macOS 기본: 앱 활성 시 배너 안 뜸 → delegate로 override)
+        let center = UNUserNotificationCenter.current()
+        center.delegate = ForegroundNotificationDelegate.shared
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+
         // Dock 표시명 보장 (번들 외 실행 시에도 "DOUGLAS"로 표시)
         ProcessInfo.processInfo.processName = "DOUGLAS"
         if let icon = NSImage(named: "AppIcon") {
