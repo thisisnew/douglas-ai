@@ -601,7 +601,6 @@ struct FloatingSidebarView: View {
                 }
                 .buttonStyle(.plain)
             } else {
-                ZStack(alignment: .trailing) {
                 ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DesignTokens.Layout.rosterSpacing) {
                 ForEach(allRosterAgents) { agent in
@@ -640,17 +639,6 @@ struct FloatingSidebarView: View {
             .padding(.horizontal, DesignTokens.Spacing.lg)
             .animation(.easeInOut(duration: 0.2), value: allRosterAgents.map(\.id))
         }
-                // 오른쪽 페이드 그라데이션 — 에이전트가 가려져 있다는 시각적 힌트
-                if allRosterAgents.count > 6 {
-                    LinearGradient(
-                        colors: [.clear, palette.sidebarBackground],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                    .frame(width: 36)
-                    .allowsHitTesting(false)
-                }
-                } // ZStack
             } // else
         } // Group
     }
