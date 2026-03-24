@@ -294,6 +294,8 @@ struct FloatingSidebarView: View {
     @State private var draggingAgentID: UUID?
     @State private var dropTargetAgentID: UUID?
     @State private var hoveredAgentID: UUID?
+    /// 로스터 스크롤 위치 (현재 보이는 첫 에이전트 인덱스)
+    @State private var rosterScrollIndex: Int = 0
     /// 에이전트 방 목록 팝오버
     @State private var popoverAgentID: UUID?
     /// 에이전트 삭제 확인
@@ -601,10 +603,28 @@ struct FloatingSidebarView: View {
                 }
                 .buttonStyle(.plain)
             } else {
+                HStack(spacing: 0) {
+                // 왼쪽 화살표 (스크롤 가능할 때만)
+                if rosterScrollIndex > 0 {
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            rosterScrollIndex = max(0, rosterScrollIndex - 1)
+                        }
+                    }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.secondary.opacity(0.6))
+                            .frame(width: 16, height: 48)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DesignTokens.Layout.rosterSpacing) {
-                ForEach(allRosterAgents) { agent in
+                ForEach(Array(allRosterAgents.enumerated()), id: \.element.id) { index, agent in
                     rosterItem(agent)
+                        .id(index)
                         .padding(.top, 6)  // 뱃지 잘림 방지
                         .opacity(draggingAgentID == agent.id ? 0.4 : 1.0)
                         .scaleEffect(draggingAgentID == agent.id ? 0.85 : (dropTargetAgentID == agent.id ? 1.08 : 1.0))
@@ -639,13 +659,28 @@ struct FloatingSidebarView: View {
             .padding(.horizontal, DesignTokens.Spacing.lg)
             .animation(.easeInOut(duration: 0.2), value: allRosterAgents.map(\.id))
         }
-        .mask(
-            HStack(spacing: 0) {
-                Color.black
-                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: allRosterAgents.count > 6 ? 30 : 0)
-            }
-        )
+                .onChange(of: rosterScrollIndex) { newValue in
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        proxy.scrollTo(newValue, anchor: .leading)
+                    }
+                }
+                } // ScrollViewReader
+
+                // 오른쪽 화살표 (더 있을 때만)
+                if rosterScrollIndex < allRosterAgents.count - 6, allRosterAgents.count > 6 {
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            rosterScrollIndex = min(allRosterAgents.count - 1, rosterScrollIndex + 1)
+                        }
+                    }) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.secondary.opacity(0.6))
+                            .frame(width: 16, height: 48)
+                    }
+                    .buttonStyle(.plain)
+                }
+                } // HStack
             } // else
         } // Group
     }
