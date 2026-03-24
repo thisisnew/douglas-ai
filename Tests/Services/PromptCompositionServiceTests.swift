@@ -164,4 +164,18 @@ struct PromptCompositionServiceTests {
         let prompt = PromptCompositionService.researchFollowUpPrompt()
         #expect(prompt.contains("중복") || prompt.contains("생략"))
     }
+
+    // MARK: - Research Briefing Prompt
+
+    @Test("researchBriefingPrompt — actionable_points 필드 미포함")
+    func researchBriefingPrompt_noActionablePoints() {
+        let prompt = PromptCompositionService.researchBriefingPrompt(originalContext: "")
+        #expect(!prompt.contains("actionable_points"))
+    }
+
+    @Test("researchBriefingPrompt — limitations 필드 미포함")
+    func researchBriefingPrompt_noLimitations() {
+        let prompt = PromptCompositionService.researchBriefingPrompt(originalContext: "")
+        #expect(!prompt.contains("limitations"))
+    }
 }

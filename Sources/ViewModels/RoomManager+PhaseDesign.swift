@@ -281,7 +281,7 @@ extension RoomManager {
         // speakingAgent 정리
         speakingAgentIDByRoom.removeValue(forKey: roomID)
 
-        // --- 보완 조사 라운드: 다른 전문가의 결과를 보고 도구로 추가 조사 ---
+        // --- 보완 조사 라운드: 순차 실행 — 앞선 에이전트의 보완 결과를 다음 에이전트가 참고 ---
         var followUps: [String] = []
         if findings.count >= 2 {
             guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else {
@@ -292,49 +292,71 @@ extension RoomManager {
             let followUpProgressMsg = ChatMessage(role: .system, content: "보완 조사 중", messageType: .progress)
             appendMessage(followUpProgressMsg, to: roomID)
 
-            let findingsSnapshot = findings  // 병렬 태스크용 캡처
-            await withTaskGroup(of: String?.self) { group in
-                for finding in findingsSnapshot {
-                    group.addTask { [weak self] () -> String? in
-                        guard let self else { return nil }
-                        let agentInfo = await MainActor.run { () -> (Agent, AIProvider, ToolExecutionContext)? in
-                            guard let agent = self.agentStore?.agents.first(where: { $0.name == finding.agentName }),
-                                  let provider = self.providerManager?.provider(named: agent.providerName) else { return nil }
-                            let context = self.makeToolContext(roomID: roomID, currentAgentID: agent.id)
-                            return (agent, provider, context)
-                        }
-                        guard let (agent, provider, context) = agentInfo else { return nil }
-
-                        let otherFindings = findingsSnapshot
-                            .filter { $0.agentName != finding.agentName }
-                            .map { "[\($0.agentName)]\n\($0.result)" }
-                            .joined(separator: "\n\n---\n\n")
-
-                        let followUpPrompt = PromptCompositionService.researchFollowUpPrompt()
-                        do {
-                            let response = try await ToolExecutor.smartSend(
-                                provider: provider,
-                                agent: agent,
-                                systemPrompt: followUpPrompt,
-                                conversationMessages: [
-                                    ConversationMessage.user("사용자 요청: \(task)\n\n[당신의 조사 결과]\n\(finding.result)\n\n[다른 전문가의 조사 결과]\n\(otherFindings)")
-                                ],
-                                context: context,
-                                useTools: true
-                            )
-                            let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
-                            if trimmed.isEmpty || trimmed == "추가 발견 없음" { return nil }
-                            return "[\(finding.agentName) 보완] \(trimmed)"
-                        } catch {
-                            return nil
-                        }
-                    }
+            // 보완 조사 순서: API 엔드포인트를 찾은 에이전트(프론트엔드)를 먼저 실행
+            let httpPattern = try? NSRegularExpression(pattern: "(GET|POST|PUT|DELETE|PATCH)\\s+/", options: [])
+            let orderedFindings: [ResearchFinding] = {
+                let withAPI = findings.filter { f in
+                    let range = NSRange(f.result.startIndex..., in: f.result)
+                    return (httpPattern?.firstMatch(in: f.result, range: range)) != nil
                 }
+                let withoutAPI = findings.filter { f in
+                    let range = NSRange(f.result.startIndex..., in: f.result)
+                    return (httpPattern?.firstMatch(in: f.result, range: range)) == nil
+                }
+                return withAPI + withoutAPI
+            }()
 
-                for await result in group {
-                    if let result { followUps.append(result) }
+            // 순차 실행 — 앞선 보완 결과를 누적하여 다음 에이전트에 전달
+            for finding in orderedFindings {
+                guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { break }
+
+                guard let agent = agentStore?.agents.first(where: { $0.name == finding.agentName }),
+                      let provider = providerManager?.provider(named: agent.providerName) else { continue }
+                let context = makeToolContext(roomID: roomID, currentAgentID: agent.id)
+
+                let otherFindings = findings
+                    .filter { $0.agentName != finding.agentName }
+                    .map { "[\($0.agentName)]\n\($0.result)" }
+                    .joined(separator: "\n\n---\n\n")
+                let priorFollowUps = followUps.isEmpty ? ""
+                    : "\n\n[이전 보완 조사 결과]\n" + followUps.joined(separator: "\n\n")
+
+                let followUpPrompt = PromptCompositionService.researchFollowUpPrompt()
+
+                speakingAgentIDByRoom[roomID] = agent.id
+                let placeholderID = UUID()
+                appendMessage(ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: agent.name), to: roomID)
+
+                do {
+                    let buffer = StreamBuffer()
+                    let response = try await ToolExecutor.smartSend(
+                        provider: provider,
+                        agent: agent,
+                        systemPrompt: followUpPrompt,
+                        conversationMessages: [
+                            ConversationMessage.user("사용자 요청: \(task)\n\n[당신의 조사 결과]\n\(finding.result)\n\n[다른 전문가의 조사 결과]\n\(otherFindings)\(priorFollowUps)")
+                        ],
+                        context: context,
+                        onStreamChunk: { [weak self] chunk in
+                            guard let self else { return }
+                            let current = buffer.append(chunk)
+                            Task { @MainActor in
+                                self.updateMessageContent(placeholderID, newContent: current, in: roomID)
+                            }
+                        },
+                        useTools: true
+                    )
+                    updateMessageContent(placeholderID, newContent: stripTrailingOptions(response), in: roomID)
+
+                    let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty && trimmed != "추가 발견 없음" {
+                        followUps.append("[\(finding.agentName) 보완] \(trimmed)")
+                    }
+                } catch {
+                    updateMessageContent(placeholderID, newContent: "보완 조사 오류: \(error.localizedDescription)", in: roomID)
                 }
             }
+            speakingAgentIDByRoom.removeValue(forKey: roomID)
         }
 
         // 조사 결과가 있으면 DOUGLAS가 종합

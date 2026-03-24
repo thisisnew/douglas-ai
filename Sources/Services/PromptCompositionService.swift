@@ -184,13 +184,12 @@ enum PromptCompositionService {
         \(originalContext)조사 내용을 분석하여 구조화된 리서치 브리핑을 JSON으로 작성하세요.
 
         반드시 아래 형식의 JSON으로만 응답하세요:
-        {"executive_summary": "사용자 질문에 대한 직접 답변 2-3문장", "findings": [{"topic": "주제", "detail": "상세 내용"}], "actionable_points": ["실무 포인트1"], "limitations": ["한계/추가 조사 필요 사항"]}
+        {"executive_summary": "사용자 질문에 대한 직접 답변 2-3문장", "findings": [{"topic": "주제", "detail": "상세 내용"}]}
 
         규칙:
         - executive_summary: **사용자의 질문에 직접 답변**하는 2-3문장. 핵심 결론을 먼저.
         - findings: 주제별로 분류된 조사 결과 (3-7개). 에이전트 간 중복 제거.
-        - actionable_points: 바로 적용 가능한 구체적 실무 항목 (2-5개)
-        - limitations: 조사의 한계, 추가 검토 필요 사항 (없으면 빈 배열)
+        - 사용자가 묻지 않은 "실무 포인트", "한계", "추가 조사" 등을 포함하지 마세요.
         - 반드시 유효한 JSON으로만 응답하세요
         """
     }
