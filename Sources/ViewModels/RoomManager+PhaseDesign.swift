@@ -208,24 +208,30 @@ extension RoomManager {
                     let room = await MainActor.run { self.rooms.first(where: { $0.id == roomID }) }
                     let intakeText = room?.clarifyContext.intakeData?.asClarifyContextString() ?? ""
                     let intakeBlock = intakeText.isEmpty ? "" : "\n\(intakeText)"
-                    let projectPathsBlock = (room?.effectiveProjectPaths ?? []).isEmpty ? "" : "\n[프로젝트 경로]\n" + (room?.effectiveProjectPaths ?? []).map { "- \($0)" }.joined(separator: "\n")
+
+                    // 에이전트별 참조 프로젝트 격리: agent.referenceProjectPaths 우선, 없으면 Room 전체 경로
+                    let agentPaths = agent.referenceProjectPaths.isEmpty
+                        ? (room?.effectiveProjectPaths ?? [])
+                        : agent.referenceProjectPaths
+                    let projectPathsBlock = agentPaths.isEmpty ? "" : "\n[프로젝트 경로 — 이 경로만 조사하세요]\n" + agentPaths.map { "- \($0)" }.joined(separator: "\n")
+
+                    let domainHint = DiscussionService.domainHint(for: agent.name)
 
                     let researchPrompt = """
                     \(await MainActor.run { self.systemPrompt(for: agent, roomID: roomID) })
 
                     [시스템] 필요한 외부 데이터는 이미 수집되었습니다.
                     \(intakeBlock)\(projectPathsBlock)
+                    \(domainHint)
 
                     [절대 규칙]
                     1. 반드시 한국어로 응답하세요. 영어 응답은 금지입니다.
                     2. 자신을 "리서처"나 "조사자"로 칭하지 마세요. 원래 역할명(예: 백엔드 개발자, 프론트엔드 개발자)으로 자칭하세요.
                     3. 오직 당신의 전문 영역에 해당하는 부분만 조사하세요.
                        - 다른 전문가의 영역을 조사하거나 언급하면 안 됩니다.
-                       - 프론트엔드 개발자 → Vue/React 파일, API 호출부, 화면 로직만.
-                       - 백엔드 개발자 → Java/Kotlin 파일, Controller/Service/Repository, 쿼리만.
                        - 위반 시 결과가 중복되어 전체 품질이 떨어집니다.
-                    3. 코드 검색, 파일 읽기 등 도구를 적극 활용하세요.
-                    4. 토론이나 의견 교환이 아닙니다. 사실에 기반한 조사 결과만 보고하세요.
+                    4. 코드 검색, 파일 읽기 등 도구를 적극 활용하세요.
+                    5. 토론이나 의견 교환이 아닙니다. 사실에 기반한 조사 결과만 보고하세요.
 
                     \(briefContext)
                     """
