@@ -215,21 +215,18 @@ extension RoomManager {
                         : agent.referenceProjectPaths
                     let projectPathsBlock = agentPaths.isEmpty ? "" : "\n[프로젝트 경로 — 이 경로만 조사하세요]\n" + agentPaths.map { "- \($0)" }.joined(separator: "\n")
 
-                    let domainHint = DiscussionService.domainHint(for: agent.name)
-
                     let researchPrompt = """
                     \(await MainActor.run { self.systemPrompt(for: agent, roomID: roomID) })
 
                     [시스템] 필요한 외부 데이터는 이미 수집되었습니다.
                     \(intakeBlock)\(projectPathsBlock)
-                    \(domainHint)
 
                     [절대 규칙]
                     1. 반드시 한국어로 응답하세요. 영어 응답은 금지입니다.
                     2. 자신을 "리서처"나 "조사자"로 칭하지 마세요. 원래 역할명(예: 백엔드 개발자, 프론트엔드 개발자)으로 자칭하세요.
-                    3. 오직 당신의 전문 영역에 해당하는 부분만 조사하세요.
-                       - 다른 전문가의 영역을 조사하거나 언급하면 안 됩니다.
-                       - 위반 시 결과가 중복되어 전체 품질이 떨어집니다.
+                    3. 위에 지정된 프로젝트 경로 내의 파일만 조사하세요.
+                       - 호출 체인을 따라가는 것은 허용됩니다 (예: 화면 → API → 쿼리).
+                       - 다른 전문가가 조사 중인 프로젝트의 파일은 직접 열지 마세요.
                     4. 코드 검색, 파일 읽기 등 도구를 적극 활용하세요.
                     5. 토론이나 의견 교환이 아닙니다. 사실에 기반한 조사 결과만 보고하세요.
 
@@ -284,44 +281,50 @@ extension RoomManager {
         // speakingAgent 정리
         speakingAgentIDByRoom.removeValue(forKey: roomID)
 
-        // --- 교차 참조 라운드: 에이전트 간 연결점 분석 ---
-        var crossReferences: [String] = []
+        // --- 보완 조사 라운드: 다른 전문가의 결과를 보고 도구로 추가 조사 ---
+        var followUps: [String] = []
         if findings.count >= 2 {
             guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else {
                 scheduleSave()
                 return
             }
 
-            let crossRefProgressMsg = ChatMessage(role: .system, content: "교차 참조 분석 중", messageType: .progress)
-            appendMessage(crossRefProgressMsg, to: roomID)
+            let followUpProgressMsg = ChatMessage(role: .system, content: "보완 조사 중", messageType: .progress)
+            appendMessage(followUpProgressMsg, to: roomID)
 
             let findingsSnapshot = findings  // 병렬 태스크용 캡처
             await withTaskGroup(of: String?.self) { group in
                 for finding in findingsSnapshot {
                     group.addTask { [weak self] () -> String? in
                         guard let self else { return nil }
-                        let agentAndProvider = await MainActor.run { () -> (Agent, AIProvider)? in
+                        let agentInfo = await MainActor.run { () -> (Agent, AIProvider, ToolExecutionContext)? in
                             guard let agent = self.agentStore?.agents.first(where: { $0.name == finding.agentName }),
                                   let provider = self.providerManager?.provider(named: agent.providerName) else { return nil }
-                            return (agent, provider)
+                            let context = self.makeToolContext(roomID: roomID, currentAgentID: agent.id)
+                            return (agent, provider, context)
                         }
-                        guard let (agent, provider) = agentAndProvider else { return nil }
+                        guard let (agent, provider, context) = agentInfo else { return nil }
 
                         let otherFindings = findingsSnapshot
                             .filter { $0.agentName != finding.agentName }
                             .map { "[\($0.agentName)]\n\($0.result)" }
                             .joined(separator: "\n\n---\n\n")
 
-                        let crossRefPrompt = PromptCompositionService.researchCrossReferencePrompt()
+                        let followUpPrompt = PromptCompositionService.researchFollowUpPrompt()
                         do {
-                            let response = try await provider.sendRouterMessage(
-                                model: agent.modelName,
-                                systemPrompt: crossRefPrompt,
-                                messages: [("user", "사용자 요청: \(task)\n\n[당신의 조사 결과]\n\(finding.result)\n\n[다른 전문가의 조사 결과]\n\(otherFindings)")]
+                            let response = try await ToolExecutor.smartSend(
+                                provider: provider,
+                                agent: agent,
+                                systemPrompt: followUpPrompt,
+                                conversationMessages: [
+                                    ConversationMessage.user("사용자 요청: \(task)\n\n[당신의 조사 결과]\n\(finding.result)\n\n[다른 전문가의 조사 결과]\n\(otherFindings)")
+                                ],
+                                context: context,
+                                useTools: true
                             )
                             let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
-                            if trimmed.isEmpty || trimmed == "연결점 없음" { return nil }
-                            return "[\(finding.agentName) 교차참조] \(trimmed)"
+                            if trimmed.isEmpty || trimmed == "추가 발견 없음" { return nil }
+                            return "[\(finding.agentName) 보완] \(trimmed)"
                         } catch {
                             return nil
                         }
@@ -329,7 +332,7 @@ extension RoomManager {
                 }
 
                 for await result in group {
-                    if let result { crossReferences.append(result) }
+                    if let result { followUps.append(result) }
                 }
             }
         }
@@ -337,8 +340,8 @@ extension RoomManager {
         // 조사 결과가 있으면 DOUGLAS가 종합
         if findings.count >= 2 {
             let synthesisInput = findings.map { "[\($0.agentName)]\n\($0.result)" }.joined(separator: "\n\n---\n\n")
-            let crossRefBlock = crossReferences.isEmpty ? "" : "\n\n=== 교차 참조 ===\n\n" + crossReferences.joined(separator: "\n\n")
-            await synthesizeResearchFindings(roomID: roomID, task: task, findings: synthesisInput + crossRefBlock)
+            let followUpBlock = followUps.isEmpty ? "" : "\n\n=== 보완 조사 ===\n\n" + followUps.joined(separator: "\n\n")
+            await synthesizeResearchFindings(roomID: roomID, task: task, findings: synthesisInput + followUpBlock)
         }
 
         scheduleSave()

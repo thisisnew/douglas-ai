@@ -139,29 +139,29 @@ struct PromptCompositionServiceTests {
         #expect(prompt.contains("원문 그대로 유지"))
     }
 
-    // MARK: - Research Cross-Reference Prompt
+    // MARK: - Research Follow-Up Prompt
 
-    @Test("researchCrossReferencePrompt — 한국어 요구 포함")
-    func crossReferencePrompt_korean() {
-        let prompt = PromptCompositionService.researchCrossReferencePrompt()
+    @Test("researchFollowUpPrompt — 한국어 요구 포함")
+    func followUpPrompt_korean() {
+        let prompt = PromptCompositionService.researchFollowUpPrompt()
         #expect(prompt.contains("한국어"))
     }
 
-    @Test("researchCrossReferencePrompt — 3문장 제한 포함")
-    func crossReferencePrompt_sentenceLimit() {
-        let prompt = PromptCompositionService.researchCrossReferencePrompt()
-        #expect(prompt.contains("3문장"))
+    @Test("researchFollowUpPrompt — '추가 발견 없음' 안내 포함")
+    func followUpPrompt_noAdditional() {
+        let prompt = PromptCompositionService.researchFollowUpPrompt()
+        #expect(prompt.contains("추가 발견 없음"))
     }
 
-    @Test("researchCrossReferencePrompt — 반복 금지 지시 포함")
-    func crossReferencePrompt_noRepeat() {
-        let prompt = PromptCompositionService.researchCrossReferencePrompt()
-        #expect(prompt.contains("반복하지 마세요"))
+    @Test("researchFollowUpPrompt — 도구 사용 허용 지시 포함")
+    func followUpPrompt_toolUsage() {
+        let prompt = PromptCompositionService.researchFollowUpPrompt()
+        #expect(prompt.contains("도구"))
     }
 
-    @Test("researchCrossReferencePrompt — '연결점 없음' 안내 포함")
-    func crossReferencePrompt_noConnection() {
-        let prompt = PromptCompositionService.researchCrossReferencePrompt()
-        #expect(prompt.contains("연결점 없음"))
+    @Test("researchFollowUpPrompt — 중복 생략 지시 포함")
+    func followUpPrompt_noRepeat() {
+        let prompt = PromptCompositionService.researchFollowUpPrompt()
+        #expect(prompt.contains("중복") || prompt.contains("생략"))
     }
 }

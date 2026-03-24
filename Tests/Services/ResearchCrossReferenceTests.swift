@@ -2,63 +2,63 @@ import Testing
 import Foundation
 @testable import DOUGLAS
 
-@Suite("Research 교차 참조 Tests")
-struct ResearchCrossReferenceTests {
+@Suite("Research 보완 조사 Tests")
+struct ResearchFollowUpTests {
 
-    // MARK: - 교차 참조 블록 형식
+    // MARK: - 보완 조사 블록 형식
 
-    @Test("교차참조 블록 — findings + crossRef 합성 문자열 구조")
-    func crossRefBlock_format() {
+    @Test("보완 조사 블록 — findings + followUp 합성 문자열 구조")
+    func followUpBlock_format() {
         let findings = "[FE개발자]\nVue 컴포넌트에서 GET /m/v1/receiving-return/returnable-targets 호출"
             + "\n\n---\n\n"
             + "[BE개발자]\nReceivingReturnController에서 GET /api/v1/receiving/return/history 제공"
-        let crossRefs = [
-            "[FE개발자 교차참조] BE가 찾은 /api/v1/receiving/return/history는 프론트엔드가 직접 호출하는 엔드포인트가 아닙니다. 프론트엔드는 inbound-service의 /m/v1/ 경로를 호출합니다."
+        let followUps = [
+            "[BE개발자 보완] FE가 찾은 /m/v1/receiving-return/returnable-targets는 rms-server에는 없습니다. inbound-service 전용 엔드포인트입니다."
         ]
-        let crossRefBlock = "\n\n=== 교차 참조 ===\n\n" + crossRefs.joined(separator: "\n\n")
-        let combined = findings + crossRefBlock
+        let followUpBlock = "\n\n=== 보완 조사 ===\n\n" + followUps.joined(separator: "\n\n")
+        let combined = findings + followUpBlock
 
-        #expect(combined.contains("=== 교차 참조 ==="))
-        #expect(combined.contains("FE개발자 교차참조"))
+        #expect(combined.contains("=== 보완 조사 ==="))
+        #expect(combined.contains("BE개발자 보완"))
         #expect(combined.contains("Vue 컴포넌트"))
         #expect(combined.contains("ReceivingReturnController"))
     }
 
-    @Test("교차참조 빈 결과 시 블록 미포함")
-    func crossRefBlock_empty() {
+    @Test("보완 조사 빈 결과 시 블록 미포함")
+    func followUpBlock_empty() {
         let findings = "[FE개발자]\n결과1\n\n---\n\n[BE개발자]\n결과2"
-        let crossRefs: [String] = []
-        let crossRefBlock = crossRefs.isEmpty ? "" : "\n\n=== 교차 참조 ===\n\n" + crossRefs.joined(separator: "\n\n")
-        let combined = findings + crossRefBlock
+        let followUps: [String] = []
+        let followUpBlock = followUps.isEmpty ? "" : "\n\n=== 보완 조사 ===\n\n" + followUps.joined(separator: "\n\n")
+        let combined = findings + followUpBlock
 
-        #expect(!combined.contains("교차 참조"))
+        #expect(!combined.contains("보완 조사"))
         #expect(combined == findings)
     }
 
-    @Test("교차참조 '연결점 없음' 필터링")
-    func crossRefBlock_filterNoConnection() {
-        let rawResults: [String?] = [nil, "연결점 없음", "", "BE가 찾은 API는 inbound-service 내부용입니다."]
+    @Test("보완 조사 '추가 발견 없음' 필터링")
+    func followUpBlock_filterNoAdditional() {
+        let rawResults: [String?] = [nil, "추가 발견 없음", "", "rms-server에서 해당 엔드포인트를 찾을 수 없습니다."]
         let filtered = rawResults.compactMap { result -> String? in
             guard let r = result else { return nil }
             let trimmed = r.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty || trimmed == "연결점 없음" { return nil }
+            if trimmed.isEmpty || trimmed == "추가 발견 없음" { return nil }
             return r
         }
 
         #expect(filtered.count == 1)
-        #expect(filtered[0].contains("inbound-service"))
+        #expect(filtered[0].contains("rms-server"))
     }
 
-    @Test("교차참조 다중 에이전트 결과 합성")
-    func crossRefBlock_multipleAgents() {
-        let crossRefs = [
-            "[FE개발자 교차참조] BE의 /api/v1/receiving/return/history는 rms-server 전용이고, 프론트엔드는 inbound-service를 경유합니다.",
-            "[BE개발자 교차참조] FE가 호출하는 /m/v1/receiving-return/returnable-targets의 실제 쿼리는 inbound-service 내부에 있습니다."
+    @Test("보완 조사 다중 에이전트 결과 합성")
+    func followUpBlock_multipleAgents() {
+        let followUps = [
+            "[FE개발자 보완] BE의 /api/v1/receiving/return/history는 rms-server 전용이고, 화면에서 직접 호출하지 않습니다.",
+            "[BE개발자 보완] FE가 호출하는 /m/v1/receiving-return/returnable-targets는 rms-server에 없음. inbound-service 내부 처리."
         ]
-        let crossRefBlock = "\n\n=== 교차 참조 ===\n\n" + crossRefs.joined(separator: "\n\n")
+        let followUpBlock = "\n\n=== 보완 조사 ===\n\n" + followUps.joined(separator: "\n\n")
 
-        #expect(crossRefBlock.contains("FE개발자 교차참조"))
-        #expect(crossRefBlock.contains("BE개발자 교차참조"))
-        #expect(crossRefBlock.components(separatedBy: "교차참조").count == 3) // 2 occurrences + 1
+        #expect(followUpBlock.contains("FE개발자 보완"))
+        #expect(followUpBlock.contains("BE개발자 보완"))
+        #expect(followUpBlock.components(separatedBy: "보완").count >= 3)
     }
 }
