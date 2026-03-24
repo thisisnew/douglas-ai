@@ -57,11 +57,8 @@ class ChatViewModel: ObservableObject {
 
     /// .app 번들에서만 알림 권한 요청 (테스트 환경 크래시 방지)
     private func requestNotificationPermissionIfNeeded() {
-        guard Bundle.main.bundlePath.hasSuffix(".app") else { return }
-        let center = UNUserNotificationCenter.current()
-        center.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
-        // 포그라운드에서도 배너 알림 표시 (macOS 기본: 포그라운드 시 안 뜸)
-        center.delegate = ForegroundNotificationDelegate.shared
+        // 알림 권한 + delegate 설정은 AppDelegate.applicationDidFinishLaunching에서 수행
+        // 여기서는 중복 설정하지 않음
     }
 
     // MARK: - 메시지 전송 (진입점)

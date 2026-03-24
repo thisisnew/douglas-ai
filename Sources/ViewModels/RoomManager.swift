@@ -478,9 +478,16 @@ class RoomManager: ObservableObject, WorkflowHost {
         }
         let currentAgentName = currentAgent?.name
 
-        // 단계별 workingDirectory 오버라이드: 지정된 경로를 projectPaths[0]으로 배치
+        // 에이전트별 참조 프로젝트 격리: 에이전트에 referenceProjectPaths가 있으면 우선 사용
+        // 없으면 Room 전체 경로 사용 (기존 동작 유지)
         let resolvedPaths: [String] = {
-            var paths = room?.effectiveProjectPaths ?? []
+            let basePaths: [String]
+            if let agentPaths = currentAgent?.referenceProjectPaths, !agentPaths.isEmpty {
+                basePaths = agentPaths
+            } else {
+                basePaths = room?.effectiveProjectPaths ?? []
+            }
+            var paths = basePaths
             guard let override = workingDirectoryOverride else { return paths }
             paths.removeAll { $0 == override }
             paths.insert(override, at: 0)

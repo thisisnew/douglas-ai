@@ -88,7 +88,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 포그라운드 알림 표시 설정 (macOS 기본: 앱 활성 시 배너 안 뜸 → delegate로 override)
         let center = UNUserNotificationCenter.current()
         center.delegate = ForegroundNotificationDelegate.shared
-        center.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+            if !granted {
+                print("[DOUGLAS] 알림 권한 거부됨 — 시스템 설정 → 알림 → DOUGLAS에서 허용 필요")
+            }
+        }
 
         // Dock 표시명 보장 (번들 외 실행 시에도 "DOUGLAS"로 표시)
         ProcessInfo.processInfo.processName = "DOUGLAS"
