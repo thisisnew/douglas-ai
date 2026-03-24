@@ -139,32 +139,6 @@ struct PromptCompositionServiceTests {
         #expect(prompt.contains("원문 그대로 유지"))
     }
 
-    // MARK: - Research Follow-Up Prompt
-
-    @Test("researchFollowUpPrompt — 한국어 요구 포함")
-    func followUpPrompt_korean() {
-        let prompt = PromptCompositionService.researchFollowUpPrompt()
-        #expect(prompt.contains("한국어"))
-    }
-
-    @Test("researchFollowUpPrompt — '추가 발견 없음' 안내 포함")
-    func followUpPrompt_noAdditional() {
-        let prompt = PromptCompositionService.researchFollowUpPrompt()
-        #expect(prompt.contains("추가 발견 없음"))
-    }
-
-    @Test("researchFollowUpPrompt — 도구 사용 허용 지시 포함")
-    func followUpPrompt_toolUsage() {
-        let prompt = PromptCompositionService.researchFollowUpPrompt()
-        #expect(prompt.contains("도구"))
-    }
-
-    @Test("researchFollowUpPrompt — 중복 생략 지시 포함")
-    func followUpPrompt_noRepeat() {
-        let prompt = PromptCompositionService.researchFollowUpPrompt()
-        #expect(prompt.contains("중복") || prompt.contains("생략"))
-    }
-
     // MARK: - Research Briefing Prompt
 
     @Test("researchBriefingPrompt — actionable_points 필드 미포함")

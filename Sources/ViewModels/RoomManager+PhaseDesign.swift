@@ -177,6 +177,8 @@ extension RoomManager {
     /// 토론 모드: 전문가 각자 의견 제시 → 상호 피드백(LLM 순서 결정) → DOUGLAS 종합
     /// Build/Review 단계 없이 Design 내에서 토론 완결
     /// Research 전용 Design: 토론 없이 에이전트들이 도구로 병렬 조사 → DOUGLAS 종합
+    /// Research 전용 Design: 순차 조사 (에이전트 간 핸드오프) → DOUGLAS 종합
+    /// 조사 순서는 ResearchOrderService가 결정 (LLM + 휴리스틱 폴백)
     private func executeResearchDesign(roomID: UUID, task: String, briefContext: String, specialists: [UUID]) async {
         let startMsg = ChatMessage(
             role: .system,
@@ -185,185 +187,109 @@ extension RoomManager {
         )
         appendMessage(startMsg, to: roomID)
 
-        // 에이전트별 병렬 조사 (도구 사용 가능)
         struct ResearchFinding: Sendable {
             let agentName: String
             let result: String
         }
+
+        // 1. 조사 순서 결정 (ResearchOrderService: LLM → 휴리스틱 폴백)
+        let agents: [Agent] = specialists.compactMap { id in
+            agentStore?.agents.first(where: { $0.id == id })
+        }
+        let orderedAgents: [Agent]
+        if agents.count >= 2,
+           let masterAgent = agentStore?.masterAgent,
+           let masterProvider = providerManager?.provider(named: masterAgent.providerName) {
+            let lightModel = providerManager?.lightModelName(for: masterAgent.providerName) ?? masterAgent.modelName
+            orderedAgents = await ResearchOrderService.determineOrder(
+                task: task, agents: agents, provider: masterProvider, model: lightModel
+            )
+        } else {
+            orderedAgents = agents
+        }
+
+        // 2. 순차 조사 — 이전 에이전트의 결과를 다음 에이전트 컨텍스트에 누적
         var findings: [ResearchFinding] = []
 
-        await withTaskGroup(of: ResearchFinding?.self) { group in
-            for agentID in specialists {
-                group.addTask { [weak self] () -> ResearchFinding? in
-                    guard let self else { return nil }
-                    let agentAndProvider = await MainActor.run { () -> (Agent, AIProvider)? in
-                        guard let agent = self.agentStore?.agents.first(where: { $0.id == agentID }),
-                              let provider = self.providerManager?.provider(named: agent.providerName) else { return nil }
-                        return (agent, provider)
-                    }
-                    guard let (agent, provider) = agentAndProvider else { return nil }
+        for agent in orderedAgents {
+            guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { break }
+            guard let provider = providerManager?.provider(named: agent.providerName) else { continue }
 
-                    await MainActor.run { self.speakingAgentIDByRoom[roomID] = agentID }
+            let room = rooms.first(where: { $0.id == roomID })
+            let intakeText = room?.clarifyContext.intakeData?.asClarifyContextString() ?? ""
+            let intakeBlock = intakeText.isEmpty ? "" : "\n\(intakeText)"
 
-                    let room = await MainActor.run { self.rooms.first(where: { $0.id == roomID }) }
-                    let intakeText = room?.clarifyContext.intakeData?.asClarifyContextString() ?? ""
-                    let intakeBlock = intakeText.isEmpty ? "" : "\n\(intakeText)"
+            // 에이전트별 참조 프로젝트 격리
+            let agentPaths = agent.referenceProjectPaths.isEmpty
+                ? (room?.effectiveProjectPaths ?? [])
+                : agent.referenceProjectPaths
+            let projectPathsBlock = agentPaths.isEmpty ? "" : "\n[프로젝트 경로 — 이 경로만 조사하세요]\n" + agentPaths.map { "- \($0)" }.joined(separator: "\n")
 
-                    // 에이전트별 참조 프로젝트 격리: agent.referenceProjectPaths 우선, 없으면 Room 전체 경로
-                    let agentPaths = agent.referenceProjectPaths.isEmpty
-                        ? (room?.effectiveProjectPaths ?? [])
-                        : agent.referenceProjectPaths
-                    let projectPathsBlock = agentPaths.isEmpty ? "" : "\n[프로젝트 경로 — 이 경로만 조사하세요]\n" + agentPaths.map { "- \($0)" }.joined(separator: "\n")
-
-                    let researchPrompt = """
-                    \(await MainActor.run { self.systemPrompt(for: agent, roomID: roomID) })
-
-                    [시스템] 필요한 외부 데이터는 이미 수집되었습니다.
-                    \(intakeBlock)\(projectPathsBlock)
-
-                    [절대 규칙]
-                    1. 반드시 한국어로 응답하세요. 영어 응답은 금지입니다.
-                    2. 자신을 "리서처"나 "조사자"로 칭하지 마세요. 원래 역할명(예: 백엔드 개발자, 프론트엔드 개발자)으로 자칭하세요.
-                    3. 위에 지정된 프로젝트 경로 내의 파일만 조사하세요.
-                       - 호출 체인을 따라가는 것은 허용됩니다 (예: 화면 → API → 쿼리).
-                       - 다른 전문가가 조사 중인 프로젝트의 파일은 직접 열지 마세요.
-                    4. 코드 검색, 파일 읽기 등 도구를 적극 활용하세요.
-                    5. 토론이나 의견 교환이 아닙니다. 사실에 기반한 조사 결과만 보고하세요.
-
-                    \(briefContext)
-                    """
-
-                    let history = await MainActor.run { self.buildRoomHistory(roomID: roomID) }
-                    let context = await MainActor.run { self.makeToolContext(roomID: roomID, currentAgentID: agentID) }
-
-                    let placeholderID = UUID()
-                    do {
-                        let buffer = StreamBuffer()
-                        await MainActor.run {
-                            let placeholder = ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: agent.name)
-                            self.appendMessage(placeholder, to: roomID)
-                        }
-                        let response = try await ToolExecutor.smartSend(
-                            provider: provider,
-                            agent: agent,
-                            systemPrompt: researchPrompt,
-                            conversationMessages: history,
-                            context: context,
-                            onStreamChunk: { [weak self] chunk in
-                                guard let self else { return }
-                                let current = buffer.append(chunk)
-                                Task { @MainActor in
-                                    self.updateMessageContent(placeholderID, newContent: current, in: roomID)
-                                }
-                            },
-                            useTools: true  // 도구 사용 허용
-                        )
-                        await MainActor.run {
-                            self.updateMessageContent(placeholderID, newContent: stripTrailingOptions(response), in: roomID)
-                        }
-                        return ResearchFinding(agentName: agent.name, result: response)
-                    } catch {
-                        await MainActor.run {
-                            self.appendMessage(ChatMessage(role: .assistant, content: "조사 오류: \(error.localizedDescription)", agentName: agent.name, messageType: .error), to: roomID)
-                        }
-                        return nil
-                    }
-                }
+            // 이전 에이전트의 조사 결과 (핸드오프 컨텍스트)
+            let priorContext: String
+            if findings.isEmpty {
+                priorContext = ""
+            } else {
+                let priorResults = findings.map { "[\($0.agentName)]\n\($0.result)" }.joined(separator: "\n\n---\n\n")
+                priorContext = "\n\n[이전 전문가의 조사 결과 — 참고하여 당신의 영역을 조사하세요]\n\(priorResults)"
             }
 
-            for await result in group {
-                if let result {
-                    findings.append(result)
-                }
+            let researchPrompt = """
+            \(systemPrompt(for: agent, roomID: roomID))
+
+            [시스템] 필요한 외부 데이터는 이미 수집되었습니다.
+            \(intakeBlock)\(projectPathsBlock)\(priorContext)
+
+            [절대 규칙]
+            1. 반드시 한국어로 응답하세요. 영어 응답은 금지입니다.
+            2. 자신을 "리서처"나 "조사자"로 칭하지 마세요. 원래 역할명(예: 백엔드 개발자, 프론트엔드 개발자)으로 자칭하세요.
+            3. 위에 지정된 프로젝트 경로 내의 파일만 조사하세요.
+               - 이전 전문가의 결과에서 언급된 엔드포인트, 클래스명 등을 당신의 프로젝트에서 추적하세요.
+               - 이전 전문가가 이미 보고한 내용은 반복하지 마세요.
+            4. 코드 검색, 파일 읽기 등 도구를 적극 활용하세요.
+            5. 토론이나 의견 교환이 아닙니다. 사실에 기반한 조사 결과만 보고하세요.
+
+            \(briefContext)
+            """
+
+            let history = buildRoomHistory(roomID: roomID)
+            let context = makeToolContext(roomID: roomID, currentAgentID: agent.id)
+
+            speakingAgentIDByRoom[roomID] = agent.id
+            let placeholderID = UUID()
+            appendMessage(ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: agent.name), to: roomID)
+
+            do {
+                let buffer = StreamBuffer()
+                let response = try await ToolExecutor.smartSend(
+                    provider: provider,
+                    agent: agent,
+                    systemPrompt: researchPrompt,
+                    conversationMessages: history,
+                    context: context,
+                    onStreamChunk: { [weak self] chunk in
+                        guard let self else { return }
+                        let current = buffer.append(chunk)
+                        Task { @MainActor in
+                            self.updateMessageContent(placeholderID, newContent: current, in: roomID)
+                        }
+                    },
+                    useTools: true
+                )
+                updateMessageContent(placeholderID, newContent: stripTrailingOptions(response), in: roomID)
+                findings.append(ResearchFinding(agentName: agent.name, result: response))
+            } catch {
+                appendMessage(ChatMessage(role: .assistant, content: "조사 오류: \(error.localizedDescription)", agentName: agent.name, messageType: .error), to: roomID)
             }
         }
 
         // speakingAgent 정리
         speakingAgentIDByRoom.removeValue(forKey: roomID)
 
-        // --- 보완 조사 라운드: 순차 실행 — 앞선 에이전트의 보완 결과를 다음 에이전트가 참고 ---
-        var followUps: [String] = []
-        if findings.count >= 2 {
-            guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else {
-                scheduleSave()
-                return
-            }
-
-            let followUpProgressMsg = ChatMessage(role: .system, content: "보완 조사 중", messageType: .progress)
-            appendMessage(followUpProgressMsg, to: roomID)
-
-            // 보완 조사 순서: API 엔드포인트를 찾은 에이전트(프론트엔드)를 먼저 실행
-            let httpPattern = try? NSRegularExpression(pattern: "(GET|POST|PUT|DELETE|PATCH)\\s+/", options: [])
-            let orderedFindings: [ResearchFinding] = {
-                let withAPI = findings.filter { f in
-                    let range = NSRange(f.result.startIndex..., in: f.result)
-                    return (httpPattern?.firstMatch(in: f.result, range: range)) != nil
-                }
-                let withoutAPI = findings.filter { f in
-                    let range = NSRange(f.result.startIndex..., in: f.result)
-                    return (httpPattern?.firstMatch(in: f.result, range: range)) == nil
-                }
-                return withAPI + withoutAPI
-            }()
-
-            // 순차 실행 — 앞선 보완 결과를 누적하여 다음 에이전트에 전달
-            for finding in orderedFindings {
-                guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else { break }
-
-                guard let agent = agentStore?.agents.first(where: { $0.name == finding.agentName }),
-                      let provider = providerManager?.provider(named: agent.providerName) else { continue }
-                let context = makeToolContext(roomID: roomID, currentAgentID: agent.id)
-
-                let otherFindings = findings
-                    .filter { $0.agentName != finding.agentName }
-                    .map { "[\($0.agentName)]\n\($0.result)" }
-                    .joined(separator: "\n\n---\n\n")
-                let priorFollowUps = followUps.isEmpty ? ""
-                    : "\n\n[이전 보완 조사 결과]\n" + followUps.joined(separator: "\n\n")
-
-                let followUpPrompt = PromptCompositionService.researchFollowUpPrompt()
-
-                speakingAgentIDByRoom[roomID] = agent.id
-                let placeholderID = UUID()
-                appendMessage(ChatMessage(id: placeholderID, role: .assistant, content: "", agentName: agent.name), to: roomID)
-
-                do {
-                    let buffer = StreamBuffer()
-                    let response = try await ToolExecutor.smartSend(
-                        provider: provider,
-                        agent: agent,
-                        systemPrompt: followUpPrompt,
-                        conversationMessages: [
-                            ConversationMessage.user("사용자 요청: \(task)\n\n[당신의 조사 결과]\n\(finding.result)\n\n[다른 전문가의 조사 결과]\n\(otherFindings)\(priorFollowUps)")
-                        ],
-                        context: context,
-                        onStreamChunk: { [weak self] chunk in
-                            guard let self else { return }
-                            let current = buffer.append(chunk)
-                            Task { @MainActor in
-                                self.updateMessageContent(placeholderID, newContent: current, in: roomID)
-                            }
-                        },
-                        useTools: true
-                    )
-                    updateMessageContent(placeholderID, newContent: stripTrailingOptions(response), in: roomID)
-
-                    let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmed.isEmpty && trimmed != "추가 발견 없음" {
-                        followUps.append("[\(finding.agentName) 보완] \(trimmed)")
-                    }
-                } catch {
-                    updateMessageContent(placeholderID, newContent: "보완 조사 오류: \(error.localizedDescription)", in: roomID)
-                }
-            }
-            speakingAgentIDByRoom.removeValue(forKey: roomID)
-        }
-
-        // 조사 결과가 있으면 DOUGLAS가 종합
+        // 3. 조사 결과가 있으면 DOUGLAS가 종합
         if findings.count >= 2 {
             let synthesisInput = findings.map { "[\($0.agentName)]\n\($0.result)" }.joined(separator: "\n\n---\n\n")
-            let followUpBlock = followUps.isEmpty ? "" : "\n\n=== 보완 조사 ===\n\n" + followUps.joined(separator: "\n\n")
-            await synthesizeResearchFindings(roomID: roomID, task: task, findings: synthesisInput + followUpBlock)
+            await synthesizeResearchFindings(roomID: roomID, task: task, findings: synthesisInput)
         }
 
         scheduleSave()
