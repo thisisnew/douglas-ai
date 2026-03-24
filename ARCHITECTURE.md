@@ -1337,13 +1337,14 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
 | quickAnswer | Understand → Assemble → Deliver |
 | task | Understand → Assemble → Design → Build → Review → Deliver |
 | discussion | Understand → Assemble → Design(토론+종합) → Deliver |
-| research | Understand → Assemble → Design(조사 수행) → Deliver |
+| research | Understand → Assemble → Design(병렬 조사 → 교차 참조 → 종합) → Deliver |
 | documentation | Understand → Assemble → Design(구조 설계) → Build(문서 작성) → Deliver |
 | complex | Understand → Assemble → Design → Build → Review → Deliver |
 
 **discussion/research 워크플로우**: Design 단계 내에서 전문가 의견 수렴(병렬) → 상호 피드백(순차) → DOUGLAS 진행자 종합까지 완결. Build/Review 불필요.
 - 토론 Turn 1에서 도구 접근 활성화 (`smartSend useTools: true`) — 코드 참조 허용
 - 토론 규칙: 코드 참조 허용, 코드 수정 금지
+- **Research 교차 참조**: 병렬 조사 완료 후, 각 에이전트가 다른 전문가의 발견과 자기 영역의 연결점을 2-3문장으로 보고 (병렬 실행, useTools: false). "연결점 없음" 필터링 후 종합 프롬프트에 `=== 교차 참조 ===` 블록으로 추가.
 
 **토론 Strategy 패턴 (3모드)**: Design 단계 내부에서 DebateClassifier가 토론 유형을 분류하고, DebateStrategy가 Turn 2 프롬프트·합의 기준·쟁점 추출을 캡슐화:
 - **dialectic** (대립): 같은 도메인 에이전트, 트레이드오프 탐색 → 빈틈·대안 지적 요구, 엄격한 합의 기준

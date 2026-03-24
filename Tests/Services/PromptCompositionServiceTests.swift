@@ -112,4 +112,56 @@ struct PromptCompositionServiceTests {
         )
         #expect(agent.resolvedSystemPrompt(activeRuleIDs: ids) == direct)
     }
+
+    // MARK: - Research Synthesis Prompt
+
+    @Test("researchSynthesisPrompt — 직접 답변 지시 포함")
+    func researchSynthesisPrompt_directAnswer() {
+        let prompt = PromptCompositionService.researchSynthesisPrompt()
+        #expect(prompt.contains("사용자의 질문에 직접 답변"))
+    }
+
+    @Test("researchSynthesisPrompt — 재정리 방지 지시 포함")
+    func researchSynthesisPrompt_antiReorganize() {
+        let prompt = PromptCompositionService.researchSynthesisPrompt()
+        #expect(prompt.contains("재정리"))
+    }
+
+    @Test("researchSynthesisPrompt — 교차 참조 지시 포함")
+    func researchSynthesisPrompt_crossReference() {
+        let prompt = PromptCompositionService.researchSynthesisPrompt()
+        #expect(prompt.contains("교차") || prompt.contains("연결점"))
+    }
+
+    @Test("researchSynthesisPrompt — 코드 원문 유지 규칙 포함")
+    func researchSynthesisPrompt_codePreservation() {
+        let prompt = PromptCompositionService.researchSynthesisPrompt()
+        #expect(prompt.contains("원문 그대로 유지"))
+    }
+
+    // MARK: - Research Cross-Reference Prompt
+
+    @Test("researchCrossReferencePrompt — 한국어 요구 포함")
+    func crossReferencePrompt_korean() {
+        let prompt = PromptCompositionService.researchCrossReferencePrompt()
+        #expect(prompt.contains("한국어"))
+    }
+
+    @Test("researchCrossReferencePrompt — 3문장 제한 포함")
+    func crossReferencePrompt_sentenceLimit() {
+        let prompt = PromptCompositionService.researchCrossReferencePrompt()
+        #expect(prompt.contains("3문장"))
+    }
+
+    @Test("researchCrossReferencePrompt — 반복 금지 지시 포함")
+    func crossReferencePrompt_noRepeat() {
+        let prompt = PromptCompositionService.researchCrossReferencePrompt()
+        #expect(prompt.contains("반복하지 마세요"))
+    }
+
+    @Test("researchCrossReferencePrompt — '연결점 없음' 안내 포함")
+    func crossReferencePrompt_noConnection() {
+        let prompt = PromptCompositionService.researchCrossReferencePrompt()
+        #expect(prompt.contains("연결점 없음"))
+    }
 }

@@ -278,10 +278,61 @@ extension RoomManager {
         // speakingAgent 정리
         speakingAgentIDByRoom.removeValue(forKey: roomID)
 
+        // --- 교차 참조 라운드: 에이전트 간 연결점 분석 ---
+        var crossReferences: [String] = []
+        if findings.count >= 2 {
+            guard !Task.isCancelled, rooms.first(where: { $0.id == roomID })?.isActive == true else {
+                scheduleSave()
+                return
+            }
+
+            let crossRefProgressMsg = ChatMessage(role: .system, content: "교차 참조 분석 중", messageType: .progress)
+            appendMessage(crossRefProgressMsg, to: roomID)
+
+            let findingsSnapshot = findings  // 병렬 태스크용 캡처
+            await withTaskGroup(of: String?.self) { group in
+                for finding in findingsSnapshot {
+                    group.addTask { [weak self] () -> String? in
+                        guard let self else { return nil }
+                        let agentAndProvider = await MainActor.run { () -> (Agent, AIProvider)? in
+                            guard let agent = self.agentStore?.agents.first(where: { $0.name == finding.agentName }),
+                                  let provider = self.providerManager?.provider(named: agent.providerName) else { return nil }
+                            return (agent, provider)
+                        }
+                        guard let (agent, provider) = agentAndProvider else { return nil }
+
+                        let otherFindings = findingsSnapshot
+                            .filter { $0.agentName != finding.agentName }
+                            .map { "[\($0.agentName)]\n\($0.result)" }
+                            .joined(separator: "\n\n---\n\n")
+
+                        let crossRefPrompt = PromptCompositionService.researchCrossReferencePrompt()
+                        do {
+                            let response = try await provider.sendRouterMessage(
+                                model: agent.modelName,
+                                systemPrompt: crossRefPrompt,
+                                messages: [("user", "사용자 요청: \(task)\n\n[당신의 조사 결과]\n\(finding.result)\n\n[다른 전문가의 조사 결과]\n\(otherFindings)")]
+                            )
+                            let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if trimmed.isEmpty || trimmed == "연결점 없음" { return nil }
+                            return "[\(finding.agentName) 교차참조] \(trimmed)"
+                        } catch {
+                            return nil
+                        }
+                    }
+                }
+
+                for await result in group {
+                    if let result { crossReferences.append(result) }
+                }
+            }
+        }
+
         // 조사 결과가 있으면 DOUGLAS가 종합
         if findings.count >= 2 {
             let synthesisInput = findings.map { "[\($0.agentName)]\n\($0.result)" }.joined(separator: "\n\n---\n\n")
-            await synthesizeResearchFindings(roomID: roomID, task: task, findings: synthesisInput)
+            let crossRefBlock = crossReferences.isEmpty ? "" : "\n\n=== 교차 참조 ===\n\n" + crossReferences.joined(separator: "\n\n")
+            await synthesizeResearchFindings(roomID: roomID, task: task, findings: synthesisInput + crossRefBlock)
         }
 
         scheduleSave()
@@ -298,7 +349,14 @@ extension RoomManager {
         appendMessage(synthMsg, to: roomID)
 
         let conversationMessages = [
-            ConversationMessage.user("사용자 요청: \(task)\n\n아래는 전문가들의 조사 결과입니다:\n\n\(findings)")
+            ConversationMessage.user("""
+            [사용자의 질문 — 이 질문에 직접 답하세요]
+            \(task)
+
+            [전문가 조사 결과 — 위 질문에 대한 답변의 근거로 사용하세요]
+
+            \(findings)
+            """)
         ]
 
         let placeholderID = UUID()

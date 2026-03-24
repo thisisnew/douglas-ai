@@ -148,6 +148,7 @@ extension RoomManager {
             selectedAgentIDs: Set(specialists),
             candidateAgentIDs: candidates
         )
+        notifyUserInputNeeded(roomID: roomID, message: "팀 구성을 확인해주세요.")
 
         let result = await approvalGates.waitForTeamConfirmation(roomID: roomID)
 
