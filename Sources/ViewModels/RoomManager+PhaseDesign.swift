@@ -231,25 +231,34 @@ extension RoomManager {
                 priorContext = ""
             } else {
                 let priorResults = findings.map { "[\($0.agentName)]\n\($0.result)" }.joined(separator: "\n\n---\n\n")
-                priorContext = "\n\n[이전 전문가의 조사 결과 — 참고하여 당신의 영역을 조사하세요]\n\(priorResults)"
+                priorContext = "\n\n[이전 전문가들의 조사 결과 — 참고하여 당신의 영역을 조사하세요]\n\(priorResults)"
             }
 
-            // 첫 에이전트 vs 후속 에이전트 역할 규칙 분기
+            // 에이전트 역할 규칙: 단독 / 멀티 첫 번째 / 멀티 후속 — 범용 (도메인 특화 용어 없음)
+            let isOnlyAgent = orderedAgents.count <= 1
+            let hasCodeRequest = task.contains("쿼리") || task.contains("SQL") || task.contains("코드") || task.contains("구현") || task.lowercased().contains("query")
+
             let depthRule: String
-            if findings.isEmpty {
-                // 첫 에이전트: 호출부만 조사, 백엔드 구현은 다음 전문가에게
+            if isOnlyAgent {
+                // 단독 에이전트: 제한 없이 끝까지 조사
+                depthRule = """
+                4. 호출 체인의 최종 구현까지 추적하세요.
+                   - 사용자의 요청 수준에 맞게 조사 깊이를 결정하세요.
+                \(hasCodeRequest ? "   - 반드시 실제 코드 원문(쿼리, SQL, 구현 등)을 찾아 포함하세요." : "")
+                """
+            } else if findings.isEmpty {
+                // 멀티에이전트의 첫 번째: 자기 영역만, 다른 서비스는 다음 전문가에게
                 depthRule = """
                 4. 당신의 프로젝트에서 사용자의 질문과 관련된 코드를 찾으세요.
-                   - 다른 서비스의 구현(Controller, Service, Repository 등)은 다음 전문가가 조사합니다.
-                   - 당신은 호출부(화면, API 호출, 설정 등)까지만 조사하고, 백엔드 구현은 남겨두세요.
+                   - 다른 프로젝트/서비스의 내부 구현은 해당 전문가가 조사합니다.
+                   - 당신의 조사 결과가 다음 전문가의 출발점이 됩니다.
                 """
             } else {
-                // 후속 에이전트: 이전 전문가가 찾은 엔드포인트의 실제 구현 추적
+                // 멀티에이전트의 후속: 이전 결과를 출발점으로 깊이 추적
                 depthRule = """
-                4. 이전 전문가가 찾은 API 엔드포인트의 실제 구현을 당신의 프로젝트에서 추적하세요.
-                   - Controller → Service → Repository/쿼리 순서로 끝까지 따라가세요.
-                   - 사용자가 "쿼리", "SQL", "코드"를 요청했으면 반드시 실제 코드 원문(QueryDSL, SQL, JPA 등)을 찾아 포함하세요.
-                   - 파라미터 목록이나 설명만으로는 부족합니다. 실제 구현 코드를 보여주세요.
+                4. 이전 전문가들의 조사 결과를 참고하여, 당신의 프로젝트에서 관련 구현을 조사하세요.
+                   - 이전 전문가가 찾은 키워드(엔드포인트, 파일명, 클래스명, 함수명 등)를 당신의 프로젝트에서 검색하세요.
+                \(hasCodeRequest ? "   - 반드시 실제 코드 원문(쿼리, SQL, 구현 등)을 찾아 포함하세요. 파라미터 목록이나 설명만으로는 부족합니다." : "   - 사용자의 요청 수준에 맞게 조사 깊이를 결정하세요.")
                 """
             }
 
