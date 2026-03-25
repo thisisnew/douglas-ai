@@ -1309,6 +1309,7 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
               파일만 업로드(빈 task) 시 작업 의도 질문 후 대기 (2분 타임아웃)
               bare URL(명시적 의도 없음) 시 의도 질문 + Jira 티켓 정보 포함
 ② Assemble ── 3-tier 가중치 에이전트 매칭 (Tier1: skillTags×5, Tier2: workModes+OutputStyle+PositionBonus×2, Tier3: keyword+semantic×3)
+              `isValidRoleName` 검증: LLM이 문장형 역할명(30자 초과/종결어미)을 반환하면 필터링 → 기존 폴백(`suggestAgentProfile`)으로 정상 제안
               DomainHintDetector 범용화 — Jira 데이터 + 사용자 텍스트 도메인 힌트 병합 (detect(text:) + merge() API)
               DomainHintDetector evidence → Tier1 보너스 (jiraDomainBonus=0.3, MatchScoringConfig)
               discussion/research intent에서 directMatch 비활성화
@@ -1342,6 +1343,8 @@ executeWithTools() 루프 (최대 10회, 토큰 기반 context guard):
 | complex | Understand → Assemble → Design → Build → Review → Deliver |
 
 **discussion/research 워크플로우**: Design 단계 내에서 전문가 의견 수렴(병렬) → 상호 피드백(순차) → DOUGLAS 진행자 종합까지 완결. Build/Review 불필요.
+- **후속 사이클 토론 스킵**: 이전 사이클 토론 결과(briefing/actionItems)가 있고 task intent이면 Design에서 토론을 생략하고 바로 계획 수립으로 직행. discussion intent는 항상 토론 실행.
+- **후속 사이클 completedPhases 초기화**: `resumeWorkflow()`에서 이전 사이클의 completedPhases를 리셋하여 UI 진행표가 정확하게 표시됨.
 - 토론 Turn 1에서 도구 접근 활성화 (`smartSend useTools: true`) — 코드 참조 허용
 - 토론 규칙: 코드 참조 허용, 코드 수정 금지
 - **Research 순차 조사**: `ResearchOrderService`가 LLM 기반으로 조사 순서 결정 (정보 생산자→소비자, 예: 프론트엔드→백엔드). 이전 에이전트 결과가 다음 에이전트 프롬프트에 자동 주입되어 핸드오프 성립 (예: 화면→API→쿼리 체인). 에이전트당 1회 호출.

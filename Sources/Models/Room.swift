@@ -860,10 +860,11 @@ struct Room: Identifiable, Codable {
         workflowState.clearCurrentPhase()
     }
 
-    /// 워크플로우 재개 (Follow-up cycle) — planning + completedAt 리셋
+    /// 워크플로우 재개 (Follow-up cycle) — planning + completedAt + completedPhases 리셋
     mutating func resumeWorkflow() {
         transitionTo(.planning)
         completedAt = nil
+        workflowState.setCompletedPhases([])
     }
 
     // MARK: - 메시지 + TaskBrief 도메인 메서드

@@ -33,6 +33,34 @@ extension RoomManager {
             return
         }
 
+        // --- 이전 사이클 토론 결과가 있으면 토론 스킵 → 바로 계획 수립 ---
+        let hasExistingDiscussion = room.discussion.briefing != nil
+            || room.discussion.researchBriefing != nil
+            || (room.discussion.actionItems?.isEmpty == false)
+
+        if hasExistingDiscussion && room.workflowState.intent?.isDiscussionLike != true {
+            let discussionOutput = room.clarifyContext.clarifySummary ?? ""
+            if room.plan == nil {
+                let plan = await requestPlan(roomID: roomID, task: task, designOutput: discussionOutput)
+                if let plan, let i = rooms.firstIndex(where: { $0.id == roomID }) {
+                    rooms[i].setPlan(plan)
+                }
+            }
+            guard rooms.first(where: { $0.id == roomID })?.plan != nil else {
+                appendMessage(ChatMessage(
+                    role: .system,
+                    content: "계획 수립에 실패했습니다. 토론 결과를 바탕으로 바로 실행합니다.",
+                    messageType: .progress
+                ), to: roomID)
+                scheduleSave()
+                return
+            }
+            let approved = await awaitPlanApproval(roomID: roomID, task: task, designOutput: discussionOutput)
+            if !approved { return }
+            scheduleSave()
+            return
+        }
+
         // --- 멀티에이전트: 통합 토론 프로토콜 ---
         // discussion/task 모두 동일한 토론 (의견 → 상호 피드백 → DOUGLAS 종합)
 

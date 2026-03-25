@@ -825,4 +825,47 @@ struct AgentMatcherTests {
         #expect(AgentMatcher.isGenericSuffix("senior"))
         #expect(AgentMatcher.isGenericSuffix("specialist"))
     }
+
+    // MARK: - isValidRoleName
+
+    @Test("isValidRoleName — 정상 역할명 통과")
+    func validRoleName_normalNames() {
+        #expect(AgentMatcher.isValidRoleName("질의응답 전문가"))
+        #expect(AgentMatcher.isValidRoleName("백엔드 개발자"))
+        #expect(AgentMatcher.isValidRoleName("QA 엔지니어"))
+        #expect(AgentMatcher.isValidRoleName("프론트엔드 개발자"))
+    }
+
+    @Test("isValidRoleName — 30자 초과 거부")
+    func validRoleName_rejectsLongName() {
+        let longName = "이것은 삼십글자가 넘는 매우 긴 역할 이름으로서 에이전트 이름으로 부적합합니다"
+        #expect(!AgentMatcher.isValidRoleName(longName))
+    }
+
+    @Test("isValidRoleName — 문장형 종결어미 거부")
+    func validRoleName_rejectsSentenceEndings() {
+        #expect(!AgentMatcher.isValidRoleName("직접 답변이 가능합니다"))
+        #expect(!AgentMatcher.isValidRoleName("에이전트가 필요됩니다"))
+        #expect(!AgentMatcher.isValidRoleName("답변할 수 있습니다"))
+        #expect(!AgentMatcher.isValidRoleName("역할을 수행해야 합니다"))
+        #expect(!AgentMatcher.isValidRoleName("확인해 주세요"))
+    }
+
+    @Test("isValidRoleName — 빈 문자열 거부")
+    func validRoleName_rejectsEmpty() {
+        #expect(!AgentMatcher.isValidRoleName(""))
+        #expect(!AgentMatcher.isValidRoleName("   "))
+    }
+
+    @Test("parseRoleRequirements — 문장형 역할명 필터링")
+    func parseRoleRequirements_filtersSentenceRoleNames() {
+        let content = """
+        - [필수] 이 작업은 현재 날짜 정보가 이미 시스템 컨텍스트에 포함되어 있어 직접 답변 가능합니다 (position=advisor): 직접 답변 가능
+        - [필수] 백엔드 개발자 (position=implementer): API 서버 구축
+        """
+        let results = AgentMatcher.parseRoleRequirements(from: content)
+        // 문장형 역할명은 필터링, 정상 역할명만 통과
+        #expect(results.count == 1)
+        #expect(results[0].roleName == "백엔드 개발자")
+    }
 }

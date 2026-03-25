@@ -100,9 +100,17 @@ enum AgentMatcher {
                     .trimmingCharacters(in: .whitespaces)
             }
 
-            guard !roleNameRaw.isEmpty else { return nil }
+            guard !roleNameRaw.isEmpty, isValidRoleName(roleNameRaw) else { return nil }
             return RoleRequirement(roleName: roleNameRaw, reason: reason, priority: priority, position: position)
         }
+    }
+
+    /// 역할 이름 유효성 검증 — 문장형/초과 길이 거부
+    static func isValidRoleName(_ name: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, trimmed.count <= 30 else { return false }
+        let sentenceEndings = ["합니다", "됩니다", "입니다", "습니다", "세요", "어요", "아요"]
+        return !sentenceEndings.contains(where: { trimmed.hasSuffix($0) })
     }
 
     // MARK: - 어휘 사전 (MatchingVocabulary 위임)
