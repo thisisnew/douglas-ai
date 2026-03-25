@@ -8,7 +8,7 @@ struct TeamConfirmationNotificationTests {
 
     @Test("showTeamConfirmation — 자동 승인 불가 시 pendingTeamConfirmation 설정 후 게이트 대기")
     func teamConfirmation_setsPendingBeforeWaiting() async {
-        let rm = RoomManager()
+        let rm = makeTestRoomManager()
         let store = AgentStore()
         let master = Agent(name: "DOUGLAS", persona: "master", providerName: "P", modelName: "M", isMaster: true)
         let agent1 = Agent(name: "프론트엔드 개발자", persona: "FE", providerName: "P", modelName: "M")
@@ -47,7 +47,7 @@ struct TeamConfirmationNotificationTests {
 
     @Test("showTeamConfirmation — individuallyApproved면 자동 진행 (pendingTeamConfirmation 미설정)")
     func teamConfirmation_individuallyApproved_autoProceeds() async {
-        let rm = RoomManager()
+        let rm = makeTestRoomManager()
         let store = AgentStore()
         let master = Agent(name: "DOUGLAS", persona: "master", providerName: "P", modelName: "M", isMaster: true)
         let agent1 = Agent(name: "FE", persona: "FE", providerName: "P", modelName: "M")
@@ -66,7 +66,7 @@ struct TeamConfirmationNotificationTests {
 
     @Test("showTeamConfirmation — 전문가·후보 모두 없으면 방 완료")
     func teamConfirmation_noAgents_completesRoom() async {
-        let rm = RoomManager()
+        let rm = makeTestRoomManager()
         let store = AgentStore()
         // 마스터만 있고 서브에이전트 없음
         let master = Agent(name: "DOUGLAS", persona: "master", providerName: "P", modelName: "M", isMaster: true)
